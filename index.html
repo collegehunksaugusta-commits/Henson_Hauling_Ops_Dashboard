@@ -2,6 +2,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
 <style>
   :root{
@@ -335,6 +336,35 @@
             <input type="file" id="payrollXlsxUpload" accept=".xlsx" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
           </label>
           <div class="status-msg" id="payrollUploadStatus" style="margin-top:8px;"></div>
+        </div>
+        <div style="background:#FFF6E8; border:1px dashed #F0D9A8; border-radius:4px; padding:14px 16px; margin-bottom:16px;">
+          <div style="font-size:11px; color:#5c4a1f; font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; font-weight:600; margin-bottom:8px;">Quick Estimate from Timecard (faster, less exact &mdash; true up with an ADP upload when you can)</div>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Upload Timecard Report (.pdf)
+            <input type="file" id="timecardPdfUpload" accept=".pdf" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+          </label>
+          <div class="status-msg" id="timecardUploadStatus" style="margin-top:8px;"></div>
+          <div id="timecardRatesArea" style="display:none; margin-top:12px;">
+            <div style="font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;">Field Employee Hourly Rates (saved on this device, editable)</div>
+            <table id="timecardRatesTable" style="width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:10px;">
+              <thead><tr>
+                <th style="text-align:left; padding:4px 6px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); border-bottom:1px solid var(--line);">Employee</th>
+                <th style="text-align:right; padding:4px 6px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); border-bottom:1px solid var(--line);">Reg Hrs</th>
+                <th style="text-align:right; padding:4px 6px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); border-bottom:1px solid var(--line);">OT Hrs</th>
+                <th style="text-align:right; padding:4px 6px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); border-bottom:1px solid var(--line);">Rate ($/hr)</th>
+              </tr></thead>
+              <tbody id="timecardRatesBody"></tbody>
+            </table>
+            <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+              <label>Total Admin Gross Wages ($) <input type="number" step="0.01" id="tc_adminGross" placeholder="1843.47"></label>
+              <label>Total Tips ($) <input type="number" step="0.01" id="tc_tips" placeholder="1421.43"></label>
+            </div>
+            <div class="form-actions" style="margin-top:10px;">
+              <button class="btn-primary" id="computeEstimateBtn" type="button">Compute Estimate</button>
+              <span class="status-msg" id="estimateStatus"></span>
+            </div>
+          </div>
+          <p class="form-note" style="margin-top:10px;">Regular/Overtime hours are split at the standard 40 hrs/week threshold. Employer taxes are estimated using your average tax rate across all weeks on file (Total ER Taxes &divide; Total Gross Wages) &mdash; this will be less accurate than an exact ADP upload, especially since unemployment tax contributions taper off once employees pass their annual wage base, which skews later-year weeks lower than the average. Tips here are for your records only and don't affect the Labor Cost % under this method.</p>
         </div>
         <div class="form-grid">
           <label>Week Start <input type="date" id="f_start"></label>
@@ -1149,6 +1179,165 @@
       }
     };
     reader.readAsArrayBuffer(file);
+  });
+
+  // ---------- Timecard-based Quick Estimate ----------
+  function esc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  if(window.pdfjsLib){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  const RATES_KEY = 'labor-employee-rates';
+  const LAST_ADMIN_GROSS_KEY = 'labor-last-admin-gross';
+
+  function getStoredRates(){
+    try{ return JSON.parse(localStorage.getItem(RATES_KEY) || '{}'); }catch(e){ return {}; }
+  }
+  function saveStoredRate(name, rate){
+    try{
+      const rates = getStoredRates();
+      rates[name] = rate;
+      localStorage.setItem(RATES_KEY, JSON.stringify(rates));
+    }catch(e){ console.error('Could not save rate:', e); }
+  }
+
+  // Timecard names are formatted "Last First M" (no comma); convert to "Last, First M" to
+  // match the Payroll Detail / admin-name format used elsewhere in this dashboard.
+  function normalizeTimecardName(name){
+    return name.trim().replace(/^(\S+)\s+/, '$1, ');
+  }
+
+  let timecardFieldEmployees = []; // [{name, regHrs, otHrs}]
+
+  document.getElementById('timecardPdfUpload').addEventListener('change', async (e)=>{
+    const statusEl = document.getElementById('timecardUploadStatus');
+    const ratesArea = document.getElementById('timecardRatesArea');
+    const file = e.target.files[0];
+    if(!file) return;
+    ratesArea.style.display = 'none';
+    statusEl.textContent = 'Reading and parsing PDF...';
+    statusEl.className = 'status-msg';
+
+    try{
+      if(!window.pdfjsLib) throw new Error('PDF reader library failed to load \u2014 check your internet connection and try again.');
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+      let fullText = '';
+      for(let p = 1; p <= pdf.numPages; p++){
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        fullText += content.items.map(it => it.str).join(' ') + '\n';
+      }
+
+      const re = /Source\s*\n?\s*([A-Za-z][A-Za-z\s'\-\.]*?)\s+(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,3}):(\d{2})\s+(true|false)/g;
+      const found = [];
+      let m;
+      while((m = re.exec(fullText)) !== null){
+        const rawName = m[1].trim();
+        const name = normalizeTimecardName(rawName);
+        const totalHours = parseInt(m[4], 10) + parseInt(m[5], 10)/60;
+        found.push({name, totalHours});
+      }
+
+      if(found.length === 0) throw new Error('No employee timecard entries found \u2014 this may not be a Timecard Report export, or the format has changed.');
+
+      const rates = getStoredRates();
+      timecardFieldEmployees = found
+        .filter(f => !ADMIN_EMPLOYEE_NAMES.has(f.name))
+        .map(f => ({
+          name: f.name,
+          regHrs: Math.min(f.totalHours, 40),
+          otHrs: Math.max(f.totalHours - 40, 0),
+          rate: rates[f.name] != null ? rates[f.name] : ''
+        }));
+      const skippedAdmin = found.filter(f => ADMIN_EMPLOYEE_NAMES.has(f.name)).map(f => f.name);
+
+      const tbody = document.getElementById('timecardRatesBody');
+      tbody.innerHTML = timecardFieldEmployees.map((emp, i) => `
+        <tr>
+          <td style="padding:5px 6px; border-bottom:1px solid var(--line);">${esc(emp.name)}</td>
+          <td class="num" style="padding:5px 6px; border-bottom:1px solid var(--line); text-align:right; font-family:'IBM Plex Mono',monospace;">${emp.regHrs.toFixed(2)}</td>
+          <td class="num" style="padding:5px 6px; border-bottom:1px solid var(--line); text-align:right; font-family:'IBM Plex Mono',monospace;">${emp.otHrs.toFixed(2)}</td>
+          <td style="padding:5px 6px; border-bottom:1px solid var(--line); text-align:right;">
+            <input type="number" step="0.01" data-emp-idx="${i}" class="tc-rate-input" value="${emp.rate}" placeholder="16.00" style="width:70px; padding:4px 6px; font-size:12.5px; border:1px solid var(--line); border-radius:3px;">
+          </td>
+        </tr>
+      `).join('');
+
+      tbody.querySelectorAll('.tc-rate-input').forEach(input => {
+        input.addEventListener('change', () => {
+          const idx = parseInt(input.dataset.empIdx, 10);
+          const val = parseFloat(input.value);
+          timecardFieldEmployees[idx].rate = isNaN(val) ? '' : val;
+          if(!isNaN(val)) saveStoredRate(timecardFieldEmployees[idx].name, val);
+        });
+      });
+
+      const lastAdminGross = localStorage.getItem(LAST_ADMIN_GROSS_KEY);
+      if(lastAdminGross) document.getElementById('tc_adminGross').value = lastAdminGross;
+
+      ratesArea.style.display = 'block';
+      let msg = `Found ${timecardFieldEmployees.length} field employees.`;
+      if(skippedAdmin.length > 0) msg += ` Skipped admin: ${skippedAdmin.join(', ')} (enter their wages below).`;
+      const missingRates = timecardFieldEmployees.filter(e => e.rate === '').length;
+      if(missingRates > 0) msg += ` Enter hourly rate for ${missingRates} employee(s) below (saved for next time).`;
+      statusEl.textContent = msg;
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Timecard parse error:', err);
+      statusEl.textContent = 'Could not parse that file: ' + (err && err.message ? err.message : String(err));
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('computeEstimateBtn').addEventListener('click', ()=>{
+    const statusEl = document.getElementById('estimateStatus');
+    if(timecardFieldEmployees.length === 0){
+      statusEl.textContent = 'Upload a Timecard Report first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const missing = timecardFieldEmployees.filter(e => e.rate === '' || e.rate === null);
+    if(missing.length > 0){
+      statusEl.textContent = `Enter an hourly rate for: ${missing.map(e=>e.name).join(', ')}.`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    let fieldGross = 0, otHoursTotal = 0, otPremiumTotal = 0;
+    timecardFieldEmployees.forEach(emp => {
+      const rate = Number(emp.rate);
+      fieldGross += emp.regHrs * rate + emp.otHrs * rate * 1.5;
+      otHoursTotal += emp.otHrs;
+      otPremiumTotal += emp.otHrs * rate * 0.5;
+    });
+
+    const adminGross = parseFloat(document.getElementById('tc_adminGross').value) || 0;
+    const tips = parseFloat(document.getElementById('tc_tips').value) || 0;
+
+    // Blended average effective tax rate from all weeks on file: Total ER Tax / Total Gross Wages
+    let ytdErTax = 0, ytdGross = 0;
+    weeks.forEach(w => { ytdErTax += w.erTax || 0; ytdGross += (w.fieldGross||0) + (w.adminGross||0); });
+    const blendedRate = ytdGross > 0 ? (ytdErTax / ytdGross) : 0.10; // fallback ~10% if no history
+    const erTaxEstimate = blendedRate * (fieldGross + adminGross);
+
+    document.getElementById('f_fieldGross').value = fieldGross.toFixed(2);
+    document.getElementById('f_adminGross').value = adminGross.toFixed(2);
+    document.getElementById('f_tips').value = tips.toFixed(2);
+    document.getElementById('f_erTax').value = erTaxEstimate.toFixed(2);
+    document.getElementById('f_otHours').value = otHoursTotal.toFixed(2);
+    document.getElementById('f_otPremium').value = otPremiumTotal.toFixed(2);
+
+    localStorage.setItem(LAST_ADMIN_GROSS_KEY, adminGross.toFixed(2));
+
+    statusEl.textContent = `Estimate filled in below \u2014 Field Gross ${money(fieldGross)}, ER Tax est. ${money(erTaxEstimate)} (at ${(blendedRate*100).toFixed(2)}% blended rate). Review before saving.`;
+    statusEl.className = 'status-msg ok';
   });
 
   document.getElementById('saveWeekBtn').addEventListener('click', async ()=>{
