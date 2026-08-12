@@ -351,10 +351,33 @@
 
   <div class="disclaimer">
     <b>This calculates the maximum allowable charge under Tariff No. 7 &mdash; not a required or recommended price.</b>
-    Carriers may charge less. Distance is estimated automatically from ZIP code centroids (straight-line), which
-    may differ from the Department of Public Safety's official household goods mileage measurement &mdash; override
-    the mileage field if you have the actual figure. Verify all rates against the current published tariff before
-    using this for binding customer quotes.
+    Carriers may charge less. Enter the actual mileage between origin and destination (e.g., from the DPS
+    Household Goods Mileage Guide or your own routing tool). Verify all rates against the current published
+    tariff before using this for binding customer quotes.
+  </div>
+
+  <!-- ============ SAVED CLIENTS ============ -->
+  <div class="panel">
+    <h2>Saved Clients</h2>
+    <div class="row">
+      <label>Load a Saved Client
+        <select id="savedClientSelect"><option value="">-- Select --</option></select>
+      </label>
+      <div style="display:flex; align-items:flex-end; gap:8px;">
+        <button class="btn secondary" id="loadClientBtn" type="button">Load</button>
+        <button class="btn secondary" id="deleteClientBtn" type="button">Delete</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>Save Current Entry As
+        <input type="text" id="saveClientName" placeholder="e.g. Jane Customer 8/12/26">
+      </label>
+      <div style="display:flex; align-items:flex-end;">
+        <button class="btn" id="saveClientBtn" type="button">Save Current Entry</button>
+      </div>
+    </div>
+    <div class="status" id="clientStatus"></div>
+    <div class="hint">Saves everything on this page &mdash; move details, charges, carrier/shipper info, and valuation &mdash; so you can pull up a past client and have all fields repopulate. Saved on this device only.</div>
   </div>
 
   <!-- ============ MOVE BASICS ============ -->
@@ -1490,6 +1513,157 @@
     const yyyy = d.getFullYear();
     document.getElementById('issueDate').value = `${mm}/${dd}/${yyyy}`;
   })();
+
+  // ---------- Saved Clients (localStorage) ----------
+  const CLIENTS_KEY = 'ldEstimateClients';
+
+  const EXCLUDED_IDS = new Set(['savedClientSelect', 'saveClientName']);
+
+  function collectFormData(){
+    const data = {};
+    document.querySelectorAll('#calcDetail input[id], #calcDetail select[id]').forEach(el => {
+      if(EXCLUDED_IDS.has(el.id)) return;
+      if(el.type === 'checkbox'){
+        data[el.id] = el.checked;
+      } else {
+        data[el.id] = el.value;
+      }
+    });
+    document.querySelectorAll('.packQty, .bulkyQty').forEach(el => {
+      const key = (el.classList.contains('packQty') ? 'pack_' : 'bulky_') + el.dataset.idx;
+      data[key] = el.value;
+    });
+    const checkedVal = document.querySelector('input[name="valOpt"]:checked');
+    data.valOptRadio = checkedVal ? checkedVal.value : '1';
+    return data;
+  }
+
+  function restoreFormData(data){
+    Object.keys(data).forEach(key => {
+      if(key === 'valOptRadio') return;
+      if(EXCLUDED_IDS.has(key)) return;
+      if(key.startsWith('pack_') || key.startsWith('bulky_')){
+        const cls = key.startsWith('pack_') ? '.packQty' : '.bulkyQty';
+        const idx = key.split('_')[1];
+        const el = document.querySelector(`${cls}[data-idx="${idx}"]`);
+        if(el) el.value = data[key];
+        return;
+      }
+      const el = document.getElementById(key);
+      if(!el) return;
+      if(el.type === 'checkbox'){
+        el.checked = !!data[key];
+      } else {
+        el.value = data[key];
+      }
+    });
+    if(data.valOptRadio){
+      const radio = document.querySelector(`input[name="valOpt"][value="${data.valOptRadio}"]`);
+      if(radio){
+        radio.checked = true;
+        document.querySelectorAll('.valopt').forEach(v => v.classList.remove('selected'));
+        const optDiv = document.querySelector(`.valopt[data-val="${data.valOptRadio}"]`);
+        if(optDiv) optDiv.classList.add('selected');
+      }
+    }
+    updateValuationSuggestion();
+    recalc();
+  }
+
+  function getClients(){
+    try{
+      const raw = localStorage.getItem(CLIENTS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(err){
+      console.error('Failed to read saved clients:', err);
+      return [];
+    }
+  }
+
+  function setClients(list){
+    try{
+      localStorage.setItem(CLIENTS_KEY, JSON.stringify(list));
+      return true;
+    }catch(err){
+      console.error('Failed to save clients:', err);
+      return false;
+    }
+  }
+
+  function refreshClientSelect(){
+    const sel = document.getElementById('savedClientSelect');
+    const clients = getClients();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">-- Select --</option>' +
+      clients.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
+    if(clients.some(c => String(c.id) === current)) sel.value = current;
+  }
+
+  document.getElementById('saveClientBtn').addEventListener('click', () => {
+    const statusEl = document.getElementById('clientStatus');
+    const nameInput = document.getElementById('saveClientName');
+    let label = nameInput.value.trim();
+    if(!label){
+      const shipper = document.getElementById('shipperName').value.trim();
+      label = shipper ? `${shipper} \u2014 ${document.getElementById('issueDate').value || ''}`.trim() : `Client \u2014 ${new Date().toLocaleDateString()}`;
+    }
+    const clients = getClients();
+    const entry = { id: Date.now(), label, savedAt: new Date().toISOString(), data: collectFormData() };
+    clients.push(entry);
+    const ok = setClients(clients);
+    refreshClientSelect();
+    if(ok){
+      document.getElementById('savedClientSelect').value = entry.id;
+      nameInput.value = '';
+      statusEl.textContent = `Saved "${label}".`;
+      statusEl.className = 'status ok';
+    } else {
+      statusEl.textContent = 'Could not save \u2014 your browser may be blocking local storage.';
+      statusEl.className = 'status err';
+    }
+  });
+
+  document.getElementById('loadClientBtn').addEventListener('click', () => {
+    const statusEl = document.getElementById('clientStatus');
+    const id = document.getElementById('savedClientSelect').value;
+    if(!id){
+      statusEl.textContent = 'Select a saved client to load.';
+      statusEl.className = 'status err';
+      return;
+    }
+    const clients = getClients();
+    const entry = clients.find(c => String(c.id) === String(id));
+    if(!entry){
+      statusEl.textContent = 'Could not find that saved entry.';
+      statusEl.className = 'status err';
+      return;
+    }
+    restoreFormData(entry.data);
+    statusEl.textContent = `Loaded "${entry.label}".`;
+    statusEl.className = 'status ok';
+  });
+
+  document.getElementById('deleteClientBtn').addEventListener('click', () => {
+    const statusEl = document.getElementById('clientStatus');
+    const sel = document.getElementById('savedClientSelect');
+    const id = sel.value;
+    if(!id){
+      statusEl.textContent = 'Select a saved client to delete.';
+      statusEl.className = 'status err';
+      return;
+    }
+    const clients = getClients();
+    const entry = clients.find(c => String(c.id) === String(id));
+    if(!entry) return;
+    if(!confirm(`Delete saved entry "${entry.label}"? This cannot be undone.`)) return;
+    const filtered = clients.filter(c => String(c.id) !== String(id));
+    setClients(filtered);
+    refreshClientSelect();
+    statusEl.textContent = `Deleted "${entry.label}".`;
+    statusEl.className = 'status ok';
+  });
+
+  refreshClientSelect();
 
   recalc();
 })();
