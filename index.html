@@ -215,6 +215,8 @@
 @media print{
   body *{visibility:hidden;}
   #printBOL, #printBOL *, #printEstimate, #printEstimate *{visibility:visible;}
+  .topbar, #home, #detail{display:none !important;}
+  #calcDetail > *:not(#printBOL):not(#printEstimate){display:none !important;}
   #printBOL{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
   #printEstimate{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
   #printBOL .print-page, #printEstimate .print-page{page-break-after:always; padding:0.5in; font-family:Georgia,'Times New Roman',serif; color:#000; box-sizing:border-box; width:8.5in; min-height:11in;}
