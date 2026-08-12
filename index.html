@@ -365,7 +365,7 @@
       </label>
       <div style="display:flex; align-items:flex-end; gap:8px;">
         <button class="btn secondary" id="loadClientBtn" type="button">Load</button>
-        <button class="btn secondary" id="deleteClientBtn" type="button">Delete</button>
+        <button class="btn secondary" id="clearAllBtn" type="button">Clear All Fields</button>
       </div>
     </div>
     <div class="row">
@@ -1643,23 +1643,50 @@
     statusEl.className = 'status ok';
   });
 
-  document.getElementById('deleteClientBtn').addEventListener('click', () => {
+  document.getElementById('clearAllBtn').addEventListener('click', () => {
     const statusEl = document.getElementById('clientStatus');
-    const sel = document.getElementById('savedClientSelect');
-    const id = sel.value;
-    if(!id){
-      statusEl.textContent = 'Select a saved client to delete.';
-      statusEl.className = 'status err';
-      return;
-    }
-    const clients = getClients();
-    const entry = clients.find(c => String(c.id) === String(id));
-    if(!entry) return;
-    if(!confirm(`Delete saved entry "${entry.label}"? This cannot be undone.`)) return;
-    const filtered = clients.filter(c => String(c.id) !== String(id));
-    setClients(filtered);
-    refreshClientSelect();
-    statusEl.textContent = `Deleted "${entry.label}".`;
+    if(!confirm('Clear all entered fields? Carrier info and today\'s date will stay filled in.')) return;
+
+    const RESET_DEFAULTS = {
+      weight: '', dayType: 'weekday', miles: '',
+      crewSize: '2', extraMen: '0', extraVans: '0', regHours: '0', otHours: '0',
+      fuelSurcharge: true, fuelVehicles: '1',
+      packingOT: false,
+      extraStops: '0', otLoad: false, otUnload: false, reweigh: false,
+      autoGvwr: '0',
+      laborPeople: '0', laborRegHours: '0', laborOtHours: '0',
+      declaredValue: '0', roomCount: '0',
+      storageEnabled: false, storageDays: '0',
+      discountType: 'none', discountValue: '0',
+      bolNo: '', shipperName: '', shipperPhone: '', shipperEmail: '',
+      originAddress: '', destAddress: ''
+    };
+    Object.keys(RESET_DEFAULTS).forEach(id => {
+      const el = document.getElementById(id);
+      if(!el) return;
+      if(el.type === 'checkbox'){
+        el.checked = RESET_DEFAULTS[id];
+      } else {
+        el.value = RESET_DEFAULTS[id];
+      }
+    });
+    document.querySelectorAll('.packQty, .bulkyQty').forEach(el => { el.value = '0'; });
+
+    const radio = document.querySelector('input[name="valOpt"][value="1"]');
+    if(radio) radio.checked = true;
+    document.querySelectorAll('.valopt').forEach(v => v.classList.remove('selected'));
+    const opt1 = document.querySelector('.valopt[data-val="1"]');
+    if(opt1) opt1.classList.add('selected');
+
+    // Carrier info and Date Issued are left as-is (business constants / today's date)
+    const d = new Date();
+    document.getElementById('issueDate').value = `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
+
+    document.getElementById('savedClientSelect').value = '';
+    updateValuationSuggestion();
+    recalc();
+
+    statusEl.textContent = 'All fields cleared.';
     statusEl.className = 'status ok';
   });
 
