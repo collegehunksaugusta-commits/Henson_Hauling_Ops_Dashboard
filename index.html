@@ -618,11 +618,9 @@
     </div>
     <div style="margin-top:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
       <button class="btn" id="genBolBtn" type="button">Print / Save Bill of Lading as PDF</button>
-      <button class="btn secondary" id="emailQuoteBtn" type="button">Print &amp; Open Outlook</button>
       <span class="status" id="bolStatus"></span>
     </div>
     <div class="hint" style="margin-top:8px;">Opens your browser's print dialog with the GDPS-prescribed Bill of Lading (matching hourly or weight/distance mode), the required Contract Terms and Conditions, and the Shipper Declaration of Value addendum. Choose "Save as PDF" as the destination to get a PDF file, or print physically.</div>
-    <div class="hint">"Print &amp; Open Outlook" opens the print dialog (save as PDF there), then opens a new email addressed to the Shipper Email with the subject pre-filled. Browsers can't auto-attach files to native email apps &mdash; attach the saved PDF manually once Outlook opens.</div>
   </div>
 </div>
   </div>
@@ -1483,23 +1481,6 @@
   }
 
   document.getElementById('genBolBtn').addEventListener('click', () => genBOL());
-
-  document.getElementById('emailQuoteBtn').addEventListener('click', () => {
-    const statusEl = document.getElementById('bolStatus');
-    const email = (document.getElementById('shipperEmail').value || '').trim();
-    if(!email){
-      statusEl.textContent = 'Enter a Shipper Email address before emailing the quote.';
-      statusEl.className = 'status err';
-      return;
-    }
-    genBOL(() => {
-      const subject = encodeURIComponent('College Hunks - Weight and Distance Quote');
-      const mailto = `mailto:${encodeURIComponent(email)}?subject=${subject}`;
-      window.location.href = mailto;
-      statusEl.textContent = 'Print dialog opened (save as PDF there) and Outlook opened \u2014 attach the saved PDF before sending.';
-      statusEl.className = 'status ok';
-    });
-  });
 
   // Default Date Issued to today, editable if backdating is needed
   (function setToday(){
