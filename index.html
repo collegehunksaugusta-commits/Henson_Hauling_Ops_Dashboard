@@ -1508,6 +1508,7 @@
       </div>`;
 
     document.getElementById('printBOL').innerHTML = page1 + page2 + page3;
+    document.getElementById('printEstimate').innerHTML = '';
   }
 
   document.getElementById('genBolBtn').addEventListener('click', () => genBOL());
@@ -1631,6 +1632,7 @@
       </div>`;
 
     document.getElementById('printEstimate').innerHTML = page1;
+    document.getElementById('printBOL').innerHTML = '';
   }
 
   document.getElementById('genEstimateBtn').addEventListener('click', () => genEstimate());
