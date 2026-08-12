@@ -1,6 +1,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
   :root{
@@ -321,6 +322,20 @@
       <button class="addweek-toggle" id="addWeekToggle">+ Add New Week</button>
       <div id="addWeekForm" class="panel">
         <h3>Add New Week (Weekly Totals)</h3>
+        <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:4px; padding:14px 16px; margin-bottom:16px;">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Upload HunkWare Revenue Stats CSV (auto-fills Revenue below)
+            <input type="file" id="revenueCsvUpload" accept=".csv" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+          </label>
+          <div class="status-msg" id="csvUploadStatus" style="margin-top:8px;"></div>
+        </div>
+        <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:4px; padding:14px 16px; margin-bottom:16px;">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Upload ADP Payroll Detail (.xlsx) (auto-fills wages/taxes/OT below)
+            <input type="file" id="payrollXlsxUpload" accept=".xlsx" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+          </label>
+          <div class="status-msg" id="payrollUploadStatus" style="margin-top:8px;"></div>
+        </div>
         <div class="form-grid">
           <label>Week Start <input type="date" id="f_start"></label>
           <label>Week End <input type="date" id="f_end"></label>
@@ -332,7 +347,7 @@
           <label>OT Hours <input type="number" step="0.01" id="f_otHours" placeholder="78.17"></label>
           <label>OT Premium ($) <input type="number" step="0.01" id="f_otPremium" placeholder="634.45"></label>
         </div>
-        <p class="form-note">Labor Cost is calculated automatically as (Field Gross Wages &minus; Tips Passed Through) + Employer Taxes. Pull these figures from HunkWare (revenue) and your ADP Payroll Detail export (wages/taxes) &mdash; or just ask Claude to pull and total them for you in chat.</p>
+        <p class="form-note">Labor Cost is calculated automatically as (Field Gross Wages &minus; Tips Passed Through) + Employer Taxes. Revenue can be auto-filled from a HunkWare CSV export above; pull wage/tax figures from your ADP Payroll Detail export &mdash; or just ask Claude to pull and total them for you in chat.</p>
         <div class="form-actions">
           <button class="btn-primary" id="saveWeekBtn">Save Week</button>
           <span class="status-msg" id="saveStatus"></span>
@@ -774,15 +789,12 @@
     document.getElementById('loadingNote').style.display='block';
     document.getElementById('content').style.display='none';
     try{
-      let result = null;
-      try{
-        result = await window.storage.get(STORAGE_KEY, true);
-      }catch(e){ result = null; } // key not found throws
-      if(result && result.value){
-        weeks = JSON.parse(result.value);
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        weeks = JSON.parse(raw);
       } else {
         weeks = SEED_WEEKS;
-        await window.storage.set(STORAGE_KEY, JSON.stringify(weeks), true);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(weeks));
       }
     }catch(err){
       console.error('Storage error, using seed data in-memory only:', err);
@@ -795,8 +807,8 @@
 
   async function saveWeeks(){
     try{
-      const res = await window.storage.set(STORAGE_KEY, JSON.stringify(weeks), true);
-      return !!res;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(weeks));
+      return true;
     }catch(err){
       console.error('Save failed:', err);
       return false;
@@ -966,6 +978,179 @@
     addForm.style.display = addForm.style.display==='block' ? 'none' : 'block';
   });
 
+  // ---------- HunkWare Revenue Stats CSV upload ----------
+  const TARGET_LOCATION_ID = '714';
+  const TARGET_LOCATION_NAME = 'ga - augusta - henson';
+
+  function parseCsvLine(line){
+    // Lightweight CSV line splitter that respects quoted fields containing commas.
+    const cells = [];
+    let cur = '';
+    let inQuotes = false;
+    for(let i=0; i<line.length; i++){
+      const ch = line[i];
+      if(ch === '"'){
+        inQuotes = !inQuotes;
+      } else if(ch === ',' && !inQuotes){
+        cells.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    cells.push(cur);
+    return cells.map(c => c.trim());
+  }
+
+  document.getElementById('revenueCsvUpload').addEventListener('change', (e)=>{
+    const statusEl = document.getElementById('csvUploadStatus');
+    const file = e.target.files[0];
+    if(!file) return;
+    statusEl.textContent = 'Reading file...';
+    statusEl.className = 'status-msg';
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      statusEl.textContent = 'Could not read that file.';
+      statusEl.className = 'status-msg err';
+    };
+    reader.onload = (ev) => {
+      try{
+        const text = String(ev.target.result || '');
+        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if(lines.length < 2) throw new Error('CSV has no data rows.');
+
+        const header = parseCsvLine(lines[0]).map(h => h.toLowerCase());
+        const idIdx = header.indexOf('master_location_id');
+        const nameIdx = header.indexOf('master_location_name');
+        const revIdx = header.findIndex(h => h.startsWith('revenue'));
+        if(revIdx === -1) throw new Error('No Revenue column found in this CSV.');
+
+        let matchRow = null;
+        for(let i=1; i<lines.length; i++){
+          const cells = parseCsvLine(lines[i]);
+          const rowId = (idIdx>-1 ? cells[idIdx] : '').trim();
+          const rowName = (nameIdx>-1 ? cells[nameIdx] : '').trim().toLowerCase();
+          if(rowId === TARGET_LOCATION_ID || rowName === TARGET_LOCATION_NAME){
+            matchRow = cells;
+            break;
+          }
+        }
+        if(!matchRow) throw new Error('No row found for GA - Augusta - Henson (location 714) in this file.');
+
+        const revenue = parseFloat(matchRow[revIdx]);
+        if(isNaN(revenue)) throw new Error('Revenue value in that row could not be read as a number.');
+
+        document.getElementById('f_revenue').value = revenue.toFixed(2);
+        statusEl.textContent = `Revenue filled in: ${money(revenue)} (from GA - Augusta - Henson row).`;
+        statusEl.className = 'status-msg ok';
+      }catch(err){
+        console.error('CSV parse error:', err);
+        statusEl.textContent = 'Could not parse that file: ' + (err && err.message ? err.message : String(err));
+        statusEl.className = 'status-msg err';
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // ---------- ADP Payroll Detail (.xlsx) upload ----------
+  const ADMIN_EMPLOYEE_NAMES = new Set(['Henson, Aaron K', 'Henson, Heather', 'Pitchford, Cameron']);
+
+  document.getElementById('payrollXlsxUpload').addEventListener('change', (e)=>{
+    const statusEl = document.getElementById('payrollUploadStatus');
+    const file = e.target.files[0];
+    if(!file) return;
+    statusEl.textContent = 'Reading file...';
+    statusEl.className = 'status-msg';
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      statusEl.textContent = 'Could not read that file.';
+      statusEl.className = 'status-msg err';
+    };
+    reader.onload = (ev) => {
+      try{
+        const data = new Uint8Array(ev.target.result);
+        const workbook = XLSX.read(data, {type:'array'});
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:null});
+
+        const headerIdx = rows.findIndex(r => r && r[0] === 'Employee Name');
+        if(headerIdx === -1) throw new Error('This doesn\'t look like an ADP Payroll Detail export (no "Employee Name" header row found).');
+
+        const header = rows[headerIdx];
+        const TOTAL_EARNINGS_COL = 30;
+        const TOTAL_ER_LIABILITY_COL = 42;
+        if((header[TOTAL_EARNINGS_COL]||'').toString().trim() !== 'Total Earnings' ||
+           (header[TOTAL_ER_LIABILITY_COL]||'').toString().trim() !== 'Total Employer Liability'){
+          throw new Error('This file\'s column layout doesn\'t match what\'s expected \u2014 ADP may have changed the report format. Ask Claude to update the parser.');
+        }
+
+        let fieldGross = 0, adminGross = 0, tipsField = 0, erTaxTotal = 0, otHoursTotal = 0, otPremiumTotal = 0;
+        let employeeCount = 0;
+        const skippedNoRegRate = [];
+
+        for(let i = headerIdx+1; i < rows.length; i++){
+          const row = rows[i];
+          if(!row) continue;
+          const name = row[0];
+          if(!name || String(name).includes('Total')) continue;
+          const totalEarnings = row[TOTAL_EARNINGS_COL];
+          if(totalEarnings === null || totalEarnings === undefined) continue;
+
+          employeeCount++;
+          const isAdmin = ADMIN_EMPLOYEE_NAMES.has(String(name).trim());
+          if(isAdmin){ adminGross += totalEarnings; } else { fieldGross += totalEarnings; }
+          erTaxTotal += row[TOTAL_ER_LIABILITY_COL] || 0;
+
+          let regRate = null;
+          for(let slot = 0; slot < 6; slot++){
+            const base = 5 + slot*4;
+            const label = (row[base] || '').toString().trim();
+            const hours = row[base+1];
+            const rate = row[base+2];
+            const amount = row[base+3];
+            if(label === 'Regular'){
+              regRate = rate;
+            } else if(label === 'Overtime'){
+              const otHours = hours || 0;
+              const otAmount = amount || 0;
+              otHoursTotal += otHours;
+              if(regRate){
+                otPremiumTotal += otAmount - (otHours * regRate);
+              } else {
+                skippedNoRegRate.push(String(name).trim());
+              }
+            } else if(label === 'Credit card tips owed' && !isAdmin){
+              tipsField += amount || 0;
+            }
+          }
+        }
+
+        if(employeeCount === 0) throw new Error('No employee rows found in this file.');
+
+        document.getElementById('f_fieldGross').value = fieldGross.toFixed(2);
+        document.getElementById('f_adminGross').value = adminGross.toFixed(2);
+        document.getElementById('f_tips').value = tipsField.toFixed(2);
+        document.getElementById('f_erTax').value = erTaxTotal.toFixed(2);
+        document.getElementById('f_otHours').value = otHoursTotal.toFixed(2);
+        document.getElementById('f_otPremium').value = otPremiumTotal.toFixed(2);
+
+        let msg = `Filled in from ${employeeCount} employees: Field Gross ${money(fieldGross)}, Admin Gross ${money(adminGross)}, Tips ${money(tipsField)}, ER Taxes ${money(erTaxTotal)}, OT ${otHoursTotal.toFixed(2)} hrs / ${money(otPremiumTotal)} premium.`;
+        if(skippedNoRegRate.length > 0){
+          msg += ` Note: couldn't compute OT premium for ${skippedNoRegRate.join(', ')} (no Regular rate on file) \u2014 check that OT premium total manually.`;
+        }
+        statusEl.textContent = msg;
+        statusEl.className = 'status-msg ok';
+      }catch(err){
+        console.error('Payroll parse error:', err);
+        statusEl.textContent = 'Could not parse that file: ' + (err && err.message ? err.message : String(err));
+        statusEl.className = 'status-msg err';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
   document.getElementById('saveWeekBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('saveStatus');
     const start = document.getElementById('f_start').value;
@@ -988,7 +1173,7 @@
     weeks.push({weekStart:start, weekEnd:end, revenue, fieldGross, adminGross, tips, erTax, otHours, otPremium, employees:[]});
 
     const ok = await saveWeeks();
-    statusEl.textContent = ok ? 'Week saved.' : 'Saved locally, but syncing to storage failed — it may not persist next visit.';
+    statusEl.textContent = ok ? 'Week saved.' : 'Save failed — your browser may be blocking local storage (e.g. private/incognito mode). This won\'t persist after you close the tab.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
     renderAll();
     weekSelect.value = start;
@@ -999,7 +1184,7 @@
   document.getElementById('resetBtn').addEventListener('click', async ()=>{
     if(!confirm('Clear all saved labor cost weeks? This cannot be undone.')) return;
     weeks = [];
-    try{ await window.storage.delete(STORAGE_KEY, true); }catch(e){}
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
     weeks = SEED_WEEKS;
     await saveWeeks();
     renderAll();
