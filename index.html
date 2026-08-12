@@ -211,12 +211,14 @@
   }#calcDetail .totalbar .label{font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:15px;}#calcDetail .totalbar .amt{font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:600; color:var(--brand-orange);}#calcDetail .totalbar .sub{font-size:11px; color:#B8BFC7; margin-top:2px;}#calcDetail .section-toggle{cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between;}#calcDetail .section-toggle .arrow{transition:transform .15s;}#calcDetail .collapsed .arrow{transform:rotate(-90deg);}#calcDetail .collapsible-body{margin-top:10px;}#calcDetail .collapsed .collapsible-body{display:none;}#calcDetail .valopt{border:1px solid var(--line); border-radius:4px; padding:10px 12px; margin-bottom:8px; cursor:pointer;}#calcDetail .valopt.selected{border-color:var(--brand-green); background:#F3FBF6;}#calcDetail .valopt input{margin-right:8px;}
 
 #printBOL{display:none;}
+#printEstimate{display:none;}
 @media print{
   body *{visibility:hidden;}
-  #printBOL, #printBOL *{visibility:visible;}
+  #printBOL, #printBOL *, #printEstimate, #printEstimate *{visibility:visible;}
   #printBOL{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
-  #printBOL .print-page{page-break-after:always; padding:0.5in; font-family:Georgia,'Times New Roman',serif; color:#000; box-sizing:border-box; width:8.5in; min-height:11in;}
-  #printBOL .print-page:last-child{page-break-after:auto;}
+  #printEstimate{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
+  #printBOL .print-page, #printEstimate .print-page{page-break-after:always; padding:0.5in; font-family:Georgia,'Times New Roman',serif; color:#000; box-sizing:border-box; width:8.5in; min-height:11in;}
+  #printBOL .print-page:last-child, #printEstimate .print-page:last-child{page-break-after:auto;}
 }
 </style>
 
@@ -343,6 +345,7 @@
   <div id="calcDetail" style="display:none;">
     <button class="backlink" id="calcBackBtn">&larr; Dispatch</button>
     <div id="printBOL"></div>
+    <div id="printEstimate"></div>
 <div class="wrap">
   <div class="head">
     <h1 class="display">Long Distance Estimates</h1>
@@ -640,9 +643,11 @@
       <div class="amt" id="totalAmt">$0.00</div>
     </div>
     <div style="margin-top:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <button class="btn secondary" id="genEstimateBtn" type="button">Print / Save Estimate as PDF</button>
       <button class="btn" id="genBolBtn" type="button">Print / Save Bill of Lading as PDF</button>
       <span class="status" id="bolStatus"></span>
     </div>
+    <div class="hint" style="margin-top:8px;">The Estimate is a client-facing quote (no signature fields) with your logo, itemized charges, and a plain-language explanation of valuation options. It always includes Option 2(a) Full Value Protection by default, regardless of which option is selected below for the Bill of Lading &mdash; reduce coverage only if the client asks.</div>
     <div class="hint" style="margin-top:8px;">Opens your browser's print dialog with the GDPS-prescribed Bill of Lading (matching hourly or weight/distance mode), the required Contract Terms and Conditions, and the Shipper Declaration of Value addendum. Choose "Save as PDF" as the destination to get a PDF file, or print physically.</div>
   </div>
 </div>
@@ -1504,6 +1509,129 @@
   }
 
   document.getElementById('genBolBtn').addEventListener('click', () => genBOL());
+
+  // ---------- Client-Facing Estimate ----------
+  function genEstimate(){
+    const statusEl = document.getElementById('bolStatus');
+    try{
+      buildEstimateView();
+      window.print();
+      statusEl.textContent = 'Print dialog opened \u2014 choose "Save as PDF" as the destination to get a PDF file.';
+      statusEl.className = 'status ok';
+    }catch(err){
+      console.error('Estimate generation error:', err);
+      statusEl.textContent = 'Estimate generation failed: ' + (err && err.message ? err.message : String(err));
+      statusEl.className = 'status err';
+    }
+  }
+
+  function buildEstimateView(){
+    const calc = window.__calc || {items:[], total:0, isLocal:false, isLong:false, discountAmt:0};
+    const val = (id) => document.getElementById(id).value || '';
+    const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
+
+    // Estimate always assumes Option 2(a) valuation by default, regardless of the
+    // Valuation Selected radio elsewhere on the page (that reflects the actual BOL choice).
+    const declared = calc.declared || 0;
+    const val1 = 0;
+    const val2a = declared > 0 ? (declared/1000)*15.73 : 0;
+    const val2b = declared > 0 ? (declared/1000)*5.17 : 0;
+
+    const baseItems = calc.items.filter(([label]) => !String(label).startsWith('Valuation'));
+    const baseSubtotal = baseItems.reduce((s,[,amt]) => s+amt, 0);
+    const subtotalWithVal = baseSubtotal + val2a;
+
+    let discountAmt = 0;
+    if(calc.discountType === 'percent'){
+      discountAmt = subtotalWithVal * ((calc.discountValueRaw||0)/100);
+    } else if(calc.discountType === 'dollar'){
+      discountAmt = calc.discountValueRaw || 0;
+    }
+    discountAmt = Math.max(0, Math.min(discountAmt, subtotalWithVal));
+    const estimateTotal = subtotalWithVal - discountAmt;
+
+    let details = `Estimated Weight: ${calc.weight ? calc.weight.toLocaleString()+' lbs' : '\u2014'} &nbsp;&nbsp; Day Type: ${calc.dayType === 'weekend' ? 'Weekend/Holiday' : 'Weekday'}`;
+    if(calc.isLong) details += ` &nbsp;&nbsp; Distance: ${esc(calc.miles)} mi`;
+
+    const itemRows = baseItems.map(([label, amt]) =>
+      `<tr><td style="padding:5px 0;">${esc(label)}</td><td style="padding:5px 0; text-align:right; white-space:nowrap;">${money(amt)}</td></tr>`
+    ).join('');
+
+    let discountRow = '';
+    if(discountAmt > 0){
+      const discLabel = calc.discountType === 'percent' ? `Discount (${esc(calc.discountValueRaw)}%)` : 'Discount';
+      discountRow = `<tr><td style="padding:5px 0;">${discLabel}</td><td style="padding:5px 0; text-align:right;">-${money(discountAmt)}</td></tr>`;
+    }
+
+    const page1 = `
+      <div class="print-page" style="font-size:10pt; line-height:1.45;">
+        <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid #00843D; padding-bottom:14px; margin-bottom:20px;">
+          <div style="display:flex; align-items:center; gap:14px;">
+            ${logoSrc ? `<img src="${logoSrc}" style="height:52px; width:auto;">` : ''}
+            <div>
+              <div style="font-family:Georgia,serif; font-size:18px; font-weight:bold; color:#1C2126;">${esc(val('carrierName') || 'College HUNKS Hauling Junk & Moving')}</div>
+              <div style="font-size:9pt; color:#555;">${esc(val('carrierAddress'))}</div>
+              <div style="font-size:9pt; color:#555;">${esc(val('carrierPhone'))}</div>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:20px; font-weight:bold; color:#00843D; letter-spacing:1px;">MOVE ESTIMATE</div>
+            <div style="font-size:9pt; color:#555;">${esc(val('issueDate'))}</div>
+          </div>
+        </div>
+
+        <table style="width:100%; border-collapse:collapse; font-size:10pt; margin-bottom:16px;">
+          <tr>
+            <td style="width:50%; vertical-align:top; padding:2px 8px 2px 0;"><b style="font-size:8pt; color:#555;">PREPARED FOR</b><br>${esc(val('shipperName'))}<br>${esc(val('shipperPhone'))}${val('shipperEmail') ? '<br>'+esc(val('shipperEmail')) : ''}</td>
+            <td style="width:50%; vertical-align:top; padding:2px 0;"><b style="font-size:8pt; color:#555;">MOVE DETAILS</b><br>${details}</td>
+          </tr>
+          <tr>
+            <td style="vertical-align:top; padding:10px 8px 2px 0;"><b style="font-size:8pt; color:#555;">FROM</b><br>${esc(val('originAddress'))}</td>
+            <td style="vertical-align:top; padding:10px 0 2px;"><b style="font-size:8pt; color:#555;">TO</b><br>${esc(val('destAddress'))}</td>
+          </tr>
+        </table>
+
+        <h3 style="font-family:Georgia,serif; font-size:13pt; color:#00612C; border-bottom:1px solid #ccc; padding-bottom:6px; margin:20px 0 8px;">Estimated Charges</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:10pt;">
+          ${itemRows}
+          <tr><td style="padding-top:8px; border-top:1px solid #999;">Full Value Protection (Option 2(a), included by default)</td>
+              <td style="padding-top:8px; border-top:1px solid #999; text-align:right;">${money(val2a)}</td></tr>
+          ${discountRow}
+          <tr><td style="padding-top:10px; border-top:2px solid #00843D; font-weight:bold; font-size:13pt;">Estimated Total</td>
+              <td style="padding-top:10px; border-top:2px solid #00843D; font-weight:bold; font-size:13pt; text-align:right; color:#00612C;">${money(estimateTotal)}</td></tr>
+        </table>
+
+        <h3 style="font-family:Georgia,serif; font-size:13pt; color:#00612C; border-bottom:1px solid #ccc; padding-bottom:6px; margin:26px 0 8px;">Protecting Your Belongings</h3>
+        <p style="font-size:9.5pt; text-align:justify; margin:0 0 10px;">Every move includes valuation coverage in case of loss or damage. There are three levels to choose from. Unless you tell us otherwise, we include <b>Option 2(a)</b> in this estimate.</p>
+        <table style="width:100%; border-collapse:collapse; font-size:9.5pt; margin-bottom:8px;">
+          <tr style="border-bottom:1px solid #ccc;">
+            <td style="padding:6px 4px; font-weight:bold;">Option 1 &mdash; Released Value</td>
+            <td style="padding:6px 4px;">Basic coverage at $0.60 per pound per article. No additional cost, but minimal protection for valuable items.</td>
+            <td style="padding:6px 4px; text-align:right; white-space:nowrap;">${money(val1)}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #ccc; background:#F3FBF6;">
+            <td style="padding:6px 4px; font-weight:bold;">Option 2(a) &mdash; Full Value <span style="font-weight:normal; font-size:8.5pt;">(included above)</span></td>
+            <td style="padding:6px 4px;">Full replacement value coverage, no deductible.</td>
+            <td style="padding:6px 4px; text-align:right; white-space:nowrap;">${money(val2a)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 4px; font-weight:bold;">Option 2(b) &mdash; Full Value, $300 Deductible</td>
+            <td style="padding:6px 4px;">Full replacement value coverage with a $300 deductible, at a lower cost than 2(a).</td>
+            <td style="padding:6px 4px; text-align:right; white-space:nowrap;">${money(val2b)}</td>
+          </tr>
+        </table>
+        <p style="font-size:8.5pt; color:#666; margin:0 0 20px;">${declared > 0 ? `Based on a declared value of ${money(declared)}.` : 'Valuation costs shown are based on the declared value entered for this move.'} Let us know if you'd like to select Option 1 or 2(b) instead.</p>
+
+        <div style="background:#FFF6E8; border-left:4px solid #F7941D; padding:10px 14px; font-size:8.5pt; color:#5c4a1f; margin-top:20px;">
+          This is an estimate based on the information provided and is not a final invoice. Final charges are documented on your Bill of Lading at the time of your move, in accordance with Georgia DPS Tariff No. 7. Actual weight and mileage may result in charges different from this estimate.
+        </div>
+      </div>`;
+
+    document.getElementById('printEstimate').innerHTML = page1;
+  }
+
+  document.getElementById('genEstimateBtn').addEventListener('click', () => genEstimate());
 
   // Default Date Issued to today, editable if backdating is needed
   (function setToday(){
