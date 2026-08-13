@@ -225,6 +225,7 @@
   #printEstimate{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
   #printPaperwork{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
   #printBOL .print-page, #printEstimate .print-page, #printPaperwork .print-page{page-break-after:always; padding:0.5in; font-family:Georgia,'Times New Roman',serif; color:#000; box-sizing:border-box; width:8.5in; min-height:11in;}
+  #printPaperwork .print-page{padding:0.32in;}
   #printBOL .print-page:last-child, #printEstimate .print-page:last-child, #printPaperwork .print-page:last-child{page-break-after:auto;}
 }
 </style>
@@ -749,6 +750,7 @@
         <p class="form-note" id="pw_docListNote"></p>
         <div class="form-actions">
           <button class="btn-primary" id="pw_printBtn">Print Paperwork</button>
+          <button id="pw_clearBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Clear All Fields</button>
           <span class="status-msg" id="pw_status"></span>
         </div>
       </div>
@@ -2102,31 +2104,31 @@
   function buildPWLiabilityWaiver(pageNum, includeLoadingDate){
     const clausesHtml = LIABILITY_CLAUSES.map(c => `
       <tr>
-        <td style="width:8%; vertical-align:top; padding:6px 4px; text-align:center;">________<br><span style="font-size:7pt; color:#777;">Client</span></td>
-        <td style="width:8%; vertical-align:top; padding:6px 4px; text-align:center;">________<br><span style="font-size:7pt; color:#777;">Captain</span></td>
-        <td style="vertical-align:top; padding:6px 4px;"><b>${esc(c.title)}</b> | ${c.body}</td>
+        <td style="width:7%; vertical-align:top; padding:2.5px 4px; text-align:center;">________<br><span style="font-size:6.5pt; color:#777;">Client</span></td>
+        <td style="width:7%; vertical-align:top; padding:2.5px 4px; text-align:center;">________<br><span style="font-size:6.5pt; color:#777;">Captain</span></td>
+        <td style="vertical-align:top; padding:2.5px 4px;"><b>${esc(c.title)}</b> | ${c.body}</td>
       </tr>`).join('');
 
     return `
-      <div class="print-page" style="font-size:8.5pt; line-height:1.35;">
+      <div class="print-page" style="font-size:7.5pt; line-height:1.15;">
         ${pwLetterhead('Liability Waiver', pageNum)}
         ${pwContactRow(`<tr>
-          <td style="padding:2px 0;"><b>Origin Address:</b> ${esc(pwVal('pw_originAddress'))}</td>
-          ${includeLoadingDate ? `<td style="padding:2px 0;"><b>Loading Date:</b> ${pwDateFmt('pw_loadingDate')}</td>` : '<td></td>'}
-          <td style="padding:2px 0;"><b>Destination Address:</b> ${esc(pwVal('pw_destAddress'))}</td>
+          <td style="padding:1px 0;"><b>Origin Address:</b> ${esc(pwVal('pw_originAddress'))}</td>
+          ${includeLoadingDate ? `<td style="padding:1px 0;"><b>Loading Date:</b> ${pwDateFmt('pw_loadingDate')}</td>` : '<td></td>'}
+          <td style="padding:1px 0;"><b>Destination Address:</b> ${esc(pwVal('pw_destAddress'))}</td>
           <td></td>
         </tr>`)}
 
-        <table style="width:100%; border-collapse:collapse; font-size:8.5pt; margin-bottom:10px;">
+        <table style="width:100%; border-collapse:collapse; font-size:7.5pt; margin-bottom:4px;">
           ${clausesHtml}
         </table>
 
-        <div style="border-top:1px solid #999; padding-top:8px; font-size:8.5pt; margin-bottom:16px;">
-          I agree to release College Hunks Moving from any liability pertaining to and in accordance with the conditions listed in this document.<br><br>
+        <div style="border-top:1px solid #999; padding-top:4px; font-size:7.5pt; margin-bottom:6px;">
+          I agree to release College Hunks Moving from any liability pertaining to and in accordance with the conditions listed in this document.<br>
           Shipper's Signature: ____________________________________ Date: _________
         </div>
-        <div style="font-size:8.5pt;">
-          As the Shipper, I have inspected my shipment at the destination and agree that I am releasing College Hunks Moving from any liability for damage or shortage to my shipment. As the shipper, I also understand that no claim will be honored unless all transportation charges have been paid in full at time of delivery.<br><br>
+        <div style="font-size:7.5pt;">
+          As the Shipper, I have inspected my shipment at the destination and agree that I am releasing College Hunks Moving from any liability for damage or shortage to my shipment. As the shipper, I also understand that no claim will be honored unless all transportation charges have been paid in full at time of delivery.<br>
           Shipper's Signature: ____________________________________ Date: __________
         </div>
       </div>`;
@@ -2136,10 +2138,10 @@
     const origin = pwVal('pw_originAddress'), dest = pwVal('pw_destAddress');
     const stops = [pwVal('pw_stop1'), pwVal('pw_stop2'), pwVal('pw_stop3')].filter(s => s);
     return `
-      <div class="print-page" style="font-size:8pt; line-height:1.18;">
+      <div class="print-page" style="font-size:7.5pt; line-height:1.15;">
         ${pwLetterhead('Bill of Lading', pageNum)}
         ${pwContactRow()}
-        <table style="width:100%; border-collapse:collapse; font-size:8pt; margin-bottom:3px;">
+        <table style="width:100%; border-collapse:collapse; font-size:7pt; margin-bottom:2px;">
           <tr>
             <td style="width:38%; vertical-align:top; padding:0px 8px 0px 0;"><b>Origin Address:</b><br>${esc(origin)}</td>
             <td style="width:38%; vertical-align:top; padding:1px 0;"><b>Destination Address:</b><br>${esc(dest)}</td>
@@ -2152,7 +2154,7 @@
           ${stops.length ? `<tr><td colspan="3" style="padding:3px 0 1px;"><b>Additional Stops:</b> ${stops.map(esc).join(' &nbsp;|&nbsp; ')}</td></tr>` : ''}
         </table>
 
-        <table style="width:100%; border-collapse:collapse; font-size:8pt; margin-bottom:3px;">
+        <table style="width:100%; border-collapse:collapse; font-size:7pt; margin-bottom:2px;">
           <tr style="border-bottom:1px solid #999;"><td colspan="2" style="padding:2px 0; font-weight:bold;">Moving Labor Costs</td><td style="text-align:right; font-weight:bold;">Total Cost</td><td style="text-align:right; font-weight:bold; padding-left:12px;">Material</td><td style="text-align:right; font-weight:bold;">Qty</td><td style="text-align:right; font-weight:bold;">Pr Ea</td><td style="text-align:right; font-weight:bold;">Total Cost</td></tr>
           <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
           <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
@@ -2586,6 +2588,18 @@
       statusEl.textContent = 'Could not generate paperwork: ' + (err && err.message ? err.message : String(err));
       statusEl.className = 'status-msg err';
     }
+  });
+
+  document.getElementById('pw_clearBtn').addEventListener('click', ()=>{
+    if(!confirm('Clear all entered fields?')) return;
+    const statusEl = document.getElementById('pw_status');
+    const fieldIds = ['pw_jobNumber','pw_clientName','pw_clientPhone','pw_clientEmail','pw_originAddress','pw_destAddress',
+      'pw_stop1','pw_stop2','pw_stop3','pw_estDate','pw_packingDate','pw_loadingDate','pw_deliveryDate','pw_unpackingDate','pw_otherServiceDate'];
+    fieldIds.forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('pw_jobType').value = 'move';
+    updatePWJobTypeUI();
+    statusEl.textContent = 'All fields cleared.';
+    statusEl.className = 'status-msg ok';
   });
 
   recalc();
