@@ -1925,7 +1925,10 @@
           ${discountRows}
           <tr><td style="padding-top:8px; border-top:2px solid #000; font-weight:bold; font-size:11pt;">${calc.discountAmt > 0 ? 'TOTAL DUE (AFTER DISCOUNT)' : 'TOTAL (MAXIMUM PER TARIFF NO. 7)'}</td>
               <td style="padding-top:8px; border-top:2px solid #000; font-weight:bold; font-size:11pt; text-align:right;">${money(calc.total)}</td></tr>
+          <tr><td style="padding-top:3px; font-size:8pt; color:#444;">Maximum Not-to-Exceed Amount (110%)</td>
+              <td style="padding-top:3px; font-size:8pt; color:#444; text-align:right;">${money(calc.total * 1.10)}</td></tr>
         </table>
+        <p style="font-size:7.5pt; color:#444; margin:2px 0 8px;">This is a Not-to-Exceed Estimate under GA DPS Maximum Rate Tariff No. 7. Final charges are determined after all services have been completed based on actual weight, distance, and services rendered, but total charges due shall not exceed 110% of this estimate, at the carrier's sole discretion.</p>
 
         <p style="font-size:9pt;">PAID TO APPLY: ____________________ &nbsp;&nbsp;&nbsp; BALANCE DUE: ____________________</p>
 
@@ -2059,7 +2062,10 @@
           ${discountRow}
           <tr><td style="padding-top:10px; border-top:2px solid #00843D; font-weight:bold; font-size:13pt;">Estimated Total</td>
               <td style="padding-top:10px; border-top:2px solid #00843D; font-weight:bold; font-size:13pt; text-align:right; color:#00612C;">${money(estimateTotal)}</td></tr>
+          <tr><td style="padding-top:4px; font-size:9pt; color:#666;">Maximum Not-to-Exceed Amount (110%)</td>
+              <td style="padding-top:4px; font-size:9pt; color:#666; text-align:right;">${money(estimateTotal * 1.10)}</td></tr>
         </table>
+        <p style="font-size:8pt; color:#666; margin:6px 0 0;">This is a Not-to-Exceed Estimate under GA DPS Maximum Rate Tariff No. 7. Final charges are determined after all services have been completed based on actual weight, distance, and services rendered, but total charges due shall not exceed 110% of this estimate, at the carrier's sole discretion.</p>
 
         <h3 style="font-family:Georgia,serif; font-size:13pt; color:#00612C; border-bottom:1px solid #ccc; padding-bottom:6px; margin:26px 0 8px;">Protecting Your Belongings</h3>
         <p style="font-size:9.5pt; text-align:justify; margin:0 0 10px;">Every move includes valuation coverage in case of loss or damage. There are three levels to choose from. Unless you tell us otherwise, we include <b>Option 2(a)</b> in this estimate.</p>
