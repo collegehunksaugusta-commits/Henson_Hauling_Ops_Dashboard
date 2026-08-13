@@ -214,15 +214,18 @@
 
 #printBOL{display:none;}
 #printEstimate{display:none;}
+#printPaperwork{display:none;}
 @media print{
   body *{visibility:hidden;}
-  #printBOL, #printBOL *, #printEstimate, #printEstimate *{visibility:visible;}
+  #printBOL, #printBOL *, #printEstimate, #printEstimate *, #printPaperwork, #printPaperwork *{visibility:visible;}
   .topbar, #home, #detail{display:none !important;}
   #calcDetail > *:not(#printBOL):not(#printEstimate){display:none !important;}
+  #paperworkDetail > *:not(#printPaperwork){display:none !important;}
   #printBOL{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
   #printEstimate{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
-  #printBOL .print-page, #printEstimate .print-page{page-break-after:always; padding:0.5in; font-family:Georgia,'Times New Roman',serif; color:#000; box-sizing:border-box; width:8.5in; min-height:11in;}
-  #printBOL .print-page:last-child, #printEstimate .print-page:last-child{page-break-after:auto;}
+  #printPaperwork{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
+  #printBOL .print-page, #printEstimate .print-page, #printPaperwork .print-page{page-break-after:always; padding:0.5in; font-family:Georgia,'Times New Roman',serif; color:#000; box-sizing:border-box; width:8.5in; min-height:11in;}
+  #printBOL .print-page:last-child, #printEstimate .print-page:last-child, #printPaperwork .print-page:last-child{page-break-after:auto;}
 }
 </style>
 
@@ -252,6 +255,11 @@
         <span class="icon">📋</span>
         <h3>Long Distance Estimates</h3>
         <p>GA household goods tariff calculator and compliant Bill of Lading generator.</p>
+      </div>
+      <div class="tile" id="tile-paperwork" tabindex="0" role="button" aria-label="Open Paperwork">
+        <span class="icon">📄</span>
+        <h3>Paperwork</h3>
+        <p>Pre-filled job paperwork &mdash; Bill of Lading, Liability Waiver, Declaration of Value, and more.</p>
       </div>
       <div class="tile locked" tabindex="-1" aria-disabled="true">
         <span class="badge">Coming soon</span>
@@ -698,6 +706,55 @@
     <div class="hint" style="margin-top:8px;">Opens your browser's print dialog with the GDPS-prescribed Bill of Lading (matching hourly or weight/distance mode), the required Contract Terms and Conditions, and the Shipper Declaration of Value addendum. Choose "Save as PDF" as the destination to get a PDF file, or print physically.</div>
   </div>
 </div>
+</div>
+
+  <!-- ============ PAPERWORK DETAIL ============ -->
+  <div id="paperworkDetail" style="display:none;">
+    <button class="backlink" id="paperworkBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Job Paperwork</h2>
+        <p>Enter job details once, then print the full paperwork packet for the job type.</p>
+      </div>
+
+      <div class="panel">
+        <h3>Job Data Entry</h3>
+        <div class="form-grid">
+          <label>Job Type
+            <select id="pw_jobType">
+              <option value="move">Move</option>
+              <option value="movelabor">Move Labor</option>
+            </select>
+          </label>
+          <label>Hunkware Job # <input type="text" id="pw_jobNumber"></label>
+          <label>Client Name <input type="text" id="pw_clientName"></label>
+          <label>Client Phone # <input type="text" id="pw_clientPhone"></label>
+          <label>Client Email Address <input type="email" id="pw_clientEmail"></label>
+          <label>Origin Address <input type="text" id="pw_originAddress"></label>
+          <label>Destination Address <input type="text" id="pw_destAddress"></label>
+        </div>
+        <div id="pw_stopsArea" class="form-grid" style="margin-top:2px;">
+          <label>Stop 1 (optional) <input type="text" id="pw_stop1"></label>
+          <label>Stop 2 (optional) <input type="text" id="pw_stop2"></label>
+          <label>Stop 3 (optional) <input type="text" id="pw_stop3"></label>
+        </div>
+        <div class="form-grid" style="margin-top:2px;">
+          <label>Estimate Date <input type="date" id="pw_estDate"></label>
+          <label>Packing Date <input type="date" id="pw_packingDate"></label>
+          <label>Loading Date <input type="date" id="pw_loadingDate"></label>
+          <label>Delivery Date <input type="date" id="pw_deliveryDate"></label>
+          <label>Unpacking Date <input type="date" id="pw_unpackingDate"></label>
+          <label>Other Service Date <input type="date" id="pw_otherServiceDate"></label>
+        </div>
+        <p class="form-note" id="pw_docListNote"></p>
+        <div class="form-actions">
+          <button class="btn-primary" id="pw_printBtn">Print Paperwork</button>
+          <span class="status-msg" id="pw_status"></span>
+        </div>
+      </div>
+    </div>
+    <div id="printPaperwork"></div>
+  </div>
   </div>
 
 </div>
@@ -807,6 +864,11 @@
   document.getElementById('tile-calc').addEventListener('click', ()=>{ home.style.display='none'; calcDetail.style.display='block'; });
   document.getElementById('tile-calc').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); home.style.display='none'; calcDetail.style.display='block'; }});
   document.getElementById('calcBackBtn').addEventListener('click', ()=>{ calcDetail.style.display='none'; home.style.display='block'; });
+
+  const paperworkDetail = document.getElementById('paperworkDetail');
+  document.getElementById('tile-paperwork').addEventListener('click', ()=>{ home.style.display='none'; paperworkDetail.style.display='block'; });
+  document.getElementById('tile-paperwork').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); home.style.display='none'; paperworkDetail.style.display='block'; }});
+  document.getElementById('paperworkBackBtn').addEventListener('click', ()=>{ paperworkDetail.style.display='none'; home.style.display='block'; });
 
   function openDetail(){
     home.style.display='none';
@@ -1883,6 +1945,8 @@
 
     document.getElementById('printBOL').innerHTML = page1 + page2 + page3;
     document.getElementById('printEstimate').innerHTML = '';
+    const ppEl = document.getElementById('printPaperwork');
+    if(ppEl) ppEl.innerHTML = '';
   }
 
   document.getElementById('genBolBtn').addEventListener('click', () => genBOL());
@@ -2007,9 +2071,292 @@
 
     document.getElementById('printEstimate').innerHTML = page1;
     document.getElementById('printBOL').innerHTML = '';
+    const ppEl2 = document.getElementById('printPaperwork');
+    if(ppEl2) ppEl2.innerHTML = '';
   }
 
   document.getElementById('genEstimateBtn').addEventListener('click', () => genEstimate());
+
+  // ---------- Paperwork (Job Data Entry documents) ----------
+  function pwVal(id){ return (document.getElementById(id).value || '').trim(); }
+  function pwDateFmt(id){
+    const v = document.getElementById(id).value;
+    if(!v) return '';
+    const [y,m,d] = v.split('-');
+    return `${m}/${d}/${y}`;
+  }
+  const LIABILITY_CLAUSES = [
+    {title: "Shipper's Disregard for Best Practices", body: "Should the shipper decline packaging, wrapping, disassembly or preparation of any item being transported against the recommendation of College Hunks, we cannot be held liable for any damage that occurs. Refusal to wrap, box, protect or disassemble your items being shipped may result in items being damaged during moving and/or transport. College Hunks Moving offers a variety of additional packing materials for the shipper's items at the shipper's expense, including but not limited to mattress boxes, TV crates, picture boxes, and custom-built crates."},
+    {title: "Particle Board", body: "College Hunks Moving\u00ae noticed that you have various household furnishings constructed of particle-board (also known as \u201cpressed wood\u201d). This type of furniture is prone to breakage, cracking, dents, and related forms of damage following exercise of due care. The reason for this problem is the inherent weakness of the unstable wood product used in its construction."},
+    {title: "Outdoor Hazards", body: "College Hunks Moving\u00ae is not liable for areas that are not made to support the weight of a moving truck such as lawns, sidewalks, etc. I understand that at my request doing such may cause ruts in grass, damage to sprinkler systems and/or drain fields, cracking in concrete, or other damage. College Hunks Moving\u00ae will not be liable for any damages or towing charges that may result from doing so."},
+    {title: "Appliances", body: "College Hunks Moving\u00ae is not liable for damage to plumbing, electrical systems, or for water damage resulting from the connection or disconnection of washers, dryers, or refrigerators"},
+    {title: "Labor Only", body: "College Hunks Moving\u00ae is only hired to load or unload a rental truck/pod/crate or storage unit, and will not be liable for any damages which may occur in transporting belongings or after belongings are in our care, custody and control. College Hunks Moving\u00ae is only responsible for belongings while loading, transporting (in our truck) or unloading. It is the customer's responsibility to provide proper padding and/or tie downs to protect their goods. College Hunks Moving\u00ae is released of all liability after loading or prior to unloading a rental truck/pod/crate or storage unit."},
+    {title: "Hazardous or Uncommon Moving Situations", body: "College Hunks Moving\u00ae is not liable for any damage to items OR surroundings as a result of a particular customer request. These items are:<br>___________________________________________________________________________________________________________________________"},
+    {title: "P.B.O. Containers", body: "College Hunks Moving\u00ae is not liable for contents of any container \"Packed by Owner\" and not packed by the carrier unless external damage or other evidence of mishandling is noted at time of delivery"},
+    {title: "Breakables", body: "College Hunks Moving\u00ae is not liable for unpackaged items of a fragile or breakable nature, including but not limited to the following: naked glass of any type, lamps, pictures, mirrors, marble, granite, and artwork of any type. These items will only be covered if the carrier packs them in the recommended container."},
+    {title: "Hidden Damage", body: "College Hunks Moving\u00ae is not liable for internal or hidden damage unless there is external evidence of physical damage caused by College Hunks Moving\u00ae."},
+    {title: "Wall Damage", body: "College Hunks Moving\u00ae is not liable for damage done to shipper's goods, hallways, stairwells, or corridors when there is not more than 8\" clearance on both sides of the largest piece of furniture being moved."},
+    {title: "Floor Covering Damage", body: "College Hunks Moving\u00ae is not liable for soiling or discoloring of carpet or other floor covering caused by any of the following | Leaks or spillage from any plants, furniture, appliances, or other office machines that occur during normal handling, mud or dirt bring tracked onto flooring due to muddy or wet conditions."}
+  ];
+
+  function buildPWLiabilityWaiver(pageNum, includeLoadingDate){
+    const clausesHtml = LIABILITY_CLAUSES.map(c => `
+      <tr>
+        <td style="width:8%; vertical-align:top; padding:6px 4px; text-align:center;">________<br><span style="font-size:7pt; color:#777;">Client</span></td>
+        <td style="width:8%; vertical-align:top; padding:6px 4px; text-align:center;">________<br><span style="font-size:7pt; color:#777;">Captain</span></td>
+        <td style="vertical-align:top; padding:6px 4px;"><b>${esc(c.title)}</b> | ${c.body}</td>
+      </tr>`).join('');
+
+    return `
+      <div class="print-page" style="font-size:8.5pt; line-height:1.35;">
+        ${pwLetterhead('Liability Waiver', pageNum)}
+        ${pwContactRow(`<tr>
+          <td style="padding:2px 0;"><b>Origin Address:</b> ${esc(pwVal('pw_originAddress'))}</td>
+          ${includeLoadingDate ? `<td style="padding:2px 0;"><b>Loading Date:</b> ${pwDateFmt('pw_loadingDate')}</td>` : '<td></td>'}
+          <td style="padding:2px 0;"><b>Destination Address:</b> ${esc(pwVal('pw_destAddress'))}</td>
+          <td></td>
+        </tr>`)}
+
+        <table style="width:100%; border-collapse:collapse; font-size:8.5pt; margin-bottom:10px;">
+          ${clausesHtml}
+        </table>
+
+        <div style="border-top:1px solid #999; padding-top:8px; font-size:8.5pt; margin-bottom:16px;">
+          I agree to release College Hunks Moving from any liability pertaining to and in accordance with the conditions listed in this document.<br><br>
+          Shipper's Signature: ____________________________________ Date: _________
+        </div>
+        <div style="font-size:8.5pt;">
+          As the Shipper, I have inspected my shipment at the destination and agree that I am releasing College Hunks Moving from any liability for damage or shortage to my shipment. As the shipper, I also understand that no claim will be honored unless all transportation charges have been paid in full at time of delivery.<br><br>
+          Shipper's Signature: ____________________________________ Date: __________
+        </div>
+      </div>`;
+  }
+
+  function buildPWBillOfLading(pageNum){
+    const origin = pwVal('pw_originAddress'), dest = pwVal('pw_destAddress');
+    const stops = [pwVal('pw_stop1'), pwVal('pw_stop2'), pwVal('pw_stop3')].filter(s => s);
+    return `
+      <div class="print-page" style="font-size:8pt; line-height:1.18;">
+        ${pwLetterhead('Bill of Lading', pageNum)}
+        ${pwContactRow()}
+        <table style="width:100%; border-collapse:collapse; font-size:8pt; margin-bottom:3px;">
+          <tr>
+            <td style="width:38%; vertical-align:top; padding:0px 8px 0px 0;"><b>Origin Address:</b><br>${esc(origin)}</td>
+            <td style="width:38%; vertical-align:top; padding:1px 0;"><b>Destination Address:</b><br>${esc(dest)}</td>
+            <td style="width:24%; vertical-align:top; padding:1px 0 1px 8px;"><b>Service Dates:</b><br>
+              Est: ${pwDateFmt('pw_estDate')} &nbsp; Other: ${pwDateFmt('pw_otherServiceDate')}<br>
+              Packing: ${pwDateFmt('pw_packingDate')} &nbsp; Unpacking: ${pwDateFmt('pw_unpackingDate')}<br>
+              Loading: ${pwDateFmt('pw_loadingDate')} &nbsp; Delivery: ${pwDateFmt('pw_deliveryDate')}
+            </td>
+          </tr>
+          ${stops.length ? `<tr><td colspan="3" style="padding:3px 0 1px;"><b>Additional Stops:</b> ${stops.map(esc).join(' &nbsp;|&nbsp; ')}</td></tr>` : ''}
+        </table>
+
+        <table style="width:100%; border-collapse:collapse; font-size:8pt; margin-bottom:3px;">
+          <tr style="border-bottom:1px solid #999;"><td colspan="2" style="padding:2px 0; font-weight:bold;">Moving Labor Costs</td><td style="text-align:right; font-weight:bold;">Total Cost</td><td style="text-align:right; font-weight:bold; padding-left:12px;">Material</td><td style="text-align:right; font-weight:bold;">Qty</td><td style="text-align:right; font-weight:bold;">Pr Ea</td><td style="text-align:right; font-weight:bold;">Total Cost</td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
+          <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Packing/Unpacking Labor Costs</td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Pack at residence using ___ HUNKS for ____ hours at $_______ per hr</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Unpack at residence using ___ HUNKS for ____ hours at $______ per hr</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Delivery of Packing Material</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
+          <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Other Costs</td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Junk Removal, _______ truckload at $_______</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
+          <tr><td colspan="2" style="padding:1.5px 0;">Labor, _____ hours at $______ per hour</td><td style="text-align:right;">$</td><td colspan="3" style="text-align:right; padding-right:4px;">Material Total Cost:</td><td style="text-align:right;">$</td></tr>
+        </table>
+
+        <div style="border:1px solid #999; padding:3px 8px; font-size:7.5pt; margin:3px 0;">
+          <b>CUSTOMER'S DECLARATION OF VALUE</b><br>
+          THIS IS A LEVEL OF CARRIER LIABILITY -- IT IS NOT INSURANCE. You must acknowledge, in your own handwriting, mover's maximum liability for your goods. THIS MUST BE COMPLETED BEFORE THE MOVE HAS STARTED.
+        </div>
+
+        <table style="width:100%; border-collapse:collapse; font-size:7.5pt; margin-bottom:3px;">
+          <tr><td style="width:65%; vertical-align:top; padding-right:10px;">
+            <b>SUMMARY OF COVERAGE</b> | If any article (except items made of manufactured, composite or press wood) is damaged while in our custody, based on the declared value chosen below, College HUNKS moving is liable for the following. 1) Repair the article up to the value of the article to extent necessary to restore it to the same condition as when it was received by your mover, or 2) pay you declared value towards the cost of the repairs at the movers discretion.<br>
+            <b>COLLEGE HUNKS CARES</b> (Released Value of 60 Cents Per Pound Per Article). This has no added cost and is the default option unless customer chooses extended coverage. If any article is damaged while in your mover's custody, your mover's liability is limited to the actual weight of the damaged article multiplied by .60 cents per pound per article. IE: A 100 lb dresser has a maximum value of $60.<br>
+            Coverage chosen (circle one): &nbsp; <b>COLLEGE HUNKS CARES</b> &nbsp; &nbsp; Extended coverage (see VALUATION FORM)
+          </td>
+          <td style="width:35%; vertical-align:top;">
+            <table style="width:100%; border-collapse:collapse;">
+              <tr><td style="padding:1px 0;">Truck and Travel Fee</td><td style="text-align:right;">$</td></tr>
+              <tr><td style="padding:1px 0;">Moving Labor Total Cost</td><td style="text-align:right;">$</td></tr>
+              <tr><td style="padding:1px 0;">Valuation</td><td style="text-align:right;">$</td></tr>
+              <tr><td style="padding:1px 0;">Packing/Unpacking Labor Cost</td><td style="text-align:right;">$</td></tr>
+              <tr><td style="padding:1px 0;">Other Cost</td><td style="text-align:right;">$</td></tr>
+              <tr><td style="padding:1px 0;">Taxes</td><td style="text-align:right;">$</td></tr>
+              <tr style="border-top:1px solid #999;"><td style="padding:2px 0; font-weight:bold;">Total Charges</td><td style="text-align:right; font-weight:bold;">$</td></tr>
+            </table>
+          </td></tr>
+        </table>
+
+        <div style="font-size:7.5pt;">
+          <b>Client Walkthrough</b><br>
+          All items to be moved have been loaded into truck (please initial) ____________ &nbsp; All items have been unloaded into destination address (please initial) ________<br>
+          I UNDERSTAND THAT BY SIGNING THIS ORDER FOR SERVICE, I AM ENTERING INTO A CONTRACT WITH COLLEGE HUNKS TO PERFORM THE WORK DESCRIBED AND AGREE TO PAY THE TOTAL AMOUNT ACCORDING TO CARD ISSUER AGREEMENTS. THIS CONTRACT IS SUBJECT TO THE TERMS ON THE FRONT AND BACK OF THIS DOCUMENT.<br>
+          ___________________ X _____________________________________________<br>
+          DATE &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; CLIENT (SHIPPER)<br>
+          THE CARRIER, BY SIGNATURE OF ITS REPRESENTATIVE, HEREBY ACCEPTS THIS ORDER FOR SERVICES AND AGREES TO PERFORM THE SERVICES OUTLINED HEREIN.<br>
+          ___________________ X _____________________________________________<br>
+          DATE &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; COLLEGE HUNKS MOVING (CARRIER)
+        </div>
+      </div>`;
+  }
+
+  const CH_LOGO_LINES = 'Henson Hauling, LLC dba<br>College Hunks Hauling Junk and Moving<br>US DOT 4152752, US MC 1594490-C, GA HHG 9329<br>706-710-2820';
+
+  function pwLetterhead(title, pageNum){
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1C2126; padding-bottom:6px; margin-bottom:8px;">
+        <div>
+          <div style="font-family:Georgia,serif; font-size:15px; font-weight:bold;">${esc(title)}</div>
+          <div style="font-size:7.5pt; color:#333; margin-top:2px; line-height:1.3;">${CH_LOGO_LINES}</div>
+        </div>
+        <div style="font-size:8.5pt; color:#555; white-space:nowrap;">Page ${pageNum}</div>
+      </div>`;
+  }
+
+  function pwContactRow(extra){
+    const job = pwVal('pw_jobNumber'), name = pwVal('pw_clientName'), phone = pwVal('pw_clientPhone'), email = pwVal('pw_clientEmail');
+    return `
+      <table style="width:100%; border-collapse:collapse; font-size:9.5pt; margin-bottom:10px;">
+        <tr>
+          <td style="padding:2px 0;"><b>Name:</b> ${esc(name)}</td>
+          <td style="padding:2px 0;"><b>Phone:</b> ${esc(phone)}</td>
+          <td style="padding:2px 0;"><b>Email:</b> ${esc(email)}</td>
+          <td style="padding:2px 0; text-align:right;"><b>Job #</b> ${esc(job)}</td>
+        </tr>
+        ${extra || ''}
+      </table>`;
+  }
+
+  function buildPWShipperDeclaration(pageNum){
+    return `
+      <div class="print-page" style="font-size:8.5pt; line-height:1.4;">
+        ${pwLetterhead('Shipper Declaration of Value', pageNum)}
+        ${pwContactRow()}
+
+        <p><b>IMPORTANT:</b> There are two (2) options available to cover loss and/or damages to your items:</p>
+        <p><b>OPTION 1:</b> Released Value Protection. This option provides for reimbursement for loss or damage at a rate of $.60 per pound per article. This option is included in the Transportation and there is no additional CHARGE. Carrier shall have the option of repairing and/or restoration to the original condition.</p>
+        <p><b>OPTION 2:</b> Full Value Protection: This option provides coverage based on current replacement value at the time of loss or damage, up to the dollar amount of valuation declared by you (see NOTE). The cost is based on the actual value declared and the deductible, if any, declared by you. College Hunks shall have option of repair and/or reimbursement.</p>
+
+        <h3 style="font-size:10pt; margin:14px 0 6px;">DECLARATION</h3>
+        <p>Prior to the move, the shipper must select one of the options listed below. If shipper refuses to select one of the options, College Hunks will not be required to perform the move.</p>
+        <p>Shipper hereby releases the entire shipment to a value not exceeding:</p>
+
+        <table style="width:100%; border-collapse:collapse; font-size:8.5pt; margin-bottom:10px;">
+          <tr>
+            <td style="width:38%; vertical-align:top; padding:8px 6px; border:1px solid #ccc;">SIGNATURE OF SHIPPER &amp; DATE<br><br>________________________________</td>
+            <td style="vertical-align:top; padding:8px 6px; border:1px solid #ccc;">Option 1 - Released Value - $.60 per pound per article (based solely upon the weight of the lost or damaged article(s)) at no additional charge.</td>
+          </tr>
+          <tr>
+            <td style="vertical-align:top; padding:8px 6px; border:1px solid #ccc;">SIGNATURE OF SHIPPER &amp; DATE<br><br>________________________________</td>
+            <td style="vertical-align:top; padding:8px 6px; border:1px solid #ccc;">Option 2(a) - Full Replacement Value with no Deductible - See Note<br>$____________*** with no deductible at a charge of $15.73 per thousand dollars of declared value. This results in an additional charge of $_____________. *</td>
+          </tr>
+          <tr>
+            <td style="vertical-align:top; padding:8px 6px; border:1px solid #ccc;">SIGNATURE OF SHIPPER &amp; DATE<br><br>________________________________</td>
+            <td style="vertical-align:top; padding:8px 6px; border:1px solid #ccc;">Option 2(b) - Full Replacement Value with Deductible - See Note<br>$____________*** with a $300 deductible at a charge of $5.17 per thousand dollars of declared value. This results in an additional charge of $_____________.**</td>
+          </tr>
+        </table>
+
+        <div style="font-size:8pt; border-top:1px solid #999; padding-top:8px;">
+          NOTE: Declared value per room must be an amount equal to or exceeding $5000 per room excluding halls, attics, garage, closets and baths. A self-storage unit up to 10' x 10" shall constitute one room.<br><br>
+          This document shall be completed and signed PRIOR TO MOVE and made a permanent part of the Bill of Lading.<br><br>
+          If College Hunks fails to require shipper to choose one of the above options, the shipper will be considered to have chosen Option 2(a), Full Replacement Value with No Deductible, at no charge to the shipper.<br><br>
+          Name of shipper (client): ____________________________________ &nbsp; Date:_____________ &nbsp; &nbsp; Type of Move (Circle One): &nbsp; Hourly &nbsp; / &nbsp; Weight and Dist. (moves over 50 miles)<br><br>
+          College Hunks Representative: ___________________________________<br><br>
+          <b>CALCULATION</b><br><br>
+          * Option 2(a): # of rooms:________ x $78.65 = $__________ &nbsp; (This is equal to $5000 per room of valuation times $15.73 per $1000 of valuation)<br>
+          ** Option 2(b): # of rooms:________ x $25.85 = $__________ &nbsp; (This is equal to $5000 per room of valuation times $5.17 per $1000 of valuation)<br>
+          *** Replacement Value: # of rooms:________ x $5000 = $___________
+        </div>
+        <p style="font-size:7.5pt; color:#666; margin-top:14px;">This form is prescribed by the GEORGIA PUBLIC SERVICE COMMISSION</p>
+      </div>`;
+  }
+
+  function buildPWGAGuide(pageNum){
+    return `
+      <div class="print-page" style="font-size:10pt; line-height:1.5;">
+        ${pwLetterhead('GA HHG Move Guide', pageNum)}
+        <h2 style="text-align:center; font-family:Georgia,serif; margin:30px 0;">MOVING GUIDE<br>FOR<br>HOUSEHOLD GOODS MOVES IN GEORGIA</h2>
+        <p style="margin-top:40px;">I ______________________________, acknowledge that I am in receipt of the Moving Guide for Household Goods Moves in Georgia.</p>
+        <table style="width:100%; border-collapse:collapse; margin-top:50px; font-size:10pt;">
+          <tr>
+            <td style="width:50%; padding:4px 0;">_________________________________________<br>Date</td>
+            <td style="width:50%; padding:4px 0;">_________________________________________<br>Shipper's Printed Name: ${esc(pwVal('pw_clientName'))}</td>
+          </tr>
+          <tr>
+            <td style="padding:40px 0 4px;">${esc(pwVal('pw_jobNumber'))}<br>Bill of Lading Number</td>
+            <td style="padding:40px 0 4px;">_________________________________________<br>Shipper's Signature</td>
+          </tr>
+        </table>
+      </div>`;
+  }
+
+  function buildPWAddendum(pageNum){
+    return `
+      <div class="print-page" style="font-size:9pt; line-height:1.45;">
+        ${pwLetterhead('Addendum to Estimate', pageNum)}
+        ${pwContactRow()}
+
+        <p>In servicing you, our client, there are changes to the scope of work (i.e. additional household goods, additional services are needed, conditionals that require more time or resources to complete the move) from that described in the original estimate for this job.</p>
+        <p>The following describes changes and/or additions affecting and anticipated costs to complete your service:</p>
+
+        <p style="margin-top:16px;">Additional household goods - The following items (described below) have been added to the move since the original estimate. These items will add approximately $__________ to the originally estimated cost.</p>
+        <p>Packing services required - The client is not fully prepared or packed for moving services and requires packing services to complete the move. This will add approximately $__________ to the originally estimated cost, plus the cost of any boxes/or packing supplies.</p>
+        <p>Unforeseeable circumstances - This may include long walks, parking situations, stairs, narrow throughways, etc. This will add approximately $__________ to the originally estimated cost.</p>
+
+        <p style="margin-top:20px;"><b>Description of the Above Scenarios:</b></p>
+        <div style="border-bottom:1px solid #999; height:70px;"></div>
+
+        <p style="margin-top:16px;"><b>Other Notes:</b></p>
+        <div style="border-bottom:1px solid #999; height:40px;"></div>
+
+        <p style="margin-top:20px;">Original Estimated Cost:______________________________ &nbsp; Revised Estimated Cost: _____________________________</p>
+
+        <p style="margin-top:16px;">I have read this document, accept the revised estimate, and I agree to pay in full the charges associated with this change in my service's scope of work.</p>
+
+        <table style="width:100%; border-collapse:collapse; margin-top:40px; font-size:9pt;">
+          <tr>
+            <td style="width:50%; padding:4px 0;">_________________________________________<br>Client Signature &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+            <td style="width:50%; padding:4px 0;">_________________________________________<br>College Hunks Captain &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+          </tr>
+        </table>
+      </div>`;
+  }
+
+  function buildPWPreExistingDamages(pageNum){
+    const rows = Array.from({length: 26}, (_, i) => `
+      <tr>
+        <td style="width:4%; padding:5px 4px; border-bottom:1px solid #ddd;">${i+1}</td>
+        <td style="width:70%; padding:5px 4px; border-bottom:1px solid #ddd;">&nbsp;</td>
+        <td style="width:26%; padding:5px 4px; border-bottom:1px solid #ddd;">&nbsp;</td>
+      </tr>`).join('');
+    return `
+      <div class="print-page" style="font-size:9pt; line-height:1.4;">
+        ${pwLetterhead('Pre-existing Damages', pageNum)}
+        ${pwContactRow()}
+
+        <table style="width:100%; border-collapse:collapse; font-size:8.5pt;">
+          <tr style="border-bottom:2px solid #999;">
+            <td style="width:4%; padding:5px 4px;"></td>
+            <td style="width:70%; padding:5px 4px; font-weight:bold;">Description of Furniture and Damage</td>
+            <td style="width:26%; padding:5px 4px; font-weight:bold;">Client Initials</td>
+          </tr>
+          ${rows}
+        </table>
+
+        <p style="margin-top:16px; font-size:8.5pt;">I acknowledge that the damages described above existed before College Hunks' service began and understand that my signature releases College Hunks of liability for claims arising from the pre-existing damages described above.</p>
+
+        <table style="width:100%; border-collapse:collapse; margin-top:30px; font-size:9pt;">
+          <tr>
+            <td style="width:50%; padding:4px 0;">_________________________________________<br>Client Signature &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+            <td style="width:50%; padding:4px 0;">_________________________________________<br>College Hunks Captain &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+          </tr>
+        </table>
+      </div>`;
+  }
 
   // Default Date Issued to today, editable if backdating is needed
   (function setToday(){
@@ -2197,6 +2544,49 @@
   });
 
   refreshClientSelect();
+
+  // ---------- Paperwork: job type toggle + print ----------
+  function updatePWJobTypeUI(){
+    const jobType = document.getElementById('pw_jobType').value;
+    const isMove = jobType === 'move';
+    document.getElementById('pw_stopsArea').style.display = isMove ? 'grid' : 'none';
+    const note = document.getElementById('pw_docListNote');
+    note.textContent = isMove
+      ? 'Move prints: Bill of Lading, Liability Waiver, Shipper Declaration of Value, GA HHG Move Guide, Addendum to Estimate, Pre-existing Damages.'
+      : 'Move Labor prints: Liability Waiver, Pre-existing Damages, Shipper Declaration of Value.';
+  }
+  document.getElementById('pw_jobType').addEventListener('change', updatePWJobTypeUI);
+  updatePWJobTypeUI();
+
+  document.getElementById('pw_printBtn').addEventListener('click', ()=>{
+    const statusEl = document.getElementById('pw_status');
+    try{
+      const jobType = document.getElementById('pw_jobType').value;
+      let html = '';
+      if(jobType === 'move'){
+        html += buildPWBillOfLading(2);
+        html += buildPWLiabilityWaiver(3, true);
+        html += buildPWShipperDeclaration(4);
+        html += buildPWGAGuide(5);
+        html += buildPWAddendum(6);
+        html += buildPWPreExistingDamages(7);
+      } else {
+        html += buildPWLiabilityWaiver(2, true);
+        html += buildPWPreExistingDamages(3);
+        html += buildPWShipperDeclaration(4);
+      }
+      document.getElementById('printPaperwork').innerHTML = html;
+      document.getElementById('printBOL').innerHTML = '';
+      document.getElementById('printEstimate').innerHTML = '';
+      window.print();
+      statusEl.textContent = 'Print dialog opened \u2014 choose "Save as PDF" as the destination to get a PDF file.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Paperwork print error:', err);
+      statusEl.textContent = 'Could not generate paperwork: ' + (err && err.message ? err.message : String(err));
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   recalc();
 })();
