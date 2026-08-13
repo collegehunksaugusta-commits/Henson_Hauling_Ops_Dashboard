@@ -858,25 +858,40 @@
   // ---------- navigation ----------
   const home = document.getElementById('home');
   const detail = document.getElementById('detail');
-  document.getElementById('tile-labor').addEventListener('click', openDetail);
-  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openDetail(); }});
-  document.getElementById('backBtn').addEventListener('click', ()=>{ detail.style.display='none'; home.style.display='block'; });
-
   const calcDetail = document.getElementById('calcDetail');
-  document.getElementById('tile-calc').addEventListener('click', ()=>{ home.style.display='none'; calcDetail.style.display='block'; });
-  document.getElementById('tile-calc').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); home.style.display='none'; calcDetail.style.display='block'; }});
-  document.getElementById('calcBackBtn').addEventListener('click', ()=>{ calcDetail.style.display='none'; home.style.display='block'; });
-
   const paperworkDetail = document.getElementById('paperworkDetail');
-  document.getElementById('tile-paperwork').addEventListener('click', ()=>{ home.style.display='none'; paperworkDetail.style.display='block'; });
-  document.getElementById('tile-paperwork').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); home.style.display='none'; paperworkDetail.style.display='block'; }});
-  document.getElementById('paperworkBackBtn').addEventListener('click', ()=>{ paperworkDetail.style.display='none'; home.style.display='block'; });
 
-  function openDetail(){
-    home.style.display='none';
-    detail.style.display='block';
-    if(weeks.length===0){ loadWeeks(); } else { renderAll(); }
+  function showView(view){
+    home.style.display = view === 'home' ? 'block' : 'none';
+    detail.style.display = view === 'labor' ? 'block' : 'none';
+    calcDetail.style.display = view === 'calc' ? 'block' : 'none';
+    paperworkDetail.style.display = view === 'paperwork' ? 'block' : 'none';
+    if(view === 'labor'){
+      if(weeks.length===0){ loadWeeks(); } else { renderAll(); }
+    }
   }
+
+  function navigateTo(view){
+    showView(view);
+    history.pushState({view}, '', '#'+view);
+  }
+
+  window.addEventListener('popstate', (e)=>{
+    showView(e.state && e.state.view ? e.state.view : 'home');
+  });
+  history.replaceState({view:'home'}, '', location.pathname + location.search);
+
+  document.getElementById('tile-labor').addEventListener('click', ()=> navigateTo('labor'));
+  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('labor'); }});
+  document.getElementById('backBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-calc').addEventListener('click', ()=> navigateTo('calc'));
+  document.getElementById('tile-calc').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('calc'); }});
+  document.getElementById('calcBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-paperwork').addEventListener('click', ()=> navigateTo('paperwork'));
+  document.getElementById('tile-paperwork').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('paperwork'); }});
+  document.getElementById('paperworkBackBtn').addEventListener('click', ()=> history.back());
 
   // ---------- storage ----------
   async function loadWeeks(){
