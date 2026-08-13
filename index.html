@@ -2564,6 +2564,31 @@
   refreshClientSelect();
 
   // ---------- Paperwork: job type toggle + print ----------
+  function findMatchingSavedClient(clientName){
+    const target = (clientName || '').trim().toLowerCase();
+    if(!target) return null;
+    const clients = getClients();
+    const matches = clients.filter(c => ((c.data && c.data.shipperName) || '').trim().toLowerCase() === target);
+    if(matches.length === 0) return null;
+    return matches.reduce((a, b) => (a.id > b.id ? a : b)); // most recently saved
+  }
+
+  function pullLongDistanceBOL(clientName){
+    const match = findMatchingSavedClient(clientName);
+    if(!match) return null;
+    const snapshot = collectFormData(); // preserve whatever's currently in the calculator
+    try{
+      restoreFormData(match.data);
+      buildPrintView();
+      const bolEl = document.getElementById('printBOL');
+      const html = bolEl.innerHTML;
+      bolEl.innerHTML = '';
+      return html;
+    } finally {
+      restoreFormData(snapshot); // never leave the live calculator altered
+    }
+  }
+
   function updatePWJobTypeUI(){
     const jobType = document.getElementById('pw_jobType').value;
     const showStops = jobType === 'move' || jobType === 'longdistance';
@@ -2584,6 +2609,7 @@
     try{
       const jobType = document.getElementById('pw_jobType').value;
       let html = '';
+      let extraNote = '';
       if(jobType === 'move'){
         html += buildPWBillOfLading(2);
         html += buildPWLiabilityWaiver(3, true);
@@ -2592,10 +2618,24 @@
         html += buildPWAddendum(6);
         html += buildPWPreExistingDamages(7);
       } else if(jobType === 'longdistance'){
-        html += buildPWLiabilityWaiver(2, true);
-        html += buildPWGAGuide(3);
-        html += buildPWAddendum(4);
-        html += buildPWPreExistingDamages(5);
+        const clientName = pwVal('pw_clientName');
+        const bolHtml = pullLongDistanceBOL(clientName);
+        if(bolHtml){
+          html += bolHtml;
+          html += buildPWLiabilityWaiver(5, true);
+          html += buildPWGAGuide(6);
+          html += buildPWAddendum(7);
+          html += buildPWPreExistingDamages(8);
+          extraNote = ` Included the matching Long Distance Bill of Lading for "${clientName}".`;
+        } else {
+          html += buildPWLiabilityWaiver(2, true);
+          html += buildPWGAGuide(3);
+          html += buildPWAddendum(4);
+          html += buildPWPreExistingDamages(5);
+          extraNote = clientName
+            ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name) first if you need it included.`
+            : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
+        }
       } else {
         html += buildPWLiabilityWaiver(2, true);
         html += buildPWPreExistingDamages(3);
@@ -2605,7 +2645,7 @@
       document.getElementById('printBOL').innerHTML = '';
       document.getElementById('printEstimate').innerHTML = '';
       window.print();
-      statusEl.textContent = 'Print dialog opened \u2014 choose "Save as PDF" as the destination to get a PDF file.';
+      statusEl.textContent = 'Print dialog opened \u2014 choose "Save as PDF" as the destination to get a PDF file.' + extraNote;
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Paperwork print error:', err);
