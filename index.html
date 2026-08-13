@@ -725,6 +725,7 @@
             <select id="pw_jobType">
               <option value="move">Move</option>
               <option value="movelabor">Move Labor</option>
+              <option value="longdistance">Long Distance Move</option>
             </select>
           </label>
           <label>Hunkware Job # <input type="text" id="pw_jobNumber"></label>
@@ -2565,12 +2566,15 @@
   // ---------- Paperwork: job type toggle + print ----------
   function updatePWJobTypeUI(){
     const jobType = document.getElementById('pw_jobType').value;
-    const isMove = jobType === 'move';
-    document.getElementById('pw_stopsArea').style.display = isMove ? 'grid' : 'none';
+    const showStops = jobType === 'move' || jobType === 'longdistance';
+    document.getElementById('pw_stopsArea').style.display = showStops ? 'grid' : 'none';
     const note = document.getElementById('pw_docListNote');
-    note.textContent = isMove
-      ? 'Move prints: Bill of Lading, Liability Waiver, Shipper Declaration of Value, GA HHG Move Guide, Addendum to Estimate, Pre-existing Damages.'
-      : 'Move Labor prints: Liability Waiver, Pre-existing Damages, Shipper Declaration of Value.';
+    const notes = {
+      move: 'Move prints: Bill of Lading, Liability Waiver, Shipper Declaration of Value, GA HHG Move Guide, Addendum to Estimate, Pre-existing Damages.',
+      movelabor: 'Move Labor prints: Liability Waiver, Pre-existing Damages, Shipper Declaration of Value.',
+      longdistance: 'Long Distance Move prints: Liability Waiver, GA HHG Move Guide, Addendum to Estimate, Pre-existing Damages.'
+    };
+    note.textContent = notes[jobType] || '';
   }
   document.getElementById('pw_jobType').addEventListener('change', updatePWJobTypeUI);
   updatePWJobTypeUI();
@@ -2587,6 +2591,11 @@
         html += buildPWGAGuide(5);
         html += buildPWAddendum(6);
         html += buildPWPreExistingDamages(7);
+      } else if(jobType === 'longdistance'){
+        html += buildPWLiabilityWaiver(2, true);
+        html += buildPWGAGuide(3);
+        html += buildPWAddendum(4);
+        html += buildPWPreExistingDamages(5);
       } else {
         html += buildPWLiabilityWaiver(2, true);
         html += buildPWPreExistingDamages(3);
