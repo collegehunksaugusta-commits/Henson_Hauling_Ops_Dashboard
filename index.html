@@ -764,6 +764,35 @@
 
 <script>
 (function(){
+  // ---------- Shared backend storage (replaces localStorage for cross-device data) ----------
+  const API_BASE = 'https://henson-dashboard-backend.onrender.com';
+  window.dashboardApi = {
+    async get(key, fallback){
+      try{
+        const res = await fetch(`${API_BASE}/api/data/${key}`);
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        return (data.value !== null && data.value !== undefined) ? data.value : fallback;
+      }catch(err){
+        console.error('Shared storage read failed for', key, err);
+        return fallback;
+      }
+    },
+    async set(key, value){
+      try{
+        const res = await fetch(`${API_BASE}/api/data/${key}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({value})
+        });
+        return res.ok;
+      }catch(err){
+        console.error('Shared storage write failed for', key, err);
+        return false;
+      }
+    }
+  };
+
   const STORAGE_KEY = 'labor-weeks';
 
   const SEED_WEEKS = [{
@@ -899,12 +928,12 @@
     document.getElementById('loadingNote').style.display='block';
     document.getElementById('content').style.display='none';
     try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){
-        weeks = JSON.parse(raw);
+      const stored = await window.dashboardApi.get(STORAGE_KEY, null);
+      if(stored){
+        weeks = stored;
       } else {
         weeks = SEED_WEEKS;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(weeks));
+        await window.dashboardApi.set(STORAGE_KEY, weeks);
       }
     }catch(err){
       console.error('Storage error, using seed data in-memory only:', err);
@@ -917,8 +946,7 @@
 
   async function saveWeeks(){
     try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(weeks));
-      return true;
+      return await window.dashboardApi.set(STORAGE_KEY, weeks);
     }catch(err){
       console.error('Save failed:', err);
       return false;
@@ -1275,15 +1303,17 @@
   const RATES_KEY = 'labor-employee-rates';
   const LAST_ADMIN_GROSS_KEY = 'labor-last-admin-gross';
 
-  function getStoredRates(){
-    try{ return JSON.parse(localStorage.getItem(RATES_KEY) || '{}'); }catch(e){ return {}; }
+  let employeeRatesCache = null;
+  async function getStoredRatesAsync(){
+    if(employeeRatesCache === null){
+      employeeRatesCache = await window.dashboardApi.get(RATES_KEY, {});
+    }
+    return employeeRatesCache;
   }
   function saveStoredRate(name, rate){
-    try{
-      const rates = getStoredRates();
-      rates[name] = rate;
-      localStorage.setItem(RATES_KEY, JSON.stringify(rates));
-    }catch(e){ console.error('Could not save rate:', e); }
+    if(employeeRatesCache === null) employeeRatesCache = {};
+    employeeRatesCache[name] = rate;
+    window.dashboardApi.set(RATES_KEY, employeeRatesCache); // fire-and-forget; cache already updated
   }
 
   // Timecard names are formatted "Last First M" (no comma); convert to "Last, First M" to
@@ -1327,7 +1357,7 @@
 
       if(found.length === 0) throw new Error('No employee timecard entries found \u2014 this may not be a Timecard Report export, or the format has changed.');
 
-      const rates = getStoredRates();
+      const rates = await getStoredRatesAsync();
       timecardFieldEmployees = found
         .filter(f => !ADMIN_EMPLOYEE_NAMES.has(f.name))
         .map(f => ({
@@ -1359,7 +1389,7 @@
         });
       });
 
-      const lastAdminGross = localStorage.getItem(LAST_ADMIN_GROSS_KEY);
+      const lastAdminGross = await window.dashboardApi.get(LAST_ADMIN_GROSS_KEY, null);
       if(lastAdminGross) document.getElementById('tc_adminGross').value = lastAdminGross;
 
       ratesArea.style.display = 'block';
@@ -1414,7 +1444,7 @@
     document.getElementById('f_otHours').value = otHoursTotal.toFixed(2);
     document.getElementById('f_otPremium').value = otPremiumTotal.toFixed(2);
 
-    localStorage.setItem(LAST_ADMIN_GROSS_KEY, adminGross.toFixed(2));
+    window.dashboardApi.set(LAST_ADMIN_GROSS_KEY, adminGross.toFixed(2));
 
     statusEl.textContent = `Estimate filled in below \u2014 Field Gross ${money(fieldGross)}, ER Tax est. ${money(erTaxEstimate)} (at ${(blendedRate*100).toFixed(2)}% blended rate). Review before saving.`;
     statusEl.className = 'status-msg ok';
@@ -1452,8 +1482,6 @@
   // ---------- reset ----------
   document.getElementById('resetBtn').addEventListener('click', async ()=>{
     if(!confirm('Clear all saved labor cost weeks? This cannot be undone.')) return;
-    weeks = [];
-    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
     weeks = SEED_WEEKS;
     await saveWeeks();
     renderAll();
@@ -1882,11 +1910,16 @@
       ? `<div>Declared Value: ${money(calc.declared)}</div>` : '';
 
     const termsHTML = TERMS_TEXT.map(section => `<p style="margin:0 0 10px; text-align:justify;">${esc(section)}</p>`).join('');
+    const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
 
     const page1 = `
       <div class="print-page" style="font-size:10pt; line-height:1.4;">
-        <div style="display:flex; justify-content:space-between; font-size:8pt; font-weight:bold;">
-          <span>GDPS MRT/HHG NO. 7</span><span>${esc(modeLabel)}</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:8pt; font-weight:bold;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            ${logoSrc ? `<img src="${logoSrc}" style="height:32px; width:auto;">` : ''}
+            <span>GDPS MRT/HHG NO. 7</span>
+          </div>
+          <span>${esc(modeLabel)}</span>
         </div>
         <h2 style="text-align:center; font-size:14pt; margin:14px 0 4px;">COMBINED UNIFORM HOUSEHOLD GOODS BILL OF LADING AND FREIGHT BILL</h2>
         <p style="text-align:center; font-style:italic; font-size:9pt; margin:0 0 18px;">Not Negotiable \u2014 to be issued to shipper at time goods are received by carrier</p>
@@ -2231,11 +2264,15 @@
   const CH_LOGO_LINES = 'Henson Hauling, LLC dba<br>College Hunks Hauling Junk and Moving<br>US DOT 4152752, US MC 1594490-C, GA HHG 9329<br>706-710-2820';
 
   function pwLetterhead(title, pageNum){
+    const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
     return `
       <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1C2126; padding-bottom:6px; margin-bottom:8px;">
-        <div>
-          <div style="font-family:Georgia,serif; font-size:15px; font-weight:bold;">${esc(title)}</div>
-          <div style="font-size:7.5pt; color:#333; margin-top:2px; line-height:1.3;">${CH_LOGO_LINES}</div>
+        <div style="display:flex; align-items:flex-start; gap:8px;">
+          ${logoSrc ? `<img src="${logoSrc}" style="height:34px; width:auto; margin-top:1px;">` : ''}
+          <div>
+            <div style="font-family:Georgia,serif; font-size:15px; font-weight:bold;">${esc(title)}</div>
+            <div style="font-size:7.5pt; color:#333; margin-top:2px; line-height:1.3;">${CH_LOGO_LINES}</div>
+          </div>
         </div>
         <div style="font-size:8.5pt; color:#555; white-space:nowrap;">Page ${pageNum}</div>
       </div>`;
@@ -2391,8 +2428,20 @@
     document.getElementById('issueDate').value = `${mm}/${dd}/${yyyy}`;
   })();
 
-  // ---------- Saved Clients (localStorage) ----------
+  // ---------- Saved Clients (shared backend) ----------
   const CLIENTS_KEY = 'ldEstimateClients';
+
+  let clientsCache = null;
+  async function getClientsAsync(){
+    if(clientsCache === null){
+      clientsCache = await window.dashboardApi.get(CLIENTS_KEY, []);
+    }
+    return clientsCache;
+  }
+  async function setClientsAsync(list){
+    clientsCache = list;
+    return await window.dashboardApi.set(CLIENTS_KEY, list);
+  }
 
   const EXCLUDED_IDS = new Set(['savedClientSelect', 'saveClientName']);
 
@@ -2447,36 +2496,16 @@
     recalc();
   }
 
-  function getClients(){
-    try{
-      const raw = localStorage.getItem(CLIENTS_KEY);
-      return raw ? JSON.parse(raw) : [];
-    }catch(err){
-      console.error('Failed to read saved clients:', err);
-      return [];
-    }
-  }
-
-  function setClients(list){
-    try{
-      localStorage.setItem(CLIENTS_KEY, JSON.stringify(list));
-      return true;
-    }catch(err){
-      console.error('Failed to save clients:', err);
-      return false;
-    }
-  }
-
-  function refreshClientSelect(){
+  async function refreshClientSelect(){
     const sel = document.getElementById('savedClientSelect');
-    const clients = getClients();
+    const clients = await getClientsAsync();
     const current = sel.value;
     sel.innerHTML = '<option value="">-- Select --</option>' +
       clients.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
     if(clients.some(c => String(c.id) === current)) sel.value = current;
   }
 
-  document.getElementById('saveClientBtn').addEventListener('click', () => {
+  document.getElementById('saveClientBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('clientStatus');
     const nameInput = document.getElementById('saveClientName');
     let label = nameInput.value.trim();
@@ -2484,23 +2513,25 @@
       const shipper = document.getElementById('shipperName').value.trim();
       label = shipper ? `${shipper} \u2014 ${document.getElementById('issueDate').value || ''}`.trim() : `Client \u2014 ${new Date().toLocaleDateString()}`;
     }
-    const clients = getClients();
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status';
+    const clients = await getClientsAsync();
     const entry = { id: Date.now(), label, savedAt: new Date().toISOString(), data: collectFormData() };
     clients.push(entry);
-    const ok = setClients(clients);
-    refreshClientSelect();
+    const ok = await setClientsAsync(clients);
+    await refreshClientSelect();
     if(ok){
       document.getElementById('savedClientSelect').value = entry.id;
       nameInput.value = '';
       statusEl.textContent = `Saved "${label}".`;
       statusEl.className = 'status ok';
     } else {
-      statusEl.textContent = 'Could not save \u2014 your browser may be blocking local storage.';
+      statusEl.textContent = 'Could not save \u2014 the shared server may be unreachable. Check your connection and try again.';
       statusEl.className = 'status err';
     }
   });
 
-  document.getElementById('loadClientBtn').addEventListener('click', () => {
+  document.getElementById('loadClientBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('clientStatus');
     const id = document.getElementById('savedClientSelect').value;
     if(!id){
@@ -2508,7 +2539,7 @@
       statusEl.className = 'status err';
       return;
     }
-    const clients = getClients();
+    const clients = await getClientsAsync();
     const entry = clients.find(c => String(c.id) === String(id));
     if(!entry){
       statusEl.textContent = 'Could not find that saved entry.';
@@ -2570,17 +2601,17 @@
   refreshClientSelect();
 
   // ---------- Paperwork: job type toggle + print ----------
-  function findMatchingSavedClient(clientName){
+  async function findMatchingSavedClient(clientName){
     const target = (clientName || '').trim().toLowerCase();
     if(!target) return null;
-    const clients = getClients();
+    const clients = await getClientsAsync();
     const matches = clients.filter(c => ((c.data && c.data.shipperName) || '').trim().toLowerCase() === target);
     if(matches.length === 0) return null;
     return matches.reduce((a, b) => (a.id > b.id ? a : b)); // most recently saved
   }
 
-  function pullLongDistanceBOL(clientName){
-    const match = findMatchingSavedClient(clientName);
+  async function pullLongDistanceBOL(clientName){
+    const match = await findMatchingSavedClient(clientName);
     if(!match) return null;
     const snapshot = collectFormData(); // preserve whatever's currently in the calculator
     try{
@@ -2610,7 +2641,7 @@
   document.getElementById('pw_jobType').addEventListener('change', updatePWJobTypeUI);
   updatePWJobTypeUI();
 
-  document.getElementById('pw_printBtn').addEventListener('click', ()=>{
+  document.getElementById('pw_printBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pw_status');
     try{
       const jobType = document.getElementById('pw_jobType').value;
@@ -2625,7 +2656,7 @@
         html += buildPWPreExistingDamages(7);
       } else if(jobType === 'longdistance'){
         const clientName = pwVal('pw_clientName');
-        const bolHtml = pullLongDistanceBOL(clientName);
+        const bolHtml = await pullLongDistanceBOL(clientName);
         if(bolHtml){
           html += bolHtml;
           html += buildPWLiabilityWaiver(5, true);
