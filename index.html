@@ -281,7 +281,11 @@
     <button class="backlink" id="backBtn">&larr; Dispatch</button>
     <div class="detail-head">
       <h2 class="display">Labor Cost Tracker</h2>
-      <select id="weekSelect"></select>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <select id="weekSelect"></select>
+        <button id="editPeriodBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:8px 14px; border-radius:3px; cursor:pointer; font-size:13px;">Edit This Week</button>
+        <button id="deletePeriodBtn" type="button" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-weight:600; padding:8px 14px; border-radius:3px; cursor:pointer; font-size:13px;">Delete This Week</button>
+      </div>
     </div>
 
     <div id="loadingNote" class="loading-note">Loading saved weeks&hellip;</div>
@@ -943,6 +947,16 @@
     renderWeek();
     renderTrend();
     renderSummaryTable();
+    updatePeriodButtons();
+  }
+
+  function updatePeriodButtons(){
+    const mode = document.getElementById('viewMode').value;
+    const editBtn = document.getElementById('editPeriodBtn');
+    const deleteBtn = document.getElementById('deletePeriodBtn');
+    editBtn.style.display = mode === 'weekly' ? 'inline-block' : 'none';
+    const labels = {weekly:'Week', monthly:'Month', yearly:'Year'};
+    deleteBtn.textContent = `Delete This ${labels[mode]}`;
   }
 
   function renderSummaryTable(){
@@ -1251,6 +1265,47 @@
       });
       document.getElementById('payrollUploadStatus').textContent = '';
     }
+    renderAll();
+  });
+
+  document.getElementById('editPeriodBtn').addEventListener('click', ()=>{
+    const mode = document.getElementById('viewMode').value;
+    if(mode !== 'weekly') return;
+    const w = weeks.find(x => x.weekStart === weekSelect.value);
+    if(!w){ return; }
+
+    document.getElementById('f_start').value = w.weekStart;
+    document.getElementById('f_end').value = w.weekEnd;
+    document.getElementById('f_revenue').value = w.revenue;
+    document.getElementById('f_fieldGross').value = w.fieldGross;
+    document.getElementById('f_adminGross').value = w.adminGross;
+    document.getElementById('f_tips').value = w.tips;
+    document.getElementById('f_erTax').value = w.erTax;
+    document.getElementById('f_otHours').value = w.otHours;
+    document.getElementById('f_otPremium').value = w.otPremium;
+    window.__pendingEmployees = w.employees || [];
+
+    addForm.style.display = 'block';
+    const statusEl = document.getElementById('saveStatus');
+    statusEl.textContent = `Editing week of ${w.weekStart}. Change any fields and click Save Week to update it (re-upload a Payroll Detail file only if you need to replace the employee data too).`;
+    statusEl.className = 'status-msg';
+    addForm.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+
+  document.getElementById('deletePeriodBtn').addEventListener('click', async ()=>{
+    const mode = document.getElementById('viewMode').value;
+    const key = weekSelect.value;
+    if(!key) return;
+    const toDelete = weeks.filter(w => periodKeyOf(w.weekStart, mode) === key);
+    if(toDelete.length === 0) return;
+
+    const label = mode === 'weekly'
+      ? `the week of ${toDelete[0].weekStart}`
+      : `${toDelete.length} week${toDelete.length===1?'':'s'} in ${weekSelect.options[weekSelect.selectedIndex].textContent}`;
+    if(!confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+    weeks = weeks.filter(w => periodKeyOf(w.weekStart, mode) !== key);
+    await saveWeeks();
     renderAll();
   });
 
