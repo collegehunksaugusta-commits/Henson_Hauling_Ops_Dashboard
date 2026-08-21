@@ -287,15 +287,14 @@
     <div id="loadingNote" class="loading-note">Loading saved weeks&hellip;</div>
 
     <div id="content" style="display:none;">
-      <div class="panel" id="calibrationPanel" style="display:none; background:#FFF6E8; border:1px solid #F0D9A8;">
-        <h3 style="color:#5c4a1f;">Time to Recalibrate</h3>
-        <p class="form-note" id="calibrationMsg"></p>
-        <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
-          Upload ADP Payroll Detail (.xlsx) for this pay period
-          <input type="file" id="calibrationUpload" accept=".xlsx" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+      <div class="panel" id="viewModePanel">
+        <label style="max-width:220px;">View By
+          <select id="viewMode">
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
         </label>
-        <div class="status-msg" id="calibrationStatus" style="margin-top:8px;"></div>
-        <button class="reset-link" id="dismissCalibrationBtn" style="margin-top:8px;">Remind me later</button>
       </div>
 
       <div class="kpi-row">
@@ -339,99 +338,47 @@
         <p class="form-note" id="noEmployeeNote" style="display:none;">Per-employee detail wasn't entered for this week &mdash; only the weekly totals below.</p>
       </div>
 
-      <div class="panel" id="rosterPanel">
-        <h3>Employee Roster</h3>
+      <div class="panel" id="summaryPanel">
+        <h3>Summary</h3>
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Name</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Pay Rate ($/hr)</th>
-            <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Administrative</th>
-            <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Period</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Revenue</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Labor Cost</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Labor Cost %</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">OT Hours</th>
           </tr></thead>
-          <tbody id="rosterRows"></tbody>
+          <tbody id="summaryRows"></tbody>
         </table>
-        <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr auto; margin-top:12px; align-items:end;">
-          <label>New Employee Name <input type="text" id="newEmpName"></label>
-          <label>Pay Rate ($/hr) <input type="number" step="0.01" id="newEmpRate"></label>
-          <label style="display:flex; align-items:center; gap:6px; flex-direction:row;"><input type="checkbox" id="newEmpAdmin" style="width:auto;"> Administrative</label>
-          <button class="btn-primary" id="addEmployeeBtn" type="button">+ Add Employee</button>
-        </div>
-        <div class="status-msg" id="rosterStatus" style="margin-top:8px;"></div>
       </div>
 
-      <div class="panel" id="revenuePanel">
-        <h3>Daily Revenue Entry</h3>
-        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
-          <label>Date <input type="date" id="rev_date"></label>
-          <label>Revenue ($) <input type="number" step="0.01" id="rev_amount"></label>
+      <button class="addweek-toggle" id="addWeekToggle">+ Add New Week</button>
+      <div id="addWeekForm" class="panel">
+        <h3>Add New Week (Monday&ndash;Sunday)</h3>
+        <div class="form-grid">
+          <label>Week Start (Monday) <input type="date" id="f_start"></label>
+          <label>Week End (Sunday, auto) <input type="date" id="f_end" readonly style="background:var(--offwhite);"></label>
+          <label>Revenue ($) <input type="number" step="0.01" id="f_revenue" placeholder="38138.82"></label>
         </div>
-        <p class="form-note" id="rev_weekLabel" style="margin-top:6px;"></p>
-        <div class="form-actions" style="margin-top:10px;">
-          <button class="btn-primary" id="saveRevenueBtn" type="button">Save Revenue</button>
-          <span class="status-msg" id="revenueStatus"></span>
+        <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:4px; padding:14px 16px; margin:16px 0;">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Upload ADP Payroll Detail (.xlsx) (auto-fills wages/taxes/OT below)
+            <input type="file" id="payrollXlsxUpload" accept=".xlsx" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+          </label>
+          <div class="status-msg" id="payrollUploadStatus" style="margin-top:8px;"></div>
         </div>
-      </div>
-
-      <div class="panel" id="dailyEntryPanel">
-        <h3>Daily Hours Entry</h3>
-        <label>Date <input type="date" id="de_date"></label>
-        <p class="form-note" id="de_weekLabel"></p>
-        <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:6px;">
-          <thead><tr>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Hours Worked</th>
-          </tr></thead>
-          <tbody id="de_rows"></tbody>
-        </table>
-        <div class="form-actions" style="margin-top:12px;">
-          <button class="btn-primary" id="saveDayBtn" type="button">Save Day</button>
-          <span class="status-msg" id="dayStatus"></span>
+        <div class="form-grid">
+          <label>Field Gross Wages ($) <input type="number" step="0.01" id="f_fieldGross" placeholder="9759.58"></label>
+          <label>Admin Gross Wages ($) <input type="number" step="0.01" id="f_adminGross" placeholder="1843.47"></label>
+          <label>Tips Passed Through ($) <input type="number" step="0.01" id="f_tips" placeholder="1421.43"></label>
+          <label>Employer Taxes, total ($) <input type="number" step="0.01" id="f_erTax" placeholder="1063.04"></label>
+          <label>OT Hours <input type="number" step="0.01" id="f_otHours" placeholder="78.17"></label>
+          <label>OT Premium ($) <input type="number" step="0.01" id="f_otPremium" placeholder="634.45"></label>
         </div>
-      </div>
-
-      <div class="panel" id="tipJobPanel">
-        <h3>Credit Card Tip Splitting</h3>
-        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
-          <label>Date <input type="date" id="tip_date"></label>
-          <label>Total Tip Amount ($) <input type="number" step="0.01" id="tip_amount"></label>
-        </div>
-        <p class="form-note" style="margin:10px 0 6px;">Who was on this job?</p>
-        <div id="tip_employeeChecks" style="display:flex; flex-wrap:wrap; gap:10px 16px;"></div>
-        <p class="form-note" id="tip_splitPreview" style="margin-top:10px;"></p>
-        <div class="form-actions" style="margin-top:10px;">
-          <button class="btn-primary" id="saveTipJobBtn" type="button">Save Tip Split</button>
-          <span class="status-msg" id="tipJobStatus"></span>
-        </div>
-        <div id="tip_recentList" style="margin-top:14px; font-size:12.5px;"></div>
-      </div>
-
-      <div class="panel" id="otherPayPanel">
-        <h3>Other Pay (Bonuses, Commission, etc.)</h3>
-        <label>Week Start (Monday) <input type="date" id="op_weekStart"></label>
-        <table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:8px;">
-          <thead><tr>
-            <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Employee</th>
-            <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line);">Attendance Bonus</th>
-            <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line);">Quality Bonus</th>
-            <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line);">Review Bonus</th>
-            <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line);">Damage Reimb.</th>
-            <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line);">Commission</th>
-          </tr></thead>
-          <tbody id="op_rows"></tbody>
-        </table>
-        <div class="form-actions" style="margin-top:12px;">
-          <button class="btn-primary" id="saveOtherPayBtn" type="button">Save Other Pay</button>
-          <span class="status-msg" id="otherPayStatus"></span>
-        </div>
-      </div>
-
-      <div class="panel" id="taxRatePanel">
-        <h3>Employer Tax Rate Estimate</h3>
-        <p class="form-note">Since exact payroll tax figures are no longer uploaded from ADP, Employer Taxes are estimated using this rate, applied to total gross wages each week. Defaults to your historical blended rate (Total ER Taxes &divide; Total Gross Wages from your last ADP-verified data); adjust if your accountant gives you updated figures.</p>
-        <label style="max-width:220px;">Estimated Rate (%) <input type="number" step="0.01" id="taxRateInput"></label>
-        <div class="form-actions" style="margin-top:10px;">
-          <button class="btn-primary" id="saveTaxRateBtn" type="button">Save Rate</button>
-          <span class="status-msg" id="taxRateStatus"></span>
+        <p class="form-note">Labor Cost is calculated automatically as (Field Gross Wages &minus; Tips Passed Through) + Employer Taxes. Pull wage/tax figures from your ADP Payroll Detail export, or ask Claude to pull and total them for you in chat.</p>
+        <div class="form-actions">
+          <button class="btn-primary" id="saveWeekBtn">Save Week</button>
+          <span class="status-msg" id="saveStatus"></span>
         </div>
       </div>
 
@@ -859,7 +806,7 @@
     calcDetail.style.display = view === 'calc' ? 'block' : 'none';
     paperworkDetail.style.display = view === 'paperwork' ? 'block' : 'none';
     if(view === 'labor'){
-      loadAllLaborData();
+      loadWeeks();
     }
   }
 
@@ -885,38 +832,8 @@
   document.getElementById('tile-paperwork').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('paperwork'); }});
   document.getElementById('paperworkBackBtn').addEventListener('click', ()=> history.back());
 
-  // ---------- shared data keys ----------
-  const ROSTER_KEY = 'labor-employee-roster';
-  const DAILY_HOURS_KEY = 'labor-daily-hours';       // {date: {empId: hours}}
-  const TIP_JOBS_KEY = 'labor-tip-jobs';             // [{id, date, amount, employeeIds:[]}]
-  const OTHER_PAY_KEY = 'labor-other-pay';           // {weekStart: {empId: {attendance,quality,review,damage,commission}}}
-  const DAILY_REVENUE_KEY = 'labor-daily-revenue'; // {date: amount}
-  const TAX_RATE_KEY = 'labor-tax-rate-estimate';    // number (percent)
-  const CALIBRATION_LAST_WEEK_KEY = 'labor-calibration-last-week'; // weekStart string or null
-
-  let roster = [];
-  let dailyHours = {};
-  let tipJobs = [];
-  let otherPay = {};
-  let dailyRevenue = {};
-  let taxRateEstimate = 9.70; // blended rate from the last known exact ADP data (YTD + pilot week baseline)
-  let calibrationLastWeek = null; // weekStart through which ADP calibration has been done
-
-  function seedRoster(){
-    // Seeded from the most recent known active crew (pilot week). Rates are a
-    // starting placeholder only -- review and correct them in the roster table.
-    const admins = new Set(['Henson, Aaron K', 'Henson, Heather', 'Pitchford, Cameron']);
-    const names = ['Guay, Preston','Harris, Alfred R','Henson, Aaron K','Henson, Heather','Johnson, Kniyeko C',
-      'Martinez, Antonio V','Mccullers, Christopher J','Pitchford, Cameron','Rhynes, Sheldon T',
-      'Stephens, Jackson N','Thompson, Joshua M','White, Charles R','Winfrey, Ricky E'];
-    return names.map((name, i) => ({
-      id: 'seed_' + i,
-      name,
-      rate: 16,
-      isAdmin: admins.has(name),
-      active: true
-    }));
-  }
+  // ---------- shared data ----------
+  const STORAGE_KEY = 'labor-weeks';
 
   function mondayOf(dateStr){
     const d = new Date(dateStr + 'T00:00:00');
@@ -936,113 +853,27 @@
     return d.toISOString().slice(0,10);
   }
 
-  function computeWeeksFromRawData(){
-    const weekStarts = new Set();
-    Object.keys(dailyHours).forEach(date => weekStarts.add(mondayOf(date)));
-    tipJobs.forEach(t => weekStarts.add(mondayOf(t.date)));
-    Object.keys(otherPay).forEach(ws => weekStarts.add(ws));
-    Object.keys(dailyRevenue).forEach(date => weekStarts.add(mondayOf(date)));
-
-    const rate = (taxRateEstimate || 0) / 100;
-
-    weeks = Array.from(weekStarts).sort().map(ws => {
-      const we = sundayOf(ws);
-      const empHours = {};
-      let revenueTotal = 0;
-      for(let i=0; i<7; i++){
-        const dateStr = addDays(ws, i);
-        const dayData = dailyHours[dateStr] || {};
-        Object.entries(dayData).forEach(([empId, hrs]) => {
-          empHours[empId] = (empHours[empId]||0) + (Number(hrs)||0);
-        });
-        revenueTotal += Number(dailyRevenue[dateStr]) || 0;
-      }
-      const empTips = {};
-      tipJobs.filter(t => mondayOf(t.date) === ws).forEach(t => {
-        const ids = t.employeeIds || [];
-        if(ids.length === 0) return;
-        const share = (Number(t.amount)||0) / ids.length;
-        ids.forEach(id => { empTips[id] = (empTips[id]||0) + share; });
-      });
-      const weekOtherPay = otherPay[ws] || {};
-
-      let fieldGross=0, adminGross=0, tipsTotal=0, otHoursTotal=0, otPremiumTotal=0;
-      const employees = [];
-      roster.forEach(emp => {
-        const hrs = empHours[emp.id] || 0;
-        const op = weekOtherPay[emp.id] || {};
-        const otherPayTotal = (Number(op.attendance)||0)+(Number(op.quality)||0)+(Number(op.review)||0)+(Number(op.damage)||0)+(Number(op.commission)||0);
-        const tips = empTips[emp.id] || 0;
-        if(hrs === 0 && otherPayTotal === 0 && tips === 0) return; // no activity this week
-        const regHrs = Math.min(hrs, 40);
-        const otHrs = Math.max(hrs-40, 0);
-        const baseWage = regHrs*emp.rate + otHrs*emp.rate*1.5;
-        const otPrem = otHrs*emp.rate*0.5;
-        const grossThisWeek = baseWage + otherPayTotal + tips;
-        if(emp.isAdmin){
-          adminGross += grossThisWeek;
-        } else {
-          fieldGross += grossThisWeek;
-          otHoursTotal += otHrs;
-          otPremiumTotal += otPrem;
-          tipsTotal += tips;
-        }
-        employees.push({name: emp.name, role: emp.isAdmin?'Admin':'Field', regHrs, otHrs, totalEarnings: grossThisWeek, erTax: (grossThisWeek*rate)});
-      });
-
-      const erTaxTotal = (fieldGross + adminGross) * rate;
-
-      return {
-        weekStart: ws, weekEnd: we,
-        revenue: revenueTotal,
-        fieldGross, adminGross, tips: tipsTotal,
-        erTax: erTaxTotal, otHours: otHoursTotal, otPremium: otPremiumTotal,
-        employees
-      };
-    });
-  }
-
-  // ---------- storage ----------
-  async function loadAllLaborData(){
+  async function loadWeeks(){
     document.getElementById('loadingNote').style.display='block';
     document.getElementById('content').style.display='none';
     try{
-      const [r, dh, tj, op, wr, tr, cw] = await Promise.all([
-        window.dashboardApi.get(ROSTER_KEY, null),
-        window.dashboardApi.get(DAILY_HOURS_KEY, {}),
-        window.dashboardApi.get(TIP_JOBS_KEY, []),
-        window.dashboardApi.get(OTHER_PAY_KEY, {}),
-        window.dashboardApi.get(DAILY_REVENUE_KEY, {}),
-        window.dashboardApi.get(TAX_RATE_KEY, null),
-        window.dashboardApi.get(CALIBRATION_LAST_WEEK_KEY, null)
-      ]);
-      if(r === null){
-        roster = seedRoster();
-        await window.dashboardApi.set(ROSTER_KEY, roster);
-      } else {
-        roster = r;
-      }
-      dailyHours = dh; tipJobs = tj; otherPay = op; dailyRevenue = wr;
-      calibrationLastWeek = cw;
-      if(tr === null){
-        await window.dashboardApi.set(TAX_RATE_KEY, taxRateEstimate);
-      } else {
-        taxRateEstimate = tr;
-      }
+      weeks = await window.dashboardApi.get(STORAGE_KEY, []);
     }catch(err){
-      console.error('Storage error, using seed roster in-memory only:', err);
-      roster = seedRoster();
+      console.error('Storage error, starting with an empty list in-memory only:', err);
+      weeks = [];
     }
-    computeWeeksFromRawData();
     document.getElementById('loadingNote').style.display='none';
     document.getElementById('content').style.display='block';
     renderAll();
-    renderRoster();
-    renderRevenueForm();
-    renderDailyEntryForm();
-    renderTipJobForm();
-    renderOtherPayForm();
-    document.getElementById('taxRateInput').value = taxRateEstimate;
+  }
+
+  async function saveWeeks(){
+    try{
+      return await window.dashboardApi.set(STORAGE_KEY, weeks);
+    }catch(err){
+      console.error('Save failed:', err);
+      return false;
+    }
   }
 
   // ---------- rendering ----------
@@ -1061,74 +892,128 @@
   function laborCost(w){ return (w.fieldGross - w.tips) + w.erTax; }
   function laborPct(w){ return w.revenue>0 ? laborCost(w)/w.revenue : 0; }
 
-  function renderAll(){
-    const sw = sortedWeeks();
-    weekSelect.innerHTML = sw.map((w,i)=>{
-      const label = fmtDate(w.weekStart) + ' \u2013 ' + fmtDate(w.weekEnd);
-      return `<option value="${w.weekStart}">${label}</option>`;
-    }).join('');
-    if(sw.length){ weekSelect.value = sw[sw.length-1].weekStart; }
-    renderWeek();
-    renderTrend();
-    checkCalibrationDue();
+  function periodKeyOf(weekStart, mode){
+    if(mode === 'monthly') return weekStart.slice(0,7); // YYYY-MM
+    if(mode === 'yearly') return weekStart.slice(0,4);  // YYYY
+    return weekStart;
   }
 
-  function checkCalibrationDue(){
-    const sw = sortedWeeks();
-    const periodsSince = calibrationLastWeek
-      ? sw.filter(w => w.weekStart > calibrationLastWeek).length
-      : sw.length;
-    const panel = document.getElementById('calibrationPanel');
-    if(periodsSince >= 4){
-      panel.style.display = 'block';
-      document.getElementById('calibrationMsg').textContent = `It's been ${periodsSince} pay periods since your last ADP calibration. Upload a fresh Payroll Detail report to recheck your roster and tax rate assumptions.`;
-    } else {
-      panel.style.display = 'none';
+  function periodLabelOf(key, mode){
+    if(mode === 'yearly') return key;
+    if(mode === 'monthly'){
+      const d = new Date(key + '-01T00:00:00');
+      return d.toLocaleDateString(undefined, {month:'long', year:'numeric'});
     }
+    return key;
+  }
+
+  function groupedPeriods(){
+    const mode = document.getElementById('viewMode').value;
+    const sw = sortedWeeks();
+    if(mode === 'weekly'){
+      return sw.map(w => ({
+        key: w.weekStart, weekStart: w.weekStart, weekEnd: w.weekEnd,
+        label: fmtDate(w.weekStart) + ' \u2013 ' + fmtDate(w.weekEnd),
+        revenue: w.revenue||0, fieldGross: w.fieldGross||0, adminGross: w.adminGross||0,
+        tips: w.tips||0, erTax: w.erTax||0, otHours: w.otHours||0, otPremium: w.otPremium||0,
+        employees: w.employees||[]
+      }));
+    }
+    const map = new Map();
+    sw.forEach(w => {
+      const key = periodKeyOf(w.weekStart, mode);
+      if(!map.has(key)) map.set(key, {key, revenue:0, fieldGross:0, adminGross:0, tips:0, erTax:0, otHours:0, otPremium:0, employees:[]});
+      const agg = map.get(key);
+      agg.revenue += w.revenue||0;
+      agg.fieldGross += w.fieldGross||0;
+      agg.adminGross += w.adminGross||0;
+      agg.tips += w.tips||0;
+      agg.erTax += w.erTax||0;
+      agg.otHours += w.otHours||0;
+      agg.otPremium += w.otPremium||0;
+    });
+    return Array.from(map.values()).sort((a,b)=> a.key.localeCompare(b.key))
+      .map(agg => ({ ...agg, label: periodLabelOf(agg.key, mode) }));
+  }
+
+  function renderAll(){
+    const periods = groupedPeriods();
+    weekSelect.innerHTML = periods.map(p => `<option value="${p.key}">${p.label}</option>`).join('');
+    if(periods.length){ weekSelect.value = periods[periods.length-1].key; }
+    renderWeek();
+    renderTrend();
+    renderSummaryTable();
+  }
+
+  function renderSummaryTable(){
+    const periods = groupedPeriods();
+    const tbody = document.getElementById('summaryRows');
+    tbody.innerHTML = [...periods].reverse().map(p => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${p.label}</td>
+        <td class="num" style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${money(p.revenue)}</td>
+        <td class="num" style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${money(laborCost(p))}</td>
+        <td class="num" style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${(laborPct(p)*100).toFixed(1)}%</td>
+        <td class="num" style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${num(p.otHours,1)}</td>
+      </tr>`).join('');
   }
 
   function renderWeek(){
-    const sw = sortedWeeks();
-    const w = sw.find(x=>x.weekStart===weekSelect.value) || sw[sw.length-1];
-    if(!w) return;
+    const mode = document.getElementById('viewMode').value;
+    const periods = groupedPeriods();
+    const p = periods.find(x=>x.key===weekSelect.value) || periods[periods.length-1];
 
-    const pct = laborPct(w);
-    const cost = laborCost(w);
+    const employeePanel = document.getElementById('employeePanel');
+    employeePanel.style.display = mode === 'weekly' ? 'block' : 'none';
 
-    document.getElementById('kpiRevenue').textContent = money(w.revenue);
+    if(!p){
+      document.getElementById('kpiRevenue').textContent = '\u2014';
+      document.getElementById('kpiLaborCost').textContent = '\u2014';
+      document.getElementById('kpiOtHours').textContent = '\u2014';
+      document.getElementById('kpiOtPremium').textContent = '\u2014';
+      drawGauge(0);
+      document.getElementById('employeeRows').innerHTML = '';
+      return;
+    }
+
+    const pct = laborPct(p);
+    const cost = laborCost(p);
+
+    document.getElementById('kpiRevenue').textContent = money(p.revenue);
     document.getElementById('kpiLaborCost').textContent = 'Labor cost: ' + money(cost);
-    document.getElementById('kpiOtHours').textContent = num(w.otHours,1) + ' hrs';
-    document.getElementById('kpiOtPremium').textContent = 'Premium: ' + money(w.otPremium);
+    document.getElementById('kpiOtHours').textContent = num(p.otHours,1) + ' hrs';
+    document.getElementById('kpiOtPremium').textContent = 'Premium: ' + money(p.otPremium);
 
     drawGauge(pct);
 
-    // employee table
-    const rows = document.getElementById('employeeRows');
-    const noNote = document.getElementById('noEmployeeNote');
-    if(w.employees && w.employees.length){
-      noNote.style.display='none';
-      rows.innerHTML = w.employees.map(e=>{
-        const otClass = e.otHrs>0 ? 'ot-row' : '';
-        const otTag = e.otHrs>0 ? '<span class="ot-tag">OT</span>' : '';
-        return `<tr class="${otClass}">
-          <td>${e.name}${otTag}</td>
-          <td>${e.role}</td>
-          <td class="num">${num(e.regHrs,2)}</td>
-          <td class="num">${num(e.otHrs,2)}</td>
-          <td class="num">${money(e.totalEarnings)}</td>
-          <td class="num">${money(e.erTax)}</td>
-        </tr>`;
-      }).join('');
-    } else {
-      rows.innerHTML = '';
-      noNote.style.display='block';
+    if(mode === 'weekly'){
+      const rows = document.getElementById('employeeRows');
+      const noNote = document.getElementById('noEmployeeNote');
+      if(p.employees && p.employees.length){
+        noNote.style.display='none';
+        rows.innerHTML = p.employees.map(e=>{
+          const otClass = e.otHrs>0 ? 'ot-row' : '';
+          const otTag = e.otHrs>0 ? '<span class="ot-tag">OT</span>' : '';
+          return `<tr class="${otClass}">
+            <td>${e.name}${otTag}</td>
+            <td>${e.role}</td>
+            <td class="num">${num(e.regHrs,2)}</td>
+            <td class="num">${num(e.otHrs,2)}</td>
+            <td class="num">${money(e.totalEarnings)}</td>
+            <td class="num">${money(e.erTax)}</td>
+          </tr>`;
+        }).join('');
+      } else {
+        rows.innerHTML = '';
+        noNote.style.display='block';
+      }
     }
   }
 
   function renderTrend(){
-    const sw = sortedWeeks();
-    const labels = sw.map(w=> fmtDate(w.weekStart));
-    const data = sw.map(w=> +(laborPct(w)*100).toFixed(1));
+    const periods = groupedPeriods();
+    const labels = periods.map(p=> p.label);
+    const data = periods.map(p=> +(laborPct(p)*100).toFixed(1));
     const ctx = document.getElementById('trendChart').getContext('2d');
     if(chart) chart.destroy();
     chart = new Chart(ctx, {
@@ -1157,6 +1042,8 @@
       }
     });
   }
+
+  document.getElementById('viewMode').addEventListener('change', renderAll);
 
   // ---------- gauge (speedometer-style) ----------
   function drawGauge(pct){
@@ -1216,288 +1103,30 @@
   function money(v){ return '$' + Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); }
   function num(v,d){ return Number(v||0).toLocaleString(undefined,{minimumFractionDigits:d, maximumFractionDigits:d}); }
 
-  // ---------- Daily Revenue Entry ----------
-  function esc(s){
-    const d = document.createElement('div');
-    d.textContent = String(s == null ? '' : s);
-    return d.innerHTML;
-  }
-
-  function renderRevenueForm(){
-    const dateInput = document.getElementById('rev_date');
-    if(!dateInput.value) dateInput.value = addDays(new Date().toISOString().slice(0,10), -1);
-    updateRevenueForm();
-  }
-
-  function updateRevenueForm(){
-    const date = document.getElementById('rev_date').value;
-    if(!date) return;
-    const ws = mondayOf(date), we = sundayOf(ws);
-    document.getElementById('rev_weekLabel').textContent = `Work week: ${ws} to ${we} (Monday\u2013Sunday)`;
-    const amtInput = document.getElementById('rev_amount');
-    amtInput.value = dailyRevenue[date] != null ? dailyRevenue[date] : '';
-  }
-
-  document.getElementById('rev_date').addEventListener('change', updateRevenueForm);
-
-  document.getElementById('saveRevenueBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('revenueStatus');
-    const date = document.getElementById('rev_date').value;
-    const amt = parseFloat(document.getElementById('rev_amount').value);
-    if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
-    if(isNaN(amt)){ statusEl.textContent = 'Enter a revenue amount.'; statusEl.className = 'status-msg err'; return; }
-    dailyRevenue[date] = amt;
-    const ok = await window.dashboardApi.set(DAILY_REVENUE_KEY, dailyRevenue);
-    computeWeeksFromRawData();
-    renderAll();
-    statusEl.textContent = ok ? `Saved revenue for ${date}.` : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  // ---------- add week form ----------
+  const addToggle = document.getElementById('addWeekToggle');
+  const addForm = document.getElementById('addWeekForm');
+  addToggle.addEventListener('click', ()=>{
+    addForm.style.display = addForm.style.display==='block' ? 'none' : 'block';
   });
 
-  // ---------- Employee Roster ----------
-  function renderRoster(){
-    const tbody = document.getElementById('rosterRows');
-    tbody.innerHTML = roster.map((emp, i) => `
-      <tr>
-        <td style="padding:5px 4px;"><input type="text" data-idx="${i}" class="roster-name" value="${esc(emp.name)}" style="width:100%; padding:5px 6px; border:1px solid var(--line); border-radius:3px;"></td>
-        <td style="padding:5px 4px; text-align:right;"><input type="number" step="0.01" data-idx="${i}" class="roster-rate" value="${emp.rate}" style="width:80px; padding:5px 6px; border:1px solid var(--line); border-radius:3px; text-align:right;"></td>
-        <td style="padding:5px 4px; text-align:center;"><input type="checkbox" data-idx="${i}" class="roster-admin" ${emp.isAdmin?'checked':''} style="width:auto;"></td>
-        <td style="padding:5px 4px; text-align:right;"><button type="button" class="roster-remove" data-idx="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Remove</button></td>
-      </tr>`).join('');
-
-    tbody.querySelectorAll('.roster-name').forEach(inp => inp.addEventListener('change', onRosterFieldChange));
-    tbody.querySelectorAll('.roster-rate').forEach(inp => inp.addEventListener('change', onRosterFieldChange));
-    tbody.querySelectorAll('.roster-admin').forEach(inp => inp.addEventListener('change', onRosterFieldChange));
-    tbody.querySelectorAll('.roster-remove').forEach(btn => btn.addEventListener('click', onRosterRemove));
-  }
-
-  async function saveRoster(msg){
-    const statusEl = document.getElementById('rosterStatus');
-    const ok = await window.dashboardApi.set(ROSTER_KEY, roster);
-    renderRoster();
-    computeWeeksFromRawData();
-    renderAll();
-    renderDailyEntryForm();
-    renderTipJobForm();
-    renderOtherPayForm();
-    statusEl.textContent = ok ? msg : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-  }
-
-  async function onRosterFieldChange(e){
-    const idx = parseInt(e.target.dataset.idx, 10);
-    const emp = roster[idx];
-    if(!emp) return;
-    if(e.target.classList.contains('roster-name')) emp.name = e.target.value.trim();
-    if(e.target.classList.contains('roster-rate')) emp.rate = parseFloat(e.target.value) || 0;
-    if(e.target.classList.contains('roster-admin')) emp.isAdmin = e.target.checked;
-    await saveRoster(`Updated ${emp.name}.`);
-  }
-
-  async function onRosterRemove(e){
-    const idx = parseInt(e.target.dataset.idx, 10);
-    const emp = roster[idx];
-    if(!emp) return;
-    if(!confirm(`Remove ${emp.name} from the active roster? Past hours/pay already saved for them stay in historical weeks, but you won't be able to log new hours for them.`)) return;
-    roster.splice(idx, 1);
-    await saveRoster(`Removed ${emp.name}.`);
-  }
-
-  document.getElementById('addEmployeeBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('rosterStatus');
-    const nameInput = document.getElementById('newEmpName');
-    const rateInput = document.getElementById('newEmpRate');
-    const adminInput = document.getElementById('newEmpAdmin');
-    const name = nameInput.value.trim();
-    const rate = parseFloat(rateInput.value);
-    if(!name){ statusEl.textContent = 'Enter a name.'; statusEl.className = 'status-msg err'; return; }
-    if(isNaN(rate)){ statusEl.textContent = 'Enter a pay rate.'; statusEl.className = 'status-msg err'; return; }
-    roster.push({ id: 'emp_' + Date.now() + '_' + Math.floor(Math.random()*1000), name, rate, isAdmin: adminInput.checked, active: true });
-    nameInput.value = ''; rateInput.value = ''; adminInput.checked = false;
-    await saveRoster(`Added ${name}.`);
+  document.getElementById('f_start').addEventListener('change', (e)=>{
+    const v = e.target.value;
+    if(!v) return;
+    const ws = mondayOf(v);
+    if(ws !== v) e.target.value = ws; // snap to Monday
+    document.getElementById('f_end').value = sundayOf(ws);
   });
 
-  // ---------- Daily Hours Entry ----------
-  function renderDailyEntryForm(){
-    const dateInput = document.getElementById('de_date');
-    if(!dateInput.value){
-      dateInput.value = addDays(new Date().toISOString().slice(0,10), -1); // default to yesterday
-    }
-    updateDailyEntryRows();
-  }
-
-  function updateDailyEntryRows(){
-    const date = document.getElementById('de_date').value;
-    if(!date) return;
-    const ws = mondayOf(date);
-    const we = sundayOf(ws);
-    document.getElementById('de_weekLabel').textContent = `Work week: ${ws} to ${we} (Monday\u2013Sunday)`;
-    const dayData = dailyHours[date] || {};
-    const tbody = document.getElementById('de_rows');
-    tbody.innerHTML = roster.map(emp => `
-      <tr>
-        <td style="padding:5px 4px;">${esc(emp.name)}${emp.isAdmin ? ' <span style="color:var(--muted); font-size:11px;">(Admin)</span>' : ''}</td>
-        <td style="padding:5px 4px; text-align:right;"><input type="number" step="0.01" min="0" data-emp="${emp.id}" class="de-hours" value="${dayData[emp.id] != null ? dayData[emp.id] : ''}" placeholder="0" style="width:80px; padding:5px 6px; border:1px solid var(--line); border-radius:3px; text-align:right;"></td>
-      </tr>`).join('');
-  }
-
-  document.getElementById('de_date').addEventListener('change', updateDailyEntryRows);
-
-  document.getElementById('saveDayBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('dayStatus');
-    const date = document.getElementById('de_date').value;
-    if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
-    const dayData = {};
-    document.querySelectorAll('.de-hours').forEach(inp => {
-      const v = parseFloat(inp.value);
-      if(!isNaN(v) && v > 0) dayData[inp.dataset.emp] = v;
-    });
-    dailyHours[date] = dayData;
-    const ok = await window.dashboardApi.set(DAILY_HOURS_KEY, dailyHours);
-    computeWeeksFromRawData();
-    renderAll();
-    statusEl.textContent = ok ? `Saved hours for ${date}.` : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-  });
-
-  // ---------- Credit Card Tip Splitting ----------
-  function renderTipJobForm(){
-    const dateInput = document.getElementById('tip_date');
-    if(!dateInput.value) dateInput.value = addDays(new Date().toISOString().slice(0,10), -1);
-    const checksEl = document.getElementById('tip_employeeChecks');
-    checksEl.innerHTML = roster.filter(e => !e.isAdmin).map(emp => `
-      <label style="display:flex; align-items:center; gap:5px; font-size:13px; font-weight:normal;">
-        <input type="checkbox" class="tip-emp-check" value="${emp.id}" style="width:auto;"> ${esc(emp.name)}
-      </label>`).join('');
-    checksEl.querySelectorAll('.tip-emp-check').forEach(cb => cb.addEventListener('change', updateTipPreview));
-    document.getElementById('tip_amount').addEventListener('input', updateTipPreview);
-    updateTipPreview();
-    renderRecentTipJobs();
-  }
-
-  function updateTipPreview(){
-    const amt = parseFloat(document.getElementById('tip_amount').value) || 0;
-    const checked = Array.from(document.querySelectorAll('.tip-emp-check:checked'));
-    const previewEl = document.getElementById('tip_splitPreview');
-    if(checked.length === 0){
-      previewEl.textContent = amt > 0 ? 'Select at least one employee to split this among.' : '';
-      return;
-    }
-    const share = amt / checked.length;
-    previewEl.textContent = `${money(share)} each, split ${checked.length} ways.`;
-  }
-
-  document.getElementById('saveTipJobBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('tipJobStatus');
-    const date = document.getElementById('tip_date').value;
-    const amount = parseFloat(document.getElementById('tip_amount').value);
-    const employeeIds = Array.from(document.querySelectorAll('.tip-emp-check:checked')).map(cb => cb.value);
-    if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
-    if(isNaN(amount) || amount <= 0){ statusEl.textContent = 'Enter a tip amount.'; statusEl.className = 'status-msg err'; return; }
-    if(employeeIds.length === 0){ statusEl.textContent = 'Select who was on this job.'; statusEl.className = 'status-msg err'; return; }
-    tipJobs.push({ id: 'tip_' + Date.now(), date, amount, employeeIds });
-    const ok = await window.dashboardApi.set(TIP_JOBS_KEY, tipJobs);
-    computeWeeksFromRawData();
-    renderAll();
-    document.getElementById('tip_amount').value = '';
-    document.querySelectorAll('.tip-emp-check').forEach(cb => cb.checked = false);
-    updateTipPreview();
-    renderRecentTipJobs();
-    statusEl.textContent = ok ? 'Tip split saved.' : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-  });
-
-  function renderRecentTipJobs(){
-    const listEl = document.getElementById('tip_recentList');
-    const recent = [...tipJobs].sort((a,b)=> b.id.localeCompare(a.id)).slice(0, 8);
-    if(recent.length === 0){ listEl.innerHTML = ''; return; }
-    const empName = id => (roster.find(e=>e.id===id) || {}).name || '(removed employee)';
-    listEl.innerHTML = '<div class="form-note" style="margin-bottom:6px;">Recent tip splits:</div>' + recent.map(t => `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid var(--line);">
-        <span>${esc(t.date)} \u2014 ${money(t.amount)} split among ${t.employeeIds.map(empName).map(esc).join(', ')}</span>
-        <button type="button" class="tip-delete" data-id="${t.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;">Delete</button>
-      </div>`).join('');
-    listEl.querySelectorAll('.tip-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
-      const id = e.target.dataset.id;
-      if(!confirm('Delete this tip split?')) return;
-      tipJobs = tipJobs.filter(t => t.id !== id);
-      await window.dashboardApi.set(TIP_JOBS_KEY, tipJobs);
-      computeWeeksFromRawData();
-      renderAll();
-      renderRecentTipJobs();
-    }));
-  }
-
-  // ---------- Other Pay ----------
-  function renderOtherPayForm(){
-    const wsInput = document.getElementById('op_weekStart');
-    if(!wsInput.value) wsInput.value = mondayOf(new Date().toISOString().slice(0,10));
-    updateOtherPayRows();
-  }
-
-  function updateOtherPayRows(){
-    const wsRaw = document.getElementById('op_weekStart').value;
-    if(!wsRaw) return;
-    const ws = mondayOf(wsRaw);
-    const weekData = otherPay[ws] || {};
-    const tbody = document.getElementById('op_rows');
-    const fields = ['attendance','quality','review','damage','commission'];
-    tbody.innerHTML = roster.map(emp => {
-      const empData = weekData[emp.id] || {};
-      return `<tr>
-        <td style="padding:4px 3px;">${esc(emp.name)}</td>
-        ${fields.map(f => `<td style="padding:4px 3px;"><input type="number" step="0.01" data-emp="${emp.id}" data-field="${f}" class="op-input" value="${empData[f] != null ? empData[f] : ''}" placeholder="0" style="width:70px; padding:4px 5px; border:1px solid var(--line); border-radius:3px; text-align:right;"></td>`).join('')}
-      </tr>`;
-    }).join('');
-  }
-
-  document.getElementById('op_weekStart').addEventListener('change', updateOtherPayRows);
-
-  document.getElementById('saveOtherPayBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('otherPayStatus');
-    const wsRaw = document.getElementById('op_weekStart').value;
-    if(!wsRaw){ statusEl.textContent = 'Pick a week.'; statusEl.className = 'status-msg err'; return; }
-    const ws = mondayOf(wsRaw);
-    const weekData = {};
-    document.querySelectorAll('.op-input').forEach(inp => {
-      const v = parseFloat(inp.value);
-      if(isNaN(v) || v === 0) return;
-      const empId = inp.dataset.emp, field = inp.dataset.field;
-      if(!weekData[empId]) weekData[empId] = {};
-      weekData[empId][field] = v;
-    });
-    otherPay[ws] = weekData;
-    const ok = await window.dashboardApi.set(OTHER_PAY_KEY, otherPay);
-    computeWeeksFromRawData();
-    renderAll();
-    statusEl.textContent = ok ? `Saved other pay for week of ${ws}.` : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-  });
-
-  // ---------- Tax Rate Estimate ----------
-  document.getElementById('saveTaxRateBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('taxRateStatus');
-    const v = parseFloat(document.getElementById('taxRateInput').value);
-    if(isNaN(v) || v < 0){ statusEl.textContent = 'Enter a valid percentage.'; statusEl.className = 'status-msg err'; return; }
-    taxRateEstimate = v;
-    const ok = await window.dashboardApi.set(TAX_RATE_KEY, taxRateEstimate);
-    computeWeeksFromRawData();
-    renderAll();
-    statusEl.textContent = ok ? 'Tax rate updated.' : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-  });
-
-  // ---------- ADP Calibration (every 4th pay period) ----------
-  document.getElementById('dismissCalibrationBtn').addEventListener('click', ()=>{
-    document.getElementById('calibrationPanel').style.display = 'none';
-  });
-
-  document.getElementById('calibrationUpload').addEventListener('change', async (e)=>{
-    const statusEl = document.getElementById('calibrationStatus');
+  document.getElementById('payrollXlsxUpload').addEventListener('change', async (e)=>{
+    const statusEl = document.getElementById('payrollUploadStatus');
     const file = e.target.files[0];
     if(!file) return;
     statusEl.textContent = 'Reading file...';
     statusEl.className = 'status-msg';
+
+    const ADMIN_EMPLOYEE_NAMES = new Set(['Henson, Aaron K', 'Henson, Heather', 'Pitchford, Cameron']);
+
     try{
       if(!window.XLSX) throw new Error('Spreadsheet reader failed to load \u2014 check your internet connection and try again.');
       const data = new Uint8Array(await file.arrayBuffer());
@@ -1507,16 +1136,20 @@
 
       const headerIdx = rows.findIndex(r => r && r[0] === 'Employee Name');
       if(headerIdx === -1) throw new Error('This doesn\'t look like an ADP Payroll Detail export (no "Employee Name" header row found).');
+
       const header = rows[headerIdx];
       const TOTAL_EARNINGS_COL = 30;
       const TOTAL_ER_LIABILITY_COL = 42;
       if((header[TOTAL_EARNINGS_COL]||'').toString().trim() !== 'Total Earnings' ||
          (header[TOTAL_ER_LIABILITY_COL]||'').toString().trim() !== 'Total Employer Liability'){
-        throw new Error('This file\'s column layout doesn\'t match what\'s expected \u2014 ADP may have changed the report format.');
+        throw new Error('This file\'s column layout doesn\'t match what\'s expected \u2014 ADP may have changed the report format. Ask Claude to update the parser.');
       }
 
-      const foundNames = new Set();
-      let totalGrossAll = 0, totalErLiability = 0;
+      let fieldGross = 0, adminGross = 0, tipsField = 0, erTaxTotal = 0, otHoursTotal = 0, otPremiumTotal = 0;
+      let employeeCount = 0;
+      const skippedNoRegRate = [];
+      const employees = [];
+
       for(let i = headerIdx+1; i < rows.length; i++){
         const row = rows[i];
         if(!row) continue;
@@ -1524,87 +1157,98 @@
         if(!name || String(name).includes('Total')) continue;
         const totalEarnings = row[TOTAL_EARNINGS_COL];
         if(totalEarnings === null || totalEarnings === undefined) continue;
-        foundNames.add(String(name).trim());
-        totalGrossAll += totalEarnings;
-        totalErLiability += row[TOTAL_ER_LIABILITY_COL] || 0;
+
+        employeeCount++;
+        const isAdmin = ADMIN_EMPLOYEE_NAMES.has(String(name).trim());
+        if(isAdmin){ adminGross += totalEarnings; } else { fieldGross += totalEarnings; }
+        const erTaxThis = row[TOTAL_ER_LIABILITY_COL] || 0;
+        erTaxTotal += erTaxThis;
+
+        let regRate = null, regHrs = 0, otHrs = 0;
+        for(let slot = 0; slot < 6; slot++){
+          const base = 5 + slot*4;
+          const label = (row[base] || '').toString().trim();
+          const hours = row[base+1];
+          const rate = row[base+2];
+          const amount = row[base+3];
+          if(label === 'Regular'){
+            regRate = rate;
+            regHrs = hours || 0;
+          } else if(label === 'Overtime'){
+            otHrs = hours || 0;
+            const otAmount = amount || 0;
+            otHoursTotal += otHrs;
+            if(regRate){
+              otPremiumTotal += otAmount - (otHrs * regRate);
+            } else {
+              skippedNoRegRate.push(String(name).trim());
+            }
+          } else if(label === 'Credit card tips owed' && !isAdmin){
+            tipsField += amount || 0;
+          }
+        }
+        employees.push({ name: String(name).trim(), role: isAdmin ? 'Admin' : 'Field', regHrs, otHrs, totalEarnings, erTax: erTaxThis });
       }
-      if(foundNames.size === 0) throw new Error('No employee rows found in this file.');
 
-      const rosterNames = new Set(roster.map(emp => emp.name.trim()));
-      const toAdd = [...foundNames].filter(n => !rosterNames.has(n));
-      const toRemove = roster.filter(emp => !foundNames.has(emp.name.trim()));
-      const newRate = totalGrossAll > 0 ? (totalErLiability/totalGrossAll*100) : taxRateEstimate;
+      if(employeeCount === 0) throw new Error('No employee rows found in this file.');
 
-      let summary = `Found ${foundNames.size} employees in this report.\n`;
-      if(toAdd.length) summary += `\nNew hires to add (default field, $16/hr \u2014 review after): ${toAdd.join(', ')}`;
-      if(toRemove.length) summary += `\nNo longer on payroll, will remove from roster: ${toRemove.map(emp=>emp.name).join(', ')}`;
-      if(toAdd.length===0 && toRemove.length===0) summary += '\nRoster already matches this report \u2014 no employee changes needed.';
-      summary += `\n\nEmployer tax rate from this report: ${newRate.toFixed(2)}% (current estimate: ${taxRateEstimate.toFixed(2)}%)`;
+      document.getElementById('f_fieldGross').value = fieldGross.toFixed(2);
+      document.getElementById('f_adminGross').value = adminGross.toFixed(2);
+      document.getElementById('f_tips').value = tipsField.toFixed(2);
+      document.getElementById('f_erTax').value = erTaxTotal.toFixed(2);
+      document.getElementById('f_otHours').value = otHoursTotal.toFixed(2);
+      document.getElementById('f_otPremium').value = otPremiumTotal.toFixed(2);
+      window.__pendingEmployees = employees;
 
-      if(!confirm(summary + '\n\nApply these changes?')){
-        statusEl.textContent = 'Calibration cancelled \u2014 no changes made.';
-        statusEl.className = 'status-msg';
-        return;
+      let msg = `Filled in from ${employeeCount} employees: Field Gross ${money(fieldGross)}, Admin Gross ${money(adminGross)}, Tips ${money(tipsField)}, ER Taxes ${money(erTaxTotal)}, OT ${otHoursTotal.toFixed(2)} hrs / ${money(otPremiumTotal)} premium.`;
+      if(skippedNoRegRate.length > 0){
+        msg += ` Note: couldn't compute OT premium for ${skippedNoRegRate.join(', ')} (no Regular rate on file) \u2014 check that OT premium total manually.`;
       }
-
-      toAdd.forEach(name => {
-        roster.push({ id: 'emp_' + Date.now() + '_' + Math.floor(Math.random()*1000), name, rate: 16, isAdmin: false, active: true });
-      });
-      toRemove.forEach(emp => {
-        const idx = roster.findIndex(r => r.id === emp.id);
-        if(idx > -1) roster.splice(idx, 1);
-      });
-      taxRateEstimate = newRate;
-
-      const sw = sortedWeeks();
-      calibrationLastWeek = sw.length ? sw[sw.length-1].weekStart : new Date().toISOString().slice(0,10);
-
-      await Promise.all([
-        window.dashboardApi.set(ROSTER_KEY, roster),
-        window.dashboardApi.set(TAX_RATE_KEY, taxRateEstimate),
-        window.dashboardApi.set(CALIBRATION_LAST_WEEK_KEY, calibrationLastWeek)
-      ]);
-
-      renderRoster();
-      renderDailyEntryForm();
-      renderTipJobForm();
-      renderOtherPayForm();
-      document.getElementById('taxRateInput').value = taxRateEstimate;
-      computeWeeksFromRawData();
-      renderAll();
-
-      statusEl.textContent = `Calibration applied: ${toAdd.length} added, ${toRemove.length} removed, tax rate updated to ${newRate.toFixed(2)}%.`;
+      statusEl.textContent = msg;
       statusEl.className = 'status-msg ok';
     }catch(err){
-      console.error('Calibration parse error:', err);
+      console.error('Payroll parse error:', err);
       statusEl.textContent = 'Could not parse that file: ' + (err && err.message ? err.message : String(err));
       statusEl.className = 'status-msg err';
     }
   });
 
-  document.getElementById('resetBtn').addEventListener('click', async ()=>{
-    if(!confirm('Clear ALL saved labor cost data \u2014 roster, daily hours, tips, other pay, and revenue? This cannot be undone.')) return;
-    roster = seedRoster();
-    dailyHours = {};
-    tipJobs = [];
-    otherPay = {};
-    dailyRevenue = {};
-    calibrationLastWeek = null;
-    await Promise.all([
-      window.dashboardApi.set(ROSTER_KEY, roster),
-      window.dashboardApi.set(DAILY_HOURS_KEY, dailyHours),
-      window.dashboardApi.set(TIP_JOBS_KEY, tipJobs),
-      window.dashboardApi.set(OTHER_PAY_KEY, otherPay),
-      window.dashboardApi.set(DAILY_REVENUE_KEY, dailyRevenue),
-      window.dashboardApi.set(CALIBRATION_LAST_WEEK_KEY, null)
-    ]);
-    computeWeeksFromRawData();
+  document.getElementById('saveWeekBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('saveStatus');
+    const start = document.getElementById('f_start').value;
+    if(!start){ statusEl.textContent = 'Pick a week start date.'; statusEl.className = 'status-msg err'; return; }
+    const startSnapped = mondayOf(start);
+    const end = document.getElementById('f_end').value || sundayOf(startSnapped);
+    const revenue = parseFloat(document.getElementById('f_revenue').value) || 0;
+    const fieldGross = parseFloat(document.getElementById('f_fieldGross').value) || 0;
+    const adminGross = parseFloat(document.getElementById('f_adminGross').value) || 0;
+    const tips = parseFloat(document.getElementById('f_tips').value) || 0;
+    const erTax = parseFloat(document.getElementById('f_erTax').value) || 0;
+    const otHours = parseFloat(document.getElementById('f_otHours').value) || 0;
+    const otPremium = parseFloat(document.getElementById('f_otPremium').value) || 0;
+    const employees = window.__pendingEmployees || [];
+
+    weeks = weeks.filter(w => w.weekStart !== startSnapped);
+    weeks.push({ weekStart: startSnapped, weekEnd: end, revenue, fieldGross, adminGross, tips, erTax, otHours, otPremium, employees });
+
+    const ok = await saveWeeks();
+    statusEl.textContent = ok ? 'Week saved.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+    if(ok){
+      window.__pendingEmployees = [];
+      ['f_start','f_end','f_revenue','f_fieldGross','f_adminGross','f_tips','f_erTax','f_otHours','f_otPremium'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('payrollUploadStatus').textContent = '';
+    }
     renderAll();
-    renderRoster();
-    renderRevenueForm();
-    renderDailyEntryForm();
-    renderTipJobForm();
-    renderOtherPayForm();
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', async ()=>{
+    if(!confirm('Clear all saved labor cost weeks? This cannot be undone.')) return;
+    weeks = [];
+    await saveWeeks();
+    renderAll();
   });
 
 })();
