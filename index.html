@@ -1138,12 +1138,16 @@
       if(headerIdx === -1) throw new Error('This doesn\'t look like an ADP Payroll Detail export (no "Employee Name" header row found).');
 
       const header = rows[headerIdx];
-      const TOTAL_EARNINGS_COL = 30;
-      const TOTAL_ER_LIABILITY_COL = 42;
-      if((header[TOTAL_EARNINGS_COL]||'').toString().trim() !== 'Total Earnings' ||
-         (header[TOTAL_ER_LIABILITY_COL]||'').toString().trim() !== 'Total Employer Liability'){
-        throw new Error('This file\'s column layout doesn\'t match what\'s expected \u2014 ADP may have changed the report format. Ask Claude to update the parser.');
+      const TOTAL_EARNINGS_COL = header.findIndex(h => (h||'').toString().trim() === 'Total Earnings');
+      const TOTAL_ER_LIABILITY_COL = header.findIndex(h => (h||'').toString().trim() === 'Total Employer Liability');
+      if(TOTAL_EARNINGS_COL === -1 || TOTAL_ER_LIABILITY_COL === -1){
+        throw new Error('This file\'s column layout doesn\'t match what\'s expected \u2014 couldn\'t find "Total Earnings" and "Total Employer Liability" columns. Ask Claude to update the parser.');
       }
+      // Earning slots run in groups of 4 (label, hours, rate, amount) starting at column 5,
+      // up through the "Total Hours" column right before Total Earnings. ADP reports have
+      // used both 5 and 6 slots across different report vintages, so this is computed
+      // fresh from each file rather than assumed.
+      const numEarningSlots = Math.max(0, Math.floor((TOTAL_EARNINGS_COL - 1 - 5) / 4));
 
       let fieldGross = 0, adminGross = 0, tipsField = 0, erTaxTotal = 0, otHoursTotal = 0, otPremiumTotal = 0;
       let employeeCount = 0;
@@ -1165,7 +1169,7 @@
         erTaxTotal += erTaxThis;
 
         let regRate = null, regHrs = 0, otHrs = 0;
-        for(let slot = 0; slot < 6; slot++){
+        for(let slot = 0; slot < numEarningSlots; slot++){
           const base = 5 + slot*4;
           const label = (row[base] || '').toString().trim();
           const hours = row[base+1];
@@ -1219,7 +1223,13 @@
     if(!start){ statusEl.textContent = 'Pick a week start date.'; statusEl.className = 'status-msg err'; return; }
     const startSnapped = mondayOf(start);
     const end = document.getElementById('f_end').value || sundayOf(startSnapped);
-    const revenue = parseFloat(document.getElementById('f_revenue').value) || 0;
+    const revenueRaw = document.getElementById('f_revenue').value;
+    if(revenueRaw === '' || isNaN(parseFloat(revenueRaw))){
+      statusEl.textContent = 'Enter this week\'s revenue before saving.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const revenue = parseFloat(revenueRaw);
     const fieldGross = parseFloat(document.getElementById('f_fieldGross').value) || 0;
     const adminGross = parseFloat(document.getElementById('f_adminGross').value) || 0;
     const tips = parseFloat(document.getElementById('f_tips').value) || 0;
