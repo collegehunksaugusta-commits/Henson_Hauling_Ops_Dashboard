@@ -826,6 +826,10 @@
           <label>Next Required Maintenance (date) <input type="date" id="m_nextDue"></label>
         </div>
         <label>Description of Maintenance <textarea id="m_description" rows="3" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+        <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:12px;">
+          Invoice (optional, PDF or photo, up to 10MB)
+          <input type="file" id="m_invoice" accept=".pdf,.jpg,.jpeg,.png,.heic" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+        </label>
         <div class="form-actions">
           <button class="btn-primary" id="saveMaintenanceBtn" type="button">Save Maintenance Entry</button>
           <span class="status-msg" id="maintenanceStatus"></span>
@@ -840,13 +844,13 @@
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Next Due</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Invoice</th>
             <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
           </tr></thead>
           <tbody id="maintenanceRows"></tbody>
         </table>
       </div>
 
-      <button class="reset-link" id="fleetResetBtn">Clear all saved fleet data</button>
     </div>
   </div>
   </div>
@@ -879,6 +883,15 @@
         return res.ok;
       }catch(err){
         console.error('Shared storage write failed for', key, err);
+        return false;
+      }
+    },
+    async delete(key){
+      try{
+        const res = await fetch(`${API_BASE}/api/data/${key}`, { method: 'DELETE' });
+        return res.ok;
+      }catch(err){
+        console.error('Shared storage delete failed for', key, err);
         return false;
       }
     }
@@ -1549,16 +1562,41 @@
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.date)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.description)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.nextDue ? fleetEsc(l.nextDue) : '\u2014'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.hasInvoice ? `<button type="button" class="invoice-view" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">View Invoice</button>` : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="log-delete" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`).join('');
     tbody.querySelectorAll('.log-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.target.dataset.id;
+      const entry = maintenanceLogs.find(l => l.id === id);
       if(!confirm('Delete this maintenance entry?')) return;
       maintenanceLogs = maintenanceLogs.filter(l => l.id !== id);
       await saveMaintenanceLogs();
+      if(entry && entry.hasInvoice){
+        try{ await window.dashboardApi.delete('fleet-invoice-' + id); }catch(err){ console.error('Invoice delete failed:', err); }
+      }
       renderMaintenanceHistory();
       renderTruckTable();
       updateFleetTileBadge();
+    }));
+    tbody.querySelectorAll('.invoice-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const origText = e.target.textContent;
+      e.target.textContent = 'Loading...';
+      e.target.disabled = true;
+      try{
+        const dataUri = await window.dashboardApi.get('fleet-invoice-' + id, null);
+        if(!dataUri){ alert('Could not load this invoice.'); return; }
+        const win = window.open();
+        if(win){
+          win.document.write(`<title>Invoice</title><body style="margin:0;">${dataUri.startsWith('data:application/pdf') ? `<embed src="${dataUri}" style="width:100vw; height:100vh;">` : `<img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;">`}</body>`);
+        }
+      }catch(err){
+        console.error('Invoice view failed:', err);
+        alert('Could not load this invoice \u2014 check your connection.');
+      } finally {
+        e.target.textContent = origText;
+        e.target.disabled = false;
+      }
     }));
   }
 
@@ -1591,36 +1629,67 @@
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
 
+  function readFileAsDataUri(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
   document.getElementById('saveMaintenanceBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('maintenanceStatus');
     const truckId = document.getElementById('m_truck').value;
     const date = document.getElementById('m_date').value;
     const description = document.getElementById('m_description').value.trim();
     const nextDue = document.getElementById('m_nextDue').value;
+    const invoiceFile = document.getElementById('m_invoice').files[0];
     if(!truckId){ statusEl.textContent = 'Add a truck to the inventory first.'; statusEl.className = 'status-msg err'; return; }
     if(!date){ statusEl.textContent = 'Pick the date of maintenance.'; statusEl.className = 'status-msg err'; return; }
     if(!description){ statusEl.textContent = 'Enter a description of the maintenance.'; statusEl.className = 'status-msg err'; return; }
-    maintenanceLogs.push({ id: 'log_' + Date.now() + '_' + Math.floor(Math.random()*1000), truckId, date, description, nextDue });
+    if(invoiceFile && invoiceFile.size > 10 * 1024 * 1024){
+      statusEl.textContent = 'That invoice file is over 10MB \u2014 please use a smaller file or photo.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const logId = 'log_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    const entry = { id: logId, truckId, date, description, nextDue, hasInvoice: !!invoiceFile };
+
+    let invoiceOk = true;
+    if(invoiceFile){
+      statusEl.textContent = 'Uploading invoice...';
+      statusEl.className = 'status-msg';
+      try{
+        const dataUri = await readFileAsDataUri(invoiceFile);
+        invoiceOk = await window.dashboardApi.set('fleet-invoice-' + logId, dataUri);
+      }catch(err){
+        console.error('Invoice read/upload failed:', err);
+        invoiceOk = false;
+      }
+      if(!invoiceOk) entry.hasInvoice = false;
+    }
+
+    maintenanceLogs.push(entry);
     const ok = await saveMaintenanceLogs();
     document.getElementById('m_date').value = '';
     document.getElementById('m_description').value = '';
     document.getElementById('m_nextDue').value = '';
+    document.getElementById('m_invoice').value = '';
     renderMaintenanceHistory();
     renderTruckTable();
     updateFleetTileBadge();
-    statusEl.textContent = ok ? 'Maintenance entry saved.' : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-  });
-
-  document.getElementById('fleetResetBtn').addEventListener('click', async ()=>{
-    if(!confirm('Clear ALL saved fleet data \u2014 trucks and maintenance history? This cannot be undone.')) return;
-    trucks = [];
-    maintenanceLogs = [];
-    await Promise.all([saveTrucks(), saveMaintenanceLogs()]);
-    renderTruckTable();
-    renderTruckDropdown();
-    renderMaintenanceHistory();
-    updateFleetTileBadge();
+    if(!ok){
+      statusEl.textContent = 'Save failed \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    } else if(invoiceFile && !invoiceOk){
+      statusEl.textContent = 'Entry saved, but the invoice upload failed \u2014 check your connection and try re-adding it.';
+      statusEl.className = 'status-msg err';
+    } else {
+      statusEl.textContent = 'Maintenance entry saved.';
+      statusEl.className = 'status-msg ok';
+    }
   });
 
   // Check fleet status on initial page load so the home tile reflects it immediately,
