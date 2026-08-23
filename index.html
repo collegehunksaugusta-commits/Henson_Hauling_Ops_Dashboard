@@ -784,6 +784,7 @@
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Model</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Style</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
             <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
           </tr></thead>
@@ -824,6 +825,7 @@
           </label>
           <label>Date of Maintenance <input type="date" id="m_date"></label>
           <label>Next Required Maintenance (date) <input type="date" id="m_nextDue"></label>
+          <label>Mileage at Time of Maintenance <input type="number" id="m_mileage" step="1" min="0"></label>
         </div>
         <label>Description of Maintenance <textarea id="m_description" rows="3" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
         <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:12px;">
@@ -843,6 +845,7 @@
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Truck</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Next Due</th>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Invoice</th>
             <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
@@ -1467,6 +1470,13 @@
     return 'ok';
   }
 
+  function getLatestMileage(truckId){
+    const logsWithMileage = maintenanceLogs.filter(l => l.truckId === truckId && l.mileage !== undefined && l.mileage !== null && l.mileage !== '');
+    if(logsWithMileage.length === 0) return null;
+    const mostRecent = [...logsWithMileage].sort((a,b)=> b.date.localeCompare(a.date))[0];
+    return mostRecent.mileage;
+  }
+
   async function loadFleetData(){
     try{
       const [t, l] = await Promise.all([
@@ -1517,6 +1527,7 @@
     const tbody = document.getElementById('truckRows');
     tbody.innerHTML = trucks.map((t, i) => {
       const status = getTruckStatus(t.id);
+      const mileage = getLatestMileage(t.id);
       const statusHtml = status === 'overdue'
         ? '<span style="color:#B3261E; font-weight:700;">MAINTENANCE DUE</span>'
         : status === 'warning' ? '<span style="color:#8a6100; font-weight:700;">DUE SOON</span>'
@@ -1530,6 +1541,7 @@
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.model)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.style)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.length ? fleetEsc(t.length) + ' ft' : '\u2014'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${mileage !== null ? Number(mileage).toLocaleString() : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${statusHtml}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="truck-remove" data-idx="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Remove</button></td>
       </tr>`;
@@ -1561,6 +1573,7 @@
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(truckName(l.truckId))}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.date)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.description)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${l.mileage !== undefined && l.mileage !== null && l.mileage !== '' ? Number(l.mileage).toLocaleString() : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.nextDue ? fleetEsc(l.nextDue) : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.hasInvoice ? `<button type="button" class="invoice-view" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">View Invoice</button>` : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="log-delete" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
@@ -1644,6 +1657,7 @@
     const date = document.getElementById('m_date').value;
     const description = document.getElementById('m_description').value.trim();
     const nextDue = document.getElementById('m_nextDue').value;
+    const mileage = document.getElementById('m_mileage').value;
     const invoiceFile = document.getElementById('m_invoice').files[0];
     if(!truckId){ statusEl.textContent = 'Add a truck to the inventory first.'; statusEl.className = 'status-msg err'; return; }
     if(!date){ statusEl.textContent = 'Pick the date of maintenance.'; statusEl.className = 'status-msg err'; return; }
@@ -1655,7 +1669,7 @@
     }
 
     const logId = 'log_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-    const entry = { id: logId, truckId, date, description, nextDue, hasInvoice: !!invoiceFile };
+    const entry = { id: logId, truckId, date, description, nextDue, mileage, hasInvoice: !!invoiceFile };
 
     let invoiceOk = true;
     if(invoiceFile){
@@ -1676,6 +1690,7 @@
     document.getElementById('m_date').value = '';
     document.getElementById('m_description').value = '';
     document.getElementById('m_nextDue').value = '';
+    document.getElementById('m_mileage').value = '';
     document.getElementById('m_invoice').value = '';
     renderMaintenanceHistory();
     renderTruckTable();
