@@ -818,7 +818,7 @@
       </div>
 
       <div class="panel" id="maintenanceLogPanel">
-        <h3>Log Maintenance</h3>
+        <h3 id="maintenanceLogHeading">Log Maintenance</h3>
         <div class="form-grid">
           <label>Truck
             <select id="m_truck"></select>
@@ -832,8 +832,10 @@
           Invoice (optional, PDF or photo, up to 10MB)
           <input type="file" id="m_invoice" accept=".pdf,.jpg,.jpeg,.png,.heic" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
         </label>
+        <p class="form-note" id="m_invoiceNote" style="display:none;">This entry already has an invoice attached. Leave the field above blank to keep it, or choose a new file to replace it.</p>
         <div class="form-actions">
           <button class="btn-primary" id="saveMaintenanceBtn" type="button">Save Maintenance Entry</button>
+          <button id="cancelEditBtn" type="button" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel Edit</button>
           <span class="status-msg" id="maintenanceStatus"></span>
         </div>
       </div>
@@ -1576,8 +1578,31 @@
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${l.mileage !== undefined && l.mileage !== null && l.mileage !== '' ? Number(l.mileage).toLocaleString() : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.nextDue ? fleetEsc(l.nextDue) : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.hasInvoice ? `<button type="button" class="invoice-view" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">View Invoice</button>` : '\u2014'}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="log-delete" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="log-edit" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
+          <button type="button" class="log-delete" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
       </tr>`).join('');
+    tbody.querySelectorAll('.log-edit').forEach(btn => btn.addEventListener('click', (e)=>{
+      const id = e.target.dataset.id;
+      const entry = maintenanceLogs.find(l => l.id === id);
+      if(!entry) return;
+      document.getElementById('m_truck').value = entry.truckId;
+      document.getElementById('m_date').value = entry.date;
+      document.getElementById('m_nextDue').value = entry.nextDue || '';
+      document.getElementById('m_mileage').value = entry.mileage || '';
+      document.getElementById('m_description').value = entry.description || '';
+      document.getElementById('m_invoice').value = '';
+      document.getElementById('m_invoiceNote').style.display = entry.hasInvoice ? 'block' : 'none';
+      window.__editingLogId = id;
+      document.getElementById('maintenanceLogHeading').textContent = 'Edit Maintenance Entry';
+      document.getElementById('saveMaintenanceBtn').textContent = 'Update Maintenance Entry';
+      document.getElementById('cancelEditBtn').style.display = 'inline-block';
+      const statusEl = document.getElementById('maintenanceStatus');
+      statusEl.textContent = `Editing entry from ${entry.date}.`;
+      statusEl.className = 'status-msg';
+      document.getElementById('maintenanceLogPanel').scrollIntoView({behavior:'smooth', block:'start'});
+    }));
     tbody.querySelectorAll('.log-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.target.dataset.id;
       const entry = maintenanceLogs.find(l => l.id === id);
@@ -1586,6 +1611,9 @@
       await saveMaintenanceLogs();
       if(entry && entry.hasInvoice){
         try{ await window.dashboardApi.delete('fleet-invoice-' + id); }catch(err){ console.error('Invoice delete failed:', err); }
+      }
+      if(window.__editingLogId === id){
+        document.getElementById('cancelEditBtn').click();
       }
       renderMaintenanceHistory();
       renderTruckTable();
@@ -1668,8 +1696,13 @@
       return;
     }
 
-    const logId = 'log_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-    const entry = { id: logId, truckId, date, description, nextDue, mileage, hasInvoice: !!invoiceFile };
+    const editingId = window.__editingLogId || null;
+    const existingEntry = editingId ? maintenanceLogs.find(l => l.id === editingId) : null;
+    const logId = editingId || ('log_' + Date.now() + '_' + Math.floor(Math.random()*1000));
+    const entry = {
+      id: logId, truckId, date, description, nextDue, mileage,
+      hasInvoice: invoiceFile ? true : !!(existingEntry && existingEntry.hasInvoice)
+    };
 
     let invoiceOk = true;
     if(invoiceFile){
@@ -1682,16 +1715,28 @@
         console.error('Invoice read/upload failed:', err);
         invoiceOk = false;
       }
-      if(!invoiceOk) entry.hasInvoice = false;
+      if(!invoiceOk) entry.hasInvoice = !!(existingEntry && existingEntry.hasInvoice);
     }
 
-    maintenanceLogs.push(entry);
+    if(editingId){
+      const idx = maintenanceLogs.findIndex(l => l.id === editingId);
+      if(idx > -1) maintenanceLogs[idx] = entry; else maintenanceLogs.push(entry);
+    } else {
+      maintenanceLogs.push(entry);
+    }
     const ok = await saveMaintenanceLogs();
+
     document.getElementById('m_date').value = '';
     document.getElementById('m_description').value = '';
     document.getElementById('m_nextDue').value = '';
     document.getElementById('m_mileage').value = '';
     document.getElementById('m_invoice').value = '';
+    document.getElementById('m_invoiceNote').style.display = 'none';
+    window.__editingLogId = null;
+    document.getElementById('maintenanceLogHeading').textContent = 'Log Maintenance';
+    document.getElementById('saveMaintenanceBtn').textContent = 'Save Maintenance Entry';
+    document.getElementById('cancelEditBtn').style.display = 'none';
+
     renderMaintenanceHistory();
     renderTruckTable();
     updateFleetTileBadge();
@@ -1702,9 +1747,24 @@
       statusEl.textContent = 'Entry saved, but the invoice upload failed \u2014 check your connection and try re-adding it.';
       statusEl.className = 'status-msg err';
     } else {
-      statusEl.textContent = 'Maintenance entry saved.';
+      statusEl.textContent = editingId ? 'Maintenance entry updated.' : 'Maintenance entry saved.';
       statusEl.className = 'status-msg ok';
     }
+  });
+
+  document.getElementById('cancelEditBtn').addEventListener('click', ()=>{
+    window.__editingLogId = null;
+    document.getElementById('m_date').value = '';
+    document.getElementById('m_description').value = '';
+    document.getElementById('m_nextDue').value = '';
+    document.getElementById('m_mileage').value = '';
+    document.getElementById('m_invoice').value = '';
+    document.getElementById('m_invoiceNote').style.display = 'none';
+    document.getElementById('maintenanceLogHeading').textContent = 'Log Maintenance';
+    document.getElementById('saveMaintenanceBtn').textContent = 'Save Maintenance Entry';
+    document.getElementById('cancelEditBtn').style.display = 'none';
+    document.getElementById('maintenanceStatus').textContent = '';
+    document.getElementById('maintenanceStatus').className = 'status-msg';
   });
 
   // Check fleet status on initial page load so the home tile reflects it immediately,
