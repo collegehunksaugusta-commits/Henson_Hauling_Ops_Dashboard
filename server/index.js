@@ -3,7 +3,7 @@ const cors = require('cors');
 const Redis = require('ioredis');
 
 const app = express();
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 // Allow requests from the dashboard's static site. Kept permissive since this
 // is an internal two-person tool with no sensitive/financial data beyond
@@ -26,8 +26,18 @@ const ALLOWED_KEYS = new Set([
   'labor-weeks',
   'ldEstimateClients',
   'labor-employee-rates',
-  'labor-last-admin-gross'
+  'labor-last-admin-gross',
+  'fleet-trucks',
+  'fleet-maintenance-logs'
 ]);
+// Invoice files get their own key per maintenance log entry (fleet-invoice-<logId>)
+// so a growing invoice library never bloats the single fleet-maintenance-logs blob.
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-'];
+
+function isAllowedKey(key) {
+  if (ALLOWED_KEYS.has(key)) return true;
+  return ALLOWED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
+}
 
 app.get('/health', async (req, res) => {
   try {
@@ -40,7 +50,7 @@ app.get('/health', async (req, res) => {
 
 app.get('/api/data/:key', async (req, res) => {
   const { key } = req.params;
-  if (!ALLOWED_KEYS.has(key)) {
+  if (!isAllowedKey(key)) {
     return res.status(400).json({ error: 'Unknown key.' });
   }
   try {
@@ -54,7 +64,7 @@ app.get('/api/data/:key', async (req, res) => {
 
 app.put('/api/data/:key', async (req, res) => {
   const { key } = req.params;
-  if (!ALLOWED_KEYS.has(key)) {
+  if (!isAllowedKey(key)) {
     return res.status(400).json({ error: 'Unknown key.' });
   }
   try {
@@ -64,6 +74,20 @@ app.put('/api/data/:key', async (req, res) => {
   } catch (err) {
     console.error(`PUT /api/data/${key} failed:`, err.message);
     res.status(500).json({ error: 'Storage write failed.' });
+  }
+});
+
+app.delete('/api/data/:key', async (req, res) => {
+  const { key } = req.params;
+  if (!isAllowedKey(key)) {
+    return res.status(400).json({ error: 'Unknown key.' });
+  }
+  try {
+    await redis.del(key);
+    res.json({ key, ok: true });
+  } catch (err) {
+    console.error(`DELETE /api/data/${key} failed:`, err.message);
+    res.status(500).json({ error: 'Storage delete failed.' });
   }
 });
 
