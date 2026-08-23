@@ -96,6 +96,12 @@
     text-transform:uppercase; letter-spacing:.08em; color:var(--muted); background:var(--offwhite);
     padding:3px 8px; border-radius:20px; border:1px solid var(--line);
   }
+  .tile.attention{background:#FDEDEA; border-color:#E8A69C;}
+  .tile.attention::before{background:#B3261E;}
+  .tile.attention .badge{color:#B3261E; background:#FCDCD6; border-color:#E8A69C;}
+  .tile.warning{background:#FFF6E8; border-color:#F0D9A8;}
+  .tile.warning::before{background:#B8860B;}
+  .tile.warning .badge{color:#8a6100; background:#FCEBC5; border-color:#F0D9A8;}
 
   /* ---------- Detail view ---------- */
   #detail{display:none;}
@@ -260,6 +266,12 @@
         <span class="icon">📄</span>
         <h3>Paperwork</h3>
         <p>Pre-filled job paperwork &mdash; Bill of Lading, Liability Waiver, Declaration of Value, and more.</p>
+      </div>
+      <div class="tile" id="tile-fleet" tabindex="0" role="button" aria-label="Open Fleet Maintenance">
+        <span class="badge" id="fleetTileBadge" style="display:none;">Service Due</span>
+        <span class="icon">🚚</span>
+        <h3>Fleet Maintenance</h3>
+        <p>Truck inventory and maintenance log, with reminders when service is due.</p>
       </div>
       <div class="tile locked" tabindex="-1" aria-disabled="true">
         <span class="badge">Coming soon</span>
@@ -751,6 +763,92 @@
     </div>
     <div id="printPaperwork"></div>
   </div>
+
+  <!-- ============ FLEET MAINTENANCE DETAIL ============ -->
+  <div id="fleetDetail" style="display:none;">
+    <button class="backlink" id="fleetBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Fleet Maintenance</h2>
+        <p>Truck inventory and maintenance log.</p>
+      </div>
+
+      <div class="panel" id="truckInventoryPanel">
+        <h3>Truck Inventory</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">VIN</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Year</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Make</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Model</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Style</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
+            <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+          </tr></thead>
+          <tbody id="truckRows"></tbody>
+        </table>
+
+        <button class="addweek-toggle" id="addTruckToggle" style="margin-top:14px;">+ Add Truck</button>
+        <div id="addTruckForm" class="panel" style="display:none; margin-top:12px;">
+          <div class="form-grid">
+            <label>Nickname <input type="text" id="t_nickname"></label>
+            <label>VIN <input type="text" id="t_vin"></label>
+            <label>Year <input type="number" id="t_year" step="1"></label>
+            <label>Make <input type="text" id="t_make"></label>
+            <label>Model <input type="text" id="t_model"></label>
+            <label>Style
+              <select id="t_style">
+                <option value="Box Truck">Box Truck</option>
+                <option value="Dump Truck">Dump Truck</option>
+                <option value="Pickup Truck">Pickup Truck</option>
+                <option value="Car">Car</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+            <label>Length (ft, if applicable) <input type="number" id="t_length" step="0.1"></label>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="saveTruckBtn" type="button">Save Truck</button>
+            <span class="status-msg" id="truckStatus"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="maintenanceLogPanel">
+        <h3>Log Maintenance</h3>
+        <div class="form-grid">
+          <label>Truck
+            <select id="m_truck"></select>
+          </label>
+          <label>Date of Maintenance <input type="date" id="m_date"></label>
+          <label>Next Required Maintenance (date) <input type="date" id="m_nextDue"></label>
+        </div>
+        <label>Description of Maintenance <textarea id="m_description" rows="3" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+        <div class="form-actions">
+          <button class="btn-primary" id="saveMaintenanceBtn" type="button">Save Maintenance Entry</button>
+          <span class="status-msg" id="maintenanceStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="maintenanceHistoryPanel">
+        <h3>Maintenance History</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Truck</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Next Due</th>
+            <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+          </tr></thead>
+          <tbody id="maintenanceRows"></tbody>
+        </table>
+      </div>
+
+      <button class="reset-link" id="fleetResetBtn">Clear all saved fleet data</button>
+    </div>
+  </div>
   </div>
 
 </div>
@@ -803,14 +901,19 @@
   const detail = document.getElementById('detail');
   const calcDetail = document.getElementById('calcDetail');
   const paperworkDetail = document.getElementById('paperworkDetail');
+  const fleetDetail = document.getElementById('fleetDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
     detail.style.display = view === 'labor' ? 'block' : 'none';
     calcDetail.style.display = view === 'calc' ? 'block' : 'none';
     paperworkDetail.style.display = view === 'paperwork' ? 'block' : 'none';
+    fleetDetail.style.display = view === 'fleet' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
+    }
+    if(view === 'fleet'){
+      loadFleetData();
     }
   }
 
@@ -835,6 +938,10 @@
   document.getElementById('tile-paperwork').addEventListener('click', ()=> navigateTo('paperwork'));
   document.getElementById('tile-paperwork').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('paperwork'); }});
   document.getElementById('paperworkBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-fleet').addEventListener('click', ()=> navigateTo('fleet'));
+  document.getElementById('tile-fleet').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('fleet'); }});
+  document.getElementById('fleetBackBtn').addEventListener('click', ()=> history.back());
 
   // ---------- shared data ----------
   const STORAGE_KEY = 'labor-weeks';
@@ -1315,6 +1422,219 @@
     await saveWeeks();
     renderAll();
   });
+
+  // ---------- Fleet Maintenance ----------
+  const FLEET_TRUCKS_KEY = 'fleet-trucks';
+  const FLEET_LOGS_KEY = 'fleet-maintenance-logs';
+
+  let trucks = [];
+  let maintenanceLogs = [];
+
+  function fleetEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+  function oneMonthBefore(dateStr){
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString().slice(0,10);
+  }
+
+  function getTruckStatus(truckId){
+    const logsForTruck = maintenanceLogs.filter(l => l.truckId === truckId && l.nextDue);
+    if(logsForTruck.length === 0) return 'none';
+    const mostRecent = [...logsForTruck].sort((a,b)=> b.date.localeCompare(a.date))[0];
+    const today = todayStr();
+    if(mostRecent.nextDue <= today) return 'overdue';
+    if(oneMonthBefore(mostRecent.nextDue) <= today) return 'warning';
+    return 'ok';
+  }
+
+  async function loadFleetData(){
+    try{
+      const [t, l] = await Promise.all([
+        window.dashboardApi.get(FLEET_TRUCKS_KEY, []),
+        window.dashboardApi.get(FLEET_LOGS_KEY, [])
+      ]);
+      trucks = t; maintenanceLogs = l;
+    }catch(err){
+      console.error('Fleet data load failed:', err);
+      trucks = trucks || []; maintenanceLogs = maintenanceLogs || [];
+    }
+    renderTruckTable();
+    renderTruckDropdown();
+    renderMaintenanceHistory();
+    updateFleetTileBadge();
+  }
+
+  async function saveTrucks(){
+    try{ return await window.dashboardApi.set(FLEET_TRUCKS_KEY, trucks); }
+    catch(err){ console.error('Save trucks failed:', err); return false; }
+  }
+
+  async function saveMaintenanceLogs(){
+    try{ return await window.dashboardApi.set(FLEET_LOGS_KEY, maintenanceLogs); }
+    catch(err){ console.error('Save logs failed:', err); return false; }
+  }
+
+  function updateFleetTileBadge(){
+    const anyOverdue = trucks.some(t => getTruckStatus(t.id) === 'overdue');
+    const anyWarning = trucks.some(t => getTruckStatus(t.id) === 'warning');
+    const tile = document.getElementById('tile-fleet');
+    const badge = document.getElementById('fleetTileBadge');
+    tile.classList.remove('attention', 'warning');
+    if(anyOverdue){
+      tile.classList.add('attention');
+      badge.textContent = 'Service Due';
+      badge.style.display = 'inline-block';
+    } else if(anyWarning){
+      tile.classList.add('warning');
+      badge.textContent = 'Service Due Soon';
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function renderTruckTable(){
+    const tbody = document.getElementById('truckRows');
+    tbody.innerHTML = trucks.map((t, i) => {
+      const status = getTruckStatus(t.id);
+      const statusHtml = status === 'overdue'
+        ? '<span style="color:#B3261E; font-weight:700;">MAINTENANCE DUE</span>'
+        : status === 'warning' ? '<span style="color:#8a6100; font-weight:700;">DUE SOON</span>'
+        : status === 'ok' ? '<span style="color:#00612C;">OK</span>' : '<span style="color:var(--muted);">\u2014</span>';
+      const rowStyle = status === 'overdue' ? 'background:#FDEDEA;' : status === 'warning' ? 'background:#FFF6E8;' : '';
+      return `<tr style="${rowStyle}">
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(t.nickname)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono',monospace; font-size:11px;">${fleetEsc(t.vin)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${fleetEsc(t.year)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.make)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.model)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.style)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.length ? fleetEsc(t.length) + ' ft' : '\u2014'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${statusHtml}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="truck-remove" data-idx="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Remove</button></td>
+      </tr>`;
+    }).join('');
+    tbody.querySelectorAll('.truck-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const idx = parseInt(e.target.dataset.idx, 10);
+      const t = trucks[idx];
+      if(!t) return;
+      if(!confirm(`Remove ${t.nickname} from the truck inventory? Its past maintenance history will be kept.`)) return;
+      trucks.splice(idx, 1);
+      await saveTrucks();
+      renderTruckTable();
+      renderTruckDropdown();
+      updateFleetTileBadge();
+    }));
+  }
+
+  function renderTruckDropdown(){
+    const sel = document.getElementById('m_truck');
+    sel.innerHTML = trucks.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
+  }
+
+  function renderMaintenanceHistory(){
+    const tbody = document.getElementById('maintenanceRows');
+    const truckName = id => (trucks.find(t=>t.id===id) || {}).nickname || '(removed truck)';
+    const sorted = [...maintenanceLogs].sort((a,b)=> b.date.localeCompare(a.date));
+    tbody.innerHTML = sorted.map(l => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(truckName(l.truckId))}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.date)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.description)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.nextDue ? fleetEsc(l.nextDue) : '\u2014'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="log-delete" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
+      </tr>`).join('');
+    tbody.querySelectorAll('.log-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this maintenance entry?')) return;
+      maintenanceLogs = maintenanceLogs.filter(l => l.id !== id);
+      await saveMaintenanceLogs();
+      renderMaintenanceHistory();
+      renderTruckTable();
+      updateFleetTileBadge();
+    }));
+  }
+
+  document.getElementById('addTruckToggle').addEventListener('click', ()=>{
+    const f = document.getElementById('addTruckForm');
+    f.style.display = f.style.display === 'block' ? 'none' : 'block';
+  });
+
+  document.getElementById('saveTruckBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('truckStatus');
+    const nickname = document.getElementById('t_nickname').value.trim();
+    const vin = document.getElementById('t_vin').value.trim();
+    if(!nickname){ statusEl.textContent = 'Enter a nickname.'; statusEl.className = 'status-msg err'; return; }
+    const truck = {
+      id: 'truck_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+      nickname, vin,
+      year: document.getElementById('t_year').value,
+      make: document.getElementById('t_make').value.trim(),
+      model: document.getElementById('t_model').value.trim(),
+      style: document.getElementById('t_style').value,
+      length: document.getElementById('t_length').value
+    };
+    trucks.push(truck);
+    const ok = await saveTrucks();
+    ['t_nickname','t_vin','t_year','t_make','t_model','t_length'].forEach(id => { document.getElementById(id).value = ''; });
+    renderTruckTable();
+    renderTruckDropdown();
+    updateFleetTileBadge();
+    statusEl.textContent = ok ? `Added ${nickname}.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('saveMaintenanceBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('maintenanceStatus');
+    const truckId = document.getElementById('m_truck').value;
+    const date = document.getElementById('m_date').value;
+    const description = document.getElementById('m_description').value.trim();
+    const nextDue = document.getElementById('m_nextDue').value;
+    if(!truckId){ statusEl.textContent = 'Add a truck to the inventory first.'; statusEl.className = 'status-msg err'; return; }
+    if(!date){ statusEl.textContent = 'Pick the date of maintenance.'; statusEl.className = 'status-msg err'; return; }
+    if(!description){ statusEl.textContent = 'Enter a description of the maintenance.'; statusEl.className = 'status-msg err'; return; }
+    maintenanceLogs.push({ id: 'log_' + Date.now() + '_' + Math.floor(Math.random()*1000), truckId, date, description, nextDue });
+    const ok = await saveMaintenanceLogs();
+    document.getElementById('m_date').value = '';
+    document.getElementById('m_description').value = '';
+    document.getElementById('m_nextDue').value = '';
+    renderMaintenanceHistory();
+    renderTruckTable();
+    updateFleetTileBadge();
+    statusEl.textContent = ok ? 'Maintenance entry saved.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('fleetResetBtn').addEventListener('click', async ()=>{
+    if(!confirm('Clear ALL saved fleet data \u2014 trucks and maintenance history? This cannot be undone.')) return;
+    trucks = [];
+    maintenanceLogs = [];
+    await Promise.all([saveTrucks(), saveMaintenanceLogs()]);
+    renderTruckTable();
+    renderTruckDropdown();
+    renderMaintenanceHistory();
+    updateFleetTileBadge();
+  });
+
+  // Check fleet status on initial page load so the home tile reflects it immediately,
+  // even before the user opens the Fleet Maintenance tile.
+  (async ()=>{
+    try{
+      const [t, l] = await Promise.all([
+        window.dashboardApi.get(FLEET_TRUCKS_KEY, []),
+        window.dashboardApi.get(FLEET_LOGS_KEY, [])
+      ]);
+      trucks = t; maintenanceLogs = l;
+      updateFleetTileBadge();
+    }catch(err){ console.error('Initial fleet status check failed:', err); }
+  })();
 
 })();
 </script>
