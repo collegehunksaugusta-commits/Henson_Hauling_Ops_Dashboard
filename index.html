@@ -286,6 +286,11 @@
         <h3>Fleet Maintenance</h3>
         <p>Truck inventory and maintenance log, with reminders when service is due.</p>
       </div>
+      <div class="tile" id="tile-attendance" tabindex="0" role="button" aria-label="Open Attendance Tracking">
+        <span class="icon">🕒</span>
+        <h3>Attendance Tracking</h3>
+        <p>Log unexcused tardies and absences, pulled from your current payroll roster.</p>
+      </div>
       <div class="tile locked" tabindex="-1" aria-disabled="true">
         <span class="badge">Coming soon</span>
         <span class="icon">🗓️</span>
@@ -897,6 +902,67 @@
 
     </div>
   </div>
+
+  <!-- ============ ATTENDANCE TRACKING DETAIL ============ -->
+  <div id="attendanceDetail" style="display:none;">
+    <button class="backlink" id="attendanceBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Attendance Tracking</h2>
+        <p>Log unexcused tardies and absences. Employees are pulled from the most recent Labor Cost payroll week.</p>
+      </div>
+
+      <div class="panel" id="attendanceLogPanel">
+        <h3>Log Occurrence</h3>
+        <p class="form-note" id="att_noRosterNote" style="display:none;">No employees found yet \u2014 upload a payroll week on the Labor Cost tile first, then come back here.</p>
+        <div class="form-grid">
+          <label>Employee
+            <select id="att_employee"></select>
+          </label>
+          <label>Date <input type="date" id="att_date"></label>
+          <label>Type
+            <select id="att_type">
+              <option value="tardy">Unexcused Tardy</option>
+              <option value="absence">Unexcused Absence</option>
+            </select>
+          </label>
+        </div>
+        <label>Notes (optional) <textarea id="att_notes" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+        <div class="form-actions">
+          <button class="btn-primary" id="att_saveBtn" type="button">Save Occurrence</button>
+          <span class="status-msg" id="att_status"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="attendanceSummaryPanel">
+        <h3>Summary (last 6 months)</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Unexcused Tardies</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Unexcused Absences</th>
+          </tr></thead>
+          <tbody id="att_summaryRows"></tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="attendanceHistoryPanel">
+        <h3>History</h3>
+        <label>Filter by Employee <input type="text" id="att_filter" placeholder="Start typing a name..."></label>
+        <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Type</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Notes</th>
+            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Corrective Action</th>
+            <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+          </tr></thead>
+          <tbody id="att_historyRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
   </div>
 
 </div>
@@ -959,6 +1025,7 @@
   const calcDetail = document.getElementById('calcDetail');
   const paperworkDetail = document.getElementById('paperworkDetail');
   const fleetDetail = document.getElementById('fleetDetail');
+  const attendanceDetail = document.getElementById('attendanceDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -966,11 +1033,15 @@
     calcDetail.style.display = view === 'calc' ? 'block' : 'none';
     paperworkDetail.style.display = view === 'paperwork' ? 'block' : 'none';
     fleetDetail.style.display = view === 'fleet' ? 'block' : 'none';
+    attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
     if(view === 'fleet'){
       loadFleetData();
+    }
+    if(view === 'attendance'){
+      loadAttendanceData();
     }
   }
 
@@ -1006,6 +1077,10 @@
   document.getElementById('tile-fleet').addEventListener('click', ()=> navigateTo('fleet'));
   document.getElementById('tile-fleet').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('fleet'); }});
   document.getElementById('fleetBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-attendance').addEventListener('click', ()=> navigateTo('attendance'));
+  document.getElementById('tile-attendance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('attendance'); }});
+  document.getElementById('attendanceBackBtn').addEventListener('click', ()=> history.back());
 
   // ---------- shared data ----------
   const STORAGE_KEY = 'labor-weeks';
@@ -1825,6 +1900,156 @@
       updateFleetTileBadge();
     }catch(err){ console.error('Initial fleet status check failed:', err); }
   })();
+
+  // ---------- Attendance Tracking ----------
+  const ATTENDANCE_KEY = 'attendance-records';
+  let attendanceRecords = [];
+
+  function attEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  async function getCurrentEmployeeRoster(){
+    let sourceWeeks = weeks;
+    if(!sourceWeeks || sourceWeeks.length === 0){
+      try{ sourceWeeks = await window.dashboardApi.get(STORAGE_KEY, []); }
+      catch(err){ console.error('Could not load payroll weeks for attendance roster:', err); sourceWeeks = []; }
+    }
+    if(!sourceWeeks || sourceWeeks.length === 0) return [];
+    const sorted = [...sourceWeeks].sort((a,b) => b.weekStart.localeCompare(a.weekStart));
+    const mostRecent = sorted[0];
+    if(!mostRecent.employees || mostRecent.employees.length === 0) return [];
+    return mostRecent.employees.map(e => e.name).filter(Boolean);
+  }
+
+  async function loadAttendanceData(){
+    try{ attendanceRecords = await window.dashboardApi.get(ATTENDANCE_KEY, []); }
+    catch(err){ console.error('Attendance load failed:', err); attendanceRecords = attendanceRecords || []; }
+
+    const roster = await getCurrentEmployeeRoster();
+    const sel = document.getElementById('att_employee');
+    const noRosterNote = document.getElementById('att_noRosterNote');
+    if(roster.length === 0){
+      sel.innerHTML = '';
+      noRosterNote.style.display = 'block';
+      document.getElementById('att_saveBtn').disabled = true;
+    } else {
+      sel.innerHTML = roster.map(name => `<option value="${attEsc(name)}">${attEsc(name)}</option>`).join('');
+      noRosterNote.style.display = 'none';
+      document.getElementById('att_saveBtn').disabled = false;
+    }
+
+    if(!document.getElementById('att_date').value){
+      document.getElementById('att_date').value = new Date().toISOString().slice(0,10);
+    }
+
+    renderAttendanceHistory();
+    renderAttendanceSummary();
+  }
+
+  async function saveAttendanceRecords(){
+    try{ return await window.dashboardApi.set(ATTENDANCE_KEY, attendanceRecords); }
+    catch(err){ console.error('Attendance save failed:', err); return false; }
+  }
+
+  const CORRECTIVE_ACTIONS = ['None yet', 'Verbal Warning', 'Written Warning', 'Suspension', 'Termination'];
+
+  function renderAttendanceHistory(){
+    const filter = (document.getElementById('att_filter').value || '').trim().toLowerCase();
+    const tbody = document.getElementById('att_historyRows');
+    const typeLabels = { tardy: 'Unexcused Tardy', absence: 'Unexcused Absence' };
+    const sorted = [...attendanceRecords]
+      .filter(r => !filter || r.employeeName.toLowerCase().includes(filter))
+      .sort((a,b)=> b.date.localeCompare(a.date));
+
+    tbody.innerHTML = sorted.map(r => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${attEsc(r.employeeName)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${attEsc(r.date)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${typeLabels[r.type] || attEsc(r.type)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${attEsc(r.notes || '\u2014')}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">
+          <select class="att-corrective" data-id="${r.id}" style="font-size:12px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;">
+            ${CORRECTIVE_ACTIONS.map(a => `<option value="${attEsc(a)}" ${(r.correctiveAction||'None yet')===a?'selected':''}>${attEsc(a)}</option>`).join('')}
+          </select>
+        </td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="att-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.att-corrective').forEach(sel => sel.addEventListener('change', async (e)=>{
+      const id = e.target.dataset.id;
+      const record = attendanceRecords.find(r => r.id === id);
+      if(!record) return;
+      record.correctiveAction = e.target.value;
+      const ok = await saveAttendanceRecords();
+      if(!ok){
+        const statusEl = document.getElementById('att_status');
+        statusEl.textContent = 'Could not save that change \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+      }
+    }));
+
+    tbody.querySelectorAll('.att-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this attendance record? This cannot be undone.')) return;
+      attendanceRecords = attendanceRecords.filter(r => r.id !== id);
+      await saveAttendanceRecords();
+      renderAttendanceHistory();
+      renderAttendanceSummary();
+    }));
+  }
+
+  function renderAttendanceSummary(){
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const cutoff = sixMonthsAgo.toISOString().slice(0,10);
+
+    const counts = {};
+    attendanceRecords.filter(r => r.date >= cutoff).forEach(r => {
+      if(!counts[r.employeeName]) counts[r.employeeName] = { tardy: 0, absence: 0 };
+      if(r.type === 'tardy') counts[r.employeeName].tardy++;
+      else if(r.type === 'absence') counts[r.employeeName].absence++;
+    });
+
+    const names = Object.keys(counts).sort();
+    const tbody = document.getElementById('att_summaryRows');
+    if(names.length === 0){
+      tbody.innerHTML = '<tr><td colspan="3" style="padding:8px 4px; color:var(--muted);">No occurrences logged in the last 6 months.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = names.map(name => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${attEsc(name)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${counts[name].tardy}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${counts[name].absence}</td>
+      </tr>`).join('');
+  }
+
+  document.getElementById('att_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('att_status');
+    const employeeName = document.getElementById('att_employee').value;
+    const date = document.getElementById('att_date').value;
+    const type = document.getElementById('att_type').value;
+    const notes = document.getElementById('att_notes').value.trim();
+    if(!employeeName){ statusEl.textContent = 'No employee selected.'; statusEl.className = 'status-msg err'; return; }
+    if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
+
+    attendanceRecords.push({
+      id: 'attendance_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+      employeeName, date, type, notes,
+      loggedAt: new Date().toISOString()
+    });
+    const ok = await saveAttendanceRecords();
+    document.getElementById('att_notes').value = '';
+    renderAttendanceHistory();
+    renderAttendanceSummary();
+    statusEl.textContent = ok ? `Logged for ${employeeName}.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('att_filter').addEventListener('input', renderAttendanceHistory);
 
 })();
 </script>
