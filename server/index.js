@@ -28,10 +28,11 @@ const ALLOWED_KEYS = new Set([
   'labor-employee-rates',
   'labor-last-admin-gross',
   'fleet-trucks',
-  'fleet-maintenance-logs'
+  'fleet-maintenance-logs',
+  'paperwork-signed-records'
 ]);
-// Invoice files get their own key per maintenance log entry (fleet-invoice-<logId>)
-// so a growing invoice library never bloats the single fleet-maintenance-logs blob.
+// Invoice files and other growing per-item data get their own key per parent
+// record (e.g. fleet-invoice-<logId>) so a growing library never bloats one blob.
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-'];
 
 function isAllowedKey(key) {
