@@ -2481,6 +2481,17 @@
     const [y,m,d] = v.split('-');
     return `${m}/${d}/${y}`;
   }
+  // ---------- Inline signable fields (used only when generating the on-screen signing view) ----------
+  function inlineInitialPad(fieldId){
+    return `<canvas class="inline-field-pad" data-field-id="${fieldId}" data-field-type="initial" style="width:64px; height:30px; border:1px solid #999; border-radius:2px; touch-action:none; cursor:crosshair; background:#fff; vertical-align:middle;"></canvas>`;
+  }
+  function inlineSignaturePad(fieldId){
+    return `<canvas class="inline-field-pad" data-field-id="${fieldId}" data-field-type="signature" style="width:260px; max-width:90%; height:50px; border:1px solid #999; border-radius:2px; touch-action:none; cursor:crosshair; background:#fff; vertical-align:middle;"></canvas>`;
+  }
+  function inlineTextField(fieldId, rows){
+    return `<textarea class="inline-field-input" data-field-id="${fieldId}" data-field-type="text" rows="${rows||3}" style="width:100%; border:1px solid #999; border-radius:2px; padding:6px; font-family:inherit; font-size:13px; box-sizing:border-box;"></textarea>`;
+  }
+
   const LIABILITY_CLAUSES = [
     {title: "Shipper's Disregard for Best Practices", body: "Should the shipper decline packaging, wrapping, disassembly or preparation of any item being transported against the recommendation of College Hunks, we cannot be held liable for any damage that occurs. Refusal to wrap, box, protect or disassemble your items being shipped may result in items being damaged during moving and/or transport. College Hunks Moving offers a variety of additional packing materials for the shipper's items at the shipper's expense, including but not limited to mattress boxes, TV crates, picture boxes, and custom-built crates."},
     {title: "Particle Board", body: "College Hunks Moving\u00ae noticed that you have various household furnishings constructed of particle-board (also known as \u201cpressed wood\u201d). This type of furniture is prone to breakage, cracking, dents, and related forms of damage following exercise of due care. The reason for this problem is the inherent weakness of the unstable wood product used in its construction."},
@@ -2495,10 +2506,10 @@
     {title: "Floor Covering Damage", body: "College Hunks Moving\u00ae is not liable for soiling or discoloring of carpet or other floor covering caused by any of the following | Leaks or spillage from any plants, furniture, appliances, or other office machines that occur during normal handling, mud or dirt bring tracked onto flooring due to muddy or wet conditions."}
   ];
 
-  function buildPWLiabilityWaiver(pageNum, includeLoadingDate){
-    const clausesHtml = LIABILITY_CLAUSES.map(c => `
+  function buildPWLiabilityWaiver(pageNum, includeLoadingDate, signable){
+    const clausesHtml = LIABILITY_CLAUSES.map((c, i) => `
       <tr>
-        <td style="width:7%; vertical-align:top; padding:2.5px 4px; text-align:center;">________<br><span style="font-size:6.5pt; color:#777;">Client</span></td>
+        <td style="width:9%; vertical-align:top; padding:2.5px 4px; text-align:center;">${signable ? inlineInitialPad('waiver_initial_'+i) : `________<br><span style="font-size:6.5pt; color:#777;">Client</span>`}</td>
         <td style="width:7%; vertical-align:top; padding:2.5px 4px; text-align:center;">________<br><span style="font-size:6.5pt; color:#777;">Captain</span></td>
         <td style="vertical-align:top; padding:2.5px 4px;"><b>${esc(c.title)}</b> | ${c.body}</td>
       </tr>`).join('');
@@ -2519,11 +2530,11 @@
 
         <div style="border-top:1px solid #999; padding-top:4px; font-size:7.5pt; margin-bottom:6px;">
           I agree to release College Hunks Moving from any liability pertaining to and in accordance with the conditions listed in this document.<br>
-          Shipper's Signature: ____________________________________ Date: _________
+          Shipper's Signature: ${signable ? inlineSignaturePad('waiver_sig_release') : '____________________________________ Date: _________'}
         </div>
         <div style="font-size:7.5pt;">
           As the Shipper, I have inspected my shipment at the destination and agree that I am releasing College Hunks Moving from any liability for damage or shortage to my shipment. As the shipper, I also understand that no claim will be honored unless all transportation charges have been paid in full at time of delivery.<br>
-          Shipper's Signature: ____________________________________ Date: __________
+          Shipper's Signature: ${signable ? inlineSignaturePad('waiver_sig_inspection') : '____________________________________ Date: __________'}
         </div>
       </div>`;
   }
@@ -2694,7 +2705,7 @@
       </div>`;
   }
 
-  function buildPWAddendum(pageNum){
+  function buildPWAddendum(pageNum, signable){
     return `
       <div class="print-page" style="font-size:9pt; line-height:1.45;">
         ${pwLetterhead('Addendum to Estimate', pageNum)}
@@ -2708,10 +2719,10 @@
         <p>Unforeseeable circumstances - This may include long walks, parking situations, stairs, narrow throughways, etc. This will add approximately $__________ to the originally estimated cost.</p>
 
         <p style="margin-top:20px;"><b>Description of the Above Scenarios:</b></p>
-        <div style="border-bottom:1px solid #999; height:70px;"></div>
+        ${signable ? inlineTextField('addendum_scenarios', 3) : '<div style="border-bottom:1px solid #999; height:70px;"></div>'}
 
         <p style="margin-top:16px;"><b>Other Notes:</b></p>
-        <div style="border-bottom:1px solid #999; height:40px;"></div>
+        ${signable ? inlineTextField('addendum_notes', 2) : '<div style="border-bottom:1px solid #999; height:40px;"></div>'}
 
         <p style="margin-top:20px;">Original Estimated Cost:______________________________ &nbsp; Revised Estimated Cost: _____________________________</p>
 
@@ -2719,40 +2730,43 @@
 
         <table style="width:100%; border-collapse:collapse; margin-top:40px; font-size:9pt;">
           <tr>
-            <td style="width:50%; padding:4px 0;">_________________________________________<br>Client Signature &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
-            <td style="width:50%; padding:4px 0;">_________________________________________<br>College Hunks Captain &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+            <td style="width:50%; padding:4px 0; vertical-align:bottom;">${signable ? inlineSignaturePad('addendum_sig_client') : '_________________________________________'}<br>Client Signature &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+            <td style="width:50%; padding:4px 0; vertical-align:bottom;">${signable ? inlineSignaturePad('addendum_sig_captain') : '_________________________________________'}<br>College Hunks Captain &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
           </tr>
         </table>
       </div>`;
   }
 
-  function buildPWPreExistingDamages(pageNum){
+  function buildPWPreExistingDamages(pageNum, signable){
     const rows = Array.from({length: 26}, (_, i) => `
       <tr>
         <td style="width:4%; padding:5px 4px; border-bottom:1px solid #ddd;">${i+1}</td>
         <td style="width:70%; padding:5px 4px; border-bottom:1px solid #ddd;">&nbsp;</td>
         <td style="width:26%; padding:5px 4px; border-bottom:1px solid #ddd;">&nbsp;</td>
       </tr>`).join('');
-    return `
-      <div class="print-page" style="font-size:9pt; line-height:1.4;">
-        ${pwLetterhead('Pre-existing Damages', pageNum)}
-        ${pwContactRow()}
-
-        <table style="width:100%; border-collapse:collapse; font-size:8.5pt;">
+    const damageTableOrField = signable
+      ? `<p style="margin:10px 0 6px;"><b>Description of Furniture and Damage</b> (list each item; note the client's verbal acknowledgment for each if given)</p>${inlineTextField('damages_description', 6)}`
+      : `<table style="width:100%; border-collapse:collapse; font-size:8.5pt;">
           <tr style="border-bottom:2px solid #999;">
             <td style="width:4%; padding:5px 4px;"></td>
             <td style="width:70%; padding:5px 4px; font-weight:bold;">Description of Furniture and Damage</td>
             <td style="width:26%; padding:5px 4px; font-weight:bold;">Client Initials</td>
           </tr>
           ${rows}
-        </table>
+        </table>`;
+    return `
+      <div class="print-page" style="font-size:9pt; line-height:1.4;">
+        ${pwLetterhead('Pre-existing Damages', pageNum)}
+        ${pwContactRow()}
+
+        ${damageTableOrField}
 
         <p style="margin-top:16px; font-size:8.5pt;">I acknowledge that the damages described above existed before College Hunks' service began and understand that my signature releases College Hunks of liability for claims arising from the pre-existing damages described above.</p>
 
         <table style="width:100%; border-collapse:collapse; margin-top:30px; font-size:9pt;">
           <tr>
-            <td style="width:50%; padding:4px 0;">_________________________________________<br>Client Signature &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
-            <td style="width:50%; padding:4px 0;">_________________________________________<br>College Hunks Captain &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+            <td style="width:50%; padding:4px 0; vertical-align:bottom;">${signable ? inlineSignaturePad('damages_sig_client') : '_________________________________________'}<br>Client Signature &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
+            <td style="width:50%; padding:4px 0; vertical-align:bottom;">${signable ? inlineSignaturePad('damages_sig_captain') : '_________________________________________'}<br>College Hunks Captain &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Date</td>
           </tr>
         </table>
       </div>`;
@@ -3047,11 +3061,11 @@
 
   const SIGN_DOC_CONFIG = {
     billOfLading: { title: 'Bill of Lading', builder: (n) => buildPWBillOfLading(n), signatures: ['Client (Shipper)', 'College HUNKS Moving (Carrier)'] },
-    liabilityWaiver: { title: 'Liability Waiver', builder: (n) => buildPWLiabilityWaiver(n, true), signatures: ['Shipper Signature \u2014 Release of Liability', 'Shipper Signature \u2014 Delivery Inspection'] },
+    liabilityWaiver: { title: 'Liability Waiver', builder: (n) => buildPWLiabilityWaiver(n, true, true), inlineFields: true },
     shipperDeclaration: { title: 'Shipper Declaration of Value', builder: (n) => buildPWShipperDeclaration(n), signatures: ['Shipper Signature', 'College HUNKS Representative'] },
     gaGuide: { title: 'GA HHG Move Guide', builder: (n) => buildPWGAGuide(n), signatures: ['Shipper Signature'] },
-    addendum: { title: 'Addendum to Estimate', builder: (n) => buildPWAddendum(n), signatures: ['Client Signature', 'College HUNKS Captain'] },
-    preExistingDamages: { title: 'Pre-existing Damages', builder: (n) => buildPWPreExistingDamages(n), signatures: ['Client Signature', 'College HUNKS Captain'] }
+    addendum: { title: 'Addendum to Estimate', builder: (n) => buildPWAddendum(n, true), inlineFields: true },
+    preExistingDamages: { title: 'Pre-existing Damages', builder: (n) => buildPWPreExistingDamages(n, true), inlineFields: true }
   };
 
   const SIGN_JOB_TYPE_DOCS = {
@@ -3110,9 +3124,35 @@
     const jobType = document.getElementById('pw_jobType').value;
     const docKeys = SIGN_JOB_TYPE_DOCS[jobType] || [];
     if(docKeys.length === 0) return;
-    signingState = { docKeys, currentIndex: 0, capturedSignatures: {}, pads: [] };
+    signingState = { docKeys, currentIndex: 0, capturedSignatures: {}, pads: [], inlineFieldMap: null };
     document.getElementById('signingView').style.display = 'block';
     renderSigningStep();
+  }
+
+  function wireInlineFields(container, existingValues){
+    const fields = {};
+    container.querySelectorAll('.inline-field-pad').forEach(canvas => {
+      const fieldId = canvas.dataset.fieldId;
+      const pad = createSignaturePad(canvas);
+      if(existingValues[fieldId]) pad.drawExisting(existingValues[fieldId]);
+      fields[fieldId] = {
+        type: canvas.dataset.fieldType,
+        isEmpty: () => pad.isEmpty(),
+        getValue: () => pad.toDataURL(),
+        clear: () => pad.clear()
+      };
+    });
+    container.querySelectorAll('.inline-field-input').forEach(input => {
+      const fieldId = input.dataset.fieldId;
+      if(existingValues[fieldId]) input.value = existingValues[fieldId];
+      fields[fieldId] = {
+        type: input.dataset.fieldType,
+        isEmpty: () => input.value.trim() === '',
+        getValue: () => input.value,
+        clear: () => { input.value = ''; }
+      };
+    });
+    return fields;
   }
 
   function renderSigningStep(){
@@ -3127,50 +3167,80 @@
     statusEl.className = 'status-msg';
 
     const padsArea = document.getElementById('sign_padsArea');
-    padsArea.innerHTML = config.signatures.map((label, i) => `
-      <div class="sig-pad-wrap">
-        <div class="sig-pad-label">${esc(label)}</div>
-        <canvas class="sig-pad-canvas" id="sigCanvas_${i}"></canvas>
-        <div class="sig-pad-actions">
-          <button type="button" class="sig-pad-clear" data-idx="${i}">Clear</button>
-          <span class="sig-pad-status"></span>
-        </div>
-      </div>`).join('');
 
-    const existing = capturedSignatures[docKey] || [];
-    signingState.pads = config.signatures.map((label, i) => {
-      const canvas = document.getElementById('sigCanvas_' + i);
-      const pad = createSignaturePad(canvas);
-      if(existing[i]) pad.drawExisting(existing[i]);
-      return pad;
-    });
+    if(config.inlineFields){
+      padsArea.innerHTML = '<p class="form-note" style="margin-top:0;">Initial and sign directly on the document above \u2014 tap each box.</p>';
+      const existing = capturedSignatures[docKey] || {};
+      signingState.inlineFieldMap = wireInlineFields(document.getElementById('signingDocContent'), existing);
+      signingState.pads = null;
+    } else {
+      padsArea.innerHTML = config.signatures.map((label, i) => `
+        <div class="sig-pad-wrap">
+          <div class="sig-pad-label">${esc(label)}</div>
+          <canvas class="sig-pad-canvas" id="sigCanvas_${i}"></canvas>
+          <div class="sig-pad-actions">
+            <button type="button" class="sig-pad-clear" data-idx="${i}">Clear</button>
+            <span class="sig-pad-status"></span>
+          </div>
+        </div>`).join('');
 
-    padsArea.querySelectorAll('.sig-pad-clear').forEach(btn => btn.addEventListener('click', (e)=>{
-      const idx = parseInt(e.target.dataset.idx, 10);
-      signingState.pads[idx].clear();
-    }));
+      const existing = capturedSignatures[docKey] || [];
+      signingState.pads = config.signatures.map((label, i) => {
+        const canvas = document.getElementById('sigCanvas_' + i);
+        const pad = createSignaturePad(canvas);
+        if(existing[i]) pad.drawExisting(existing[i]);
+        return pad;
+      });
+
+      padsArea.querySelectorAll('.sig-pad-clear').forEach(btn => btn.addEventListener('click', (e)=>{
+        const idx = parseInt(e.target.dataset.idx, 10);
+        signingState.pads[idx].clear();
+      }));
+      signingState.inlineFieldMap = null;
+    }
 
     document.getElementById('sign_backBtn').style.visibility = currentIndex === 0 ? 'hidden' : 'visible';
     document.getElementById('sign_nextBtn').textContent = currentIndex === docKeys.length - 1 ? 'Finish & Save' : 'Next \u2192';
   }
 
-  function captureCurrentPads(){
-    const { docKeys, currentIndex, capturedSignatures, pads } = signingState;
+  // Returns {ok, missingLabel} for validation, and always saves whatever is currently filled.
+  function captureCurrentStep(){
+    const { docKeys, currentIndex, capturedSignatures } = signingState;
     const docKey = docKeys[currentIndex];
     const config = SIGN_DOC_CONFIG[docKey];
-    const existing = capturedSignatures[docKey] || [];
-    const merged = config.signatures.map((_, i) => !pads[i].isEmpty() ? pads[i].toDataURL() : existing[i]);
-    capturedSignatures[docKey] = merged;
-    return merged;
+
+    if(config.inlineFields){
+      const existing = capturedSignatures[docKey] || {};
+      const merged = { ...existing };
+      const fieldMap = signingState.inlineFieldMap;
+      let missingLabel = null;
+      Object.keys(fieldMap).forEach(fieldId => {
+        const field = fieldMap[fieldId];
+        if(!field.isEmpty()){
+          merged[fieldId] = field.getValue();
+        }
+        const isRequired = field.type === 'initial' || field.type === 'signature';
+        if(isRequired && !merged[fieldId] && !missingLabel){
+          missingLabel = field.type === 'initial' ? 'an initial box' : 'a signature';
+        }
+      });
+      capturedSignatures[docKey] = merged;
+      return { ok: !missingLabel, missingLabel };
+    } else {
+      const pads = signingState.pads;
+      const existing = capturedSignatures[docKey] || [];
+      const merged = config.signatures.map((_, i) => !pads[i].isEmpty() ? pads[i].toDataURL() : existing[i]);
+      capturedSignatures[docKey] = merged;
+      const missingIdx = merged.findIndex(v => !v);
+      return { ok: missingIdx === -1, missingLabel: missingIdx > -1 ? config.signatures[missingIdx] : null };
+    }
   }
 
   document.getElementById('sign_nextBtn').addEventListener('click', async ()=>{
-    const merged = captureCurrentPads();
-    const config = SIGN_DOC_CONFIG[signingState.docKeys[signingState.currentIndex]];
-    const missingIdx = merged.findIndex(v => !v);
-    if(missingIdx > -1){
+    const result = captureCurrentStep();
+    if(!result.ok){
       const statusEl = document.getElementById('sign_status');
-      statusEl.textContent = `Please provide a signature for: ${config.signatures[missingIdx]}`;
+      statusEl.textContent = `Please fill in: ${result.missingLabel}`;
       statusEl.className = 'status-msg err';
       return;
     }
@@ -3183,7 +3253,7 @@
   });
 
   document.getElementById('sign_backBtn').addEventListener('click', ()=>{
-    captureCurrentPads();
+    captureCurrentStep();
     if(signingState.currentIndex > 0){
       signingState.currentIndex--;
       renderSigningStep();
@@ -3195,6 +3265,22 @@
     signingState = null;
     document.getElementById('signingView').style.display = 'none';
   });
+
+  const INLINE_FIELD_LABELS = (() => {
+    const labels = {
+      addendum_scenarios: 'Description of Scenarios',
+      addendum_notes: 'Other Notes',
+      addendum_sig_client: 'Client Signature',
+      addendum_sig_captain: 'College HUNKS Captain',
+      damages_description: 'Description of Furniture and Damage',
+      damages_sig_client: 'Client Signature',
+      damages_sig_captain: 'College HUNKS Captain',
+      waiver_sig_release: 'Shipper Signature \u2014 Release of Liability',
+      waiver_sig_inspection: 'Shipper Signature \u2014 Delivery Inspection'
+    };
+    LIABILITY_CLAUSES.forEach((c, i) => { labels['waiver_initial_'+i] = `Client Initial \u2014 ${c.title}`; });
+    return labels;
+  })();
 
   async function finishSigning(){
     const statusEl = document.getElementById('sign_status');
@@ -3211,13 +3297,21 @@
       originAddress: pwVal('pw_originAddress'),
       destAddress: pwVal('pw_destAddress'),
       signedAt: new Date().toISOString(),
-      documents: signingState.docKeys.map(docKey => ({
-        docKey,
-        title: SIGN_DOC_CONFIG[docKey].title,
-        signatures: SIGN_DOC_CONFIG[docKey].signatures.map((label, i) => ({
-          label, dataUri: (signingState.capturedSignatures[docKey] || [])[i] || null
-        }))
-      }))
+      documents: signingState.docKeys.map(docKey => {
+        const config = SIGN_DOC_CONFIG[docKey];
+        const captured = signingState.capturedSignatures[docKey];
+        let fields;
+        if(config.inlineFields){
+          fields = Object.keys(captured || {}).map(fieldId => {
+            const type = fieldId.includes('_sig_') || fieldId.startsWith('waiver_sig') ? 'signature'
+              : fieldId.includes('initial') ? 'initial' : 'text';
+            return { label: INLINE_FIELD_LABELS[fieldId] || fieldId, type, value: captured[fieldId] };
+          });
+        } else {
+          fields = config.signatures.map((label, i) => ({ label, type: 'signature', value: (captured || [])[i] || null }));
+        }
+        return { docKey, title: config.title, fields };
+      })
     };
 
     let ok = false;
@@ -3267,10 +3361,19 @@
       if(!record) return;
       const win = window.open();
       if(win){
-        const docsHtml = record.documents.map(d => `
+        const docsHtml = record.documents.map(d => {
+          const fields = d.fields || (d.signatures || []).map(s => ({ label: s.label, type: 'signature', value: s.dataUri }));
+          return `
           <h3>${esc(d.title)}</h3>
-          ${d.signatures.map(s => `<div style="margin-bottom:12px;"><div style="font-size:12px; color:#666;">${esc(s.label)}</div>${s.dataUri ? `<img src="${s.dataUri}" style="border:1px solid #ccc; max-width:400px;">` : '<i>Not signed</i>'}</div>`).join('')}
-        `).join('<hr>');
+          ${fields.map(f => {
+            if(f.type === 'text'){
+              return `<div style="margin-bottom:12px;"><div style="font-size:12px; color:#666;">${esc(f.label)}</div>${f.value ? `<div style="white-space:pre-wrap; border:1px solid #eee; padding:8px; border-radius:4px;">${esc(f.value)}</div>` : '<i>(left blank)</i>'}</div>`;
+            }
+            const imgWidth = f.type === 'initial' ? 100 : 400;
+            return `<div style="margin-bottom:12px;"><div style="font-size:12px; color:#666;">${esc(f.label)}</div>${f.value ? `<img src="${f.value}" style="border:1px solid #ccc; max-width:${imgWidth}px;">` : '<i>Not signed</i>'}</div>`;
+          }).join('')}
+        `;
+        }).join('<hr>');
         win.document.write(`<title>Signed Paperwork - ${esc(record.clientName)}</title><body style="font-family:sans-serif; padding:20px; max-width:700px; margin:0 auto;"><h2>${esc(record.clientName)} \u2014 Job #${esc(record.jobNumber)}</h2><p>Signed: ${esc(new Date(record.signedAt).toLocaleString())}</p><hr>${docsHtml}</body>`);
       }
     }));
