@@ -100,6 +100,8 @@
   .tile.attention::before{background:#B3261E;}
   .tile.attention .badge{color:#B3261E; background:#FCDCD6; border-color:#E8A69C;}
   .tile.warning{background:#FFF6E8; border-color:#F0D9A8;}
+  .comp-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
+  .comp-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
   .tile.warning::before{background:#B8860B;}
   .tile.warning .badge{color:#8a6100; background:#FCEBC5; border-color:#F0D9A8;}
 
@@ -290,6 +292,12 @@
         <span class="icon">🕒</span>
         <h3>Attendance Tracking</h3>
         <p>Log unexcused tardies and absences, pulled from your current payroll roster.</p>
+      </div>
+      <div class="tile" id="tile-compliance" tabindex="0" role="button" aria-label="Open Regulatory Compliance">
+        <span class="badge" id="complianceTileBadge" style="display:none;">Attention Needed</span>
+        <span class="icon">🛡️</span>
+        <h3>Regulatory Compliance</h3>
+        <p>Business authorizations, truck safety records, and driver qualification files.</p>
       </div>
     </div>
   </div>
@@ -981,6 +989,196 @@
       </div>
     </div>
   </div>
+
+  <!-- ============ REGULATORY COMPLIANCE DETAIL ============ -->
+  <div id="complianceDetail" style="display:none;">
+    <button class="backlink" id="complianceBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Regulatory Compliance</h2>
+        <p>Business authorizations, truck safety records, and driver qualification files.</p>
+      </div>
+
+      <div class="panel" id="complianceSectionPanel">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="comp-section-btn" data-section="business" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Business</button>
+          <button type="button" class="comp-section-btn" data-section="trucks" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Trucks</button>
+          <button type="button" class="comp-section-btn" data-section="drivers" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Drivers</button>
+        </div>
+      </div>
+
+      <!-- ---- BUSINESS ---- -->
+      <div id="comp_business" class="comp-section">
+        <div class="panel" id="comp_einPanel">
+          <h3>EIN Confirmation Letter</h3>
+          <p class="form-note">The IRS issues this once (Form CP 575) and will never reissue it \u2014 store it here so it's never lost. If it's already lost, the IRS can send a substitute "147C" letter by phone request.</p>
+          <div id="comp_einDropzone" style="border:2px dashed var(--line); border-radius:8px; padding:24px 16px; text-align:center; background:var(--offwhite); cursor:pointer;">
+            <div style="font-size:14px; font-weight:600;">Drag &amp; drop the EIN letter here</div>
+            <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG</div>
+            <input type="file" id="comp_einFileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none;">
+          </div>
+          <div class="status-msg" id="comp_einStatus" style="margin-top:8px;"></div>
+          <div id="comp_einCurrent" style="margin-top:10px; font-size:13px;"></div>
+        </div>
+
+        <div class="panel" id="comp_authPanel">
+          <h3>Federal &amp; Georgia Authorizations</h3>
+          <p class="form-note">Researched from FMCSA and Georgia DPS sources, current as of August 2026. Uncheck "Applies" for anything conditional (like interstate-only federal authority) that doesn't match your actual operations. Add rows for anything else specific to your business.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead><tr>
+              <th style="text-align:center; padding:5px 3px; border-bottom:1px solid var(--line);">Applies</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Authorization</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Number / ID</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Renewal Cycle</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Next Renewal Due</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Renewal Link</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Notes</th>
+              <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="comp_authRows"></tbody>
+          </table>
+          <button class="addweek-toggle" id="comp_addAuthToggle" style="margin-top:14px;">+ Add Authorization</button>
+          <div id="comp_addAuthForm" class="panel" style="display:none; margin-top:12px;">
+            <div class="form-grid">
+              <label>Authorization Name <input type="text" id="comp_newAuthName"></label>
+              <label>Number / ID <input type="text" id="comp_newAuthNumber"></label>
+              <label>Renewal Cycle <input type="text" id="comp_newAuthCycle" placeholder="e.g. Annual"></label>
+              <label>Next Renewal Due <input type="date" id="comp_newAuthDue"></label>
+              <label>Renewal Link (URL) <input type="text" id="comp_newAuthLink"></label>
+            </div>
+            <label>Notes <input type="text" id="comp_newAuthNotes"></label>
+            <div class="form-actions">
+              <button class="btn-primary" id="comp_saveAuthBtn" type="button">Save Authorization</button>
+              <span class="status-msg" id="comp_addAuthStatus"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---- TRUCKS ---- -->
+      <div id="comp_trucks" class="comp-section" style="display:none;">
+        <div class="panel" id="comp_truckSelectPanel">
+          <h3>Select a Truck</h3>
+          <label>Truck <select id="comp_truckSelect"></select></label>
+          <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found \u2014 add one on the Fleet Maintenance tile first.</p>
+        </div>
+
+        <div class="panel" id="comp_dotInspectionPanel">
+          <h3>DOT Inspections</h3>
+          <div class="form-grid">
+            <label>Date <input type="date" id="comp_dot_date"></label>
+            <label>Result
+              <select id="comp_dot_result">
+                <option value="pass">Pass</option>
+                <option value="pass-defects">Pass with Defects Noted</option>
+                <option value="oos">Out of Service</option>
+              </select>
+            </label>
+          </div>
+          <label>Location / Inspector <input type="text" id="comp_dot_location"></label>
+          <label>Notes <textarea id="comp_dot_notes" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">
+            Inspection Report (optional)
+            <input type="file" id="comp_dot_file" accept=".pdf,.jpg,.jpeg,.png" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+          </label>
+          <div class="form-actions">
+            <button class="btn-primary" id="comp_dot_saveBtn" type="button">Save Inspection</button>
+            <span class="status-msg" id="comp_dot_status"></span>
+          </div>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Result</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Location</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Notes</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Report</th>
+              <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="comp_dot_rows"></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="comp_incidentPanel">
+          <h3>Safety Incidents</h3>
+          <div class="form-grid">
+            <label>Date <input type="date" id="comp_inc_date"></label>
+            <label>Severity
+              <select id="comp_inc_severity">
+                <option value="minor">Minor</option>
+                <option value="moderate">Moderate</option>
+                <option value="severe">Severe</option>
+              </select>
+            </label>
+          </div>
+          <label>Description <textarea id="comp_inc_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+          <div class="form-actions">
+            <button class="btn-primary" id="comp_inc_saveBtn" type="button">Save Incident</button>
+            <span class="status-msg" id="comp_inc_statusMsg"></span>
+          </div>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Severity</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
+              <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="comp_inc_rows"></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="comp_violationPanel">
+          <h3>Violations</h3>
+          <div class="form-grid">
+            <label>Date <input type="date" id="comp_vio_date"></label>
+            <label>Status
+              <select id="comp_vio_status">
+                <option value="open">Open</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </label>
+          </div>
+          <label>Description <textarea id="comp_vio_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+          <div class="form-actions">
+            <button class="btn-primary" id="comp_vio_saveBtn" type="button">Save Violation</button>
+            <span class="status-msg" id="comp_vio_statusMsg"></span>
+          </div>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Status</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
+              <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="comp_vio_rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ---- DRIVERS ---- -->
+      <div id="comp_drivers" class="comp-section" style="display:none;">
+        <div class="panel" id="comp_driverListPanel">
+          <h3>Drivers</h3>
+          <p class="form-note" id="comp_noEmployeesNote" style="display:none;">No employees found yet \u2014 upload a payroll week on the Labor Cost tile first.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Driver</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
+            </tr></thead>
+            <tbody id="comp_driverRows"></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="comp_driverDocsPanel" style="display:none;">
+          <h3 id="comp_driverDocsHeading">Driver Documents</h3>
+          <label style="max-width:260px;">DOT Physical Expiration Date <input type="date" id="comp_driverPhysicalExp"></label>
+          <div id="comp_driverDocUploads" style="margin-top:14px;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   </div>
 
 </div>
@@ -1044,6 +1242,7 @@
   const paperworkDetail = document.getElementById('paperworkDetail');
   const fleetDetail = document.getElementById('fleetDetail');
   const attendanceDetail = document.getElementById('attendanceDetail');
+  const complianceDetail = document.getElementById('complianceDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -1052,6 +1251,7 @@
     paperworkDetail.style.display = view === 'paperwork' ? 'block' : 'none';
     fleetDetail.style.display = view === 'fleet' ? 'block' : 'none';
     attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
+    complianceDetail.style.display = view === 'compliance' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -1060,6 +1260,9 @@
     }
     if(view === 'attendance'){
       loadAttendanceData();
+    }
+    if(view === 'compliance'){
+      loadComplianceData();
     }
   }
 
@@ -1099,6 +1302,10 @@
   document.getElementById('tile-attendance').addEventListener('click', ()=> navigateTo('attendance'));
   document.getElementById('tile-attendance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('attendance'); }});
   document.getElementById('attendanceBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-compliance').addEventListener('click', ()=> navigateTo('compliance'));
+  document.getElementById('tile-compliance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('compliance'); }});
+  document.getElementById('complianceBackBtn').addEventListener('click', ()=> history.back());
 
   // ---------- shared data ----------
   const STORAGE_KEY = 'labor-weeks';
@@ -2085,6 +2292,523 @@
   });
 
   document.getElementById('att_filter').addEventListener('input', renderAttendanceHistory);
+
+  // ---------- Regulatory Compliance ----------
+  const COMP_AUTH_KEY = 'compliance-business-authorizations';
+  const COMP_DOT_KEY = 'compliance-truck-dot-inspections';
+  const COMP_INCIDENT_KEY = 'compliance-truck-safety-incidents';
+  const COMP_VIOLATION_KEY = 'compliance-truck-violations';
+  const COMP_DRIVERS_KEY = 'compliance-drivers';
+
+  let compAuthorizations = [];
+  let compDotInspections = [];
+  let compIncidents = [];
+  let compViolations = [];
+  let compDrivers = [];
+  let compCurrentSection = 'business';
+  let compSelectedTruckId = null;
+  let compSelectedDriverName = null;
+
+  function compReadFileAsDataUri(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function seedComplianceAuthorizations(){
+    return [
+      { id:'auth_1', applies:true, name:'Georgia DPS Household Goods Certificate', number:'HHG 9329', cycle:'Annual (12-mo interim + DPS audit)', dueDate:'', link:'https://regulatorycompliance.gamccd.net/public/', notes:'On file. Could not verify live status by public search \u2014 call GA DPS Household Goods line at 404-624-7241 to confirm your renewal date.' },
+      { id:'auth_2', applies:true, name:'USDOT Number', number:'4152752', cycle:'Biennial (MCS-150; due end of Feb, odd years)', dueDate:'2027-02-28', link:'https://portal.fmcsa.dot.gov/', notes:'Verified ACTIVE on FMCSA SAFER (matches your name/address/DBA exactly). Last MCS-150 filed 2/18/2025; next due by end of Feb 2027.' },
+      { id:'auth_3', applies:true, name:'MC Number / Operating Authority', number:'MC-1594490', cycle:'One-time filing; keep insurance current', dueDate:'', link:'https://portal.fmcsa.dot.gov/', notes:'Verified on FMCSA SAFER: authorized for Motor Carrier of Household Goods, classified Interstate. Liability insurance on file ($750,000, GEICO Marine).' },
+      { id:'auth_4', applies:true, name:'BOC-3 Process Agent Designation', number:'', cycle:'One-time; update if agent changes', dueDate:'', link:'https://ai.fmcsa.dot.gov/BOC3/', notes:'Required and implied by your active MC authority above; specific filing details weren\u2019t independently verifiable by public search \u2014 confirm on the FMCSA Portal.' },
+      { id:'auth_5', applies:true, name:'UCR (Unified Carrier Registration)', number:'', cycle:'Annual, registration window Oct 1 \u2013 Dec 31', dueDate:'', link:'https://www.ucr.gov/', notes:'Applies \u2014 you hold active interstate MC authority. Confirm your current registration year status at ucr.gov.' },
+      { id:'auth_6', applies:true, name:'EIN (Employer Identification Number)', number:'', cycle:'None \u2014 permanent, never renews', dueDate:'', link:'https://www.irs.gov/businesses/small-businesses-self-employed/lost-or-misplaced-your-ein', notes:'Store the CP 575 confirmation letter above \u2014 the IRS will never reissue it.' }
+    ];
+  }
+
+  async function loadComplianceData(){
+    try{
+      const [auths, dot, inc, vio, drv] = await Promise.all([
+        window.dashboardApi.get(COMP_AUTH_KEY, null),
+        window.dashboardApi.get(COMP_DOT_KEY, []),
+        window.dashboardApi.get(COMP_INCIDENT_KEY, []),
+        window.dashboardApi.get(COMP_VIOLATION_KEY, []),
+        window.dashboardApi.get(COMP_DRIVERS_KEY, [])
+      ]);
+      if(auths === null){
+        compAuthorizations = seedComplianceAuthorizations();
+        await window.dashboardApi.set(COMP_AUTH_KEY, compAuthorizations);
+      } else {
+        compAuthorizations = auths;
+      }
+      compDotInspections = dot; compIncidents = inc; compViolations = vio; compDrivers = drv;
+    }catch(err){ console.error('Compliance data load failed:', err); }
+
+    renderCompAuthTable();
+    renderEinCurrent();
+    await renderCompTruckSelect();
+    await renderCompDriverList();
+    showCompSection(compCurrentSection);
+    updateComplianceTileBadge();
+  }
+
+  function showCompSection(section){
+    compCurrentSection = section;
+    document.getElementById('comp_business').style.display = section === 'business' ? 'block' : 'none';
+    document.getElementById('comp_trucks').style.display = section === 'trucks' ? 'block' : 'none';
+    document.getElementById('comp_drivers').style.display = section === 'drivers' ? 'block' : 'none';
+    document.querySelectorAll('.comp-section-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.section === section);
+    });
+  }
+  document.querySelectorAll('.comp-section-btn').forEach(btn => btn.addEventListener('click', ()=> showCompSection(btn.dataset.section)));
+
+  function updateComplianceTileBadge(){
+    const today = todayStr();
+    const warn = new Date(); warn.setDate(warn.getDate()+30);
+    const warnStr = warn.toISOString().slice(0,10);
+    const authDue = compAuthorizations.some(a => a.applies && a.dueDate && a.dueDate <= warnStr);
+    const driverDue = compDrivers.some(d => d.active && d.physicalExpiration && d.physicalExpiration <= warnStr);
+    const anyDue = authDue || driverDue;
+    const tile = document.getElementById('tile-compliance');
+    const badge = document.getElementById('complianceTileBadge');
+    if(anyDue){
+      tile.classList.add('attention');
+      badge.style.display = 'inline-block';
+    } else {
+      tile.classList.remove('attention');
+      badge.style.display = 'none';
+    }
+  }
+
+  // ---- Business: EIN letter ----
+  async function handleEinUpload(file){
+    const statusEl = document.getElementById('comp_einStatus');
+    if(file.size > 10*1024*1024){
+      statusEl.textContent = 'That file is over 10MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Uploading...';
+    statusEl.className = 'status-msg';
+    try{
+      const dataUri = await compReadFileAsDataUri(file);
+      const ok = await window.dashboardApi.set('compliance-doc-ein-letter', { dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
+      if(ok){
+        statusEl.textContent = `Uploaded "${file.name}".`;
+        statusEl.className = 'status-msg ok';
+        renderEinCurrent();
+      } else {
+        statusEl.textContent = 'Save failed \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+      }
+    }catch(err){
+      console.error('EIN upload failed:', err);
+      statusEl.textContent = 'Upload failed \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+
+  async function renderEinCurrent(){
+    const el = document.getElementById('comp_einCurrent');
+    try{
+      const record = await window.dashboardApi.get('compliance-doc-ein-letter', null);
+      if(!record){ el.innerHTML = '<span style="color:var(--muted);">No EIN letter on file yet.</span>'; return; }
+      el.innerHTML = `On file: <b>${fleetEsc(record.fileName)}</b> (uploaded ${new Date(record.uploadedAt).toLocaleDateString()}) <button type="button" id="comp_einViewBtn" style="margin-left:8px; background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;">View</button>`;
+      document.getElementById('comp_einViewBtn').addEventListener('click', ()=>{
+        const isPdf = record.dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(record.dataUri), '_blank'); }
+        else { const win = window.open(); if(win) win.document.write(`<title>${fleetEsc(record.fileName)}</title><body style="margin:0;"><img src="${record.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+      });
+    }catch(err){ console.error('EIN load failed:', err); el.innerHTML = '<span style="color:#b3261e;">Could not load \u2014 check your connection.</span>'; }
+  }
+
+  const compEinDropzone = document.getElementById('comp_einDropzone');
+  const compEinFileInput = document.getElementById('comp_einFileInput');
+  compEinDropzone.addEventListener('click', () => compEinFileInput.click());
+  compEinFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(file) handleEinUpload(file);
+    compEinFileInput.value = '';
+  });
+  ['dragenter','dragover'].forEach(evt => compEinDropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    compEinDropzone.style.background = '#EAF3EC';
+    compEinDropzone.style.borderColor = '#00612C';
+  }));
+  ['dragleave','drop'].forEach(evt => compEinDropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    compEinDropzone.style.background = 'var(--offwhite)';
+    compEinDropzone.style.borderColor = 'var(--line)';
+  }));
+  compEinDropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files[0];
+    if(file) handleEinUpload(file);
+  });
+
+  // ---- Business: Authorizations table ----
+  async function saveCompAuthorizations(){
+    try{ return await window.dashboardApi.set(COMP_AUTH_KEY, compAuthorizations); }
+    catch(err){ console.error('Authorization save failed:', err); return false; }
+  }
+
+  function renderCompAuthTable(){
+    const tbody = document.getElementById('comp_authRows');
+    tbody.innerHTML = compAuthorizations.map((a, i) => `
+      <tr style="${a.applies ? '' : 'opacity:0.5;'}">
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:center;"><input type="checkbox" class="comp-auth-applies" data-idx="${i}" ${a.applies?'checked':''}></td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(a.name)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);"><input type="text" class="comp-auth-field" data-idx="${i}" data-field="number" value="${fleetEsc(a.number)}" style="width:90px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); font-size:11px;">${fleetEsc(a.cycle)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);"><input type="date" class="comp-auth-field" data-idx="${i}" data-field="dueDate" value="${a.dueDate||''}" style="padding:3px 4px; border:1px solid var(--line); border-radius:3px; font-size:11px;"></td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${a.link ? `<a href="${a.link}" target="_blank" rel="noopener">Renew</a>` : ''}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); font-size:11px; max-width:160px;">${fleetEsc(a.notes)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-auth-delete" data-idx="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Remove</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.comp-auth-applies').forEach(cb => cb.addEventListener('change', async (e)=>{
+      const idx = parseInt(e.target.dataset.idx, 10);
+      compAuthorizations[idx].applies = e.target.checked;
+      await saveCompAuthorizations();
+      renderCompAuthTable();
+      updateComplianceTileBadge();
+    }));
+    tbody.querySelectorAll('.comp-auth-field').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const idx = parseInt(e.target.dataset.idx, 10);
+      const field = e.target.dataset.field;
+      compAuthorizations[idx][field] = e.target.value;
+      await saveCompAuthorizations();
+      if(field === 'dueDate') updateComplianceTileBadge();
+    }));
+    tbody.querySelectorAll('.comp-auth-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const idx = parseInt(e.target.dataset.idx, 10);
+      if(!confirm(`Remove "${compAuthorizations[idx].name}"?`)) return;
+      compAuthorizations.splice(idx, 1);
+      await saveCompAuthorizations();
+      renderCompAuthTable();
+      updateComplianceTileBadge();
+    }));
+  }
+
+  document.getElementById('comp_addAuthToggle').addEventListener('click', ()=>{
+    const f = document.getElementById('comp_addAuthForm');
+    f.style.display = f.style.display === 'block' ? 'none' : 'block';
+  });
+  document.getElementById('comp_saveAuthBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('comp_addAuthStatus');
+    const name = document.getElementById('comp_newAuthName').value.trim();
+    if(!name){ statusEl.textContent = 'Enter a name.'; statusEl.className = 'status-msg err'; return; }
+    compAuthorizations.push({
+      id: 'auth_' + Date.now(), applies: true, name,
+      number: document.getElementById('comp_newAuthNumber').value.trim(),
+      cycle: document.getElementById('comp_newAuthCycle').value.trim(),
+      dueDate: document.getElementById('comp_newAuthDue').value,
+      link: document.getElementById('comp_newAuthLink').value.trim(),
+      notes: document.getElementById('comp_newAuthNotes').value.trim()
+    });
+    const ok = await saveCompAuthorizations();
+    ['comp_newAuthName','comp_newAuthNumber','comp_newAuthCycle','comp_newAuthDue','comp_newAuthLink','comp_newAuthNotes'].forEach(id => { document.getElementById(id).value = ''; });
+    renderCompAuthTable();
+    updateComplianceTileBadge();
+    statusEl.textContent = ok ? 'Authorization added.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  // ---- Trucks ----
+  async function renderCompTruckSelect(){
+    let list = trucks;
+    if(!list || list.length === 0){
+      try{ list = await window.dashboardApi.get(FLEET_TRUCKS_KEY, []); }catch(err){ list = []; }
+    }
+    const sel = document.getElementById('comp_truckSelect');
+    const noTrucksNote = document.getElementById('comp_noTrucksNote');
+    if(!list || list.length === 0){
+      sel.innerHTML = '';
+      noTrucksNote.style.display = 'block';
+      compSelectedTruckId = null;
+    } else {
+      noTrucksNote.style.display = 'none';
+      sel.innerHTML = list.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
+      compSelectedTruckId = sel.value;
+    }
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows();
+  }
+  document.getElementById('comp_truckSelect').addEventListener('change', (e)=>{
+    compSelectedTruckId = e.target.value;
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows();
+  });
+
+  function renderCompDotRows(){
+    const tbody = document.getElementById('comp_dot_rows');
+    const rows = compDotInspections.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> b.date.localeCompare(a.date));
+    const resultLabels = {pass:'Pass', 'pass-defects':'Pass w/ Defects', oos:'Out of Service'};
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.result==='oos'?'color:#B3261E; font-weight:600;':''}">${resultLabels[r.result]||fleetEsc(r.result)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.location)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.notes)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${r.hasFile ? `<button type="button" class="comp-dot-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>` : '\u2014'}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-dot-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.comp-dot-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      try{
+        const dataUri = await window.dashboardApi.get('compliance-doc-' + id, null);
+        if(!dataUri){ alert('Could not load this file.'); return; }
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
+        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+      }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
+    }));
+    tbody.querySelectorAll('.comp-dot-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const rec = compDotInspections.find(r => r.id === id);
+      if(!confirm('Delete this inspection record?')) return;
+      compDotInspections = compDotInspections.filter(r => r.id !== id);
+      await window.dashboardApi.set(COMP_DOT_KEY, compDotInspections);
+      if(rec && rec.hasFile){ try{ await window.dashboardApi.delete('compliance-doc-' + id); }catch(e2){ console.error(e2); } }
+      renderCompDotRows();
+    }));
+  }
+
+  document.getElementById('comp_dot_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('comp_dot_status');
+    if(!compSelectedTruckId){ statusEl.textContent = 'Select a truck first.'; statusEl.className = 'status-msg err'; return; }
+    const date = document.getElementById('comp_dot_date').value;
+    if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
+    const result = document.getElementById('comp_dot_result').value;
+    const location = document.getElementById('comp_dot_location').value.trim();
+    const notes = document.getElementById('comp_dot_notes').value.trim();
+    const file = document.getElementById('comp_dot_file').files[0];
+
+    if(file && file.size > 10*1024*1024){ statusEl.textContent = 'That file is over 10MB.'; statusEl.className = 'status-msg err'; return; }
+
+    const recId = 'dot_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    let hasFile = false;
+    if(file){
+      try{
+        const dataUri = await compReadFileAsDataUri(file);
+        hasFile = await window.dashboardApi.set('compliance-doc-' + recId, dataUri);
+      }catch(err){ console.error('Inspection file upload failed:', err); }
+    }
+    compDotInspections.push({ id: recId, truckId: compSelectedTruckId, date, result, location, notes, hasFile });
+    const ok = await window.dashboardApi.set(COMP_DOT_KEY, compDotInspections);
+    document.getElementById('comp_dot_location').value = '';
+    document.getElementById('comp_dot_notes').value = '';
+    document.getElementById('comp_dot_file').value = '';
+    renderCompDotRows();
+    statusEl.textContent = ok ? 'Inspection saved.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  function renderCompIncidentRows(){
+    const tbody = document.getElementById('comp_inc_rows');
+    const rows = compIncidents.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> b.date.localeCompare(a.date));
+    const sevLabels = {minor:'Minor', moderate:'Moderate', severe:'Severe'};
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.severity==='severe'?'color:#B3261E; font-weight:600;':''}">${sevLabels[r.severity]||fleetEsc(r.severity)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.description)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-inc-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
+      </tr>`).join('');
+    tbody.querySelectorAll('.comp-inc-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      if(!confirm('Delete this incident record?')) return;
+      compIncidents = compIncidents.filter(r => r.id !== e.target.dataset.id);
+      await window.dashboardApi.set(COMP_INCIDENT_KEY, compIncidents);
+      renderCompIncidentRows();
+    }));
+  }
+
+  document.getElementById('comp_inc_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('comp_inc_statusMsg');
+    if(!compSelectedTruckId){ statusEl.textContent = 'Select a truck first.'; statusEl.className = 'status-msg err'; return; }
+    const date = document.getElementById('comp_inc_date').value;
+    const description = document.getElementById('comp_inc_description').value.trim();
+    if(!date || !description){ statusEl.textContent = 'Enter a date and description.'; statusEl.className = 'status-msg err'; return; }
+    compIncidents.push({ id: 'inc_'+Date.now()+'_'+Math.floor(Math.random()*1000), truckId: compSelectedTruckId, date, severity: document.getElementById('comp_inc_severity').value, description });
+    const ok = await window.dashboardApi.set(COMP_INCIDENT_KEY, compIncidents);
+    document.getElementById('comp_inc_description').value = '';
+    renderCompIncidentRows();
+    statusEl.textContent = ok ? 'Incident saved.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  function renderCompViolationRows(){
+    const tbody = document.getElementById('comp_vio_rows');
+    const rows = compViolations.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> b.date.localeCompare(a.date));
+    const statusLabels = {open:'Open', resolved:'Resolved'};
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.status==='open'?'color:#B3261E; font-weight:600;':''}">${statusLabels[r.status]||fleetEsc(r.status)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.description)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-vio-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
+      </tr>`).join('');
+    tbody.querySelectorAll('.comp-vio-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      if(!confirm('Delete this violation record?')) return;
+      compViolations = compViolations.filter(r => r.id !== e.target.dataset.id);
+      await window.dashboardApi.set(COMP_VIOLATION_KEY, compViolations);
+      renderCompViolationRows();
+    }));
+  }
+
+  document.getElementById('comp_vio_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('comp_vio_statusMsg');
+    if(!compSelectedTruckId){ statusEl.textContent = 'Select a truck first.'; statusEl.className = 'status-msg err'; return; }
+    const date = document.getElementById('comp_vio_date').value;
+    const description = document.getElementById('comp_vio_description').value.trim();
+    if(!date || !description){ statusEl.textContent = 'Enter a date and description.'; statusEl.className = 'status-msg err'; return; }
+    compViolations.push({ id: 'vio_'+Date.now()+'_'+Math.floor(Math.random()*1000), truckId: compSelectedTruckId, date, status: document.getElementById('comp_vio_status').value, description });
+    const ok = await window.dashboardApi.set(COMP_VIOLATION_KEY, compViolations);
+    document.getElementById('comp_vio_description').value = '';
+    renderCompViolationRows();
+    statusEl.textContent = ok ? 'Violation saved.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  // ---- Drivers ----
+  async function renderCompDriverList(){
+    const roster = await getCurrentEmployeeRoster();
+    const tbody = document.getElementById('comp_driverRows');
+    const noEmpNote = document.getElementById('comp_noEmployeesNote');
+    if(roster.length === 0){
+      tbody.innerHTML = '';
+      noEmpNote.style.display = 'block';
+      return;
+    }
+    noEmpNote.style.display = 'none';
+    const today = todayStr();
+    tbody.innerHTML = roster.map(name => {
+      const rec = compDrivers.find(d => d.employeeName === name);
+      const isDriver = !!(rec && rec.active);
+      let statusHtml = '';
+      if(isDriver){
+        const exp = rec.physicalExpiration;
+        if(exp && exp <= today) statusHtml = '<span style="color:#B3261E; font-weight:700; margin-left:8px;">DOT PHYSICAL EXPIRED</span>';
+        else if(exp && oneMonthBefore(exp) <= today) statusHtml = '<span style="color:#8a6100; font-weight:700; margin-left:8px;">PHYSICAL DUE SOON</span>';
+        else if(exp) statusHtml = '<span style="color:#00612C; margin-left:8px;">OK</span>';
+      }
+      return `<tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(name)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center;"><input type="checkbox" class="comp-driver-toggle" data-name="${fleetEsc(name)}" ${isDriver?'checked':''}></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${isDriver ? `<button type="button" class="comp-driver-manage" data-name="${fleetEsc(name)}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;">Manage Documents</button>${statusHtml}` : ''}</td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.comp-driver-toggle').forEach(cb => cb.addEventListener('change', async (e)=>{
+      const name = e.target.dataset.name;
+      let rec = compDrivers.find(d => d.employeeName === name);
+      if(e.target.checked){
+        if(!rec){ compDrivers.push({ employeeName: name, physicalExpiration: '', active: true }); }
+        else { rec.active = true; }
+      } else if(rec){
+        rec.active = false;
+      }
+      await window.dashboardApi.set(COMP_DRIVERS_KEY, compDrivers);
+      renderCompDriverList();
+      updateComplianceTileBadge();
+    }));
+
+    tbody.querySelectorAll('.comp-driver-manage').forEach(btn => btn.addEventListener('click', ()=>{
+      openDriverDocs(btn.dataset.name);
+    }));
+  }
+
+  const DRIVER_DOC_TYPES = [
+    { key: 'physical', label: 'DOT Physical' },
+    { key: 'roadtest', label: 'Road Test Certification' },
+    { key: 'application', label: 'DOT Driver Application' }
+  ];
+
+  function driverDocKey(name, docKey){
+    return 'compliance-doc-driver-' + name.replace(/[^a-zA-Z0-9]/g, '_') + '-' + docKey;
+  }
+
+  async function openDriverDocs(name){
+    compSelectedDriverName = name;
+    document.getElementById('comp_driverDocsHeading').textContent = 'Driver Documents \u2014 ' + name;
+    const rec = compDrivers.find(d => d.employeeName === name);
+    document.getElementById('comp_driverPhysicalExp').value = (rec && rec.physicalExpiration) || '';
+    document.getElementById('comp_driverDocsPanel').style.display = 'block';
+    await renderDriverDocUploads(name);
+    document.getElementById('comp_driverDocsPanel').scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
+  async function renderDriverDocUploads(name){
+    const container = document.getElementById('comp_driverDocUploads');
+    container.innerHTML = DRIVER_DOC_TYPES.map(dt => `
+      <div class="sig-pad-wrap" style="margin-bottom:12px;">
+        <div class="sig-pad-label">${dt.label}</div>
+        <div id="driverDocStatus_${dt.key}" style="font-size:13px; margin-bottom:6px;">Loading...</div>
+        <input type="file" class="driver-doc-input" data-key="${dt.key}" accept=".pdf,.jpg,.jpeg,.png">
+      </div>`).join('');
+
+    for(const dt of DRIVER_DOC_TYPES){
+      try{
+        const rec = await window.dashboardApi.get(driverDocKey(name, dt.key), null);
+        const el = document.getElementById('driverDocStatus_' + dt.key);
+        if(rec){
+          el.innerHTML = `On file: <b>${fleetEsc(rec.fileName)}</b> (${new Date(rec.uploadedAt).toLocaleDateString()}) <button type="button" class="driver-doc-view" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer;">View</button>`;
+        } else {
+          el.innerHTML = '<span style="color:var(--muted);">Not uploaded yet.</span>';
+        }
+      }catch(err){ console.error('Driver doc status load failed:', err); }
+    }
+
+    container.querySelectorAll('.driver-doc-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const key = e.target.dataset.key;
+      try{
+        const rec = await window.dashboardApi.get(driverDocKey(name, key), null);
+        if(!rec) return;
+        const isPdf = rec.dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(rec.dataUri), '_blank'); }
+        else { const win = window.open(); if(win) win.document.write(`<title>${fleetEsc(rec.fileName)}</title><body style="margin:0;"><img src="${rec.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+      }catch(err){ console.error('Driver doc view failed:', err); }
+    }));
+
+    container.querySelectorAll('.driver-doc-input').forEach(input => input.addEventListener('change', async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const key = e.target.dataset.key;
+      if(file.size > 10*1024*1024){ alert('That file is over 10MB.'); e.target.value = ''; return; }
+      try{
+        const dataUri = await compReadFileAsDataUri(file);
+        const ok = await window.dashboardApi.set(driverDocKey(name, key), { dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
+        if(ok){ renderDriverDocUploads(name); }
+        else { alert('Save failed \u2014 check your connection.'); }
+      }catch(err){ console.error('Driver doc upload failed:', err); alert('Upload failed \u2014 check your connection.'); }
+    }));
+  }
+
+  document.getElementById('comp_driverPhysicalExp').addEventListener('change', async (e)=>{
+    if(!compSelectedDriverName) return;
+    const rec = compDrivers.find(d => d.employeeName === compSelectedDriverName);
+    if(rec){
+      rec.physicalExpiration = e.target.value;
+      await window.dashboardApi.set(COMP_DRIVERS_KEY, compDrivers);
+      renderCompDriverList();
+      updateComplianceTileBadge();
+    }
+  });
+
+  // Check compliance status on initial page load so the home tile reflects it immediately.
+  (async ()=>{
+    try{
+      const [auths, drv] = await Promise.all([
+        window.dashboardApi.get(COMP_AUTH_KEY, []),
+        window.dashboardApi.get(COMP_DRIVERS_KEY, [])
+      ]);
+      compAuthorizations = auths || [];
+      compDrivers = drv || [];
+      updateComplianceTileBadge();
+    }catch(err){ console.error('Initial compliance status check failed:', err); }
+  })();
 
 })();
 </script>
