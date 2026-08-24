@@ -770,6 +770,7 @@
         <div class="form-actions">
           <button class="btn-primary" id="pw_printBtn">Print Paperwork</button>
           <button id="pw_digitalBtn" type="button" style="background:#00612C; border:1px solid #00612C; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Digital Paperwork</button>
+          <button id="pw_copyLinkBtn" type="button" style="background:#fff; border:1px solid #00612C; color:#00612C; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Copy Link</button>
           <button id="pw_clearBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Clear All Fields</button>
           <span class="status-msg" id="pw_status"></span>
         </div>
@@ -977,11 +978,18 @@
     showView(view);
     history.pushState({view}, '', '#'+view);
   }
+  window.navigateTo = navigateTo;
 
   window.addEventListener('popstate', (e)=>{
     showView(e.state && e.state.view ? e.state.view : 'home');
   });
-  history.replaceState({view:'home'}, '', location.pathname + location.search);
+
+  const initialHash = location.hash || '';
+  if(initialHash.indexOf('#sign-') === 0){
+    window.__pendingSignHash = initialHash;
+  } else {
+    history.replaceState({view:'home'}, '', location.pathname + location.search);
+  }
 
   document.getElementById('tile-labor').addEventListener('click', ()=> navigateTo('labor'));
   document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('labor'); }});
@@ -3269,6 +3277,97 @@
   }
 
   document.getElementById('sr_search').addEventListener('input', renderSignedRecordsSearch);
+
+  // ---------- Copy Link (field access to Digital Paperwork) ----------
+  document.getElementById('pw_copyLinkBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('pw_status');
+    const jobNumber = pwVal('pw_jobNumber');
+    if(!jobNumber){
+      statusEl.textContent = 'Enter a Hunkware Job # before copying a link \u2014 it identifies this job for the link.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const jobKey = jobNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const jobData = {
+      jobType: document.getElementById('pw_jobType').value,
+      jobNumber,
+      clientName: pwVal('pw_clientName'),
+      clientPhone: pwVal('pw_clientPhone'),
+      clientEmail: pwVal('pw_clientEmail'),
+      originAddress: pwVal('pw_originAddress'),
+      destAddress: pwVal('pw_destAddress'),
+      stop1: pwVal('pw_stop1'), stop2: pwVal('pw_stop2'), stop3: pwVal('pw_stop3'),
+      estDate: document.getElementById('pw_estDate').value,
+      packingDate: document.getElementById('pw_packingDate').value,
+      loadingDate: document.getElementById('pw_loadingDate').value,
+      deliveryDate: document.getElementById('pw_deliveryDate').value,
+      unpackingDate: document.getElementById('pw_unpackingDate').value,
+      otherServiceDate: document.getElementById('pw_otherServiceDate').value
+    };
+    statusEl.textContent = 'Saving link...';
+    statusEl.className = 'status-msg';
+    let ok = false;
+    try{ ok = await window.dashboardApi.set('paperwork-job-link-' + jobKey, jobData); }
+    catch(err){ console.error('Job link save failed:', err); }
+    if(!ok){
+      statusEl.textContent = 'Could not save this link \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const url = `${location.origin}${location.pathname}#sign-${jobKey}`;
+    try{
+      await navigator.clipboard.writeText(url);
+      statusEl.textContent = 'Link copied! Paste it into the Hunkware job notes.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Clipboard write failed:', err);
+      prompt('Could not auto-copy \u2014 copy this link manually:', url);
+      statusEl.textContent = 'Link ready (copy from the popup).';
+      statusEl.className = 'status-msg ok';
+    }
+  });
+
+  async function handleJobLinkHash(hash){
+    const jobKey = hash.replace('#sign-', '');
+    if(window.navigateTo) window.navigateTo('paperwork');
+    const statusEl = document.getElementById('pw_status');
+    statusEl.textContent = 'Loading job link...';
+    statusEl.className = 'status-msg';
+    let jobData = null;
+    try{ jobData = await window.dashboardApi.get('paperwork-job-link-' + jobKey, null); }
+    catch(err){ console.error('Job link load failed:', err); }
+
+    if(!jobData){
+      statusEl.textContent = 'This link could not be found or may have expired. Ask the office for a new one.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    document.getElementById('pw_jobType').value = jobData.jobType || 'move';
+    updatePWJobTypeUI();
+    document.getElementById('pw_jobNumber').value = jobData.jobNumber || '';
+    document.getElementById('pw_clientName').value = jobData.clientName || '';
+    document.getElementById('pw_clientPhone').value = jobData.clientPhone || '';
+    document.getElementById('pw_clientEmail').value = jobData.clientEmail || '';
+    document.getElementById('pw_originAddress').value = jobData.originAddress || '';
+    document.getElementById('pw_destAddress').value = jobData.destAddress || '';
+    document.getElementById('pw_stop1').value = jobData.stop1 || '';
+    document.getElementById('pw_stop2').value = jobData.stop2 || '';
+    document.getElementById('pw_stop3').value = jobData.stop3 || '';
+    document.getElementById('pw_estDate').value = jobData.estDate || '';
+    document.getElementById('pw_packingDate').value = jobData.packingDate || '';
+    document.getElementById('pw_loadingDate').value = jobData.loadingDate || '';
+    document.getElementById('pw_deliveryDate').value = jobData.deliveryDate || '';
+    document.getElementById('pw_unpackingDate').value = jobData.unpackingDate || '';
+    document.getElementById('pw_otherServiceDate').value = jobData.otherServiceDate || '';
+    statusEl.textContent = '';
+    statusEl.className = 'status-msg';
+    startDigitalSigning();
+  }
+
+  if(window.__pendingSignHash){
+    handleJobLinkHash(window.__pendingSignHash);
+  }
 
   recalc();
 })();
