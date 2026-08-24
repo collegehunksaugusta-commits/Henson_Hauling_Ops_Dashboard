@@ -782,7 +782,7 @@
           <label>Client Name <input type="text" id="pu_clientName"></label>
           <label>Job Number <input type="text" id="pu_jobNumber"></label>
         </div>
-        <label>Client Email (auto-filled from Job Data Entry above; edit if this upload is for a different client) <input type="email" id="pu_clientEmail"></label>
+        <label>Client Email (auto-fills once you enter the Job Number above, if that job's paperwork was generated in the last 3 months) <input type="email" id="pu_clientEmail"></label>
         <div id="pu_dropzone" style="border:2px dashed var(--line); border-radius:8px; padding:28px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer; transition:background .15s, border-color .15s;">
           <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
           <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB</div>
@@ -3268,6 +3268,7 @@
 
   document.getElementById('pw_printBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pw_status');
+    archiveJobData();
     try{
       const jobType = document.getElementById('pw_jobType').value;
       let html = '';
@@ -3396,6 +3397,7 @@
     const jobType = document.getElementById('pw_jobType').value;
     const docKeys = SIGN_JOB_TYPE_DOCS[jobType] || [];
     if(docKeys.length === 0) return;
+    archiveJobData();
     signingState = { docKeys, currentIndex: 0, capturedSignatures: {}, pads: [], inlineFieldMap: null };
     document.getElementById('signingView').style.display = 'block';
     renderSigningStep();
@@ -3807,13 +3809,50 @@
 
   document.getElementById('pu_search').addEventListener('input', renderPaperworkUploadsList);
 
-  // Carries the client email already entered on the Job Data Entry form over to the
-  // upload panel, so it doesn't need to be typed again -- still editable if it's wrong.
-  function syncPuClientEmail(){
-    document.getElementById('pu_clientEmail').value = document.getElementById('pw_clientEmail').value;
+  // ---------- Hidden job data archive (bridges Job Data Entry -> Completed Paperwork upload) ----------
+  // The Job Data Entry form gets cleared between jobs, often well before the completed
+  // paperwork is scanned and uploaded. This keeps a lightweight, invisible record of each
+  // job's contact info -- keyed by Job Number -- for 3 months, so that email address is
+  // still available whenever the upload actually happens.
+  const JOB_ARCHIVE_KEY = 'paperwork-job-archive';
+  const JOB_ARCHIVE_RETENTION_DAYS = 90;
+
+  async function archiveJobData(){
+    const jobNumber = pwVal('pw_jobNumber');
+    if(!jobNumber) return;
+    const clientName = pwVal('pw_clientName');
+    const clientEmail = pwVal('pw_clientEmail');
+    const clientPhone = pwVal('pw_clientPhone');
+    try{
+      let archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
+      const cutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
+      archive = archive.filter(j => j.savedAt >= cutoff && j.jobNumber !== jobNumber);
+      archive.push({ jobNumber, clientName, clientEmail, clientPhone, savedAt: new Date().toISOString() });
+      await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
+    }catch(err){ console.error('Job archive save failed:', err); }
   }
-  document.getElementById('pw_clientEmail').addEventListener('input', syncPuClientEmail);
-  syncPuClientEmail();
+
+  async function lookupArchivedJob(jobNumber){
+    if(!jobNumber) return null;
+    try{
+      const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
+      const cutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
+      const match = archive.find(j => j.jobNumber === jobNumber && j.savedAt >= cutoff);
+      return match || null;
+    }catch(err){ console.error('Job archive lookup failed:', err); return null; }
+  }
+
+  document.getElementById('pu_jobNumber').addEventListener('blur', async ()=>{
+    const jobNumber = document.getElementById('pu_jobNumber').value.trim();
+    if(!jobNumber) return;
+    const match = await lookupArchivedJob(jobNumber);
+    if(match){
+      if(match.clientEmail) document.getElementById('pu_clientEmail').value = match.clientEmail;
+      if(match.clientName && !document.getElementById('pu_clientName').value.trim()){
+        document.getElementById('pu_clientName').value = match.clientName;
+      }
+    }
+  });
 
   async function handlePaperworkFileUpload(file){
     const statusEl = document.getElementById('pu_status');
@@ -3891,6 +3930,7 @@
       statusEl.className = 'status-msg err';
       return;
     }
+    archiveJobData();
     const jobKey = jobNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
     const jobData = {
       jobType: document.getElementById('pw_jobType').value,
