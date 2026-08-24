@@ -1988,7 +1988,7 @@
     catch(err){ console.error('Attendance save failed:', err); return false; }
   }
 
-  const CORRECTIVE_ACTIONS = ['None yet', 'Verbal Warning', 'Written Warning', 'Suspension', 'Termination'];
+  const CORRECTIVE_ACTIONS = ['None yet', 'Verbal Warning', 'Written Warning', 'Pay Docked', 'Termination'];
 
   function renderAttendanceHistory(){
     const filter = (document.getElementById('att_filter').value || '').trim().toLowerCase();
