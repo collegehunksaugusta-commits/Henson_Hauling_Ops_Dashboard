@@ -782,6 +782,7 @@
           <label>Client Name <input type="text" id="pu_clientName"></label>
           <label>Job Number <input type="text" id="pu_jobNumber"></label>
         </div>
+        <label>Client Email (auto-filled from Job Data Entry above; edit if this upload is for a different client) <input type="email" id="pu_clientEmail"></label>
         <div id="pu_dropzone" style="border:2px dashed var(--line); border-radius:8px; padding:28px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer; transition:background .15s, border-color .15s;">
           <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
           <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB</div>
@@ -3708,9 +3709,54 @@
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(new Date(u.uploadedAt).toLocaleDateString())}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
+          <button type="button" class="pu-email" data-id="${u.id}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Send Email</button>
           <button type="button" class="pu-delete" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
         </td>
       </tr>`).join('');
+
+    tbody.querySelectorAll('.pu-email').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const upload = paperworkUploads.find(u => u.id === id);
+      if(!upload) return;
+      const origText = e.target.textContent;
+      e.target.textContent = 'Preparing...';
+      e.target.disabled = true;
+      try{
+        const dataUri = await window.dashboardApi.get('paperwork-upload-' + id, null);
+        if(!dataUri){ alert('Could not load this file to attach.'); return; }
+
+        // Download the file automatically so it's ready to drag into the email --
+        // browsers have no way to attach a file to an email programmatically.
+        const extMatch = upload.fileName.match(/\.[a-zA-Z0-9]+$/);
+        const ext = extMatch ? extMatch[0] : '';
+        const lastName = (upload.clientName || '').trim().split(/\s+/).pop() || 'Client';
+        const jobPart = (upload.jobNumber || '').trim();
+        const safeName = `${lastName}_${jobPart}${ext}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const a = document.createElement('a');
+        a.href = dataUri;
+        a.download = safeName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        const firstName = (upload.clientName || '').split(' ')[0] || 'there';
+        const subject = 'Thank You for Choosing College Hunks';
+        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
+        const cc = 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com';
+        const mailto = `mailto:${encodeURIComponent(upload.clientEmail || '')}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.location.href = mailto;
+
+        const statusEl = document.getElementById('pu_status');
+        statusEl.textContent = `"${upload.fileName}" downloaded and your email is open \u2014 attach the file to send.`;
+        statusEl.className = 'status-msg ok';
+      }catch(err){
+        console.error('Send Email prep failed:', err);
+        alert('Could not prepare this email \u2014 check your connection.');
+      } finally {
+        e.target.textContent = origText;
+        e.target.disabled = false;
+      }
+    }));
 
     tbody.querySelectorAll('.pu-view').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.target.dataset.id;
@@ -3761,10 +3807,19 @@
 
   document.getElementById('pu_search').addEventListener('input', renderPaperworkUploadsList);
 
+  // Carries the client email already entered on the Job Data Entry form over to the
+  // upload panel, so it doesn't need to be typed again -- still editable if it's wrong.
+  function syncPuClientEmail(){
+    document.getElementById('pu_clientEmail').value = document.getElementById('pw_clientEmail').value;
+  }
+  document.getElementById('pw_clientEmail').addEventListener('input', syncPuClientEmail);
+  syncPuClientEmail();
+
   async function handlePaperworkFileUpload(file){
     const statusEl = document.getElementById('pu_status');
     const clientName = document.getElementById('pu_clientName').value.trim();
     const jobNumber = document.getElementById('pu_jobNumber').value.trim();
+    const clientEmail = document.getElementById('pu_clientEmail').value.trim();
     if(!clientName || !jobNumber){
       statusEl.textContent = 'Enter both Client Name and Job Number before uploading.';
       statusEl.className = 'status-msg err';
@@ -3782,13 +3837,14 @@
       const dataUri = await puReadFileAsDataUri(file);
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, dataUri);
       if(!blobOk) throw new Error('Blob save failed');
-      paperworkUploads.push({ id: uploadId, clientName, jobNumber, fileName: file.name, uploadedAt: new Date().toISOString() });
+      paperworkUploads.push({ id: uploadId, clientName, jobNumber, clientEmail, fileName: file.name, uploadedAt: new Date().toISOString() });
       const listOk = await savePaperworkUploadsList();
       if(listOk){
         statusEl.textContent = `Uploaded "${file.name}" for ${clientName}.`;
         statusEl.className = 'status-msg ok';
         document.getElementById('pu_clientName').value = '';
         document.getElementById('pu_jobNumber').value = '';
+        document.getElementById('pu_clientEmail').value = '';
       } else {
         statusEl.textContent = 'File uploaded, but the list failed to save \u2014 check your connection.';
         statusEl.className = 'status-msg err';
