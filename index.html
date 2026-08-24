@@ -103,6 +103,19 @@
   .tile.warning::before{background:#B8860B;}
   .tile.warning .badge{color:#8a6100; background:#FCEBC5; border-color:#F0D9A8;}
 
+  /* Document content shown on-screen during signing needs to fit a tablet screen,
+     not the fixed 8.5in print-page dimensions used for the printed versions. */
+  #signingDocContent .print-page{
+    width:100% !important; min-height:auto !important; box-sizing:border-box !important;
+    padding:20px !important; font-size:13px !important;
+  }
+  .sig-pad-wrap{border:1px solid var(--line); border-radius:6px; padding:14px; margin-bottom:16px; background:#fff;}
+  .sig-pad-label{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:8px;}
+  .sig-pad-canvas{width:100%; height:150px; border:1px dashed var(--line); border-radius:4px; touch-action:none; cursor:crosshair; background:#fff;}
+  .sig-pad-actions{display:flex; justify-content:space-between; align-items:center; margin-top:8px;}
+  .sig-pad-clear{background:#fff; border:1px solid var(--line); color:var(--muted); font-size:12px; padding:5px 12px; border-radius:4px; cursor:pointer;}
+  .sig-pad-status{font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace;}
+
   /* ---------- Detail view ---------- */
   #detail{display:none;}
   .backlink{
@@ -756,12 +769,37 @@
         <p class="form-note" id="pw_docListNote"></p>
         <div class="form-actions">
           <button class="btn-primary" id="pw_printBtn">Print Paperwork</button>
+          <button id="pw_digitalBtn" type="button" style="background:#00612C; border:1px solid #00612C; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Digital Paperwork</button>
           <button id="pw_clearBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Clear All Fields</button>
           <span class="status-msg" id="pw_status"></span>
         </div>
       </div>
+
+      <div class="panel" id="signedRecordsPanel">
+        <h3>Signed Paperwork Records</h3>
+        <label>Search by Client Name or Job # <input type="text" id="sr_search" placeholder="Start typing..."></label>
+        <div id="sr_results" style="margin-top:10px; font-size:13px;"></div>
+      </div>
     </div>
     <div id="printPaperwork"></div>
+
+    <!-- ============ DIGITAL SIGNING VIEW ============ -->
+    <div id="signingView" style="display:none; position:fixed; inset:0; background:var(--paper); z-index:500; overflow-y:auto;">
+      <div style="max-width:820px; margin:0 auto; padding:20px 16px 60px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--muted);" id="sign_progress"></div>
+          <button id="sign_cancelBtn" type="button" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-weight:600; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel Signing</button>
+        </div>
+        <h2 class="display" id="sign_docTitle" style="margin-bottom:14px;"></h2>
+        <div id="signingDocContent" style="border:1px solid var(--line); border-radius:6px; background:#fff; margin-bottom:20px; max-height:50vh; overflow-y:auto;"></div>
+        <div id="sign_padsArea"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; gap:12px; flex-wrap:wrap;">
+          <button id="sign_backBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:12px 20px; border-radius:6px; cursor:pointer; font-size:14px;">&larr; Back</button>
+          <span class="status-msg" id="sign_status"></span>
+          <button id="sign_nextBtn" type="button" class="btn-primary" style="padding:12px 24px; font-size:14px;">Next &rarr;</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ============ FLEET MAINTENANCE DETAIL ============ -->
@@ -2995,6 +3033,242 @@
     statusEl.textContent = 'All fields cleared.';
     statusEl.className = 'status-msg ok';
   });
+
+  // ---------- Digital Paperwork (signing) ----------
+  const SIGNED_RECORDS_KEY = 'paperwork-signed-records';
+
+  const SIGN_DOC_CONFIG = {
+    billOfLading: { title: 'Bill of Lading', builder: (n) => buildPWBillOfLading(n), signatures: ['Client (Shipper)', 'College HUNKS Moving (Carrier)'] },
+    liabilityWaiver: { title: 'Liability Waiver', builder: (n) => buildPWLiabilityWaiver(n, true), signatures: ['Shipper Signature \u2014 Release of Liability', 'Shipper Signature \u2014 Delivery Inspection'] },
+    shipperDeclaration: { title: 'Shipper Declaration of Value', builder: (n) => buildPWShipperDeclaration(n), signatures: ['Shipper Signature', 'College HUNKS Representative'] },
+    gaGuide: { title: 'GA HHG Move Guide', builder: (n) => buildPWGAGuide(n), signatures: ['Shipper Signature'] },
+    addendum: { title: 'Addendum to Estimate', builder: (n) => buildPWAddendum(n), signatures: ['Client Signature', 'College HUNKS Captain'] },
+    preExistingDamages: { title: 'Pre-existing Damages', builder: (n) => buildPWPreExistingDamages(n), signatures: ['Client Signature', 'College HUNKS Captain'] }
+  };
+
+  const SIGN_JOB_TYPE_DOCS = {
+    move: ['billOfLading','liabilityWaiver','shipperDeclaration','gaGuide','addendum','preExistingDamages'],
+    movelabor: ['liabilityWaiver','preExistingDamages','shipperDeclaration'],
+    longdistance: ['liabilityWaiver','gaGuide','addendum','preExistingDamages']
+  };
+
+  function createSignaturePad(canvas){
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#1C2126';
+    let drawing = false, hasSignature = false, lastX = 0, lastY = 0;
+
+    function getPos(e){
+      const r = canvas.getBoundingClientRect();
+      const point = e.touches ? e.touches[0] : e;
+      return { x: point.clientX - r.left, y: point.clientY - r.top };
+    }
+    function start(e){ e.preventDefault(); drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
+    function move(e){
+      if(!drawing) return;
+      e.preventDefault();
+      const p = getPos(e);
+      ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+      lastX = p.x; lastY = p.y; hasSignature = true;
+    }
+    function end(){ drawing = false; }
+
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    canvas.addEventListener('touchstart', start, {passive:false});
+    canvas.addEventListener('touchmove', move, {passive:false});
+    canvas.addEventListener('touchend', end);
+
+    return {
+      clear(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasSignature = false; },
+      isEmpty(){ return !hasSignature; },
+      toDataURL(){ return canvas.toDataURL('image/png'); },
+      drawExisting(dataUri){
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        img.src = dataUri;
+      }
+    };
+  }
+
+  let signingState = null;
+
+  function startDigitalSigning(){
+    const jobType = document.getElementById('pw_jobType').value;
+    const docKeys = SIGN_JOB_TYPE_DOCS[jobType] || [];
+    if(docKeys.length === 0) return;
+    signingState = { docKeys, currentIndex: 0, capturedSignatures: {}, pads: [] };
+    document.getElementById('signingView').style.display = 'block';
+    renderSigningStep();
+  }
+
+  function renderSigningStep(){
+    const { docKeys, currentIndex, capturedSignatures } = signingState;
+    const docKey = docKeys[currentIndex];
+    const config = SIGN_DOC_CONFIG[docKey];
+    document.getElementById('sign_progress').textContent = `Document ${currentIndex+1} of ${docKeys.length}`;
+    document.getElementById('sign_docTitle').textContent = config.title;
+    document.getElementById('signingDocContent').innerHTML = config.builder(currentIndex+2);
+    const statusEl = document.getElementById('sign_status');
+    statusEl.textContent = '';
+    statusEl.className = 'status-msg';
+
+    const padsArea = document.getElementById('sign_padsArea');
+    padsArea.innerHTML = config.signatures.map((label, i) => `
+      <div class="sig-pad-wrap">
+        <div class="sig-pad-label">${esc(label)}</div>
+        <canvas class="sig-pad-canvas" id="sigCanvas_${i}"></canvas>
+        <div class="sig-pad-actions">
+          <button type="button" class="sig-pad-clear" data-idx="${i}">Clear</button>
+          <span class="sig-pad-status"></span>
+        </div>
+      </div>`).join('');
+
+    const existing = capturedSignatures[docKey] || [];
+    signingState.pads = config.signatures.map((label, i) => {
+      const canvas = document.getElementById('sigCanvas_' + i);
+      const pad = createSignaturePad(canvas);
+      if(existing[i]) pad.drawExisting(existing[i]);
+      return pad;
+    });
+
+    padsArea.querySelectorAll('.sig-pad-clear').forEach(btn => btn.addEventListener('click', (e)=>{
+      const idx = parseInt(e.target.dataset.idx, 10);
+      signingState.pads[idx].clear();
+    }));
+
+    document.getElementById('sign_backBtn').style.visibility = currentIndex === 0 ? 'hidden' : 'visible';
+    document.getElementById('sign_nextBtn').textContent = currentIndex === docKeys.length - 1 ? 'Finish & Save' : 'Next \u2192';
+  }
+
+  function captureCurrentPads(){
+    const { docKeys, currentIndex, capturedSignatures, pads } = signingState;
+    const docKey = docKeys[currentIndex];
+    const config = SIGN_DOC_CONFIG[docKey];
+    const existing = capturedSignatures[docKey] || [];
+    const merged = config.signatures.map((_, i) => !pads[i].isEmpty() ? pads[i].toDataURL() : existing[i]);
+    capturedSignatures[docKey] = merged;
+    return merged;
+  }
+
+  document.getElementById('sign_nextBtn').addEventListener('click', async ()=>{
+    const merged = captureCurrentPads();
+    const config = SIGN_DOC_CONFIG[signingState.docKeys[signingState.currentIndex]];
+    const missingIdx = merged.findIndex(v => !v);
+    if(missingIdx > -1){
+      const statusEl = document.getElementById('sign_status');
+      statusEl.textContent = `Please provide a signature for: ${config.signatures[missingIdx]}`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(signingState.currentIndex === signingState.docKeys.length - 1){
+      await finishSigning();
+    } else {
+      signingState.currentIndex++;
+      renderSigningStep();
+    }
+  });
+
+  document.getElementById('sign_backBtn').addEventListener('click', ()=>{
+    captureCurrentPads();
+    if(signingState.currentIndex > 0){
+      signingState.currentIndex--;
+      renderSigningStep();
+    }
+  });
+
+  document.getElementById('sign_cancelBtn').addEventListener('click', ()=>{
+    if(!confirm('Cancel signing? Any signatures captured so far will be discarded.')) return;
+    signingState = null;
+    document.getElementById('signingView').style.display = 'none';
+  });
+
+  async function finishSigning(){
+    const statusEl = document.getElementById('sign_status');
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+
+    const record = {
+      id: 'signed_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+      jobType: document.getElementById('pw_jobType').value,
+      jobNumber: pwVal('pw_jobNumber'),
+      clientName: pwVal('pw_clientName'),
+      clientPhone: pwVal('pw_clientPhone'),
+      clientEmail: pwVal('pw_clientEmail'),
+      originAddress: pwVal('pw_originAddress'),
+      destAddress: pwVal('pw_destAddress'),
+      signedAt: new Date().toISOString(),
+      documents: signingState.docKeys.map(docKey => ({
+        docKey,
+        title: SIGN_DOC_CONFIG[docKey].title,
+        signatures: SIGN_DOC_CONFIG[docKey].signatures.map((label, i) => ({
+          label, dataUri: (signingState.capturedSignatures[docKey] || [])[i] || null
+        }))
+      }))
+    };
+
+    let ok = false;
+    try{
+      const records = await window.dashboardApi.get(SIGNED_RECORDS_KEY, []);
+      records.push(record);
+      ok = await window.dashboardApi.set(SIGNED_RECORDS_KEY, records);
+    }catch(err){ console.error('Signed record save failed:', err); }
+
+    signingState = null;
+    document.getElementById('signingView').style.display = 'none';
+
+    const pwStatusEl = document.getElementById('pw_status');
+    pwStatusEl.textContent = ok ? `Digital signatures saved for ${record.clientName || 'this job'}.` : 'Save failed \u2014 check your connection.';
+    pwStatusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+    renderSignedRecordsSearch();
+  }
+
+  document.getElementById('pw_digitalBtn').addEventListener('click', ()=>{ startDigitalSigning(); });
+
+  // ---------- Signed Paperwork Records search ----------
+  async function renderSignedRecordsSearch(){
+    const term = document.getElementById('sr_search').value.trim().toLowerCase();
+    const resultsEl = document.getElementById('sr_results');
+    if(!term){ resultsEl.innerHTML = '<span style="color:var(--muted);">Type a client name or job number to search.</span>'; return; }
+    resultsEl.innerHTML = 'Searching...';
+    let records = [];
+    try{ records = await window.dashboardApi.get(SIGNED_RECORDS_KEY, []); }
+    catch(err){ console.error('Signed records search failed:', err); resultsEl.innerHTML = '<span style="color:#b3261e;">Could not load records \u2014 check your connection.</span>'; return; }
+
+    const matches = records.filter(r =>
+      (r.clientName||'').toLowerCase().includes(term) || (r.jobNumber||'').toLowerCase().includes(term)
+    ).sort((a,b)=> b.signedAt.localeCompare(a.signedAt));
+
+    if(matches.length === 0){ resultsEl.innerHTML = '<span style="color:var(--muted);">No matching signed records found.</span>'; return; }
+
+    resultsEl.innerHTML = matches.map(r => `
+      <div style="border-bottom:1px solid var(--line); padding:8px 0;">
+        <b>${esc(r.clientName || '(no name)')}</b> \u2014 Job #${esc(r.jobNumber || '\u2014')} \u2014 ${esc(new Date(r.signedAt).toLocaleString())}
+        <br><span style="color:var(--muted); font-size:12px;">${r.documents.length} document(s) signed</span>
+        <button type="button" class="sr-view" data-id="${r.id}" style="margin-left:8px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">View</button>
+      </div>`).join('');
+
+    resultsEl.querySelectorAll('.sr-view').forEach(btn => btn.addEventListener('click', (e)=>{
+      const id = e.target.dataset.id;
+      const record = matches.find(r => r.id === id);
+      if(!record) return;
+      const win = window.open();
+      if(win){
+        const docsHtml = record.documents.map(d => `
+          <h3>${esc(d.title)}</h3>
+          ${d.signatures.map(s => `<div style="margin-bottom:12px;"><div style="font-size:12px; color:#666;">${esc(s.label)}</div>${s.dataUri ? `<img src="${s.dataUri}" style="border:1px solid #ccc; max-width:400px;">` : '<i>Not signed</i>'}</div>`).join('')}
+        `).join('<hr>');
+        win.document.write(`<title>Signed Paperwork - ${esc(record.clientName)}</title><body style="font-family:sans-serif; padding:20px; max-width:700px; margin:0 auto;"><h2>${esc(record.clientName)} \u2014 Job #${esc(record.jobNumber)}</h2><p>Signed: ${esc(new Date(record.signedAt).toLocaleString())}</p><hr>${docsHtml}</body>`);
+      }
+    }));
+  }
+
+  document.getElementById('sr_search').addEventListener('input', renderSignedRecordsSearch);
 
   recalc();
 })();
