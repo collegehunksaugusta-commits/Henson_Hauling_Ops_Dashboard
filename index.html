@@ -2722,12 +2722,198 @@
 
   const DRIVER_DOC_TYPES = [
     { key: 'physical', label: 'DOT Physical' },
-    { key: 'roadtest', label: 'Road Test Certification' },
-    { key: 'application', label: 'DOT Driver Application' }
+    { key: 'roadtest', label: 'Road Test Certification', printable: true },
+    { key: 'application', label: 'DOT Driver Application', printable: true }
   ];
 
   function driverDocKey(name, docKey){
     return 'compliance-doc-driver-' + name.replace(/[^a-zA-Z0-9]/g, '_') + '-' + docKey;
+  }
+
+  function printBlankForm(bodyHtml, title){
+    const win = window.open('', '_blank');
+    if(!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+      <style>
+        body{ font-family:Georgia,serif; color:#1C2126; margin:0; }
+        .print-page{ width:8.5in; min-height:11in; padding:0.6in; box-sizing:border-box; margin:0 auto; page-break-after:always; }
+        table{ border-collapse:collapse; }
+        @media print{ .print-page{ margin:0; } }
+      </style>
+      </head><body>${bodyHtml}</body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 350);
+  }
+
+  function compFormLetterhead(title, subtitle){
+    return `
+      <div style="text-align:center; margin-bottom:18px; border-bottom:2px solid #1C2126; padding-bottom:12px;">
+        <div style="font-size:16px; font-weight:bold;">Henson Hauling, LLC dba College Hunks Hauling Junk &amp; Moving</div>
+        <div style="font-size:9pt; color:#555; margin-top:2px;">3001 McCrary Ct Suite 1, Evans, GA 30809 &bull; (843) 468-0302 &bull; USDOT 4152752 / MC-1594490</div>
+        <h2 style="font-size:15pt; margin:14px 0 2px;">${title}</h2>
+        ${subtitle ? `<div style="font-size:8.5pt; color:#666;">${subtitle}</div>` : ''}
+      </div>`;
+  }
+
+  function buildRoadTestCertForm(){
+    const skillItems = [
+      'Pre-trip inspection (49 CFR &sect;392.7)',
+      'Coupling and uncoupling of combination units (if applicable)',
+      'Placing the commercial motor vehicle in operation',
+      'Use of vehicle controls and emergency equipment',
+      'Operating in traffic and passing other vehicles',
+      'Turning the vehicle',
+      'Braking, and slowing by means other than braking',
+      'Backing and parking the vehicle'
+    ];
+    return `
+      <div class="print-page" style="font-size:10pt; line-height:1.5;">
+        ${compFormLetterhead('Road Test Evaluation & Certificate of Driver\u2019s Road Test', 'Per 49 CFR &sect;391.31')}
+
+        <table style="width:100%; font-size:10pt; margin-bottom:14px;">
+          <tr><td style="padding:4px 0;">Driver's Name: ________________________________</td><td style="padding:4px 0;">Date of Road Test: ________________</td></tr>
+          <tr><td style="padding:4px 0;">Type of Power Unit: ________________________________</td><td style="padding:4px 0;">Type of Trailer(s): ________________</td></tr>
+          <tr><td style="padding:4px 0;" colspan="2">If Passenger Carrier, Type of Bus: ________________________________</td></tr>
+          <tr><td style="padding:4px 0;" colspan="2">Approximate Miles Driven During Test: ________________</td></tr>
+        </table>
+
+        <p style="font-weight:bold; margin-bottom:8px;">Rate the driver's performance on each of the following:</p>
+        <table style="width:100%; font-size:9.5pt;">
+          ${skillItems.map((item,i) => `
+          <tr>
+            <td style="padding:5px 4px; border-bottom:1px solid #ddd;">${i+1}. ${item}</td>
+            <td style="padding:5px 4px; border-bottom:1px solid #ddd; width:120px; text-align:center; white-space:nowrap;">&#9744; Satisfactory</td>
+            <td style="padding:5px 4px; border-bottom:1px solid #ddd; width:150px; text-align:center; white-space:nowrap;">&#9744; Needs Improvement</td>
+          </tr>`).join('')}
+        </table>
+
+        <p style="margin-top:16px;">Examiner's Signature (Road Test Form): ________________________________ Date: ______________</p>
+
+        <div style="border-top:2px solid #333; margin-top:22px; padding-top:14px;">
+          <p style="font-weight:bold; margin-bottom:8px;">Certification of Road Test</p>
+          <p>This is to certify that the above-named driver was given a road test under my supervision on ____________, 20____, consisting of approximately ______ miles of driving.</p>
+          <p>It is my considered opinion that this driver possesses sufficient driving skill to operate safely the type of commercial motor vehicle listed above.</p>
+          <table style="width:100%; margin-top:26px;">
+            <tr>
+              <td style="width:50%; padding:4px 0;">_________________________________________<br>Signature of Examiner</td>
+              <td style="width:50%; padding:4px 0;">_________________________________________<br>Title</td>
+            </tr>
+          </table>
+          <p style="margin-top:18px;">Organization and Address of Examiner: ________________________________________________</p>
+        </div>
+        <p style="font-size:8pt; color:#888; margin-top:18px;">A copy of this certificate must be given to the driver. Retain the original in the driver's qualification file per 49 CFR &sect;391.51.</p>
+      </div>`;
+  }
+
+  function buildDriverApplicationForm(){
+    const employerBlock = (label) => `
+      <p style="font-weight:bold; margin:14px 0 6px;">${label} Employer</p>
+      <table style="width:100%; font-size:9.5pt;">
+        <tr><td style="padding:3px 0; width:60%;">Name: ________________________________</td><td style="padding:3px 0;">Phone: ______________</td></tr>
+        <tr><td colspan="2" style="padding:3px 0;">Address: ________________________________________________</td></tr>
+        <tr><td style="padding:3px 0;">Position Held: ________________</td><td style="padding:3px 0;">Salary: ________________</td></tr>
+        <tr><td style="padding:3px 0;">From (Mo/Yr): __________</td><td style="padding:3px 0;">To (Mo/Yr): __________</td></tr>
+        <tr><td colspan="2" style="padding:3px 0;">Reason for Leaving: ________________________________________________</td></tr>
+        <tr><td colspan="2" style="padding:3px 0;">Explain Any Gaps in Employment (month/year &amp; reason): ________________________________</td></tr>
+        <tr><td colspan="2" style="padding:3px 0;">Subject to Federal Motor Carrier Safety Regulations here? &#9744; Yes &#9744; No &nbsp;&nbsp; Safety-sensitive, DOT drug/alcohol testing function? &#9744; Yes &#9744; No</td></tr>
+      </table>`;
+
+    const page1 = `
+      <div class="print-page" style="font-size:9.5pt; line-height:1.45;">
+        ${compFormLetterhead('Driver Employment Application', 'Per 49 CFR &sect;391.21 &mdash; An Equal Opportunity Employer. Complete in full or it will not be considered.')}
+
+        <p style="font-weight:bold; margin-bottom:6px;">Applicant Information</p>
+        <table style="width:100%;">
+          <tr><td style="padding:3px 0; width:33%;">First Name: ______________</td><td style="padding:3px 0; width:33%;">Middle Name: ______________</td><td style="padding:3px 0;">Last Name: ______________</td></tr>
+          <tr><td style="padding:3px 0;">Phone: ______________</td><td colspan="2" style="padding:3px 0;">Email: ________________________</td></tr>
+          <tr><td style="padding:3px 0;">Date of Birth: ______________</td><td style="padding:3px 0;">Social Security #: ______________</td><td style="padding:3px 0;">Date of Application: ______________</td></tr>
+          <tr><td style="padding:3px 0;">Position Applied For: ______________</td><td colspan="2" style="padding:3px 0;">Date Available for Work: ______________</td></tr>
+          <tr><td colspan="3" style="padding:3px 0;">Legal right to work in the United States? &#9744; Yes &#9744; No</td></tr>
+        </table>
+
+        <p style="font-weight:bold; margin:16px 0 6px;">Previous Three Years' Residency (attach additional sheet if needed)</p>
+        <table style="width:100%; font-size:9pt;">
+          <tr style="border-bottom:1px solid #999;"><td style="padding:3px;">Street</td><td style="padding:3px;">City</td><td style="padding:3px;">State</td><td style="padding:3px;">Zip</td><td style="padding:3px;"># Years</td></tr>
+          ${['Current','Previous','Previous','Previous'].map(l => `<tr><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td></tr>`).join('')}
+        </table>
+
+        <p style="font-weight:bold; margin:16px 0 6px;">License Information</p>
+        <p style="font-size:8.5pt; color:#555;">No person may hold more than one driver's license at a time (49 CFR &sect;383.21). List all licenses held for the past 3 years.</p>
+        <table style="width:100%; font-size:9pt;">
+          <tr style="border-bottom:1px solid #999;"><td style="padding:3px;">State</td><td style="padding:3px;">License #</td><td style="padding:3px;">Type/Class</td><td style="padding:3px;">Endorsements</td><td style="padding:3px;">Expiration</td></tr>
+          <tr><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td></tr>
+        </table>
+      </div>`;
+
+    const page2 = `
+      <div class="print-page" style="font-size:9.5pt; line-height:1.45;">
+        <p style="font-weight:bold; margin-bottom:6px;">Driving Experience</p>
+        <table style="width:100%; font-size:9pt;">
+          <tr style="border-bottom:1px solid #999;"><td style="padding:3px;">Class of Equipment</td><td style="padding:3px;">Type (Van, Tank, Flat, etc.)</td><td style="padding:3px;">From</td><td style="padding:3px;">To</td><td style="padding:3px;">Approx. Miles</td></tr>
+          ${['Straight Truck','Tractor & Semi-Trailer','Tractor & 2 Trailers','Other'].map(l => `<tr><td style="padding:6px 3px; border-bottom:1px solid #eee;">${l}</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td></tr>`).join('')}
+        </table>
+
+        <p style="font-weight:bold; margin:16px 0 4px;">Accident Record, Past 3 Years</p>
+        <p style="font-size:8.5pt;">Check if none: &#9744; &nbsp; (attach additional sheet if needed)</p>
+        <table style="width:100%; font-size:9pt;">
+          <tr style="border-bottom:1px solid #999;"><td style="padding:3px;">Date</td><td style="padding:3px;">Nature of Accident</td><td style="padding:3px;"># Fatalities</td><td style="padding:3px;"># Injuries</td><td style="padding:3px;">Chemical Spill?</td></tr>
+          <tr><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td></tr>
+        </table>
+
+        <p style="font-weight:bold; margin:16px 0 4px;">Traffic Convictions &amp; Forfeitures, Past 3 Years (excluding parking)</p>
+        <p style="font-size:8.5pt;">Check if none: &#9744;</p>
+        <table style="width:100%; font-size:9pt;">
+          <tr style="border-bottom:1px solid #999;"><td style="padding:3px;">Date (Mo/Yr)</td><td style="padding:3px;">Violation</td><td style="padding:3px;">State</td><td style="padding:3px;">Penalty</td></tr>
+          <tr><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:8px 3px; border-bottom:1px solid #eee;">&nbsp;</td></tr>
+        </table>
+
+        <p style="margin-top:14px;">Have you ever been denied a license, permit, or privilege to operate a motor vehicle? &#9744; Yes &#9744; No &nbsp; If yes, explain: ________________________</p>
+        <p>Has any license, permit, or privilege ever been suspended or revoked? &#9744; Yes &#9744; No &nbsp; If yes, explain: ________________________</p>
+      </div>`;
+
+    const page3 = `
+      <div class="print-page" style="font-size:9.5pt; line-height:1.45;">
+        <p style="font-weight:bold; margin-bottom:4px;">Employment History</p>
+        <p style="font-size:8.5pt; color:#555;">List all employment for the last 3 years. If you have driven a commercial vehicle previously, provide an additional 7 years (10 years total). Explain any gap over 1 month. Start with the most recent and work backward; attach separate sheets if needed.</p>
+        ${employerBlock('Current (Most Recent)')}
+        ${employerBlock('Second Most Recent')}
+        ${employerBlock('Third Most Recent')}
+
+        <p style="font-weight:bold; margin:16px 0 6px;">Education</p>
+        <table style="width:100%; font-size:9pt;">
+          <tr style="border-bottom:1px solid #999;"><td style="padding:3px;">School Name &amp; Location</td><td style="padding:3px;">Course of Study</td><td style="padding:3px;">Years Completed</td><td style="padding:3px;">Graduate?</td></tr>
+          ${['High School','College','Other'].map(l => `<tr><td style="padding:6px 3px; border-bottom:1px solid #eee;">${l}</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&nbsp;</td><td style="padding:6px 3px; border-bottom:1px solid #eee;">&#9744; Y &#9744; N</td></tr>`).join('')}
+        </table>
+
+        <p style="font-weight:bold; margin:16px 0 6px;">Other Qualifications</p>
+        <div style="border-bottom:1px solid #999; height:50px;"></div>
+      </div>`;
+
+    const page4 = `
+      <div class="print-page" style="font-size:10pt; line-height:1.6;">
+        <p style="font-weight:bold; margin-bottom:10px;">To Be Read and Signed by Applicant</p>
+        <p>I authorize you to make investigations (including contacting current and prior employers) into my personal, employment, financial, medical history, and other related matters as may be necessary in arriving at an employment decision. I hereby release employers, schools, health care providers, and other persons from all liability in responding to inquiries and releasing information in connection with my application.</p>
+        <p>In the event of employment, I understand that false or misleading information given in my application or interview(s) may result in discharge. I also understand that I am required to abide by all rules and regulations of the Company.</p>
+        <p>I understand that the information I provide regarding my current and/or prior employers may be used, and those employer(s) will be contacted for the purpose of investigating my safety performance history as required by 49 CFR &sect;391.23. I understand that I have the right to:</p>
+        <ul style="margin:6px 0 12px;">
+          <li>Review information provided by current/previous employers;</li>
+          <li>Have errors in the information corrected by previous employers, and for those previous employers to resend the corrected information to the prospective employer; and</li>
+          <li>Have a rebuttal statement attached to the alleged erroneous information, if the previous employer(s) and I cannot agree on the accuracy of the information.</li>
+        </ul>
+        <p style="font-weight:bold;">This certifies that I completed this application, and that all entries on it and information in it are true and complete to the best of my knowledge.</p>
+        <p style="font-size:8.5pt; color:#666;">Note: A motor carrier may require an applicant to provide more information than that required by the Federal Motor Carrier Safety Regulations.</p>
+
+        <table style="width:100%; margin-top:50px;">
+          <tr>
+            <td style="width:60%; padding:4px 0;">_________________________________________<br>Applicant Signature</td>
+            <td style="width:40%; padding:4px 0;">_________________<br>Date</td>
+          </tr>
+        </table>
+        <p style="margin-top:24px;">Applicant Name (printed): ________________________________________________</p>
+      </div>`;
+
+    return page1 + page2 + page3 + page4;
   }
 
   async function openDriverDocs(name){
@@ -2744,10 +2930,16 @@
     const container = document.getElementById('comp_driverDocUploads');
     container.innerHTML = DRIVER_DOC_TYPES.map(dt => `
       <div class="sig-pad-wrap" style="margin-bottom:12px;">
-        <div class="sig-pad-label">${dt.label}</div>
+        <div class="sig-pad-label">${dt.label}${dt.printable ? ` <button type="button" class="driver-doc-print" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer; text-transform:none; letter-spacing:normal; font-family:'Inter',sans-serif; font-weight:600;">Print Blank Form</button>` : ''}</div>
         <div id="driverDocStatus_${dt.key}" style="font-size:13px; margin-bottom:6px;">Loading...</div>
         <input type="file" class="driver-doc-input" data-key="${dt.key}" accept=".pdf,.jpg,.jpeg,.png">
       </div>`).join('');
+
+    container.querySelectorAll('.driver-doc-print').forEach(btn => btn.addEventListener('click', (e)=>{
+      const key = e.target.dataset.key;
+      if(key === 'roadtest') printBlankForm(buildRoadTestCertForm(), 'Road Test Certification');
+      else if(key === 'application') printBlankForm(buildDriverApplicationForm(), 'DOT Driver Application');
+    }));
 
     for(const dt of DRIVER_DOC_TYPES){
       try{
