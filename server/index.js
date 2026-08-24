@@ -33,7 +33,7 @@ const ALLOWED_KEYS = new Set([
 ]);
 // Invoice files and other growing per-item data get their own key per parent
 // record (e.g. fleet-invoice-<logId>) so a growing library never bloats one blob.
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-'];
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
