@@ -3743,7 +3743,7 @@
 
         const firstName = (upload.clientName || '').split(' ')[0] || 'there';
         const subject = 'Thank You for Choosing College Hunks';
-        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
+        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\nIf you were happy with our service, we'd really appreciate a 5-star review on Google: https://g.page/r/CTsnaSA6YbvlEAE/review\n\nIf anything about your experience wasn't up to standard, please give us a call so we can make it right.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
         const cc = 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com';
         const mailto = `mailto:${encodeURIComponent(upload.clientEmail || '')}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         window.location.href = mailto;
