@@ -1604,6 +1604,18 @@
     return d.innerHTML;
   }
 
+  // Browsers block navigating a new tab directly to a data: URI (a phishing
+  // protection), so PDFs must be converted to a blob: URL first to display reliably.
+  function fleetDataUriToBlobUrl(dataUri){
+    const [header, base64] = dataUri.split(',');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i++){ bytes[i] = binary.charCodeAt(i); }
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  }
+
   function todayStr(){ return new Date().toISOString().slice(0,10); }
 
   function oneMonthBefore(dateStr){
@@ -1777,9 +1789,14 @@
       try{
         const dataUri = await window.dashboardApi.get('fleet-invoice-' + id, null);
         if(!dataUri){ alert('Could not load this invoice.'); return; }
-        const win = window.open();
-        if(win){
-          win.document.write(`<title>Invoice</title><body style="margin:0;">${dataUri.startsWith('data:application/pdf') ? `<embed src="${dataUri}" style="width:100vw; height:100vh;">` : `<img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;">`}</body>`);
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf){
+          window.open(fleetDataUriToBlobUrl(dataUri), '_blank');
+        } else {
+          const win = window.open();
+          if(win){
+            win.document.write(`<title>Invoice</title><body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`);
+          }
         }
       }catch(err){
         console.error('Invoice view failed:', err);
@@ -2472,6 +2489,18 @@
     const d = document.createElement('div');
     d.textContent = String(s == null ? '' : s);
     return d.innerHTML;
+  }
+
+  // Browsers block navigating a new tab directly to a data: URI (a phishing
+  // protection), so PDFs must be converted to a blob: URL first to display reliably.
+  function dataUriToBlobUrl(dataUri){
+    const [header, base64] = dataUri.split(',');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i++){ bytes[i] = binary.charCodeAt(i); }
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
   }
 
   function buildPrintView(){
@@ -3705,12 +3734,14 @@
       try{
         const dataUri = await window.dashboardApi.get('paperwork-upload-' + id, null);
         if(!dataUri){ alert('Could not load this file.'); return; }
-        const win = window.open();
-        if(win){
-          const body = dataUri.startsWith('data:application/pdf')
-            ? `<embed src="${dataUri}" style="width:100vw; height:100vh;">`
-            : `<img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;">`;
-          win.document.write(`<title>${esc(upload.fileName)}</title><body style="margin:0;">${body}</body>`);
+        const isPdf = dataUri.startsWith('data:application/pdf') || upload.fileName.toLowerCase().endsWith('.pdf');
+        if(isPdf){
+          window.open(dataUriToBlobUrl(dataUri), '_blank');
+        } else {
+          const win = window.open();
+          if(win){
+            win.document.write(`<title>${esc(upload.fileName)}</title><body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`);
+          }
         }
       }catch(err){
         console.error('Paperwork file view failed:', err);
