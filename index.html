@@ -786,6 +786,35 @@
         <label>Search by Client Name or Job # <input type="text" id="sr_search" placeholder="Start typing..."></label>
         <div id="sr_results" style="margin-top:10px; font-size:13px;"></div>
       </div>
+
+      <div class="panel" id="paperworkUploadPanel">
+        <h3>Completed Paperwork Storage</h3>
+        <p class="form-note">Upload scanned or completed paperwork here to keep on file (retained for at least 1 year).</p>
+        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+          <label>Client Name <input type="text" id="pu_clientName"></label>
+          <label>Job Number <input type="text" id="pu_jobNumber"></label>
+        </div>
+        <div id="pu_dropzone" style="border:2px dashed var(--line); border-radius:8px; padding:28px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer; transition:background .15s, border-color .15s;">
+          <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
+          <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB</div>
+          <input type="file" id="pu_fileInput" accept=".pdf,.jpg,.jpeg,.png,.heic" style="display:none;">
+        </div>
+        <div class="status-msg" id="pu_status" style="margin-top:8px;"></div>
+
+        <div style="margin-top:20px;">
+          <label>Search by Client Name or Job # <input type="text" id="pu_search" placeholder="Start typing..."></label>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
+            <thead><tr>
+              <th class="pu-sort-header" data-field="clientName" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Client Name <span class="pu-sort-arrow" data-field="clientName"></span></th>
+              <th class="pu-sort-header" data-field="jobNumber" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Job # <span class="pu-sort-arrow" data-field="jobNumber"></span></th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
+              <th class="pu-sort-header" data-field="uploadedAt" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Uploaded <span class="pu-sort-arrow" data-field="uploadedAt"></span></th>
+              <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="pu_listRows"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
     <div id="printPaperwork"></div>
 
@@ -3605,6 +3634,178 @@
   }
 
   document.getElementById('sr_search').addEventListener('input', renderSignedRecordsSearch);
+
+  // ---------- Completed Paperwork Storage ----------
+  const PAPERWORK_UPLOADS_KEY = 'paperwork-uploads';
+  let paperworkUploads = [];
+  let puSort = { field: 'uploadedAt', dir: 'desc' };
+
+  function puReadFileAsDataUri(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function loadPaperworkUploads(){
+    try{ paperworkUploads = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []); }
+    catch(err){ console.error('Paperwork uploads load failed:', err); paperworkUploads = paperworkUploads || []; }
+    renderPaperworkUploadsList();
+  }
+  loadPaperworkUploads();
+
+  async function savePaperworkUploadsList(){
+    try{ return await window.dashboardApi.set(PAPERWORK_UPLOADS_KEY, paperworkUploads); }
+    catch(err){ console.error('Paperwork uploads save failed:', err); return false; }
+  }
+
+  function renderPaperworkUploadsList(){
+    const term = (document.getElementById('pu_search').value || '').trim().toLowerCase();
+    let filtered = paperworkUploads.filter(u =>
+      !term || (u.clientName||'').toLowerCase().includes(term) || (u.jobNumber||'').toLowerCase().includes(term)
+    );
+    filtered.sort((a,b) => {
+      const av = (a[puSort.field]||'').toString().toLowerCase();
+      const bv = (b[puSort.field]||'').toString().toLowerCase();
+      if(av < bv) return puSort.dir === 'asc' ? -1 : 1;
+      if(av > bv) return puSort.dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    document.querySelectorAll('.pu-sort-arrow').forEach(el => {
+      el.textContent = el.dataset.field === puSort.field ? (puSort.dir === 'asc' ? '\u25B2' : '\u25BC') : '';
+    });
+
+    const tbody = document.getElementById('pu_listRows');
+    if(filtered.length === 0){
+      tbody.innerHTML = `<tr><td colspan="5" style="padding:10px 4px; color:var(--muted);">${paperworkUploads.length === 0 ? 'No paperwork uploaded yet.' : 'No matches.'}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = filtered.map(u => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${esc(u.clientName)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(u.jobNumber)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(u.fileName)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(new Date(u.uploadedAt).toLocaleDateString())}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
+          <button type="button" class="pu-delete" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.pu-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const upload = paperworkUploads.find(u => u.id === id);
+      if(!upload) return;
+      const origText = e.target.textContent;
+      e.target.textContent = 'Loading...';
+      e.target.disabled = true;
+      try{
+        const dataUri = await window.dashboardApi.get('paperwork-upload-' + id, null);
+        if(!dataUri){ alert('Could not load this file.'); return; }
+        const win = window.open();
+        if(win){
+          const body = dataUri.startsWith('data:application/pdf')
+            ? `<embed src="${dataUri}" style="width:100vw; height:100vh;">`
+            : `<img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;">`;
+          win.document.write(`<title>${esc(upload.fileName)}</title><body style="margin:0;">${body}</body>`);
+        }
+      }catch(err){
+        console.error('Paperwork file view failed:', err);
+        alert('Could not load this file \u2014 check your connection.');
+      } finally {
+        e.target.textContent = origText;
+        e.target.disabled = false;
+      }
+    }));
+
+    tbody.querySelectorAll('.pu-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const upload = paperworkUploads.find(u => u.id === id);
+      if(!upload) return;
+      if(!confirm(`Delete "${upload.fileName}" for ${upload.clientName}? This cannot be undone.`)) return;
+      paperworkUploads = paperworkUploads.filter(u => u.id !== id);
+      await savePaperworkUploadsList();
+      try{ await window.dashboardApi.delete('paperwork-upload-' + id); }catch(err){ console.error('Blob delete failed:', err); }
+      renderPaperworkUploadsList();
+    }));
+  }
+
+  document.querySelectorAll('.pu-sort-header').forEach(th => th.addEventListener('click', ()=>{
+    const field = th.dataset.field;
+    if(puSort.field === field){ puSort.dir = puSort.dir === 'asc' ? 'desc' : 'asc'; }
+    else { puSort.field = field; puSort.dir = 'asc'; }
+    renderPaperworkUploadsList();
+  }));
+
+  document.getElementById('pu_search').addEventListener('input', renderPaperworkUploadsList);
+
+  async function handlePaperworkFileUpload(file){
+    const statusEl = document.getElementById('pu_status');
+    const clientName = document.getElementById('pu_clientName').value.trim();
+    const jobNumber = document.getElementById('pu_jobNumber').value.trim();
+    if(!clientName || !jobNumber){
+      statusEl.textContent = 'Enter both Client Name and Job Number before uploading.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(file.size > 10 * 1024 * 1024){
+      statusEl.textContent = 'That file is over 10MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Uploading...';
+    statusEl.className = 'status-msg';
+    const uploadId = 'upload_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    try{
+      const dataUri = await puReadFileAsDataUri(file);
+      const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, dataUri);
+      if(!blobOk) throw new Error('Blob save failed');
+      paperworkUploads.push({ id: uploadId, clientName, jobNumber, fileName: file.name, uploadedAt: new Date().toISOString() });
+      const listOk = await savePaperworkUploadsList();
+      if(listOk){
+        statusEl.textContent = `Uploaded "${file.name}" for ${clientName}.`;
+        statusEl.className = 'status-msg ok';
+        document.getElementById('pu_clientName').value = '';
+        document.getElementById('pu_jobNumber').value = '';
+      } else {
+        statusEl.textContent = 'File uploaded, but the list failed to save \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+      }
+    }catch(err){
+      console.error('Paperwork upload failed:', err);
+      statusEl.textContent = 'Upload failed \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+    renderPaperworkUploadsList();
+  }
+
+  const puDropzone = document.getElementById('pu_dropzone');
+  const puFileInput = document.getElementById('pu_fileInput');
+
+  puDropzone.addEventListener('click', () => puFileInput.click());
+  puFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(file) handlePaperworkFileUpload(file);
+    puFileInput.value = '';
+  });
+
+  ['dragenter','dragover'].forEach(evt => puDropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    puDropzone.style.background = '#EAF3EC';
+    puDropzone.style.borderColor = '#00612C';
+  }));
+  ['dragleave','drop'].forEach(evt => puDropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    puDropzone.style.background = 'var(--offwhite)';
+    puDropzone.style.borderColor = 'var(--line)';
+  }));
+  puDropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files[0];
+    if(file) handlePaperworkFileUpload(file);
+  });
 
   // ---------- Copy Link (field access to Digital Paperwork) ----------
   document.getElementById('pw_copyLinkBtn').addEventListener('click', async ()=>{
