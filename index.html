@@ -1391,7 +1391,7 @@
 
       <div class="panel" id="mailListAddPanel">
         <h3>Add Addresses</h3>
-        <p class="form-note">Paste one address per line, tab- or comma-separated: <span class="mono">Address, City, State, Zip</span>. Name defaults to "Current Resident" &mdash; include two extra columns at the front, <span class="mono">First, Last</span>, to override. Duplicate addresses already on the list are skipped automatically.</p>
+        <p class="form-note">Paste one address per line, tab- or comma-separated: <span class="mono">Address, City, State, Zip</span>. Name defaults to "Current Resident" &mdash; include two extra columns at the front, <span class="mono">First, Last</span>, to override. State and zip can be combined in one chunk (like "GA 30809") and will be split automatically; zip can also be left blank if unconfirmed. Duplicate addresses already on the list are skipped automatically.</p>
         <textarea id="mail_bulkInput" rows="6" placeholder="320 Kirkwood Dr, Evans, GA, 30809" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; box-sizing:border-box;"></textarea>
         <div class="form-actions">
           <button class="btn-primary" id="mail_addBtn" type="button">Add to List</button>
@@ -1419,6 +1419,7 @@
           <button type="button" id="mail_markMailedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Mailed</button>
           <button type="button" id="mail_exportUnmailedBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Not-Yet-Mailed (.xlsx)</button>
           <button type="button" id="mail_exportAllBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export All (.xlsx)</button>
+          <button type="button" id="mail_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
           <span class="status-msg" id="mail_bulkStatus"></span>
         </div>
         <table>
@@ -3666,6 +3667,14 @@
     document.getElementById('mail_selectAll').checked = false;
   }
 
+  function mailSplitStateZip(value){
+    // Detects a combined "ST 12345" or "ST, 12345" chunk (with or without a comma
+    // between them) and splits it into separate state and zip pieces.
+    const m = (value || '').match(/^([A-Za-z]{2})[,\s]+(\d{5}(?:-\d{4})?)$/);
+    if(!m) return null;
+    return { state: m[1].toUpperCase(), zip: m[2] };
+  }
+
   function mailParseBulkInput(text){
     const lines = text.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim() !== '');
     const parsed = [];
@@ -3674,10 +3683,32 @@
       let cols = line.includes('\t') ? line.split('\t') : line.split(',');
       cols = cols.map(c => c.trim());
       let firstName = 'Current', lastName = 'Resident', address, city, state, zip;
-      if(cols.length >= 6){
+
+      if(cols.length === 6){
         [firstName, lastName, address, city, state, zip] = cols;
+      } else if(cols.length === 5){
+        // Either a genuine 6-field row missing its zip, or one where state and
+        // zip landed in the same chunk (e.g. "GA 30809" with no separating comma).
+        const combined = mailSplitStateZip(cols[4]);
+        if(combined){
+          [firstName, lastName, address, city] = cols;
+          state = combined.state; zip = combined.zip;
+        } else {
+          [firstName, lastName, address, city, state] = cols;
+          zip = '';
+        }
       } else if(cols.length === 4){
         [address, city, state, zip] = cols;
+      } else if(cols.length === 3){
+        // Either a genuine 4-field row missing its zip, or state+zip merged together.
+        const combined = mailSplitStateZip(cols[2]);
+        if(combined){
+          [address, city] = cols;
+          state = combined.state; zip = combined.zip;
+        } else {
+          [address, city, state] = cols;
+          zip = '';
+        }
       } else {
         errors.push(`Line ${idx+1}: expected 4 columns (address, city, state, zip) or 6 (first, last, address, city, state, zip) \u2014 got ${cols.length}: "${line}"`);
         return;
@@ -3791,6 +3822,23 @@
   });
   document.getElementById('mail_exportAllBtn').addEventListener('click', ()=>{
     mailExportToExcel(mailListRecords, 'all');
+  });
+
+  document.getElementById('mail_clearAllBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_bulkStatus');
+    const count = mailListRecords.length;
+    if(count === 0){
+      statusEl.textContent = 'The list is already empty.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(!confirm(`Delete all ${count} address${count===1?'':'es'} from the mailing list? This cannot be undone.`)) return;
+    mailListRecords = [];
+    const ok = await saveMailListRecords();
+    renderMailListTable();
+    renderMailListKpis();
+    statusEl.textContent = ok ? `Cleared ${count} address${count===1?'':'es'}.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
 
   // ---------- Settings ----------
