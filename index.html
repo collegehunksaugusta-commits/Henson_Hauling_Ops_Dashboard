@@ -3675,18 +3675,15 @@
     return { state: m[1].toUpperCase(), zip: m[2] };
   }
 
-  function mailTruncateAfterZip(cols){
-    // Finds the column holding the zip (standalone, or combined with state) and
-    // drops everything after it \u2014 price, agent name, MLS #, days-on-market, etc.
-    for(let i = 0; i < cols.length; i++){
-      if(i > 0 && /^\d{5}(-\d{4})?$/.test(cols[i])){
-        return cols.slice(0, i+1);
-      }
-      if(mailSplitStateZip(cols[i])){
-        return cols.slice(0, i+1);
-      }
-    }
-    return cols;
+  function mailCutLineAfterZip(line){
+    // Finds the first "two-letter state, then zip" occurrence anywhere in the raw
+    // line and cuts everything after it \u2014 price, agent, MLS #, days-on-market, etc.
+    // Doing this on the raw text (before column splitting) means it isn't thrown
+    // off when trailing junk itself contains a comma (e.g. a price like "$450,000"),
+    // which would otherwise misalign a simple split-by-comma into the wrong columns.
+    const m = line.match(/\b([A-Za-z]{2})[,\s]+(\d{5}(?:-\d{4})?)\b/);
+    if(!m) return line;
+    return line.slice(0, m.index + m[0].length);
   }
 
   function mailParseBulkInput(text){
@@ -3694,9 +3691,9 @@
     const parsed = [];
     const errors = [];
     lines.forEach((line, idx) => {
+      line = mailCutLineAfterZip(line);
       let cols = line.includes('\t') ? line.split('\t') : line.split(',');
       cols = cols.map(c => c.trim());
-      cols = mailTruncateAfterZip(cols);
       let firstName = 'Current', lastName = 'Resident', address, city, state, zip;
 
       if(cols.length === 6){
