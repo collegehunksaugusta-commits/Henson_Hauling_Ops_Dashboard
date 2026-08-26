@@ -469,6 +469,11 @@
         <h3>Regulatory Compliance</h3>
         <p>Business authorizations, truck safety records, and driver qualification files.</p>
       </div>
+      <div class="tile" id="tile-maillist" tabindex="0" role="button" aria-label="Open Mail Marketing List">
+        <span class="icon">📬</span>
+        <h3>Mail Marketing List</h3>
+        <p>Postcard mailing list of recent home listings, with mailed-status tracking and mail-merge export.</p>
+      </div>
     </div>
   </div>
 
@@ -1360,6 +1365,81 @@
     </div>
   </div>
 
+  <!-- ============ MAIL MARKETING LIST DETAIL ============ -->
+  <div id="mailListDetail" style="display:none;">
+    <button class="backlink" id="mailListBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Mail Marketing List</h2>
+        <p>Postcard mailing list built from recent home listings. Send Claude new listing screenshots (Redfin, Zillow, or any source) to grow the list, then paste the results below.</p>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="label">Total Addresses</div>
+          <div class="big" id="mail_kpiTotal">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="label">Not Yet Mailed</div>
+          <div class="big" id="mail_kpiUnmailed">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="label">Mailed</div>
+          <div class="big" id="mail_kpiMailed">0</div>
+        </div>
+      </div>
+
+      <div class="panel" id="mailListAddPanel">
+        <h3>Add Addresses</h3>
+        <p class="form-note">Paste one address per line, tab- or comma-separated: <span class="mono">Address, City, State, Zip</span>. Name defaults to "Current Resident" &mdash; include two extra columns at the front, <span class="mono">First, Last</span>, to override. Duplicate addresses already on the list are skipped automatically.</p>
+        <textarea id="mail_bulkInput" rows="6" placeholder="320 Kirkwood Dr, Evans, GA, 30809" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; box-sizing:border-box;"></textarea>
+        <div class="form-actions">
+          <button class="btn-primary" id="mail_addBtn" type="button">Add to List</button>
+          <span class="status-msg" id="mail_addStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="mailListTablePanel">
+        <h3>Mailing List</h3>
+        <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Filter
+            <input type="text" id="mail_filter" placeholder="Search address or city..." style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
+          </label>
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Status
+            <select id="mail_statusFilter" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
+              <option value="all">All</option>
+              <option value="unmailed">Not Yet Mailed</option>
+              <option value="mailed">Mailed</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions" style="margin-bottom:14px;">
+          <button type="button" id="mail_markMailedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Mailed</button>
+          <button type="button" id="mail_exportUnmailedBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Not-Yet-Mailed (.xlsx)</button>
+          <button type="button" id="mail_exportAllBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export All (.xlsx)</button>
+          <span class="status-msg" id="mail_bulkStatus"></span>
+        </div>
+        <table>
+          <thead><tr>
+            <th style="width:26px;"><input type="checkbox" id="mail_selectAll"></th>
+            <th>Name</th>
+            <th>Address</th>
+            <th>City</th>
+            <th>State</th>
+            <th>Zip</th>
+            <th>Status</th>
+            <th>Date Mailed</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="mail_rows"></tbody>
+        </table>
+        <p class="form-note" id="mail_emptyNote" style="display:none;">No addresses yet &mdash; paste some in above to get started.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ SETTINGS DETAIL ============ -->
   <div id="settingsDetail" style="display:none;">
     <button class="backlink" id="settingsBackBtn">&larr; Dispatch</button>
@@ -1550,6 +1630,7 @@
   const attendanceDetail = document.getElementById('attendanceDetail');
   const complianceDetail = document.getElementById('complianceDetail');
   const settingsDetail = document.getElementById('settingsDetail');
+  const mailListDetail = document.getElementById('mailListDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -1560,6 +1641,7 @@
     attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
     complianceDetail.style.display = view === 'compliance' ? 'block' : 'none';
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
+    mailListDetail.style.display = view === 'maillist' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -1574,6 +1656,9 @@
     }
     if(view === 'settings'){
       loadSettingsData();
+    }
+    if(view === 'maillist'){
+      loadMailListData();
     }
   }
 
@@ -1617,6 +1702,10 @@
   document.getElementById('tile-compliance').addEventListener('click', ()=> navigateTo('compliance'));
   document.getElementById('tile-compliance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('compliance'); }});
   document.getElementById('complianceBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-maillist').addEventListener('click', ()=> navigateTo('maillist'));
+  document.getElementById('tile-maillist').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('maillist'); }});
+  document.getElementById('mailListBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
 
@@ -3460,6 +3549,249 @@
       updateComplianceTileBadge();
     }catch(err){ console.error('Initial compliance status check failed:', err); }
   })();
+
+  // ---------- Mail Marketing List ----------
+  const MAIL_LIST_KEY = 'mail-marketing-list';
+  let mailListRecords = [];
+
+  function mailEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  function mailNormalizeKey(rec){
+    const addr = (rec.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const zip = (rec.zip || '').trim();
+    const city = (rec.city || '').trim().toLowerCase();
+    return addr + '|' + (zip || city);
+  }
+
+  async function loadMailListData(){
+    try{ mailListRecords = await window.dashboardApi.get(MAIL_LIST_KEY, []); }
+    catch(err){ console.error('Mail list load failed:', err); mailListRecords = mailListRecords || []; }
+    renderMailListTable();
+    renderMailListKpis();
+  }
+
+  async function saveMailListRecords(){
+    try{ return await window.dashboardApi.set(MAIL_LIST_KEY, mailListRecords); }
+    catch(err){ console.error('Mail list save failed:', err); return false; }
+  }
+
+  function renderMailListKpis(){
+    const total = mailListRecords.length;
+    const mailed = mailListRecords.filter(r => r.mailed).length;
+    document.getElementById('mail_kpiTotal').textContent = total;
+    document.getElementById('mail_kpiMailed').textContent = mailed;
+    document.getElementById('mail_kpiUnmailed').textContent = total - mailed;
+  }
+
+  function renderMailListTable(){
+    const filter = (document.getElementById('mail_filter').value || '').trim().toLowerCase();
+    const statusFilter = document.getElementById('mail_statusFilter').value;
+    const tbody = document.getElementById('mail_rows');
+    const emptyNote = document.getElementById('mail_emptyNote');
+
+    let filtered = [...mailListRecords];
+    if(filter){
+      filtered = filtered.filter(r =>
+        (r.address || '').toLowerCase().includes(filter) ||
+        (r.city || '').toLowerCase().includes(filter)
+      );
+    }
+    if(statusFilter === 'mailed') filtered = filtered.filter(r => r.mailed);
+    if(statusFilter === 'unmailed') filtered = filtered.filter(r => !r.mailed);
+
+    filtered.sort((a,b)=> (a.city||'').localeCompare(b.city||'') || (a.address||'').localeCompare(b.address||''));
+
+    emptyNote.style.display = mailListRecords.length === 0 ? 'block' : 'none';
+
+    tbody.innerHTML = filtered.map(r => `
+      <tr data-id="${r.id}">
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="checkbox" class="mail-select" data-id="${r.id}"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${mailEsc(r.firstName)} ${mailEsc(r.lastName)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${mailEsc(r.address)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-edit-city" data-id="${r.id}" value="${mailEsc(r.city)}" style="width:100px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-edit-state" data-id="${r.id}" value="${mailEsc(r.state)}" style="width:40px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-edit-zip" data-id="${r.id}" value="${mailEsc(r.zip)}" placeholder="?" style="width:60px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px; ${!r.zip ? 'border-color:#F0D9A8; background:#FFF6E8;' : ''}"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">
+          <label style="display:flex; align-items:center; gap:5px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" class="mail-toggle-mailed" data-id="${r.id}" ${r.mailed ? 'checked' : ''}>
+            ${r.mailed ? 'Mailed' : 'Not Mailed'}
+          </label>
+        </td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-size:12px; color:var(--muted);">${r.dateMailed ? mailEsc(r.dateMailed) : '\u2014'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="mail-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.mail-edit-city').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const rec = mailListRecords.find(r => r.id === e.target.dataset.id);
+      if(!rec) return;
+      rec.city = e.target.value.trim();
+      await saveMailListRecords();
+    }));
+    tbody.querySelectorAll('.mail-edit-state').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const rec = mailListRecords.find(r => r.id === e.target.dataset.id);
+      if(!rec) return;
+      rec.state = e.target.value.trim().toUpperCase();
+      await saveMailListRecords();
+      renderMailListTable();
+    }));
+    tbody.querySelectorAll('.mail-edit-zip').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const rec = mailListRecords.find(r => r.id === e.target.dataset.id);
+      if(!rec) return;
+      rec.zip = e.target.value.trim();
+      await saveMailListRecords();
+      renderMailListTable();
+    }));
+    tbody.querySelectorAll('.mail-toggle-mailed').forEach(cb => cb.addEventListener('change', async (e)=>{
+      const rec = mailListRecords.find(r => r.id === e.target.dataset.id);
+      if(!rec) return;
+      rec.mailed = e.target.checked;
+      rec.dateMailed = e.target.checked ? new Date().toISOString().slice(0,10) : null;
+      await saveMailListRecords();
+      renderMailListTable();
+      renderMailListKpis();
+    }));
+    tbody.querySelectorAll('.mail-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this address from the mailing list? This cannot be undone.')) return;
+      mailListRecords = mailListRecords.filter(r => r.id !== id);
+      await saveMailListRecords();
+      renderMailListTable();
+      renderMailListKpis();
+    }));
+
+    document.getElementById('mail_selectAll').checked = false;
+  }
+
+  function mailParseBulkInput(text){
+    const lines = text.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim() !== '');
+    const parsed = [];
+    const errors = [];
+    lines.forEach((line, idx) => {
+      let cols = line.includes('\t') ? line.split('\t') : line.split(',');
+      cols = cols.map(c => c.trim());
+      let firstName = 'Current', lastName = 'Resident', address, city, state, zip;
+      if(cols.length >= 6){
+        [firstName, lastName, address, city, state, zip] = cols;
+      } else if(cols.length === 4){
+        [address, city, state, zip] = cols;
+      } else {
+        errors.push(`Line ${idx+1}: expected 4 columns (address, city, state, zip) or 6 (first, last, address, city, state, zip) \u2014 got ${cols.length}: "${line}"`);
+        return;
+      }
+      if(!address){
+        errors.push(`Line ${idx+1}: missing address \u2014 "${line}"`);
+        return;
+      }
+      parsed.push({
+        firstName: firstName || 'Current',
+        lastName: lastName || 'Resident',
+        address, city: city || '', state: (state || '').toUpperCase(), zip: zip || ''
+      });
+    });
+    return { parsed, errors };
+  }
+
+  document.getElementById('mail_addBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_addStatus');
+    const textarea = document.getElementById('mail_bulkInput');
+    const text = textarea.value;
+    if(!text.trim()){
+      statusEl.textContent = 'Paste at least one address first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const { parsed, errors } = mailParseBulkInput(text);
+    if(parsed.length === 0){
+      statusEl.textContent = errors.length ? errors[0] : 'Nothing to add.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const existingKeys = new Set(mailListRecords.map(mailNormalizeKey));
+    let added = 0, skipped = 0;
+    parsed.forEach(p => {
+      const key = mailNormalizeKey(p);
+      if(existingKeys.has(key)){ skipped++; return; }
+      existingKeys.add(key);
+      mailListRecords.push({
+        id: 'mail_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        firstName: p.firstName, lastName: p.lastName,
+        address: p.address, city: p.city, state: p.state, zip: p.zip,
+        dateAdded: new Date().toISOString().slice(0,10),
+        mailed: false, dateMailed: null
+      });
+      added++;
+    });
+
+    const ok = await saveMailListRecords();
+    textarea.value = '';
+    renderMailListTable();
+    renderMailListKpis();
+
+    let msg = ok ? `Added ${added} address${added===1?'':'es'}.` : 'Save failed \u2014 check your connection.';
+    if(skipped > 0) msg += ` Skipped ${skipped} duplicate${skipped===1?'':'s'}.`;
+    if(errors.length > 0) msg += ` ${errors.length} line${errors.length===1?'':'s'} could not be parsed.`;
+    statusEl.textContent = msg;
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('mail_filter').addEventListener('input', renderMailListTable);
+  document.getElementById('mail_statusFilter').addEventListener('change', renderMailListTable);
+
+  document.getElementById('mail_selectAll').addEventListener('change', (e)=>{
+    document.querySelectorAll('.mail-select').forEach(cb => cb.checked = e.target.checked);
+  });
+
+  document.getElementById('mail_markMailedBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_bulkStatus');
+    const selectedIds = Array.from(document.querySelectorAll('.mail-select:checked')).map(cb => cb.dataset.id);
+    if(selectedIds.length === 0){
+      statusEl.textContent = 'Select at least one address first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const today = new Date().toISOString().slice(0,10);
+    selectedIds.forEach(id => {
+      const rec = mailListRecords.find(r => r.id === id);
+      if(rec){ rec.mailed = true; rec.dateMailed = today; }
+    });
+    const ok = await saveMailListRecords();
+    renderMailListTable();
+    renderMailListKpis();
+    statusEl.textContent = ok ? `Marked ${selectedIds.length} address${selectedIds.length===1?'':'es'} as mailed.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  function mailExportToExcel(records, filenameSuffix){
+    const statusEl = document.getElementById('mail_bulkStatus');
+    if(records.length === 0){
+      statusEl.textContent = 'Nothing to export.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const rows = records.map(r => ({
+      firstname: r.firstName, lastname: r.lastName,
+      address: r.address, city: r.city, state: r.state, zip: r.zip
+    }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Mail List');
+    const dateStr = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(workbook, `mail-list-${filenameSuffix}-${dateStr}.xlsx`);
+    statusEl.textContent = `Exported ${records.length} address${records.length===1?'':'es'}.`;
+    statusEl.className = 'status-msg ok';
+  }
+
+  document.getElementById('mail_exportUnmailedBtn').addEventListener('click', ()=>{
+    mailExportToExcel(mailListRecords.filter(r => !r.mailed), 'not-yet-mailed');
+  });
+  document.getElementById('mail_exportAllBtn').addEventListener('click', ()=>{
+    mailExportToExcel(mailListRecords, 'all');
+  });
 
   // ---------- Settings ----------
   const SETTINGS_CONFIG_FILES_KEY = 'settings-config-files';
