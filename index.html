@@ -4340,9 +4340,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const travelFeeCell = parsed.travelFee !== null ? pwMoney(parsed.travelFee) : '$';
     const laborCostCell = parsed.laborCost !== null ? pwMoney(parsed.laborCost) : '$';
 
-    const packUnpackTotal = (parsed.packCost !== null || parsed.unpackCost !== null || parsed.packMaterialsCost !== null)
-      ? pwMoney((parsed.packCost || 0) + (parsed.unpackCost || 0) + (parsed.packMaterialsCost || 0))
-      : '$';
+    const packUnpackVal = (parsed.packCost !== null || parsed.unpackCost !== null || parsed.packMaterialsCost !== null)
+      ? (parsed.packCost || 0) + (parsed.unpackCost || 0) + (parsed.packMaterialsCost || 0)
+      : null;
+    const packUnpackTotal = packUnpackVal !== null ? pwMoney(packUnpackVal) : '$';
+
+    // Taxes and Fees = a flat 4% administrative fee plus Georgia's combined sales/use tax
+    // rate for Columbia County (Evans, GA -- the franchise's home jurisdiction): 8%, per the
+    // GA Dept. of Revenue rate chart (4% state + 4% local). Applied to whatever subtotal
+    // components were actually parsed from the estimate (travel fee + labor + packing/unpacking).
+    const ADMIN_FEE_RATE = 0.04;
+    const GA_COMBINED_TAX_RATE = 0.08;
+    const haveSubtotalData = parsed.travelFee !== null || parsed.laborCost !== null || packUnpackVal !== null;
+    const subtotal = (parsed.travelFee || 0) + (parsed.laborCost || 0) + (packUnpackVal || 0);
+    const taxesAndFeesVal = haveSubtotalData ? subtotal * (ADMIN_FEE_RATE + GA_COMBINED_TAX_RATE) : null;
+    const totalChargesVal = haveSubtotalData ? subtotal + taxesAndFeesVal : null;
+    const taxesAndFeesCell = taxesAndFeesVal !== null ? pwMoney(taxesAndFeesVal) : '$';
+    const totalChargesCell = totalChargesVal !== null ? pwMoney(totalChargesVal) : '$';
 
     return `
       <div class="print-page" style="font-size:7.5pt; line-height:1.15;">
@@ -4362,13 +4376,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </table>
 
         <table style="width:100%; border-collapse:collapse; font-size:7pt; margin-bottom:2px;">
-          <tr style="border-bottom:1px solid #999;"><td colspan="2" style="padding:2px 0; font-weight:bold;">Moving Labor Costs</td><td style="text-align:right; font-weight:bold;">Total Cost</td><td style="text-align:right; font-weight:bold; padding-left:12px;">Material</td><td style="text-align:right; font-weight:bold;">Qty</td><td style="text-align:right; font-weight:bold;">Pr Ea</td><td style="text-align:right; font-weight:bold;">Total Cost</td></tr>
+          <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Explanation of Charges</td></tr>
           <tr><td colspan="6" style="padding:4px 0;">
-            <div style="border:1px solid #999; padding:10px 12px; font-size:7pt; line-height:1.8; min-height:90px;">${laborNarrative}</div>
+            <div style="border:1px solid #999; padding:14px 16px; font-size:7.5pt; line-height:2.1; min-height:200px;">${laborNarrative}</div>
           </td></tr>
-          <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Other Costs</td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Junk Removal, _______ truckload at $_______</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Labor, _____ hours at $______ per hour</td><td style="text-align:right;">$</td><td colspan="3" style="text-align:right; padding-right:4px;">Material Total Cost:</td><td style="text-align:right;">$</td></tr>
         </table>
 
         <div style="border:1px solid #999; padding:3px 8px; font-size:7.5pt; margin:3px 0;">
@@ -4388,9 +4399,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
               <tr><td style="padding:1px 0;">Moving Labor Total Cost</td><td style="text-align:right;">${laborCostCell}</td></tr>
               <tr><td style="padding:1px 0;">Valuation</td><td style="text-align:right;">$</td></tr>
               <tr><td style="padding:1px 0;">Packing/Unpacking Labor Cost</td><td style="text-align:right;">${packUnpackTotal}</td></tr>
-              <tr><td style="padding:1px 0;">Other Cost</td><td style="text-align:right;">$</td></tr>
-              <tr><td style="padding:1px 0;">Taxes</td><td style="text-align:right;">$</td></tr>
-              <tr style="border-top:1px solid #999;"><td style="padding:2px 0; font-weight:bold;">Total Charges</td><td style="text-align:right; font-weight:bold;">$</td></tr>
+              <tr><td style="padding:1px 0;">Taxes and Fees</td><td style="text-align:right;">${taxesAndFeesCell}</td></tr>
+              <tr style="border-top:1px solid #999;"><td style="padding:2px 0; font-weight:bold;">Total Charges</td><td style="text-align:right; font-weight:bold;">${totalChargesCell}</td></tr>
             </table>
           </td></tr>
         </table>
