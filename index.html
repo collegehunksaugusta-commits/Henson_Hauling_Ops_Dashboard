@@ -4857,7 +4857,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(!confirm('Clear all entered fields?')) return;
     const statusEl = document.getElementById('pw_status');
     const fieldIds = ['pw_jobNumber','pw_clientName','pw_clientPhone','pw_clientEmail','pw_originAddress','pw_destAddress',
-      'pw_stop1','pw_stop2','pw_stop3','pw_estDate','pw_packingDate','pw_loadingDate','pw_deliveryDate','pw_unpackingDate','pw_otherServiceDate'];
+      'pw_stop1','pw_stop2','pw_stop3','pw_estimateSummary','pw_estDate','pw_packingDate','pw_loadingDate','pw_deliveryDate','pw_unpackingDate','pw_otherServiceDate'];
     fieldIds.forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('pw_jobType').value = 'move';
     updatePWJobTypeUI();
