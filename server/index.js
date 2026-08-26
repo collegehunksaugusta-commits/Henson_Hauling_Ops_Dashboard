@@ -372,6 +372,7 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     const deliverability = data.deliverability || '';
     const isDeliverable = deliverability.indexOf('deliverable') === 0;
     const zip = isDeliverable && data.components ? (data.components.zip_code || '') : '';
+    console.log(`Zip lookup: "${address}, ${city}, ${state}" \u2192 deliverability="${deliverability}" last_line="${data.last_line || ''}" zip="${zip}"`);
     res.json({ zip, deliverability });
   } catch (err) {
     console.error('Zip lookup failed:', err.message);
