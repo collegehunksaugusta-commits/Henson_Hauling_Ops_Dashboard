@@ -4389,8 +4389,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
         <table style="width:100%; border-collapse:collapse; font-size:7.5pt; margin-bottom:3px;">
           <tr><td style="width:65%; vertical-align:top; padding-right:10px;">
-            <b>SUMMARY OF COVERAGE</b> | If any article (except items made of manufactured, composite or press wood) is damaged while in our custody, based on the declared value chosen below, College HUNKS moving is liable for the following. 1) Repair the article up to the value of the article to extent necessary to restore it to the same condition as when it was received by your mover, or 2) pay you declared value towards the cost of the repairs at the movers discretion.<br>
-            <b>COLLEGE HUNKS CARES</b> (Released Value of 60 Cents Per Pound Per Article). This has no added cost and is the default option unless customer chooses extended coverage. If any article is damaged while in your mover's custody, your mover's liability is limited to the actual weight of the damaged article multiplied by .60 cents per pound per article. IE: A 100 lb dresser has a maximum value of $60.<br>
+            <b>SUMMARY OF COVERAGE</b> | If any article (except items made of manufactured, composite or press wood) is damaged while in our custody, based on the declared value chosen below, College HUNKS moving is liable for the following. 1) Repair the article up to the value of the article to extent necessary to restore it to the same condition as when it was received by your mover, or 2) pay you declared value towards the cost of the repairs at the movers discretion.<br><br>
+            <b>COLLEGE HUNKS CARES</b> (Released Value of 60 Cents Per Pound Per Article). This has no added cost and is the default option unless customer chooses extended coverage. If any article is damaged while in your mover's custody, your mover's liability is limited to the actual weight of the damaged article multiplied by .60 cents per pound per article. IE: A 100 lb dresser has a maximum value of $60.<br><br>
             Coverage chosen (circle one): &nbsp; <b>COLLEGE HUNKS CARES</b> &nbsp; &nbsp; Extended coverage (see VALUATION FORM)
           </td>
           <td style="width:35%; vertical-align:top;">
@@ -4407,7 +4407,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
         <div style="font-size:7.5pt;">
           <b>Client Walkthrough</b><br>
-          All items to be moved have been loaded into truck (please initial) ____________ &nbsp; All items have been unloaded into destination address (please initial) ________<br>
+          All items to be moved have been loaded into truck (please initial) ____________ &nbsp; All items have been unloaded into destination address (please initial) ________<br><br>
           I UNDERSTAND THAT BY SIGNING THIS ORDER FOR SERVICE, I AM ENTERING INTO A CONTRACT WITH COLLEGE HUNKS TO PERFORM THE WORK DESCRIBED AND AGREE TO PAY THE TOTAL AMOUNT ACCORDING TO CARD ISSUER AGREEMENTS. THIS CONTRACT IS SUBJECT TO THE TERMS ON THE FRONT AND BACK OF THIS DOCUMENT.<br>
           ___________________ X _____________________________________________<br>
           DATE &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; CLIENT (SHIPPER)<br>
@@ -4810,35 +4810,35 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       let html = '';
       let extraNote = '';
       if(jobType === 'move'){
-        html += buildPWBillOfLading(2);
-        html += buildPWLiabilityWaiver(3, true);
-        html += buildPWShipperDeclaration(4);
-        html += buildPWGAGuide(5);
-        html += buildPWAddendum(6);
-        html += buildPWPreExistingDamages(7);
+        html += buildPWBillOfLading(1);
+        html += buildPWLiabilityWaiver(2, true);
+        html += buildPWShipperDeclaration(3);
+        html += buildPWGAGuide(4);
+        html += buildPWAddendum(5);
+        html += buildPWPreExistingDamages(6);
       } else if(jobType === 'longdistance'){
         const clientName = pwVal('pw_clientName');
         const bolHtml = await pullLongDistanceBOL(clientName);
         if(bolHtml){
           html += bolHtml;
-          html += buildPWLiabilityWaiver(5, true);
-          html += buildPWGAGuide(6);
-          html += buildPWAddendum(7);
-          html += buildPWPreExistingDamages(8);
+          html += buildPWLiabilityWaiver(4, true);
+          html += buildPWGAGuide(5);
+          html += buildPWAddendum(6);
+          html += buildPWPreExistingDamages(7);
           extraNote = ` Included the matching Long Distance Bill of Lading for "${clientName}".`;
         } else {
-          html += buildPWLiabilityWaiver(2, true);
-          html += buildPWGAGuide(3);
-          html += buildPWAddendum(4);
-          html += buildPWPreExistingDamages(5);
+          html += buildPWLiabilityWaiver(1, true);
+          html += buildPWGAGuide(2);
+          html += buildPWAddendum(3);
+          html += buildPWPreExistingDamages(4);
           extraNote = clientName
             ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name) first if you need it included.`
             : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
         }
       } else {
-        html += buildPWLiabilityWaiver(2, true);
-        html += buildPWPreExistingDamages(3);
-        html += buildPWShipperDeclaration(4);
+        html += buildPWLiabilityWaiver(1, true);
+        html += buildPWPreExistingDamages(2);
+        html += buildPWShipperDeclaration(3);
       }
       document.getElementById('printPaperwork').innerHTML = html;
       document.getElementById('printBOL').innerHTML = '';
@@ -4971,7 +4971,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const config = SIGN_DOC_CONFIG[docKey];
     document.getElementById('sign_progress').textContent = `Document ${currentIndex+1} of ${docKeys.length}`;
     document.getElementById('sign_docTitle').textContent = config.title;
-    document.getElementById('signingDocContent').innerHTML = config.builder(currentIndex+2);
+    document.getElementById('signingDocContent').innerHTML = config.builder(currentIndex+1);
     const statusEl = document.getElementById('sign_status');
     statusEl.textContent = '';
     statusEl.className = 'status-msg';
