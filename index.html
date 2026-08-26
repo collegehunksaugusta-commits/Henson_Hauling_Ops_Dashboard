@@ -4273,7 +4273,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   function parseEstimateSummary(text){
-    const result = { hourlyRate: null, numHunks: null, hours: null, laborCost: null, driveToOrigin: null, driveFromDest: null, totalCost: null, travelFee: null };
+    const result = { hourlyRate: null, numHunks: null, hours: null, laborCost: null, driveToOrigin: null, driveFromDest: null, totalCost: null, travelFee: null,
+      packHours: null, packRate: null, packCost: null, unpackHours: null, unpackRate: null, unpackCost: null, packMaterialsCost: null };
     if(!text) return result;
 
     const hoursMatch = text.match(/last\s+([\d.]+)\s+hours?/i);
@@ -4287,6 +4288,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     const laborMatch = text.match(/cost for labor[^$]*\$([\d,]+\.?\d*)/i);
     if(laborMatch) result.laborCost = parseFloat(laborMatch[1].replace(/,/g,''));
+
+    const packMatch = text.match(/requested packing services for\s+([\d.]+)\s*hours?\s+at\s+\$([\d,]+\.?\d*)\s*per hour/i);
+    if(packMatch){
+      result.packHours = parseFloat(packMatch[1]);
+      result.packRate = parseFloat(packMatch[2].replace(/,/g,''));
+      result.packCost = result.packHours * result.packRate;
+    }
+
+    const unpackMatch = text.match(/requested unpacking services for\s+([\d.]+)\s*hours?\s+at\s+\$([\d,]+\.?\d*)\s*per hour/i);
+    if(unpackMatch){
+      result.unpackHours = parseFloat(unpackMatch[1]);
+      result.unpackRate = parseFloat(unpackMatch[2].replace(/,/g,''));
+      result.unpackCost = result.unpackHours * result.unpackRate;
+    }
+
+    const packMaterialsMatch = text.match(/requested packing materials at\s+\$([\d,]+\.?\d*)/i);
+    if(packMaterialsMatch) result.packMaterialsCost = parseFloat(packMaterialsMatch[1].replace(/,/g,''));
 
     const driveMatch = text.match(/Origin Address was estimated at\s+(\d+)\s*minutes[\s\S]*?Franchise Office Address was estimated at\s+(\d+)\s*minutes/i);
     if(driveMatch){
@@ -4322,6 +4340,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const travelFeeCell = parsed.travelFee !== null ? pwMoney(parsed.travelFee) : '$';
     const laborCostCell = parsed.laborCost !== null ? pwMoney(parsed.laborCost) : '$';
 
+    const packUnpackTotal = (parsed.packCost !== null || parsed.unpackCost !== null || parsed.packMaterialsCost !== null)
+      ? pwMoney((parsed.packCost || 0) + (parsed.unpackCost || 0) + (parsed.packMaterialsCost || 0))
+      : '$';
+
     return `
       <div class="print-page" style="font-size:7.5pt; line-height:1.15;">
         ${pwLetterhead('Bill of Lading', pageNum)}
@@ -4342,12 +4364,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <table style="width:100%; border-collapse:collapse; font-size:7pt; margin-bottom:2px;">
           <tr style="border-bottom:1px solid #999;"><td colspan="2" style="padding:2px 0; font-weight:bold;">Moving Labor Costs</td><td style="text-align:right; font-weight:bold;">Total Cost</td><td style="text-align:right; font-weight:bold; padding-left:12px;">Material</td><td style="text-align:right; font-weight:bold;">Qty</td><td style="text-align:right; font-weight:bold;">Pr Ea</td><td style="text-align:right; font-weight:bold;">Total Cost</td></tr>
           <tr><td colspan="6" style="padding:4px 0;">
-            <div style="border:1px solid #999; padding:4px 7px; font-size:7pt; line-height:1.5;">${laborNarrative}</div>
+            <div style="border:1px solid #999; padding:10px 12px; font-size:7pt; line-height:1.8; min-height:90px;">${laborNarrative}</div>
           </td></tr>
-          <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Packing/Unpacking Labor Costs</td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Pack at residence using ___ HUNKS for ____ hours at $_______ per hr</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Unpack at residence using ___ HUNKS for ____ hours at $______ per hr</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Delivery of Packing Material</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
           <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Other Costs</td></tr>
           <tr><td colspan="2" style="padding:1.5px 0;">Junk Removal, _______ truckload at $_______</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
           <tr><td colspan="2" style="padding:1.5px 0;">Labor, _____ hours at $______ per hour</td><td style="text-align:right;">$</td><td colspan="3" style="text-align:right; padding-right:4px;">Material Total Cost:</td><td style="text-align:right;">$</td></tr>
@@ -4369,7 +4387,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
               <tr><td style="padding:1px 0;">Truck and Travel Fee</td><td style="text-align:right;">${travelFeeCell}</td></tr>
               <tr><td style="padding:1px 0;">Moving Labor Total Cost</td><td style="text-align:right;">${laborCostCell}</td></tr>
               <tr><td style="padding:1px 0;">Valuation</td><td style="text-align:right;">$</td></tr>
-              <tr><td style="padding:1px 0;">Packing/Unpacking Labor Cost</td><td style="text-align:right;">$</td></tr>
+              <tr><td style="padding:1px 0;">Packing/Unpacking Labor Cost</td><td style="text-align:right;">${packUnpackTotal}</td></tr>
               <tr><td style="padding:1px 0;">Other Cost</td><td style="text-align:right;">$</td></tr>
               <tr><td style="padding:1px 0;">Taxes</td><td style="text-align:right;">$</td></tr>
               <tr style="border-top:1px solid #999;"><td style="padding:2px 0; font-weight:bold;">Total Charges</td><td style="text-align:right; font-weight:bold;">$</td></tr>
