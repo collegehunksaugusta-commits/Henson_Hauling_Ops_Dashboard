@@ -1,3 +1,4 @@
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -59,9 +60,21 @@
     text-transform:uppercase; font-weight:600;
   }
   .topbar .loc{font-size:13px; color:#B8BFC7; font-family:'Inter',sans-serif; letter-spacing:.02em;}
+  @media (max-width:600px){
+    .topbar{padding:12px 14px 12px; flex-wrap:wrap; row-gap:10px;}
+    .topbar .brand{gap:10px;}
+    .badge-mark{height:34px;}
+    .topbar h1{font-size:18px;}
+    .topbar .loc{font-size:11px;}
+    .topbar .clock{display:none;}
+    #logoutBtn{margin-left:auto !important; font-size:11px !important; padding:6px 10px !important;}
+  }
   .topbar .clock{font-size:12px; color:#8B929B; font-family:'IBM Plex Mono',monospace;}
 
   .wrap{max-width:1080px; margin:0 auto; padding:36px 28px 80px;}
+  @media (max-width:600px){
+    .wrap{padding:20px 14px 60px;}
+  }
 
   /* ---------- Home tiles ---------- */
   .section-eyebrow{
@@ -172,6 +185,9 @@
   canvas#trendChart{max-height:260px;}
 
   table{width:100%; border-collapse:collapse; font-size:13px;}
+  @media (max-width:600px){
+    table{display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap;}
+  }
   th{
     text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.06em;
     text-transform:uppercase; color:var(--muted); border-bottom:2px solid var(--line); padding:8px 10px;
@@ -192,6 +208,7 @@
   .addweek-toggle:hover{background:var(--orange);}
   .form-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
   @media (max-width:760px){ .form-grid{grid-template-columns:1fr 1fr;} }
+  @media (max-width:480px){ .form-grid{grid-template-columns:1fr;} }
   .form-grid label{display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;}
   .form-grid input{
     font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;
@@ -230,7 +247,11 @@
   }#calcDetail .btn:hover{background:var(--brand-green-dark);}#calcDetail .btn.secondary{background:var(--charcoal);}#calcDetail .btn.secondary:hover{background:#000;}#calcDetail .status{font-size:12px; margin-top:6px; font-family:'IBM Plex Mono',monospace;}#calcDetail .status.ok{color:var(--brand-green-dark);}#calcDetail .status.err{color:var(--red);}#calcDetail .modebadge{
     display:inline-block; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700;
     font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-left:8px;
-  }#calcDetail .modebadge.local{background:#E6F4EC; color:var(--brand-green-dark);}#calcDetail .modebadge.longdist{background:#FFF1E0; color:var(--brand-orange-dark);}#calcDetail table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px;}#calcDetail th{text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); border-bottom:2px solid var(--line); padding:6px 6px;}#calcDetail td{padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:middle;}#calcDetail td.num{font-family:'IBM Plex Mono',monospace; text-align:right;}#calcDetail td input[type=number]{width:56px; padding:5px 6px; font-size:12.5px;}#calcDetail .item-name{font-size:12.5px;}#calcDetail .lineitems{margin-top:10px;}#calcDetail .lineitem{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--line); font-size:13px;}#calcDetail .lineitem .amt{font-family:'IBM Plex Mono',monospace; font-weight:600;}#calcDetail .totalbar{
+  }#calcDetail .modebadge.local{background:#E6F4EC; color:var(--brand-green-dark);}#calcDetail .modebadge.longdist{background:#FFF1E0; color:var(--brand-orange-dark);}#calcDetail table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px;}
+  @media (max-width:600px){
+    #calcDetail table{display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap;}
+  }
+  #calcDetail th{text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); border-bottom:2px solid var(--line); padding:6px 6px;}#calcDetail td{padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:middle;}#calcDetail td.num{font-family:'IBM Plex Mono',monospace; text-align:right;}#calcDetail td input[type=number]{width:56px; padding:5px 6px; font-size:12.5px;}#calcDetail .item-name{font-size:12.5px;}#calcDetail .lineitems{margin-top:10px;}#calcDetail .lineitem{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--line); font-size:13px;}#calcDetail .lineitem .amt{font-family:'IBM Plex Mono',monospace; font-weight:600;}#calcDetail .totalbar{
     background:var(--charcoal); color:#fff; border-radius:6px; padding:18px 22px; display:flex;
     justify-content:space-between; align-items:center; margin-top:6px;
   }#calcDetail .totalbar .label{font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:15px;}#calcDetail .totalbar .amt{font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:600; color:var(--brand-orange);}#calcDetail .totalbar .sub{font-size:11px; color:#B8BFC7; margin-top:2px;}#calcDetail .section-toggle{cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between;}#calcDetail .section-toggle .arrow{transition:transform .15s;}#calcDetail .collapsed .arrow{transform:rotate(-90deg);}#calcDetail .collapsible-body{margin-top:10px;}#calcDetail .collapsed .collapsible-body{display:none;}#calcDetail .valopt{border:1px solid var(--line); border-radius:4px; padding:10px 12px; margin-bottom:8px; cursor:pointer;}#calcDetail .valopt.selected{border-color:var(--brand-green); background:#F3FBF6;}#calcDetail .valopt input{margin-right:8px;}
