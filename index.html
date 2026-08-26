@@ -1391,7 +1391,7 @@
 
       <div class="panel" id="mailListAddPanel">
         <h3>Add Addresses</h3>
-        <p class="form-note">Paste one address per line, tab- or comma-separated: <span class="mono">Address, City, State, Zip</span>. Name defaults to "Current Resident" &mdash; include two extra columns at the front, <span class="mono">First, Last</span>, to override. State and zip can be combined in one chunk (like "GA 30809") and will be split automatically; zip can also be left blank if unconfirmed. Duplicate addresses already on the list are skipped automatically.</p>
+        <p class="form-note">Paste one address per line, tab- or comma-separated: <span class="mono">Address, City, State, Zip</span>. Name defaults to "Current Resident" &mdash; include two extra columns at the front, <span class="mono">First, Last</span>, to override. State and zip can be combined in one chunk (like "GA 30809") and will be split automatically; zip can also be left blank if unconfirmed. Anything after the zip (price, agent, MLS #, etc.) is ignored automatically. Duplicate addresses already on the list are skipped automatically.</p>
         <textarea id="mail_bulkInput" rows="6" placeholder="320 Kirkwood Dr, Evans, GA, 30809" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; box-sizing:border-box;"></textarea>
         <div class="form-actions">
           <button class="btn-primary" id="mail_addBtn" type="button">Add to List</button>
@@ -3675,6 +3675,20 @@
     return { state: m[1].toUpperCase(), zip: m[2] };
   }
 
+  function mailTruncateAfterZip(cols){
+    // Finds the column holding the zip (standalone, or combined with state) and
+    // drops everything after it \u2014 price, agent name, MLS #, days-on-market, etc.
+    for(let i = 0; i < cols.length; i++){
+      if(i > 0 && /^\d{5}(-\d{4})?$/.test(cols[i])){
+        return cols.slice(0, i+1);
+      }
+      if(mailSplitStateZip(cols[i])){
+        return cols.slice(0, i+1);
+      }
+    }
+    return cols;
+  }
+
   function mailParseBulkInput(text){
     const lines = text.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim() !== '');
     const parsed = [];
@@ -3682,6 +3696,7 @@
     lines.forEach((line, idx) => {
       let cols = line.includes('\t') ? line.split('\t') : line.split(',');
       cols = cols.map(c => c.trim());
+      cols = mailTruncateAfterZip(cols);
       let firstName = 'Current', lastName = 'Resident', address, city, state, zip;
 
       if(cols.length === 6){
