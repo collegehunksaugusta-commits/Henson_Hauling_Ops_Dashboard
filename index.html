@@ -67,7 +67,7 @@
     .topbar h1{font-size:18px;}
     .topbar .loc{font-size:11px;}
     .topbar .clock{display:none;}
-    #logoutBtn{margin-left:auto !important; font-size:11px !important; padding:6px 10px !important;}
+    #logoutBtn{font-size:11px !important; padding:6px 10px !important;}
   }
   .topbar .clock{font-size:12px; color:#8B929B; font-family:'IBM Plex Mono',monospace;}
 
@@ -396,7 +396,10 @@
     </div>
   </div>
   <div class="clock" id="clockLine"></div>
-  <button id="logoutBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--muted); font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer; margin-left:12px;">Log Out</button>
+  <div style="display:flex; align-items:center; gap:8px; margin-left:12px;">
+    <button id="settingsGearBtn" type="button" title="Settings" aria-label="Open Settings" style="background:#fff; border:1px solid var(--line); color:var(--muted); font-size:16px; width:32px; height:32px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">⚙️</button>
+    <button id="logoutBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--muted); font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;">Log Out</button>
+  </div>
 </div>
 <script>
   document.getElementById('logoutBtn').addEventListener('click', async ()=>{
@@ -465,11 +468,6 @@
         <span class="icon">🛡️</span>
         <h3>Regulatory Compliance</h3>
         <p>Business authorizations, truck safety records, and driver qualification files.</p>
-      </div>
-      <div class="tile" id="tile-settings" tabindex="0" role="button" aria-label="Open Settings">
-        <span class="icon">⚙️</span>
-        <h3>Settings</h3>
-        <p>User accounts and dashboard configuration &mdash; built out over time.</p>
       </div>
     </div>
   </div>
@@ -1614,7 +1612,7 @@
   document.getElementById('tile-compliance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('compliance'); }});
   document.getElementById('complianceBackBtn').addEventListener('click', ()=> history.back());
 
-  document.getElementById('tile-settings').addEventListener('click', ()=> navigateTo('settings'));
+  document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
 
   // Reuse the already-embedded College Hunks logo for the HunkWare tile
   // (HunkWare is CHHJ's own support portal), rather than duplicating the
@@ -1623,7 +1621,6 @@
   if(chhjLogoSrc){
     document.getElementById('hunkwareLogo').src = chhjLogoSrc;
   }
-  document.getElementById('tile-settings').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('settings'); }});
   document.getElementById('settingsBackBtn').addEventListener('click', ()=> history.back());
 
   // ---------- shared data ----------
