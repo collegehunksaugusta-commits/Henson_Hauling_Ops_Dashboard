@@ -3778,7 +3778,7 @@
 
   document.getElementById('mail_copyCopilotBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('mail_copilotStatus');
-    const command = 'Pull addresses into a list from the last 7 days. Include zip codes, and nothing else beyond the zip code.';
+    const command = 'Pull addresses into a list from the last 7 days. Exclude zip codes and anything else after them.';
     try{
       await navigator.clipboard.writeText(command);
       statusEl.textContent = 'Copied! Paste it into Copilot.';
@@ -3939,7 +3939,7 @@
     }
     const btn = document.getElementById('mail_lookupZipsBtn');
     btn.disabled = true;
-    let found = 0, notFound = 0, failed = 0;
+    let found = 0, notFound = 0, failed = 0, firstErrorDetail = '';
     for(let i = 0; i < eligible.length; i++){
       const rec = eligible[i];
       statusEl.textContent = `Looking up zip ${i+1} of ${eligible.length}...`;
@@ -3951,6 +3951,7 @@
       }
       if(result.error){
         failed++;
+        if(!firstErrorDetail) firstErrorDetail = result.error;
       } else if(result.zip){
         rec.zip = result.zip;
         found++;
@@ -3965,7 +3966,7 @@
     btn.disabled = false;
     let msg = ok ? `Found ${found} of ${eligible.length} zip${eligible.length===1?'':'s'}.` : 'Save failed \u2014 check your connection.';
     if(notFound > 0) msg += ` ${notFound} address${notFound===1?'':'es'} could not be verified.`;
-    if(failed > 0) msg += ` ${failed} lookup${failed===1?'':'s'} failed \u2014 check your connection or Lob setup.`;
+    if(failed > 0) msg += ` ${failed} lookup${failed===1?'':'s'} failed${firstErrorDetail ? ': ' + firstErrorDetail : ''}.`;
     statusEl.textContent = msg;
     statusEl.className = ok && failed === 0 ? 'status-msg ok' : 'status-msg err';
   });
