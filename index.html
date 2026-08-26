@@ -3778,7 +3778,7 @@
 
   document.getElementById('mail_copyCopilotBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('mail_copilotStatus');
-    const command = 'Pull addresses into a list from the last 7 days. Exclude zip codes and anything else after them.';
+    const command = 'Pull addresses into a list from the last 7 days. I want ALL listings within the last 7 days.';
     try{
       await navigator.clipboard.writeText(command);
       statusEl.textContent = 'Copied! Paste it into Copilot.';
