@@ -894,6 +894,11 @@
           <label>Stop 2 (optional) <input type="text" id="pw_stop2"></label>
           <label>Stop 3 (optional) <input type="text" id="pw_stop3"></label>
         </div>
+        <div id="pw_localLaborArea" style="margin-top:2px;">
+          <label>Estimate Summary (paste the estimate text; used on the Bill of Lading)
+            <textarea id="pw_estimateSummary" rows="5" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:13px; box-sizing:border-box;"></textarea>
+          </label>
+        </div>
         <div class="form-grid" style="margin-top:2px;">
           <label>Estimate Date <input type="date" id="pw_estDate"></label>
           <label>Packing Date <input type="date" id="pw_packingDate"></label>
@@ -4267,9 +4272,56 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`;
   }
 
+  function parseEstimateSummary(text){
+    const result = { hourlyRate: null, numHunks: null, hours: null, laborCost: null, driveToOrigin: null, driveFromDest: null, totalCost: null, travelFee: null };
+    if(!text) return result;
+
+    const hoursMatch = text.match(/last\s+([\d.]+)\s+hours?/i);
+    if(hoursMatch) result.hours = parseFloat(hoursMatch[1]);
+
+    const rateMatch = text.match(/hourly rate[^$]*\$([\d,]+\.?\d*)\s*per hour for\s+(\d+)\s*HUNKS/i);
+    if(rateMatch){
+      result.hourlyRate = parseFloat(rateMatch[1].replace(/,/g,''));
+      result.numHunks = parseInt(rateMatch[2], 10);
+    }
+
+    const laborMatch = text.match(/cost for labor[^$]*\$([\d,]+\.?\d*)/i);
+    if(laborMatch) result.laborCost = parseFloat(laborMatch[1].replace(/,/g,''));
+
+    const driveMatch = text.match(/Origin Address was estimated at\s+(\d+)\s*minutes[\s\S]*?Franchise Office Address was estimated at\s+(\d+)\s*minutes/i);
+    if(driveMatch){
+      result.driveToOrigin = parseInt(driveMatch[1], 10);
+      result.driveFromDest = parseInt(driveMatch[2], 10);
+    }
+
+    const totalMatch = text.match(/total cost of this move is\s*\$([\d,]+\.?\d*)/i);
+    if(totalMatch) result.totalCost = parseFloat(totalMatch[1].replace(/,/g,''));
+
+    const feeMatch = text.match(/Truck and Travel Fee of\s*\$([\d,]+\.?\d*)/i);
+    if(feeMatch) result.travelFee = parseFloat(feeMatch[1].replace(/,/g,''));
+
+    return result;
+  }
+
   function buildPWBillOfLading(pageNum){
     const origin = pwVal('pw_originAddress'), dest = pwVal('pw_destAddress');
     const stops = [pwVal('pw_stop1'), pwVal('pw_stop2'), pwVal('pw_stop3')].filter(s => s);
+    const pwMoney = (v) => '$' + Number(v||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+
+    const summaryText = pwVal('pw_estimateSummary').trim();
+    const parsed = parseEstimateSummary(summaryText);
+
+    const laborNarrative = summaryText
+      ? esc(summaryText).replace(/\n/g, '<br>')
+      : `We have estimated the move to last ___ hours given the factors provided by the client.<br>
+         The hourly rate for the franchise at the time of this booking is $________ per hour for ___ HUNKS<br>
+         The cost for labor for this move is estimated at $________.<br>
+         The drive time from the Franchise Office Address to Origin Address was estimated at ___ minutes and the distance from the Destination Address to the Franchise Office Address was estimated at ___ minutes.<br>
+         The estimated total cost of this move is $________ (including an estimated Truck and Travel Fee of $________).`;
+
+    const travelFeeCell = parsed.travelFee !== null ? pwMoney(parsed.travelFee) : '$';
+    const laborCostCell = parsed.laborCost !== null ? pwMoney(parsed.laborCost) : '$';
+
     return `
       <div class="print-page" style="font-size:7.5pt; line-height:1.15;">
         ${pwLetterhead('Bill of Lading', pageNum)}
@@ -4289,10 +4341,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
         <table style="width:100%; border-collapse:collapse; font-size:7pt; margin-bottom:2px;">
           <tr style="border-bottom:1px solid #999;"><td colspan="2" style="padding:2px 0; font-weight:bold;">Moving Labor Costs</td><td style="text-align:right; font-weight:bold;">Total Cost</td><td style="text-align:right; font-weight:bold; padding-left:12px;">Material</td><td style="text-align:right; font-weight:bold;">Qty</td><td style="text-align:right; font-weight:bold;">Pr Ea</td><td style="text-align:right; font-weight:bold;">Total Cost</td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
-          <tr><td colspan="2" style="padding:1.5px 0;">Moving ___ hours with ____ truck(s) and ____ HUNKS at $________ per hr</td><td style="text-align:right;">$</td><td></td><td></td><td></td><td style="text-align:right;">$</td></tr>
+          <tr><td colspan="6" style="padding:4px 0;">
+            <div style="border:1px solid #999; padding:4px 7px; font-size:7pt; line-height:1.5;">${laborNarrative}</div>
+          </td></tr>
           <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Packing/Unpacking Labor Costs</td></tr>
           <tr><td colspan="2" style="padding:1.5px 0;">Pack at residence using ___ HUNKS for ____ hours at $_______ per hr</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
           <tr><td colspan="2" style="padding:1.5px 0;">Unpack at residence using ___ HUNKS for ____ hours at $______ per hr</td><td style="text-align:right;">$</td><td colspan="3"></td></tr>
@@ -4315,8 +4366,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </td>
           <td style="width:35%; vertical-align:top;">
             <table style="width:100%; border-collapse:collapse;">
-              <tr><td style="padding:1px 0;">Truck and Travel Fee</td><td style="text-align:right;">$</td></tr>
-              <tr><td style="padding:1px 0;">Moving Labor Total Cost</td><td style="text-align:right;">$</td></tr>
+              <tr><td style="padding:1px 0;">Truck and Travel Fee</td><td style="text-align:right;">${travelFeeCell}</td></tr>
+              <tr><td style="padding:1px 0;">Moving Labor Total Cost</td><td style="text-align:right;">${laborCostCell}</td></tr>
               <tr><td style="padding:1px 0;">Valuation</td><td style="text-align:right;">$</td></tr>
               <tr><td style="padding:1px 0;">Packing/Unpacking Labor Cost</td><td style="text-align:right;">$</td></tr>
               <tr><td style="padding:1px 0;">Other Cost</td><td style="text-align:right;">$</td></tr>
@@ -4711,6 +4762,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const jobType = document.getElementById('pw_jobType').value;
     const showStops = jobType === 'move' || jobType === 'longdistance';
     document.getElementById('pw_stopsArea').style.display = showStops ? 'grid' : 'none';
+    document.getElementById('pw_localLaborArea').style.display = jobType === 'move' ? 'block' : 'none';
     const note = document.getElementById('pw_docListNote');
     const notes = {
       move: 'Move prints: Bill of Lading, Liability Waiver, Shipper Declaration of Value, GA HHG Move Guide, Addendum to Estimate, Pre-existing Damages.',
