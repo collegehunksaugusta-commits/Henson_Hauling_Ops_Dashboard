@@ -1606,9 +1606,22 @@
       console.error('Storage error, starting with an empty list in-memory only:', err);
       weeks = [];
     }
+    applyLaborRolePermissions();
     document.getElementById('loadingNote').style.display='none';
     document.getElementById('content').style.display='block';
     renderAll();
+  }
+
+  function applyLaborRolePermissions(){
+    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
+    document.getElementById('addWeekToggle').style.display = isAdmin ? 'inline-block' : 'none';
+    document.getElementById('addWeekForm').style.display = isAdmin ? '' : 'none';
+    const noNote = document.getElementById('noEmployeeNote');
+    if(!isAdmin){
+      noNote.textContent = 'Employee-level detail is only visible to administrators.';
+    } else {
+      noNote.textContent = "Per-employee detail wasn't entered for this week \u2014 only the weekly totals below.";
+    }
   }
 
   async function saveWeeks(){
@@ -1692,9 +1705,11 @@
 
   function updatePeriodButtons(){
     const mode = document.getElementById('viewMode').value;
+    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
     const editBtn = document.getElementById('editPeriodBtn');
     const deleteBtn = document.getElementById('deletePeriodBtn');
-    editBtn.style.display = mode === 'weekly' ? 'inline-block' : 'none';
+    editBtn.style.display = (mode === 'weekly' && isAdmin) ? 'inline-block' : 'none';
+    deleteBtn.style.display = isAdmin ? 'inline-block' : 'none';
     const labels = {weekly:'Week', monthly:'Month', yearly:'Year'};
     deleteBtn.textContent = `Delete This ${labels[mode]}`;
   }
@@ -2423,16 +2438,26 @@
   }
 
   async function getCurrentEmployeeRoster(){
-    let sourceWeeks = weeks;
-    if(!sourceWeeks || sourceWeeks.length === 0){
-      try{ sourceWeeks = await window.dashboardApi.get(STORAGE_KEY, []); }
-      catch(err){ console.error('Could not load payroll weeks for attendance roster:', err); sourceWeeks = []; }
+    // Admins who've already loaded Labor Cost can use that in-memory data directly.
+    if(weeks && weeks.length > 0){
+      const sorted = [...weeks].sort((a,b) => b.weekStart.localeCompare(a.weekStart));
+      const mostRecent = sorted[0];
+      if(mostRecent.employees && mostRecent.employees.length > 0){
+        return mostRecent.employees.map(e => e.name).filter(Boolean);
+      }
     }
-    if(!sourceWeeks || sourceWeeks.length === 0) return [];
-    const sorted = [...sourceWeeks].sort((a,b) => b.weekStart.localeCompare(a.weekStart));
-    const mostRecent = sorted[0];
-    if(!mostRecent.employees || mostRecent.employees.length === 0) return [];
-    return mostRecent.employees.map(e => e.name).filter(Boolean);
+    // Otherwise (and for non-admins, who can't read labor-weeks directly), use the
+    // dedicated roster endpoint, which exposes only names, not payroll financials.
+    try{
+      const res = await fetch(`${API_BASE}/api/roster`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return [];
+      if(!res.ok) return [];
+      const data = await res.json();
+      return data.names || [];
+    }catch(err){
+      console.error('Could not load employee roster:', err);
+      return [];
+    }
   }
 
   async function loadAttendanceData(){
