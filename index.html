@@ -1114,14 +1114,14 @@
       </div>
 
       <div class="panel" id="attendanceLogPanel">
-        <h3>Log Occurrence</h3>
+        <h3 id="attendanceLogHeading">Log Occurrence</h3>
         <p class="form-note" id="att_noRosterNote" style="display:none;">No employees found from payroll yet &mdash; upload a payroll week on the Labor Cost tile, or use "Add employee not on the roster" below to log an occurrence anyway.</p>
         <div class="form-grid">
           <label>Employee
             <select id="att_employee"></select>
             <div id="att_employee_manual_wrap" style="display:none; flex-direction:column; gap:6px;">
-              <input type="text" id="att_employee_manual_last" placeholder="Last name" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; width:100%; box-sizing:border-box;">
               <input type="text" id="att_employee_manual_first" placeholder="First name" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; width:100%; box-sizing:border-box;">
+              <input type="text" id="att_employee_manual_last" placeholder="Last name" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; width:100%; box-sizing:border-box;">
             </div>
             <button type="button" id="att_manualToggle" style="background:none; border:none; color:var(--steel); font-size:11px; font-family:'IBM Plex Mono',monospace; text-transform:none; letter-spacing:0; text-align:left; padding:2px 0; cursor:pointer; text-decoration:underline;">+ Add employee not on the roster</button>
           </label>
@@ -1136,6 +1136,7 @@
         <label>Notes (optional) <textarea id="att_notes" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
         <div class="form-actions">
           <button class="btn-primary" id="att_saveBtn" type="button">Save Occurrence</button>
+          <button id="att_cancelEditBtn" type="button" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel Edit</button>
           <span class="status-msg" id="att_status"></span>
         </div>
       </div>
@@ -2578,7 +2579,10 @@
             ${CORRECTIVE_ACTIONS.map(a => `<option value="${attEsc(a)}" ${(r.correctiveAction||'None yet')===a?'selected':''}>${attEsc(a)}</option>`).join('')}
           </select>
         </td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="att-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="att-edit" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
+          <button type="button" class="att-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
       </tr>`).join('');
 
     tbody.querySelectorAll('.att-corrective').forEach(sel => sel.addEventListener('change', async (e)=>{
@@ -2592,6 +2596,39 @@
         statusEl.textContent = 'Could not save that change \u2014 check your connection.';
         statusEl.className = 'status-msg err';
       }
+    }));
+
+    tbody.querySelectorAll('.att-edit').forEach(btn => btn.addEventListener('click', (e)=>{
+      const id = e.target.dataset.id;
+      const record = attendanceRecords.find(r => r.id === id);
+      if(!record) return;
+      const sel = document.getElementById('att_employee');
+      const onRoster = Array.from(sel.options).some(o => o.value === record.employeeName);
+      if(onRoster){
+        setAttManualMode(false);
+        sel.value = record.employeeName;
+      } else {
+        setAttManualMode(true);
+        const commaIdx = record.employeeName.indexOf(',');
+        if(commaIdx > -1){
+          document.getElementById('att_employee_manual_last').value = record.employeeName.slice(0, commaIdx).trim();
+          document.getElementById('att_employee_manual_first').value = record.employeeName.slice(commaIdx+1).trim();
+        } else {
+          document.getElementById('att_employee_manual_last').value = record.employeeName;
+          document.getElementById('att_employee_manual_first').value = '';
+        }
+      }
+      document.getElementById('att_date').value = record.date;
+      document.getElementById('att_type').value = record.type;
+      document.getElementById('att_notes').value = record.notes || '';
+      window.__editingAttendanceId = id;
+      document.getElementById('attendanceLogHeading').textContent = 'Edit Occurrence';
+      document.getElementById('att_saveBtn').textContent = 'Update Occurrence';
+      document.getElementById('att_cancelEditBtn').style.display = 'inline-block';
+      const statusEl = document.getElementById('att_status');
+      statusEl.textContent = `Editing occurrence from ${record.date}.`;
+      statusEl.className = 'status-msg';
+      document.getElementById('attendanceLogPanel').scrollIntoView({behavior:'smooth', block:'start'});
     }));
 
     tbody.querySelectorAll('.att-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
@@ -2658,11 +2695,22 @@
     const notes = document.getElementById('att_notes').value.trim();
     if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
 
-    attendanceRecords.push({
-      id: 'attendance_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+    const editingId = window.__editingAttendanceId || null;
+    const existingRecord = editingId ? attendanceRecords.find(r => r.id === editingId) : null;
+    const record = {
+      id: editingId || ('attendance_' + Date.now() + '_' + Math.floor(Math.random()*1000)),
       employeeName, date, type, notes,
-      loggedAt: new Date().toISOString()
-    });
+      correctiveAction: existingRecord ? existingRecord.correctiveAction : undefined,
+      loggedAt: existingRecord ? existingRecord.loggedAt : new Date().toISOString()
+    };
+    if(editingId) record.editedAt = new Date().toISOString();
+
+    if(editingId){
+      const idx = attendanceRecords.findIndex(r => r.id === editingId);
+      if(idx > -1) attendanceRecords[idx] = record; else attendanceRecords.push(record);
+    } else {
+      attendanceRecords.push(record);
+    }
     const ok = await saveAttendanceRecords();
     document.getElementById('att_notes').value = '';
     if(isManual){
@@ -2673,17 +2721,33 @@
       // If there's no roster at all yet, manual entry is the only option, so stay put.
       if(sel.options.length > 0) setAttManualMode(false);
     }
+    window.__editingAttendanceId = null;
+    document.getElementById('attendanceLogHeading').textContent = 'Log Occurrence';
+    document.getElementById('att_saveBtn').textContent = 'Save Occurrence';
+    document.getElementById('att_cancelEditBtn').style.display = 'none';
     renderAttendanceHistory();
     renderAttendanceSummary();
-    statusEl.textContent = ok ? `Logged for ${employeeName}.` : 'Save failed \u2014 check your connection.';
+    statusEl.textContent = ok ? (editingId ? `Occurrence updated for ${employeeName}.` : `Logged for ${employeeName}.`) : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('att_cancelEditBtn').addEventListener('click', ()=>{
+    window.__editingAttendanceId = null;
+    document.getElementById('att_employee_manual_last').value = '';
+    document.getElementById('att_employee_manual_first').value = '';
+    document.getElementById('att_notes').value = '';
+    document.getElementById('attendanceLogHeading').textContent = 'Log Occurrence';
+    document.getElementById('att_saveBtn').textContent = 'Save Occurrence';
+    document.getElementById('att_cancelEditBtn').style.display = 'none';
+    document.getElementById('att_status').textContent = '';
+    document.getElementById('att_status').className = 'status-msg';
   });
 
   document.getElementById('att_manualToggle').addEventListener('click', ()=>{
     const manualWrap = document.getElementById('att_employee_manual_wrap');
     const isCurrentlyManual = manualWrap.style.display !== 'none';
     setAttManualMode(!isCurrentlyManual);
-    if(!isCurrentlyManual) document.getElementById('att_employee_manual_last').focus();
+    if(!isCurrentlyManual) document.getElementById('att_employee_manual_first').focus();
   });
 
   document.getElementById('att_filter').addEventListener('input', renderAttendanceHistory);
