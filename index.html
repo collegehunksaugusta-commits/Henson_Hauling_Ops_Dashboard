@@ -1119,7 +1119,10 @@
         <div class="form-grid">
           <label>Employee
             <select id="att_employee"></select>
-            <input type="text" id="att_employee_manual" placeholder="Type employee name" style="display:none; font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
+            <div id="att_employee_manual_wrap" style="display:none; flex-direction:column; gap:6px;">
+              <input type="text" id="att_employee_manual_last" placeholder="Last name" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; width:100%; box-sizing:border-box;">
+              <input type="text" id="att_employee_manual_first" placeholder="First name" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; width:100%; box-sizing:border-box;">
+            </div>
             <button type="button" id="att_manualToggle" style="background:none; border:none; color:var(--steel); font-size:11px; font-family:'IBM Plex Mono',monospace; text-transform:none; letter-spacing:0; text-align:left; padding:2px 0; cursor:pointer; text-decoration:underline;">+ Add employee not on the roster</button>
           </label>
           <label>Date <input type="date" id="att_date"></label>
@@ -2511,15 +2514,15 @@
 
   function setAttManualMode(isManual){
     const sel = document.getElementById('att_employee');
-    const manualInput = document.getElementById('att_employee_manual');
+    const manualWrap = document.getElementById('att_employee_manual_wrap');
     const toggleBtn = document.getElementById('att_manualToggle');
     if(isManual){
       sel.style.display = 'none';
-      manualInput.style.display = 'block';
+      manualWrap.style.display = 'flex';
       toggleBtn.textContent = '\u2190 Choose from roster instead';
     } else {
       sel.style.display = '';
-      manualInput.style.display = 'none';
+      manualWrap.style.display = 'none';
       toggleBtn.textContent = '+ Add employee not on the roster';
     }
   }
@@ -2629,13 +2632,30 @@
 
   document.getElementById('att_saveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('att_status');
-    const manualInput = document.getElementById('att_employee_manual');
-    const isManual = manualInput.style.display !== 'none';
-    const employeeName = (isManual ? manualInput.value : document.getElementById('att_employee').value).trim();
+    const sel = document.getElementById('att_employee');
+    const manualWrap = document.getElementById('att_employee_manual_wrap');
+    const lastInput = document.getElementById('att_employee_manual_last');
+    const firstInput = document.getElementById('att_employee_manual_first');
+    const isManual = manualWrap.style.display !== 'none';
+
+    let employeeName;
+    if(isManual){
+      const last = lastInput.value.trim();
+      const first = firstInput.value.trim();
+      if(!last || !first){
+        statusEl.textContent = 'Enter both first and last name.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      employeeName = `${last}, ${first}`;
+    } else {
+      employeeName = sel.value.trim();
+      if(!employeeName){ statusEl.textContent = 'No employee selected.'; statusEl.className = 'status-msg err'; return; }
+    }
+
     const date = document.getElementById('att_date').value;
     const type = document.getElementById('att_type').value;
     const notes = document.getElementById('att_notes').value.trim();
-    if(!employeeName){ statusEl.textContent = isManual ? 'Type the employee\u2019s name.' : 'No employee selected.'; statusEl.className = 'status-msg err'; return; }
     if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
 
     attendanceRecords.push({
@@ -2645,7 +2665,14 @@
     });
     const ok = await saveAttendanceRecords();
     document.getElementById('att_notes').value = '';
-    if(isManual) manualInput.value = '';
+    if(isManual){
+      lastInput.value = '';
+      firstInput.value = '';
+      // Hand control back to the roster dropdown so the next entry (likely a
+      // different, on-roster employee) doesn't require re-toggling manually.
+      // If there's no roster at all yet, manual entry is the only option, so stay put.
+      if(sel.options.length > 0) setAttManualMode(false);
+    }
     renderAttendanceHistory();
     renderAttendanceSummary();
     statusEl.textContent = ok ? `Logged for ${employeeName}.` : 'Save failed \u2014 check your connection.';
@@ -2653,10 +2680,10 @@
   });
 
   document.getElementById('att_manualToggle').addEventListener('click', ()=>{
-    const manualInput = document.getElementById('att_employee_manual');
-    const isCurrentlyManual = manualInput.style.display !== 'none';
+    const manualWrap = document.getElementById('att_employee_manual_wrap');
+    const isCurrentlyManual = manualWrap.style.display !== 'none';
     setAttManualMode(!isCurrentlyManual);
-    if(!isCurrentlyManual) manualInput.focus();
+    if(!isCurrentlyManual) document.getElementById('att_employee_manual_last').focus();
   });
 
   document.getElementById('att_filter').addEventListener('input', renderAttendanceHistory);
