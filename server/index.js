@@ -344,7 +344,8 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
   }
   const apiKey = process.env.LOB_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'Zip lookup is not configured on the server yet.' });
+    console.error('Zip lookup requested but LOB_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Zip lookup is not configured on the server yet (LOB_API_KEY is missing).' });
   }
   try {
     const params = new URLSearchParams({
@@ -363,7 +364,9 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     if (!lobRes.ok) {
       const errBody = await lobRes.text().catch(() => '');
       console.error('Lob verification request failed:', lobRes.status, errBody);
-      return res.status(502).json({ error: 'Zip lookup service returned an error.' });
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Lob returned an error (HTTP ${lobRes.status})${detail ? ': ' + detail : ''}` });
     }
     const data = await lobRes.json();
     const deliverability = data.deliverability || '';
@@ -372,7 +375,7 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     res.json({ zip, deliverability });
   } catch (err) {
     console.error('Zip lookup failed:', err.message);
-    res.status(500).json({ error: 'Zip lookup failed.' });
+    res.status(500).json({ error: 'Zip lookup failed: ' + err.message });
   }
 });
  
@@ -427,5 +430,8 @@ app.delete('/api/data/:key', requireAuth, async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Henson dashboard backend listening on port ${PORT}`);
+  console.log(process.env.LOB_API_KEY
+    ? `LOB_API_KEY is set (starts with "${process.env.LOB_API_KEY.slice(0, 5)}...")`
+    : 'LOB_API_KEY is NOT set \u2014 zip lookup will not work until it is added.');
   await ensureUsersSeeded();
 });
