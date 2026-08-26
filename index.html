@@ -1424,6 +1424,7 @@
           </label>
         </div>
         <div class="form-actions" style="margin-bottom:14px;">
+          <button type="button" id="mail_lookupZipsBtn" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Look Up Missing Zips</button>
           <button type="button" id="mail_markMailedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Mailed</button>
           <button type="button" id="mail_exportUnmailedBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Not-Yet-Mailed (.xlsx)</button>
           <button type="button" id="mail_exportAllBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export All (.xlsx)</button>
@@ -3903,6 +3904,70 @@
     renderMailListKpis();
     statusEl.textContent = ok ? `Cleared ${count} address${count===1?'':'es'}.` : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  async function mailLookupZip(address, city, state){
+    try{
+      const res = await fetch(`${API_BASE}/api/lookup-zip`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({address, city, state})
+      });
+      if(handleAuthFailure(res)) return { error: 'auth' };
+      if(!res.ok){
+        const body = await res.json().catch(()=>({}));
+        return { error: body.error || ('HTTP ' + res.status) };
+      }
+      const data = await res.json();
+      return { zip: data.zip || '', deliverability: data.deliverability || '' };
+    }catch(err){
+      console.error('Zip lookup request failed:', err);
+      return { error: 'network error' };
+    }
+  }
+
+  document.getElementById('mail_lookupZipsBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_bulkStatus');
+    const eligible = mailListRecords.filter(r => !r.zip && r.address && r.city && r.state);
+    const incomplete = mailListRecords.filter(r => !r.zip && (!r.address || !r.city || !r.state)).length;
+    if(eligible.length === 0){
+      statusEl.textContent = incomplete > 0
+        ? `${incomplete} address${incomplete===1?'':'es'} missing a zip also need${incomplete===1?'s':''} a city/state before they can be looked up.`
+        : 'No addresses are missing a zip.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const btn = document.getElementById('mail_lookupZipsBtn');
+    btn.disabled = true;
+    let found = 0, notFound = 0, failed = 0;
+    for(let i = 0; i < eligible.length; i++){
+      const rec = eligible[i];
+      statusEl.textContent = `Looking up zip ${i+1} of ${eligible.length}...`;
+      statusEl.className = 'status-msg';
+      const result = await mailLookupZip(rec.address, rec.city, rec.state);
+      if(result.error === 'auth'){
+        btn.disabled = false;
+        return;
+      }
+      if(result.error){
+        failed++;
+      } else if(result.zip){
+        rec.zip = result.zip;
+        found++;
+      } else {
+        notFound++;
+      }
+      if(i < eligible.length - 1) await new Promise(r => setTimeout(r, 200));
+    }
+    const ok = await saveMailListRecords();
+    renderMailListTable();
+    renderMailListKpis();
+    btn.disabled = false;
+    let msg = ok ? `Found ${found} of ${eligible.length} zip${eligible.length===1?'':'s'}.` : 'Save failed \u2014 check your connection.';
+    if(notFound > 0) msg += ` ${notFound} address${notFound===1?'':'es'} could not be verified.`;
+    if(failed > 0) msg += ` ${failed} lookup${failed===1?'':'s'} failed \u2014 check your connection or Lob setup.`;
+    statusEl.textContent = msg;
+    statusEl.className = ok && failed === 0 ? 'status-msg ok' : 'status-msg err';
   });
 
   // ---------- Settings ----------
