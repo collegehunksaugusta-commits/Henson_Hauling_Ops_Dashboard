@@ -102,6 +102,8 @@
   .tile.warning{background:#FFF6E8; border-color:#F0D9A8;}
   .comp-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
   .comp-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
+  .set-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
+  .set-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
   .tile.warning::before{background:#B8860B;}
   .tile.warning .badge{color:#8a6100; background:#FCEBC5; border-color:#F0D9A8;}
 
@@ -305,6 +307,8 @@
         return;
       }
       localStorage.setItem('henson_auth_token', data.token);
+      localStorage.setItem('henson_auth_role', data.role || 'user');
+      localStorage.setItem('henson_auth_email', email);
       if(data.mustReset){
         document.getElementById('loginForm').style.display = 'none';
         document.getElementById('resetPasswordForm').style.display = 'block';
@@ -376,6 +380,8 @@
   document.getElementById('logoutBtn').addEventListener('click', async ()=>{
     const token = localStorage.getItem('henson_auth_token');
     localStorage.removeItem('henson_auth_token');
+    localStorage.removeItem('henson_auth_role');
+    localStorage.removeItem('henson_auth_email');
     try{
       await fetch(API_BASE_AUTH + '/api/logout', {
         method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({token})
@@ -422,6 +428,11 @@
         <span class="icon">🛡️</span>
         <h3>Regulatory Compliance</h3>
         <p>Business authorizations, truck safety records, and driver qualification files.</p>
+      </div>
+      <div class="tile" id="tile-settings" tabindex="0" role="button" aria-label="Open Settings">
+        <span class="icon">⚙️</span>
+        <h3>Settings</h3>
+        <p>User accounts and dashboard configuration &mdash; built out over time.</p>
       </div>
     </div>
   </div>
@@ -1303,6 +1314,103 @@
     </div>
   </div>
 
+  <!-- ============ SETTINGS DETAIL ============ -->
+  <div id="settingsDetail" style="display:none;">
+    <button class="backlink" id="settingsBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Settings</h2>
+        <p>User accounts and dashboard configuration. We'll build this out further over time.</p>
+      </div>
+
+      <div class="panel" id="settingsSectionPanel">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="set-section-btn" data-section="users" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">User Settings</button>
+          <button type="button" class="set-section-btn" data-section="config" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Configuration</button>
+        </div>
+      </div>
+
+      <!-- ---- USER SETTINGS ---- -->
+      <div id="set_users" class="set-section">
+        <div class="panel" id="set_userListPanel">
+          <h3>Users</h3>
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Email</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Role</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
+            </tr></thead>
+            <tbody id="set_userRows"></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="set_addUserPanel">
+          <h3>Add User</h3>
+          <p class="form-note" id="set_notAdminNote" style="display:none;">Only administrators can add new users.</p>
+          <div id="set_addUserForm">
+            <div class="form-grid">
+              <label>Email <input type="email" id="set_newUserEmail"></label>
+              <label>Role
+                <select id="set_newUserRole">
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="btn-primary" id="set_addUserBtn" type="button">Add User</button>
+              <span class="status-msg" id="set_addUserStatus"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---- CONFIGURATION ---- -->
+      <div id="set_config" class="set-section" style="display:none;">
+        <div class="panel" id="set_configUploadPanel">
+          <h3>Dashboard Source Code</h3>
+          <p class="form-note">Store the current source files here as you update the dashboard over time, so the full build history lives inside the app itself &mdash; not just in GitHub or a chat history that might not transfer to a future owner.</p>
+          <label>File Type
+            <select id="set_configFileType">
+              <option value="html">Dashboard (index.html)</option>
+              <option value="server">Backend (server/index.js)</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>Notes (optional, e.g. "Added Regulatory Compliance tile") <input type="text" id="set_configNotes"></label>
+          <div id="set_configDropzone" style="border:2px dashed var(--line); border-radius:8px; padding:24px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer;">
+            <div style="font-size:14px; font-weight:600;">Drag &amp; drop a file here</div>
+            <div style="font-size:12px; color:var(--muted);">or click to browse</div>
+            <input type="file" id="set_configFileInput" style="display:none;">
+          </div>
+          <div class="status-msg" id="set_configStatus" style="margin-top:8px;"></div>
+
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:16px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Type</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Notes</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Uploaded</th>
+              <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="set_configRows"></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="set_handoffPanel">
+          <h3>Business Handoff Guide</h3>
+          <p class="form-note">Instructions for re-establishing this dashboard under a new owner. Edit freely as things change.</p>
+          <textarea id="set_handoffText" rows="16" style="width:100%; padding:12px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; box-sizing:border-box; line-height:1.5;"></textarea>
+          <div class="form-actions">
+            <button class="btn-primary" id="set_saveHandoffBtn" type="button">Save Guide</button>
+            <span class="status-msg" id="set_handoffStatus"></span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   </div>
 
 </div>
@@ -1322,6 +1430,8 @@
     if(res.status === 401){
       const hadToken = !!authToken();
       localStorage.removeItem('henson_auth_token');
+      localStorage.removeItem('henson_auth_role');
+      localStorage.removeItem('henson_auth_email');
       // Guard against multiple concurrent requests (e.g. several tiles' background
       // status checks) each independently detecting the same expired session and
       // each trying to reload -- only the first should actually trigger it.
@@ -1393,6 +1503,7 @@
   const fleetDetail = document.getElementById('fleetDetail');
   const attendanceDetail = document.getElementById('attendanceDetail');
   const complianceDetail = document.getElementById('complianceDetail');
+  const settingsDetail = document.getElementById('settingsDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -1402,6 +1513,7 @@
     fleetDetail.style.display = view === 'fleet' ? 'block' : 'none';
     attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
     complianceDetail.style.display = view === 'compliance' ? 'block' : 'none';
+    settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -1413,6 +1525,9 @@
     }
     if(view === 'compliance'){
       loadComplianceData();
+    }
+    if(view === 'settings'){
+      loadSettingsData();
     }
   }
 
@@ -1456,6 +1571,10 @@
   document.getElementById('tile-compliance').addEventListener('click', ()=> navigateTo('compliance'));
   document.getElementById('tile-compliance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('compliance'); }});
   document.getElementById('complianceBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-settings').addEventListener('click', ()=> navigateTo('settings'));
+  document.getElementById('tile-settings').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('settings'); }});
+  document.getElementById('settingsBackBtn').addEventListener('click', ()=> history.back());
 
   // ---------- shared data ----------
   const STORAGE_KEY = 'labor-weeks';
@@ -3151,6 +3270,252 @@
       updateComplianceTileBadge();
     }catch(err){ console.error('Initial compliance status check failed:', err); }
   })();
+
+  // ---------- Settings ----------
+  const SETTINGS_CONFIG_FILES_KEY = 'settings-config-files';
+  const SETTINGS_HANDOFF_KEY = 'settings-handoff-guide';
+
+  const DEFAULT_HANDOFF_GUIDE = `HENSON HAULING OPS DASHBOARD \u2014 BUSINESS HANDOFF GUIDE
+
+WHAT THIS IS
+A web-based operations dashboard covering Labor Cost tracking, Long Distance Move estimates, Paperwork (including digital signing), Fleet Maintenance, Attendance Tracking, Regulatory Compliance, and user logins. Built specifically for Henson Hauling LLC dba College Hunks Hauling Junk & Moving.
+
+HOW IT'S BUILT
+- Frontend: a single static HTML file (index.html) with embedded CSS/JavaScript. No build step, no framework -- just open it in a browser.
+- Backend: a small Node.js/Express server (server/index.js) that stores all data in a Redis-compatible key-value store, and handles user login/authentication.
+- Hosting: both pieces are deployed on Render.com. The frontend auto-deploys from a connected GitHub repository. The backend is deployed manually (Auto-Deploy is intentionally turned off for it, to avoid unnecessary restarts).
+
+WHERE THE SOURCE CODE LIVES
+- The GitHub repository connected to the Render services.
+- A running archive of past versions is also stored inside this dashboard itself, under Settings > Configuration -- specifically so it isn't lost if GitHub access ever changes hands.
+
+HOW TO RE-DEPLOY THIS DASHBOARD UNDER A NEW OWNER
+1. Create a Render.com account (or transfer the existing one).
+2. Create a new "Static Site" service, connect it to the GitHub repo containing index.html -- this becomes the dashboard's URL.
+3. Create a new "Web Service" for the backend, connect it to the same repo's /server folder.
+4. Create a Render "Key Value" (Redis-compatible) instance, and set its connection string as the REDIS_URL (or RENDER_KEY_VALUE_URL) environment variable on the Web Service.
+5. In index.html, confirm the API_BASE / API_BASE_AUTH constants point at the new backend's URL.
+6. On first boot, the backend automatically seeds login accounts with a temporary password. Update the seeded emails in server/index.js to match the new owner's accounts before first deploy, or log in as the seeded accounts and use Settings > User Settings (as an admin) to add new ones.
+
+DATA
+All business data (payroll history, signed paperwork, fleet records, compliance records, uploaded documents, etc.) lives in the Redis-compatible Key Value store connected to the backend -- NOT in the code itself. Losing the GitHub repo would only affect the ability to make further changes to the dashboard's features; the underlying data stays safe as long as the Key Value instance and backend keep running.
+
+IF THIS EVER NEEDS TO BE REBUILT FROM SCRATCH
+An AI coding assistant (such as Claude) can rebuild an equivalent system given: this document, the stored source code snapshots under Settings > Configuration, and a description of which features matter most to keep. Start by having it review the stored index.html and server/index.js so it understands the existing architecture before making any changes.`;
+
+  function setReadFileAsDataUri(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function isCurrentUserAdmin(){
+    return localStorage.getItem('henson_auth_role') === 'admin';
+  }
+
+  async function loadSettingsData(){
+    showSetSection('users');
+    await renderUserList();
+    setupAddUserGate();
+    await renderConfigFilesList();
+    await loadHandoffGuide();
+  }
+
+  function showSetSection(section){
+    document.getElementById('set_users').style.display = section === 'users' ? 'block' : 'none';
+    document.getElementById('set_config').style.display = section === 'config' ? 'block' : 'none';
+    document.querySelectorAll('.set-section-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.section === section);
+    });
+  }
+  document.querySelectorAll('.set-section-btn').forEach(btn => btn.addEventListener('click', ()=> showSetSection(btn.dataset.section)));
+
+  function setupAddUserGate(){
+    const isAdmin = isCurrentUserAdmin();
+    document.getElementById('set_addUserForm').style.display = isAdmin ? 'block' : 'none';
+    document.getElementById('set_notAdminNote').style.display = isAdmin ? 'none' : 'block';
+  }
+
+  async function renderUserList(){
+    const tbody = document.getElementById('set_userRows');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/users`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const roleLabels = { admin: 'Admin', user: 'User' };
+      tbody.innerHTML = data.users.map(u => `
+        <tr>
+          <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(u.email)}</td>
+          <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${roleLabels[u.role] || fleetEsc(u.role)}</td>
+          <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${u.mustReset ? '<span style="color:#8a6100;">Needs password reset</span>' : '<span style="color:#00612C;">Active</span>'}</td>
+        </tr>`).join('');
+    }catch(err){
+      console.error('User list load failed:', err);
+      tbody.innerHTML = '<tr><td colspan="3" style="padding:8px 4px; color:#b3261e;">Could not load users \u2014 check your connection.</td></tr>';
+    }
+  }
+
+  document.getElementById('set_addUserBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('set_addUserStatus');
+    const email = document.getElementById('set_newUserEmail').value.trim();
+    const role = document.getElementById('set_newUserRole').value;
+    if(!email || !email.includes('@')){
+      statusEl.textContent = 'Enter a valid email.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Adding...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/users`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({email, role})
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not add user.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = `Added ${email}. Temporary password: ${data.tempPassword} \u2014 share this with them; they'll be asked to set their own on first login.`;
+      statusEl.className = 'status-msg ok';
+      document.getElementById('set_newUserEmail').value = '';
+      renderUserList();
+    }catch(err){
+      console.error('Add user failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---- Configuration: source file storage ----
+  async function renderConfigFilesList(){
+    const files = await window.dashboardApi.get(SETTINGS_CONFIG_FILES_KEY, []);
+    const tbody = document.getElementById('set_configRows');
+    const typeLabels = { html: 'Dashboard', server: 'Backend', other: 'Other' };
+    if(files.length === 0){
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:8px 4px; color:var(--muted);">No source files stored yet.</td></tr>';
+      return;
+    }
+    const sorted = [...files].sort((a,b)=> b.uploadedAt.localeCompare(a.uploadedAt));
+    tbody.innerHTML = sorted.map(f => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${typeLabels[f.fileType] || fleetEsc(f.fileType)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(f.fileName)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(f.notes || '\u2014')}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${new Date(f.uploadedAt).toLocaleDateString()}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="set-config-download" data-id="${f.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Download</button>
+          <button type="button" class="set-config-delete" data-id="${f.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.set-config-download').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const fileRec = files.find(f => f.id === id);
+      if(!fileRec) return;
+      try{
+        const dataUri = await window.dashboardApi.get('settings-config-doc-' + id, null);
+        if(!dataUri){ alert('Could not load this file.'); return; }
+        const a = document.createElement('a');
+        a.href = dataUri;
+        a.download = fileRec.fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }catch(err){ console.error('Config file download failed:', err); alert('Could not load this file \u2014 check your connection.'); }
+    }));
+
+    tbody.querySelectorAll('.set-config-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const fileRec = files.find(f => f.id === id);
+      if(!confirm(`Delete "${fileRec ? fileRec.fileName : 'this file'}"? This cannot be undone.`)) return;
+      const updated = files.filter(f => f.id !== id);
+      await window.dashboardApi.set(SETTINGS_CONFIG_FILES_KEY, updated);
+      try{ await window.dashboardApi.delete('settings-config-doc-' + id); }catch(err){ console.error(err); }
+      renderConfigFilesList();
+    }));
+  }
+
+  async function handleConfigFileUpload(file){
+    const statusEl = document.getElementById('set_configStatus');
+    if(file.size > 10 * 1024 * 1024){
+      statusEl.textContent = 'That file is over 10MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Uploading...';
+    statusEl.className = 'status-msg';
+    const fileType = document.getElementById('set_configFileType').value;
+    const notes = document.getElementById('set_configNotes').value.trim();
+    const fileId = 'config_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    try{
+      const dataUri = await setReadFileAsDataUri(file);
+      const blobOk = await window.dashboardApi.set('settings-config-doc-' + fileId, dataUri);
+      if(!blobOk) throw new Error('Blob save failed');
+      const files = await window.dashboardApi.get(SETTINGS_CONFIG_FILES_KEY, []);
+      files.push({ id: fileId, fileType, fileName: file.name, notes, uploadedAt: new Date().toISOString() });
+      const listOk = await window.dashboardApi.set(SETTINGS_CONFIG_FILES_KEY, files);
+      if(listOk){
+        statusEl.textContent = `Stored "${file.name}".`;
+        statusEl.className = 'status-msg ok';
+        document.getElementById('set_configNotes').value = '';
+      } else {
+        statusEl.textContent = 'File stored, but the list failed to save \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+      }
+    }catch(err){
+      console.error('Config file upload failed:', err);
+      statusEl.textContent = 'Upload failed \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+    renderConfigFilesList();
+  }
+
+  const setConfigDropzone = document.getElementById('set_configDropzone');
+  const setConfigFileInput = document.getElementById('set_configFileInput');
+  setConfigDropzone.addEventListener('click', () => setConfigFileInput.click());
+  setConfigFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(file) handleConfigFileUpload(file);
+    setConfigFileInput.value = '';
+  });
+  ['dragenter','dragover'].forEach(evt => setConfigDropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    setConfigDropzone.style.background = '#EAF3EC';
+    setConfigDropzone.style.borderColor = '#00612C';
+  }));
+  ['dragleave','drop'].forEach(evt => setConfigDropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    setConfigDropzone.style.background = 'var(--offwhite)';
+    setConfigDropzone.style.borderColor = 'var(--line)';
+  }));
+  setConfigDropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files[0];
+    if(file) handleConfigFileUpload(file);
+  });
+
+  // ---- Configuration: handoff guide ----
+  async function loadHandoffGuide(){
+    const text = await window.dashboardApi.get(SETTINGS_HANDOFF_KEY, null);
+    document.getElementById('set_handoffText').value = (text !== null && text !== undefined) ? text : DEFAULT_HANDOFF_GUIDE;
+  }
+
+  document.getElementById('set_saveHandoffBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('set_handoffStatus');
+    const text = document.getElementById('set_handoffText').value;
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    const ok = await window.dashboardApi.set(SETTINGS_HANDOFF_KEY, text);
+    statusEl.textContent = ok ? 'Guide saved.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
 
 })();
 </script>
