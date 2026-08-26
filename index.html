@@ -3675,72 +3675,101 @@
     document.getElementById('mail_selectAll').checked = false;
   }
 
-  function mailSplitStateZip(value){
-    // Detects a combined "ST 12345" or "ST, 12345" chunk (with or without a comma
-    // between them) and splits it into separate state and zip pieces.
-    const m = (value || '').match(/^([A-Za-z]{2})[,\s]+(\d{5}(?:-\d{4})?)$/);
-    if(!m) return null;
-    return { state: m[1].toUpperCase(), zip: m[2] };
+  const MAIL_STREET_SUFFIXES = new Set([
+    'st','street','dr','drive','rd','road','ave','avenue','ln','lane','way','ct','court',
+    'pl','place','cir','circle','blvd','boulevard','pkwy','parkway','trl','trail','ter','terrace',
+    'loop','xing','crossing','path','row','run','walk','sq','square','hwy','highway','pt','point',
+    'aly','alley','byp','bypass','cv','cove','crk','creek','dl','dale','est','estates','ext','extension',
+    'grn','green','grv','grove','hbr','harbor','hl','hill','hls','hills','holw','hollow',
+    'is','island','jct','junction','knl','knoll','lndg','landing','mdw','meadow','mnr','manor',
+    'mtn','mountain','orch','orchard','pass','pike','pln','plain','plz','plaza',
+    'pne','pine','rdg','ridge','riv','river','shr','shore','spg','spring','sta','station',
+    'trce','trace','un','union','vly','valley','vw','view','vlg','village','vis','vista',
+    'frwy','freeway','expy','expressway','bnd','bend','clf','cliff','cor','corner','curv','curve',
+    'gdn','garden','gln','glen','hvn','haven','inlt','inlet','ml','mill','mssn','mission',
+    'nck','neck','pk','park','shls','shoals','shrs','shores','skwy','skyway','smt','summit',
+    'spgs','springs','spur','strm','stream','tunl','tunnel'
+  ]);
+
+  function mailIsStreetSuffix(word){
+    return MAIL_STREET_SUFFIXES.has(word.toLowerCase().replace(/\.$/, ''));
   }
 
-  function mailCutLineAfterZip(line){
-    // Finds the first "two-letter state, then zip" occurrence anywhere in the raw
-    // line and cuts everything after it \u2014 price, agent, MLS #, days-on-market, etc.
-    // Doing this on the raw text (before column splitting) means it isn't thrown
-    // off when trailing junk itself contains a comma (e.g. a price like "$450,000"),
-    // which would otherwise misalign a simple split-by-comma into the wrong columns.
-    const m = line.match(/\b([A-Za-z]{2})[,\s]+(\d{5}(?:-\d{4})?)\b/);
-    if(!m) return line;
-    return line.slice(0, m.index + m[0].length);
+  function mailSplitAddressCity(prefix){
+    // No comma or tab to guide us -- find the last recognizable street-type word
+    // (Dr, Rd, Way, Landing, etc.) and treat everything through it as the address,
+    // with whatever follows as the city.
+    const words = prefix.trim().split(/\s+/).filter(Boolean);
+    let splitIdx = -1;
+    for(let i = words.length - 1; i >= 0; i--){
+      if(mailIsStreetSuffix(words[i])){ splitIdx = i; break; }
+    }
+    if(splitIdx === -1 || splitIdx === words.length - 1){
+      // No recognizable suffix (or it's the last word, leaving nothing for city) --
+      // fall back to treating the final word as the city.
+      if(words.length < 2) return { address: prefix.trim(), city: '' };
+      return { address: words.slice(0, -1).join(' '), city: words[words.length - 1] };
+    }
+    return { address: words.slice(0, splitIdx + 1).join(' '), city: words.slice(splitIdx + 1).join(' ') };
+  }
+
+  function mailParseLine(line){
+    // Anchor on the state (and zip, if present) wherever they occur in the raw
+    // text, then cut everything after \u2014 price, agent, MLS #, days-on-market, etc.
+    let prefix, state, zip;
+    const zipMatch = line.match(/\b([A-Za-z]{2})[,\s]+(\d{5}(?:-\d{4})?)\b/);
+    if(zipMatch){
+      state = zipMatch[1].toUpperCase();
+      zip = zipMatch[2];
+      prefix = line.slice(0, zipMatch.index).replace(/[,\s]+$/, '');
+    } else {
+      // No zip found (not confirmed yet) -- look for a standalone two-letter
+      // state at the end of the line instead.
+      const stateMatch = line.match(/\b([A-Za-z]{2})\s*$/);
+      if(!stateMatch) return { error: `could not find a state \u2014 "${line}"` };
+      state = stateMatch[1].toUpperCase();
+      zip = '';
+      prefix = line.slice(0, stateMatch.index).replace(/[,\s]+$/, '');
+    }
+
+    if(!prefix) return { error: `missing address/city before the state \u2014 "${line}"` };
+
+    let firstName = 'Current', lastName = 'Resident', address, city;
+    if(prefix.includes('\t')){
+      const pieces = prefix.split('\t').map(p => p.trim()).filter(p => p !== '');
+      if(pieces.length === 4){ [firstName, lastName, address, city] = pieces; }
+      else if(pieces.length >= 2){ city = pieces[pieces.length-1]; address = pieces.slice(0,-1).join(' '); }
+      else return { error: `missing city \u2014 "${line}"` };
+    } else if(prefix.includes(',')){
+      const pieces = prefix.split(',').map(p => p.trim()).filter(p => p !== '');
+      if(pieces.length === 4){ [firstName, lastName, address, city] = pieces; }
+      else if(pieces.length >= 2){ city = pieces[pieces.length-1]; address = pieces.slice(0,-1).join(', '); }
+      else return { error: `missing city \u2014 "${line}"` };
+    } else {
+      const split = mailSplitAddressCity(prefix);
+      address = split.address;
+      city = split.city;
+    }
+
+    if(!address) return { error: `missing address \u2014 "${line}"` };
+    return { firstName, lastName, address, city: city || '', state, zip };
   }
 
   function mailParseBulkInput(text){
-    const lines = text.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim() !== '');
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     const parsed = [];
     const errors = [];
     lines.forEach((line, idx) => {
-      line = mailCutLineAfterZip(line);
-      let cols = line.includes('\t') ? line.split('\t') : line.split(',');
-      cols = cols.map(c => c.trim());
-      let firstName = 'Current', lastName = 'Resident', address, city, state, zip;
-
-      if(cols.length === 6){
-        [firstName, lastName, address, city, state, zip] = cols;
-      } else if(cols.length === 5){
-        // Either a genuine 6-field row missing its zip, or one where state and
-        // zip landed in the same chunk (e.g. "GA 30809" with no separating comma).
-        const combined = mailSplitStateZip(cols[4]);
-        if(combined){
-          [firstName, lastName, address, city] = cols;
-          state = combined.state; zip = combined.zip;
-        } else {
-          [firstName, lastName, address, city, state] = cols;
-          zip = '';
-        }
-      } else if(cols.length === 4){
-        [address, city, state, zip] = cols;
-      } else if(cols.length === 3){
-        // Either a genuine 4-field row missing its zip, or state+zip merged together.
-        const combined = mailSplitStateZip(cols[2]);
-        if(combined){
-          [address, city] = cols;
-          state = combined.state; zip = combined.zip;
-        } else {
-          [address, city, state] = cols;
-          zip = '';
-        }
-      } else {
-        errors.push(`Line ${idx+1}: expected 4 columns (address, city, state, zip) or 6 (first, last, address, city, state, zip) \u2014 got ${cols.length}: "${line}"`);
-        return;
-      }
-      if(!address){
-        errors.push(`Line ${idx+1}: missing address \u2014 "${line}"`);
+      const result = mailParseLine(line);
+      if(result.error){
+        errors.push(`Line ${idx+1}: ${result.error}`);
         return;
       }
       parsed.push({
-        firstName: firstName || 'Current',
-        lastName: lastName || 'Resident',
-        address, city: city || '', state: (state || '').toUpperCase(), zip: zip || ''
+        firstName: result.firstName || 'Current',
+        lastName: result.lastName || 'Resident',
+        address: result.address, city: result.city || '',
+        state: (result.state || '').toUpperCase(), zip: result.zip || ''
       });
     });
     return { parsed, errors };
