@@ -3926,6 +3926,11 @@
     }
   }
 
+  const MAIL_CITY_ZIP_DEFAULTS = {
+    'evans': '30809',
+    'martinez': '30907'
+  };
+
   document.getElementById('mail_lookupZipsBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('mail_bulkStatus');
     const eligible = mailListRecords.filter(r => !r.zip && r.address && r.city && r.state);
@@ -3939,7 +3944,7 @@
     }
     const btn = document.getElementById('mail_lookupZipsBtn');
     btn.disabled = true;
-    let found = 0, notFound = 0, failed = 0, firstErrorDetail = '';
+    let found = 0, defaulted = 0, notFound = 0, failed = 0, firstErrorDetail = '';
     for(let i = 0; i < eligible.length; i++){
       const rec = eligible[i];
       statusEl.textContent = `Looking up zip ${i+1} of ${eligible.length}...`;
@@ -3956,7 +3961,15 @@
         rec.zip = result.zip;
         found++;
       } else {
-        notFound++;
+        // Lob couldn't confirm a zip -- fall back to a known default for
+        // certain local cities where the zip is otherwise well-established.
+        const cityDefault = MAIL_CITY_ZIP_DEFAULTS[(rec.city || '').trim().toLowerCase()];
+        if(cityDefault){
+          rec.zip = cityDefault;
+          defaulted++;
+        } else {
+          notFound++;
+        }
       }
       if(i < eligible.length - 1) await new Promise(r => setTimeout(r, 200));
     }
@@ -3964,7 +3977,8 @@
     renderMailListTable();
     renderMailListKpis();
     btn.disabled = false;
-    let msg = ok ? `Found ${found} of ${eligible.length} zip${eligible.length===1?'':'s'}.` : 'Save failed \u2014 check your connection.';
+    const totalFilled = found + defaulted;
+    let msg = ok ? `Found ${totalFilled} of ${eligible.length} zip${eligible.length===1?'':'s'}${defaulted>0 ? ` (${found} confirmed by Lob, ${defaulted} from local defaults)` : ''}.` : 'Save failed \u2014 check your connection.';
     if(notFound > 0) msg += ` ${notFound} address${notFound===1?'':'es'} could not be verified.`;
     if(failed > 0) msg += ` ${failed} lookup${failed===1?'':'s'} failed${firstErrorDetail ? ': ' + firstErrorDetail : ''}.`;
     statusEl.textContent = msg;
