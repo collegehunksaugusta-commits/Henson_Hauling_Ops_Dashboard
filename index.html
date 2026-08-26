@@ -1389,6 +1389,11 @@
         </div>
       </div>
 
+      <div class="form-actions" style="margin-bottom:14px;">
+        <button type="button" id="mail_copyCopilotBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Copy Copilot Command</button>
+        <span class="status-msg" id="mail_copilotStatus"></span>
+      </div>
+
       <div class="panel" id="mailListAddPanel">
         <h3>Add Addresses</h3>
         <p class="form-note">Paste one address per line, tab- or comma-separated: <span class="mono">Address, City, State, Zip</span>. Name defaults to "Current Resident" &mdash; include two extra columns at the front, <span class="mono">First, Last</span>, to override. State and zip can be combined in one chunk (like "GA 30809") and will be split automatically; zip can also be left blank if unconfirmed. Anything after the zip (price, agent, MLS #, etc.) is ignored automatically. Duplicate addresses already on the list are skipped automatically.</p>
@@ -3737,6 +3742,21 @@
     });
     return { parsed, errors };
   }
+
+  document.getElementById('mail_copyCopilotBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_copilotStatus');
+    const command = 'Pull addresses into a list from the last 7 days';
+    try{
+      await navigator.clipboard.writeText(command);
+      statusEl.textContent = 'Copied! Paste it into Copilot.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Clipboard write failed:', err);
+      prompt('Could not auto-copy \u2014 copy this command manually:', command);
+      statusEl.textContent = 'Command ready (copy from the popup).';
+      statusEl.className = 'status-msg ok';
+    }
+  });
 
   document.getElementById('mail_addBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('mail_addStatus');
