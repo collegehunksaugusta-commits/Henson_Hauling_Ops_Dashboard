@@ -1115,10 +1115,12 @@
 
       <div class="panel" id="attendanceLogPanel">
         <h3>Log Occurrence</h3>
-        <p class="form-note" id="att_noRosterNote" style="display:none;">No employees found yet \u2014 upload a payroll week on the Labor Cost tile first, then come back here.</p>
+        <p class="form-note" id="att_noRosterNote" style="display:none;">No employees found from payroll yet &mdash; upload a payroll week on the Labor Cost tile, or use "Add employee not on the roster" below to log an occurrence anyway.</p>
         <div class="form-grid">
           <label>Employee
             <select id="att_employee"></select>
+            <input type="text" id="att_employee_manual" placeholder="Type employee name" style="display:none; font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
+            <button type="button" id="att_manualToggle" style="background:none; border:none; color:var(--steel); font-size:11px; font-family:'IBM Plex Mono',monospace; text-transform:none; letter-spacing:0; text-align:left; padding:2px 0; cursor:pointer; text-decoration:underline;">+ Add employee not on the roster</button>
           </label>
           <label>Date <input type="date" id="att_date"></label>
           <label>Type
@@ -2507,6 +2509,21 @@
     }
   }
 
+  function setAttManualMode(isManual){
+    const sel = document.getElementById('att_employee');
+    const manualInput = document.getElementById('att_employee_manual');
+    const toggleBtn = document.getElementById('att_manualToggle');
+    if(isManual){
+      sel.style.display = 'none';
+      manualInput.style.display = 'block';
+      toggleBtn.textContent = '\u2190 Choose from roster instead';
+    } else {
+      sel.style.display = '';
+      manualInput.style.display = 'none';
+      toggleBtn.textContent = '+ Add employee not on the roster';
+    }
+  }
+
   async function loadAttendanceData(){
     try{ attendanceRecords = await window.dashboardApi.get(ATTENDANCE_KEY, []); }
     catch(err){ console.error('Attendance load failed:', err); attendanceRecords = attendanceRecords || []; }
@@ -2517,12 +2534,12 @@
     if(roster.length === 0){
       sel.innerHTML = '';
       noRosterNote.style.display = 'block';
-      document.getElementById('att_saveBtn').disabled = true;
+      setAttManualMode(true);
     } else {
       sel.innerHTML = roster.map(name => `<option value="${attEsc(name)}">${attEsc(name)}</option>`).join('');
       noRosterNote.style.display = 'none';
-      document.getElementById('att_saveBtn').disabled = false;
     }
+    document.getElementById('att_saveBtn').disabled = false;
 
     if(!document.getElementById('att_date').value){
       document.getElementById('att_date').value = new Date().toISOString().slice(0,10);
@@ -2612,11 +2629,13 @@
 
   document.getElementById('att_saveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('att_status');
-    const employeeName = document.getElementById('att_employee').value;
+    const manualInput = document.getElementById('att_employee_manual');
+    const isManual = manualInput.style.display !== 'none';
+    const employeeName = (isManual ? manualInput.value : document.getElementById('att_employee').value).trim();
     const date = document.getElementById('att_date').value;
     const type = document.getElementById('att_type').value;
     const notes = document.getElementById('att_notes').value.trim();
-    if(!employeeName){ statusEl.textContent = 'No employee selected.'; statusEl.className = 'status-msg err'; return; }
+    if(!employeeName){ statusEl.textContent = isManual ? 'Type the employee\u2019s name.' : 'No employee selected.'; statusEl.className = 'status-msg err'; return; }
     if(!date){ statusEl.textContent = 'Pick a date.'; statusEl.className = 'status-msg err'; return; }
 
     attendanceRecords.push({
@@ -2626,10 +2645,18 @@
     });
     const ok = await saveAttendanceRecords();
     document.getElementById('att_notes').value = '';
+    if(isManual) manualInput.value = '';
     renderAttendanceHistory();
     renderAttendanceSummary();
     statusEl.textContent = ok ? `Logged for ${employeeName}.` : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('att_manualToggle').addEventListener('click', ()=>{
+    const manualInput = document.getElementById('att_employee_manual');
+    const isCurrentlyManual = manualInput.style.display !== 'none';
+    setAttManualMode(!isCurrentlyManual);
+    if(!isCurrentlyManual) manualInput.focus();
   });
 
   document.getElementById('att_filter').addEventListener('input', renderAttendanceHistory);
