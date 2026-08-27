@@ -1627,6 +1627,7 @@
       </div>
 
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px;">
+        <button type="button" class="mailApt-route-tier-btn" data-tier="all" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:16px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">All</button>
         <button type="button" class="mailApt-route-tier-btn" data-tier="$" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:22px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">$</button>
         <button type="button" class="mailApt-route-tier-btn" data-tier="$$" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:22px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">$$</button>
         <button type="button" class="mailApt-route-tier-btn" data-tier="$$$" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:22px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">$$$</button>
@@ -1865,7 +1866,7 @@
       showMailSection(mailCurrentSection);
     }
     if(view === 'mailroute'){
-      renderMailAptRoute(mailCurrentRouteSource || 'apartments', mailCurrentRouteTier || '$');
+      renderMailAptRoute(mailCurrentRouteSource || 'apartments', mailCurrentRouteTier || 'all');
     }
   }
 
@@ -4470,6 +4471,7 @@
     apartments: {
       label: 'Apartment Outreach',
       noun: 'complex',
+      nounPlural: 'complexes',
       getRecords: () => mailAptRecords,
       coords: MAIL_APT_COORDS,
       save: () => saveMailAptRecords(),
@@ -4478,6 +4480,7 @@
     storage: {
       label: 'Storage Unit Outreach',
       noun: 'facility',
+      nounPlural: 'facilities',
       getRecords: () => mailStorageRecords,
       coords: MAIL_STORAGE_COORDS,
       save: () => saveMailStorageRecords(),
@@ -4488,7 +4491,7 @@
   function mailBuildRoute(source, tier){
     const cfg = MAIL_ROUTE_SOURCES[source];
     const stops = cfg.getRecords()
-      .filter(r => r.priceTier === tier)
+      .filter(r => tier === 'all' || r.priceTier === tier)
       .map(r => ({ rec: r, coords: cfg.coords[mailAptNormalizeKey(r)] || null }))
       .filter(s => s.coords);
     const remaining = [...stops];
@@ -4523,12 +4526,15 @@
 
     const totalMiles = mailCurrentRoute.reduce((sum, s) => sum + s.distanceFromPrev, 0);
     const visitedToday = mailCurrentRoute.filter(s => s.rec.dateContacted === todayStr()).length;
+    const tierLabel = tier === 'all' ? 'All' : tier;
     document.getElementById('mailApt_routeSummary').textContent =
-      `${tier} tier: ${mailCurrentRoute.length} stop${mailCurrentRoute.length===1?'':'s'}, ~${totalMiles.toFixed(1)} miles total \u2014 ${visitedToday} of ${mailCurrentRoute.length} marked arrived today.`;
+      `${tierLabel}: ${mailCurrentRoute.length} stop${mailCurrentRoute.length===1?'':'s'}, ~${totalMiles.toFixed(1)} miles total \u2014 ${visitedToday} of ${mailCurrentRoute.length} marked arrived today.`;
 
     const listEl = document.getElementById('mailApt_routeList');
     if(mailCurrentRoute.length === 0){
-      listEl.innerHTML = `<p class="form-note">No ${cfg.noun}s are priced ${tier} yet.</p>`;
+      listEl.innerHTML = tier === 'all'
+        ? `<p class="form-note">No ${cfg.nounPlural} in the list yet \u2014 add some from the ${cfg.label} tab first.</p>`
+        : `<p class="form-note">No ${cfg.nounPlural} are priced ${tier} yet. Try "All" to route everything regardless of price.</p>`;
       return;
     }
     listEl.innerHTML = mailCurrentRoute.map((s, i) => {
@@ -4614,10 +4620,12 @@
 
   document.getElementById('mailApt_planRoutesBtn').addEventListener('click', ()=>{
     mailCurrentRouteSource = 'apartments';
+    mailCurrentRouteTier = 'all';
     navigateTo('mailroute');
   });
   document.getElementById('mailStorage_planRoutesBtn').addEventListener('click', ()=>{
     mailCurrentRouteSource = 'storage';
+    mailCurrentRouteTier = 'all';
     navigateTo('mailroute');
   });
   document.querySelectorAll('.mailApt-route-tier-btn').forEach(btn => {
