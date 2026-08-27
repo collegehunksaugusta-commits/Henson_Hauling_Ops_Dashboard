@@ -1463,8 +1463,11 @@
       </div>
 
       <div id="mail_section_apartments" class="mail-section">
+      <div class="form-actions" style="margin-bottom:14px;">
+        <button type="button" id="mailApt_planRoutesBtn" style="background:var(--brand-orange); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Plan Routes</button>
+      </div>
       <div class="panel" id="mailAptAddPanel">
-        <h3>Apartment Outreach</h3>
+        <h3>Add New Complexes</h3>
         <p class="form-note">Apartment complexes as commercial leads for moving/junk-removal services. Paste new ones below, tab- or comma-separated: <span class="mono">Complex Name, Address, City, State, Zip, Phone, Email</span> (phone and email are optional).</p>
         <textarea id="mailApt_bulkInput" rows="4" placeholder="Ansley at Town Center Apartments, 1000 Alder Way, Evans, GA, 30809, 706-701-2937, thepremier@greystar.com" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; box-sizing:border-box;"></textarea>
         <div class="form-actions">
@@ -1509,7 +1512,6 @@
         </div>
         <div class="form-actions" style="margin-bottom:14px; flex-wrap:wrap;">
           <button type="button" id="mailApt_markContactedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Contacted Today</button>
-          <button type="button" id="mailApt_planRoutesBtn" style="background:var(--brand-orange); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Plan Routes</button>
           <button type="button" id="mailApt_exportQuantumBtn" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export for Quantum (.xlsx)</button>
           <button type="button" id="mailApt_exportFullBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Full Contact List (.xlsx)</button>
           <button type="button" id="mailApt_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
