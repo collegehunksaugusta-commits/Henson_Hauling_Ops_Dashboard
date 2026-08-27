@@ -1382,6 +1382,7 @@
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button type="button" class="mail-section-btn" data-section="residential" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Residential</button>
           <button type="button" class="mail-section-btn" data-section="apartments" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Apartment Outreach</button>
+          <button type="button" class="mail-section-btn" data-section="storage" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Storage Unit Outreach</button>
         </div>
       </div>
 
@@ -1537,6 +1538,82 @@
         <p class="form-note" id="mailApt_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each complex's published starting rent, bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Pines at Five and Providence Family Homes have no comparable fixed monthly rate (per-stay or BAH-based) and are left unpriced.</p>
       </div>
       </div>
+
+      <div id="mail_section_storage" class="mail-section">
+      <div class="form-actions" style="margin-bottom:14px;">
+        <button type="button" id="mailStorage_planRoutesBtn" style="background:var(--brand-orange); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Plan Routes</button>
+      </div>
+      <div class="panel" id="mailStorageAddPanel">
+        <h3>Add New Storage Facilities</h3>
+        <p class="form-note">Storage unit facilities as commercial leads for moving/junk-removal services. Paste new ones below, tab- or comma-separated: <span class="mono">Facility Name, Address, City, State, Zip, Phone, Email</span> (phone and email are optional).</p>
+        <textarea id="mailStorage_bulkInput" rows="4" placeholder="Storage Sense - Evans, 457 Columbia Industrial Blvd, Evans, GA, 30809, 706-922-7867" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; box-sizing:border-box;"></textarea>
+        <div class="form-actions">
+          <button class="btn-primary" id="mailStorage_addBtn" type="button">Add to List</button>
+          <span class="status-msg" id="mailStorage_addStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="mailStorageTablePanel">
+        <h3>Storage Facilities (<span id="mailStorage_count">0</span>)</h3>
+        <div class="kpi-row" style="grid-template-columns:repeat(2,1fr); margin-bottom:20px;">
+          <div class="kpi-card">
+            <div class="label">Contacted This Quarter</div>
+            <div class="big" id="mailStorage_kpiUpToDate">0</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">Overdue (Not Contacted This Quarter)</div>
+            <div class="big" id="mailStorage_kpiOverdue">0</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Filter
+            <input type="text" id="mailStorage_filter" placeholder="Search name, address, or city..." style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; min-width:220px;">
+          </label>
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Contact Status
+            <select id="mailStorage_statusFilter" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
+              <option value="all">All</option>
+              <option value="overdue">Overdue</option>
+              <option value="up_to_date">Contacted This Quarter</option>
+            </select>
+          </label>
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Sort By
+            <select id="mailStorage_sortBy" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
+              <option value="name">Name (A-Z)</option>
+              <option value="price_asc">Price ($ first)</option>
+              <option value="price_desc">Price ($$$$ first)</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions" style="margin-bottom:14px; flex-wrap:wrap;">
+          <button type="button" id="mailStorage_markContactedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Contacted Today</button>
+          <button type="button" id="mailStorage_exportQuantumBtn" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export for Quantum (.xlsx)</button>
+          <button type="button" id="mailStorage_exportFullBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Full Contact List (.xlsx)</button>
+          <button type="button" id="mailStorage_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
+          <span class="status-msg" id="mailStorage_bulkStatus"></span>
+        </div>
+        <table>
+          <thead><tr>
+            <th style="width:26px;"><input type="checkbox" id="mailStorage_selectAll"></th>
+            <th>Facility Name</th>
+            <th>Address</th>
+            <th>City</th>
+            <th>State</th>
+            <th>Zip</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Price</th>
+            <th>Date Contacted</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="mailStorage_rows"></tbody>
+        </table>
+        <p class="form-note" id="mailStorage_emptyNote" style="display:none;">No storage facilities yet &mdash; paste some in above to get started.</p>
+        <p class="form-note" id="mailStorage_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each facility's published starting rate for a comparable unit size, bucketed into quartiles relative to this specific list (not a fixed citywide scale). Pending research.</p>
+      </div>
+      </div>
     </div>
   </div>
 
@@ -1546,7 +1623,7 @@
     <div class="wrap">
       <div class="detail-head">
         <h2 class="display">Route Planner</h2>
-        <p>Driving order by price tier, starting from 3001 McCrary Ct. Tap Directions for turn-by-turn navigation, tap Mark Arrived once you're at a stop.</p>
+        <p><span id="mailRoute_sourceLabel" style="font-weight:700; color:var(--charcoal);">Apartment Outreach</span> &mdash; driving order by price tier, starting from 3001 McCrary Ct. Tap Directions for turn-by-turn navigation, tap Mark Arrived once you're at a stop.</p>
       </div>
 
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px;">
@@ -1784,10 +1861,11 @@
     if(view === 'maillist'){
       loadMailListData();
       loadMailAptData();
+      loadMailStorageData();
       showMailSection(mailCurrentSection);
     }
     if(view === 'mailroute'){
-      renderMailAptRoute(mailCurrentRouteTier || '$');
+      renderMailAptRoute(mailCurrentRouteSource || 'apartments', mailCurrentRouteTier || '$');
     }
   }
 
@@ -3686,6 +3764,7 @@
     mailCurrentSection = section;
     document.getElementById('mail_section_residential').style.display = section === 'residential' ? 'block' : 'none';
     document.getElementById('mail_section_apartments').style.display = section === 'apartments' ? 'block' : 'none';
+    document.getElementById('mail_section_storage').style.display = section === 'storage' ? 'block' : 'none';
     document.querySelectorAll('.mail-section-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.section === section);
     });
@@ -4229,7 +4308,7 @@
   }
 
   function updateMailListTileBadge(){
-    const anyOverdue = mailAptRecords.some(r => mailAptIsOverdue(r));
+    const anyOverdue = mailAptRecords.some(r => mailAptIsOverdue(r)) || mailStorageRecords.some(r => mailAptIsOverdue(r));
     const tile = document.getElementById('tile-maillist');
     const badge = document.getElementById('mailListTileBadge');
     if(anyOverdue){
@@ -4336,6 +4415,46 @@
     "pines at five (furnished corporate housing)": { lat: 33.4053463, lng: -82.101563 },
     "providence family homes (fort gordon military housing)": { lat: 33.4032923, lng: -82.1294829 }
   };
+  const MAIL_STORAGE_COORDS = {
+    "storage sense - evans": { lat: 33.537344, lng: -82.1132554 },
+    "public storage - evans": { lat: 33.5700547, lng: -82.117842 },
+    "washington road self storage": { lat: 33.5581606, lng: -82.1609949 },
+    "washington road storage - blanchard road annex": { lat: 33.5555977, lng: -82.1635171 },
+    "public storage - washington rd martinez": { lat: 33.513772, lng: -82.1094824 },
+    "public storage - columbia rd": { lat: 33.5083151, lng: -82.1105652 },
+    "storage sense - martinez - old evans": { lat: 33.5121058, lng: -82.0976258 },
+    "storage rentals of america - washington rd martinez": { lat: 33.5133676, lng: -82.0809514 },
+    "storage rentals of america - davis rd": { lat: 33.5106806, lng: -82.0839096 },
+    "public storage - river watch pkwy": { lat: 33.5174867, lng: -82.0729942 },
+    "monster self storage south belair rd": { lat: 33.4955986, lng: -82.1365951 },
+    "storage star": { lat: 33.518501, lng: -82.065263 },
+    "usa storage centers - evans": { lat: 33.5699293, lng: -82.1899686 },
+    "storage sense - martinez - wheeler road": { lat: 33.4872819, lng: -82.1172101 },
+    "storage sense - augusta - wheeler rd": { lat: 33.4844075, lng: -82.1062384 },
+    "riverwatch self storage": { lat: 33.5217428, lng: -82.0455729 },
+    "yourway storage": { lat: 33.4915564, lng: -82.0751855 },
+    "storage rentals of america - washington rd augusta": { lat: 33.5125238, lng: -82.0495727 },
+    "storage sense - augusta - jimmie dyess pkwy": { lat: 33.4728552, lng: -82.12917 },
+    "augusta self storage": { lat: 33.5063411, lng: -82.0448081 },
+    "summit self storage - augusta": { lat: 33.5237361, lng: -82.0321274 },
+    "gateway storage": { lat: 33.486724, lng: -82.2006119 },
+    "southern boat & rv storage": { lat: 33.490521, lng: -82.208021 },
+    "premier storage group": { lat: 33.4901057, lng: -82.2122921 },
+    "william few storage": { lat: 33.4861673, lng: -82.2095092 },
+    "forest hills storage": { lat: 33.469183, lng: -82.0532259 },
+    "storage sense - grovetown": { lat: 33.4603839, lng: -82.183918 },
+    "u-haul moving & storage at columbia fairgrounds": { lat: 33.518346, lng: -82.242529 },
+    "storage rentals of america - wrightsboro rd": { lat: 33.4569952, lng: -82.1970584 },
+    "legacy self storage - grovetown": { lat: 33.4403938, lng: -82.1821521 },
+    "blue sky self storage - parham rd": { lat: 33.4284952, lng: -82.1921754 },
+    "surrey storage": { lat: 33.414575, lng: -82.1434056 },
+    "storage zone self storage and business centers": { lat: 33.4111202, lng: -82.0878903 },
+    "gate 5 self storage": { lat: 33.385096, lng: -82.098491 },
+    "public storage - windsor spring rd": { lat: 33.3748387, lng: -82.0720532 },
+    "storage rentals of america - peach orchard rd": { lat: 33.3806746, lng: -82.0285519 },
+    "storage rentals of america - brown rd": { lat: 33.3468437, lng: -82.0547389 },
+    "pit stop self storage": { lat: 33.3193314, lng: -82.0770928 }
+  };
 
   function mailHaversineMiles(lat1, lng1, lat2, lng2){
     const R = 3958.8;
@@ -4345,10 +4464,32 @@
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
 
-  function mailBuildRoute(tier){
-    const stops = mailAptRecords
+  // Registry so the route planner works identically for either list -- add a
+  // new entry here to reuse the same route engine for a future outreach type.
+  const MAIL_ROUTE_SOURCES = {
+    apartments: {
+      label: 'Apartment Outreach',
+      noun: 'complex',
+      getRecords: () => mailAptRecords,
+      coords: MAIL_APT_COORDS,
+      save: () => saveMailAptRecords(),
+      renderTable: () => renderMailAptTable()
+    },
+    storage: {
+      label: 'Storage Unit Outreach',
+      noun: 'facility',
+      getRecords: () => mailStorageRecords,
+      coords: MAIL_STORAGE_COORDS,
+      save: () => saveMailStorageRecords(),
+      renderTable: () => renderMailStorageTable()
+    }
+  };
+
+  function mailBuildRoute(source, tier){
+    const cfg = MAIL_ROUTE_SOURCES[source];
+    const stops = cfg.getRecords()
       .filter(r => r.priceTier === tier)
-      .map(r => ({ rec: r, coords: MAIL_APT_COORDS[mailAptNormalizeKey(r)] || null }))
+      .map(r => ({ rec: r, coords: cfg.coords[mailAptNormalizeKey(r)] || null }))
       .filter(s => s.coords);
     const remaining = [...stops];
     const route = [];
@@ -4366,15 +4507,19 @@
     return route;
   }
 
+  let mailCurrentRouteSource = 'apartments';
   let mailCurrentRouteTier = null;
   let mailCurrentRoute = [];
 
-  function renderMailAptRoute(tier){
+  function renderMailAptRoute(source, tier){
+    mailCurrentRouteSource = source;
     mailCurrentRouteTier = tier;
-    mailCurrentRoute = mailBuildRoute(tier);
+    mailCurrentRoute = mailBuildRoute(source, tier);
+    const cfg = MAIL_ROUTE_SOURCES[source];
     document.querySelectorAll('.mailApt-route-tier-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tier === tier);
     });
+    document.getElementById('mailRoute_sourceLabel').textContent = cfg.label;
 
     const totalMiles = mailCurrentRoute.reduce((sum, s) => sum + s.distanceFromPrev, 0);
     const visitedToday = mailCurrentRoute.filter(s => s.rec.dateContacted === todayStr()).length;
@@ -4383,7 +4528,7 @@
 
     const listEl = document.getElementById('mailApt_routeList');
     if(mailCurrentRoute.length === 0){
-      listEl.innerHTML = `<p class="form-note">No apartment complexes are priced ${tier} yet.</p>`;
+      listEl.innerHTML = `<p class="form-note">No ${cfg.noun}s are priced ${tier} yet.</p>`;
       return;
     }
     listEl.innerHTML = mailCurrentRoute.map((s, i) => {
@@ -4455,22 +4600,28 @@
   }
 
   async function mailAptMarkArrived(recId){
-    const rec = mailAptRecords.find(r => r.id === recId);
+    const cfg = MAIL_ROUTE_SOURCES[mailCurrentRouteSource];
+    const rec = cfg.getRecords().find(r => r.id === recId);
     if(!rec) return;
     rec.dateContacted = todayStr();
-    const ok = await saveMailAptRecords();
-    renderMailAptRoute(mailCurrentRouteTier);
-    renderMailAptTable();
+    const ok = await cfg.save();
+    renderMailAptRoute(mailCurrentRouteSource, mailCurrentRouteTier);
+    cfg.renderTable();
     const statusEl = document.getElementById('mailApt_routeStatus');
     statusEl.textContent = ok ? `Marked "${rec.name}" as arrived.` : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   }
 
   document.getElementById('mailApt_planRoutesBtn').addEventListener('click', ()=>{
+    mailCurrentRouteSource = 'apartments';
+    navigateTo('mailroute');
+  });
+  document.getElementById('mailStorage_planRoutesBtn').addEventListener('click', ()=>{
+    mailCurrentRouteSource = 'storage';
     navigateTo('mailroute');
   });
   document.querySelectorAll('.mailApt-route-tier-btn').forEach(btn => {
-    btn.addEventListener('click', ()=> renderMailAptRoute(btn.dataset.tier));
+    btn.addEventListener('click', ()=> renderMailAptRoute(mailCurrentRouteSource, btn.dataset.tier));
   });
 
   function renderMailAptTable(){
@@ -4714,6 +4865,370 @@
         updateMailListTileBadge();
       }
     }catch(err){ console.error('Initial apartment outreach status check failed:', err); }
+  })();
+
+  const MAIL_STORAGE_KEY = 'mail-storage-outreach';
+  let mailStorageRecords = [];
+
+  const MAIL_STORAGE_SEED = [
+    { name: "Storage Sense - Evans", address: "457 Columbia Industrial Blvd", city: "Evans", state: "GA", zip: "30809", phone: "706-922-7867", email: "", priceTier: "" },
+    { name: "Public Storage - Evans", address: "1106 Furys Ferry Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-925-9381", email: "", priceTier: "" },
+    { name: "Washington Road Self Storage", address: "4731 Washington Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-651-1881", email: "", priceTier: "" },
+    { name: "Washington Road Storage - Blanchard Road Annex", address: "854 Blanchard Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-651-1881", email: "", priceTier: "" },
+    { name: "Public Storage - Washington Rd Martinez", address: "4080 Washington Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-447-9353", email: "", priceTier: "" },
+    { name: "Public Storage - Columbia Rd", address: "4133 Columbia Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-770-6998", email: "", priceTier: "" },
+    { name: "Storage Sense - Martinez - Old Evans", address: "109 Old Evans Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-922-7827", email: "", priceTier: "" },
+    { name: "Storage Rentals of America - Washington Rd Martinez", address: "3700 Washington Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-710-8075", email: "", priceTier: "" },
+    { name: "Storage Rentals of America - Davis Rd", address: "122 Davis Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-710-8075", email: "", priceTier: "" },
+    { name: "Public Storage - River Watch Pkwy", address: "3497 River Watch Pkwy", city: "Martinez", state: "GA", zip: "30907", phone: "706-955-0499", email: "", priceTier: "" },
+    { name: "Monster Self Storage South Belair Rd", address: "216 S Belair Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-723-1050", email: "", priceTier: "" },
+    { name: "Storage Star", address: "159 Cooper Dr", city: "Augusta", state: "GA", zip: "30907", phone: "762-224-1144", email: "", priceTier: "" },
+    { name: "USA Storage Centers - Evans", address: "5090 Washington Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-917-5001", email: "", priceTier: "" },
+    { name: "Storage Sense - Martinez - Wheeler Road", address: "4206 Wheeler Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-868-1111", email: "", priceTier: "" },
+    { name: "Storage Sense - Augusta - Wheeler Rd", address: "3772 Wheeler Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-868-1111", email: "", priceTier: "" },
+    { name: "Riverwatch Self Storage", address: "922 Stevens Creek Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-863-1603", email: "", priceTier: "" },
+    { name: "YourWay Storage", address: "3637 Walton Wy Ext", city: "Augusta", state: "GA", zip: "30909", phone: "706-487-3239", email: "", priceTier: "" },
+    { name: "Storage Rentals of America - Washington Rd Augusta", address: "3044 Washington Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-508-6545", email: "", priceTier: "" },
+    { name: "Storage Sense - Augusta - Jimmie Dyess Pkwy", address: "1005 Jimmie Dyess Pkwy", city: "Augusta", state: "GA", zip: "30909", phone: "706-854-8884", email: "", priceTier: "" },
+    { name: "Augusta Self Storage", address: "255 Boy Scout Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-736-5795", email: "", priceTier: "" },
+    { name: "Summit Self Storage - Augusta", address: "2955 Gun Club Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-664-0101", email: "", priceTier: "" },
+    { name: "Gateway Storage", address: "475 Lewiston Rd #101", city: "Grovetown", state: "GA", zip: "30813", phone: "706-814-5761", email: "", priceTier: "" },
+    { name: "Southern Boat & RV Storage", address: "324 UN Court", city: "Grovetown", state: "GA", zip: "30813", phone: "706-814-4248", email: "", priceTier: "" },
+    { name: "Premier Storage Group", address: "340 Grimaude Blvd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-955-6740", email: "", priceTier: "" },
+    { name: "William Few Storage", address: "1824 William Few Pkwy", city: "Grovetown", state: "GA", zip: "30813", phone: "706-364-2401", email: "", priceTier: "" },
+    { name: "Forest Hills Storage", address: "3134 Wrightsboro Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-445-3945", email: "", priceTier: "" },
+    { name: "Storage Sense - Grovetown", address: "4965 Wrightsboro Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-651-0072", email: "", priceTier: "" },
+    { name: "U-Haul Moving & Storage at Columbia Fairgrounds", address: "5060 High Meadows Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-504-9116", email: "", priceTier: "" },
+    { name: "Storage Rentals of America - Wrightsboro Rd", address: "5116 Wrightsboro Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-740-3848", email: "", priceTier: "" },
+    { name: "Legacy Self Storage - Grovetown", address: "659 E Robinson Ave", city: "Grovetown", state: "GA", zip: "30813", phone: "706-305-9530", email: "", priceTier: "" },
+    { name: "Blue Sky Self Storage - Parham Rd", address: "5025 Parham Road", city: "Grovetown", state: "GA", zip: "30813", phone: "706-210-5936", email: "", priceTier: "" },
+    { name: "Surrey Storage", address: "Bldg 29300 30th St", city: "Fort Gordon", state: "GA", zip: "30905", phone: "706-791-5241", email: "", priceTier: "" },
+    { name: "Storage Zone Self Storage and Business Centers", address: "3510 Deans Bridge Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-796-8600", email: "", priceTier: "" },
+    { name: "Gate 5 Self Storage", address: "2740 Tobacco Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "762-204-1484", email: "", priceTier: "" },
+    { name: "Public Storage - Windsor Spring Rd", address: "4108A Windsor Spring Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-770-6849", email: "", priceTier: "" },
+    { name: "Storage Rentals of America - Peach Orchard Rd", address: "3531 Peach Orchard Rd", city: "Augusta", state: "GA", zip: "30906", phone: "706-909-3238", email: "", priceTier: "" },
+    { name: "Storage Rentals of America - Brown Rd", address: "2241 Brown Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-909-3238", email: "", priceTier: "" },
+    { name: "Pit Stop Self Storage", address: "2366 GA-88", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-751-2347", email: "", priceTier: "" }
+  ];
+
+  function mailAptGetQuarter(dateStr){
+    if(!dateStr) return null;
+    const d = new Date(dateStr + 'T00:00:00');
+    if(isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+  }
+
+  function mailAptIsOverdue(rec){
+    return mailAptGetQuarter(rec.dateContacted) !== mailAptGetQuarter(todayStr());
+  }
+
+  function updateMailListTileBadge(){
+    const anyOverdue = mailStorageRecords.some(r => mailAptIsOverdue(r));
+    const tile = document.getElementById('tile-maillist');
+    const badge = document.getElementById('mailListTileBadge');
+    if(anyOverdue){
+      tile.classList.add('attention');
+      badge.style.display = 'inline-block';
+    } else {
+      tile.classList.remove('attention');
+      badge.style.display = 'none';
+    }
+  }
+
+  function mailStorageNormalizeKey(rec){
+    return (rec.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  const MAIL_STORAGE_PRICE_LOOKUP = (() => {
+    const map = {};
+    MAIL_STORAGE_SEED.forEach(r => { map[mailStorageNormalizeKey(r)] = r.priceTier || ''; });
+    return map;
+  })();
+
+  async function loadMailStorageData(){
+    try{
+      const data = await window.dashboardApi.get(MAIL_STORAGE_KEY, null);
+      if(data === null || data === undefined){
+        // First load -- seed with the researched storage facility list.
+        mailStorageRecords = MAIL_STORAGE_SEED.map((r, i) => ({
+          id: 'storage_seed_' + i,
+          name: r.name, address: r.address, city: r.city, state: r.state, zip: r.zip,
+          phone: r.phone, email: r.email,
+          priceTier: r.priceTier || '', dateContacted: null,
+          dateAdded: new Date().toISOString().slice(0,10)
+        }));
+        await saveMailStorageRecords();
+      } else {
+        mailStorageRecords = data || [];
+        // Backfill price tiers for records that predate the pricing research --
+        // matches by facility name, only touching records missing a tier.
+        let backfilled = false;
+        mailStorageRecords.forEach(rec => {
+          if(!rec.priceTier){
+            const key = mailStorageNormalizeKey(rec);
+            if(MAIL_STORAGE_PRICE_LOOKUP.hasOwnProperty(key) && MAIL_STORAGE_PRICE_LOOKUP[key]){
+              rec.priceTier = MAIL_STORAGE_PRICE_LOOKUP[key];
+              backfilled = true;
+            }
+          }
+        });
+        if(backfilled) await saveMailStorageRecords();
+      }
+    }catch(err){
+      console.error('Storage outreach load failed:', err);
+      mailStorageRecords = mailStorageRecords || [];
+    }
+    renderMailStorageTable();
+    updateMailListTileBadge();
+  }
+
+  async function saveMailStorageRecords(){
+    try{ return await window.dashboardApi.set(MAIL_STORAGE_KEY, mailStorageRecords); }
+    catch(err){ console.error('Storage outreach save failed:', err); return false; }
+    finally{ updateMailListTileBadge(); }
+  }
+
+  function renderMailStorageTable(){
+    const filter = (document.getElementById('mailStorage_filter').value || '').trim().toLowerCase();
+    const statusFilter = document.getElementById('mailStorage_statusFilter').value;
+    const sortBy = document.getElementById('mailStorage_sortBy').value;
+    const tbody = document.getElementById('mailStorage_rows');
+    const emptyNote = document.getElementById('mailStorage_emptyNote');
+
+    let filtered = [...mailStorageRecords];
+    if(filter){
+      filtered = filtered.filter(r =>
+        (r.name || '').toLowerCase().includes(filter) ||
+        (r.address || '').toLowerCase().includes(filter) ||
+        (r.city || '').toLowerCase().includes(filter)
+      );
+    }
+    if(statusFilter === 'overdue') filtered = filtered.filter(r => mailAptIsOverdue(r));
+    if(statusFilter === 'up_to_date') filtered = filtered.filter(r => !mailAptIsOverdue(r));
+
+    if(sortBy === 'price_asc' || sortBy === 'price_desc'){
+      const tierRank = t => t ? t.length : (sortBy === 'price_asc' ? 99 : -1); // unpriced sorts last either direction
+      filtered.sort((a,b)=> sortBy === 'price_asc' ? tierRank(a.priceTier) - tierRank(b.priceTier) : tierRank(b.priceTier) - tierRank(a.priceTier));
+    } else {
+      filtered.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    }
+
+    const total = mailStorageRecords.length;
+    const overdueCount = mailStorageRecords.filter(r => mailAptIsOverdue(r)).length;
+    document.getElementById('mailStorage_count').textContent = total;
+    document.getElementById('mailStorage_kpiOverdue').textContent = overdueCount;
+    document.getElementById('mailStorage_kpiUpToDate').textContent = total - overdueCount;
+    emptyNote.style.display = total === 0 ? 'block' : 'none';
+
+    tbody.innerHTML = filtered.map(r => {
+      const overdue = mailAptIsOverdue(r);
+      const rowBg = overdue ? 'background:#FDEDEA;' : '';
+      return `
+      <tr data-id="${r.id}" style="${rowBg}">
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="checkbox" class="mailStorage-select" data-id="${r.id}"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600; max-width:220px;">${mailEsc(r.name)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="address" value="${mailEsc(r.address)}" style="width:150px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="city" value="${mailEsc(r.city)}" style="width:90px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="state" value="${mailEsc(r.state)}" style="width:38px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="zip" value="${mailEsc(r.zip)}" style="width:55px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="phone" value="${mailEsc(r.phone)}" style="width:105px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="email" value="${mailEsc(r.email)}" style="width:170px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono',monospace; color:var(--brand-green); font-weight:600; white-space:nowrap;">${r.priceTier ? mailEsc(r.priceTier) : '<span style="color:var(--muted);">&mdash;</span>'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="date" class="mailStorage-date" data-id="${r.id}" value="${r.dateContacted || ''}" style="font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="mailStorage-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.mailStorage-edit').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const rec = mailStorageRecords.find(r => r.id === e.target.dataset.id);
+      if(!rec) return;
+      const field = e.target.dataset.field;
+      rec[field] = field === 'state' ? e.target.value.trim().toUpperCase() : e.target.value.trim();
+      await saveMailStorageRecords();
+    }));
+    tbody.querySelectorAll('.mailStorage-date').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const rec = mailStorageRecords.find(r => r.id === e.target.dataset.id);
+      if(!rec) return;
+      rec.dateContacted = e.target.value || null;
+      await saveMailStorageRecords();
+      renderMailStorageTable();
+    }));
+    tbody.querySelectorAll('.mailStorage-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this storage facility from the outreach list? This cannot be undone.')) return;
+      mailStorageRecords = mailStorageRecords.filter(r => r.id !== id);
+      await saveMailStorageRecords();
+      renderMailStorageTable();
+    }));
+
+    document.getElementById('mailStorage_selectAll').checked = false;
+  }
+
+  function mailStorageParseBulkInput(text){
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const parsed = [];
+    const errors = [];
+    lines.forEach((line, idx) => {
+      let cols = line.includes('\t') ? line.split('\t') : line.split(',');
+      cols = cols.map(c => c.trim());
+      if(cols.length < 5){
+        errors.push(`Line ${idx+1}: expected at least 5 fields (Name, Address, City, State, Zip) \u2014 got ${cols.length}: "${line}"`);
+        return;
+      }
+      const [name, address, city, state, zip, phone, email, priceTier] = cols;
+      if(!name || !address){
+        errors.push(`Line ${idx+1}: missing name or address \u2014 "${line}"`);
+        return;
+      }
+      parsed.push({
+        name, address, city: city || '', state: (state || '').toUpperCase(), zip: zip || '',
+        phone: phone || '', email: email || '', priceTier: priceTier || ''
+      });
+    });
+    return { parsed, errors };
+  }
+
+  document.getElementById('mailStorage_addBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mailStorage_addStatus');
+    const textarea = document.getElementById('mailStorage_bulkInput');
+    const text = textarea.value;
+    if(!text.trim()){
+      statusEl.textContent = 'Paste at least one storage facility first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const { parsed, errors } = mailStorageParseBulkInput(text);
+    if(parsed.length === 0){
+      statusEl.textContent = errors.length ? errors[0] : 'Nothing to add.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const existingKeys = new Set(mailStorageRecords.map(mailStorageNormalizeKey));
+    let added = 0, skipped = 0;
+    parsed.forEach(p => {
+      const key = mailStorageNormalizeKey(p);
+      if(existingKeys.has(key)){ skipped++; return; }
+      existingKeys.add(key);
+      mailStorageRecords.push({
+        id: 'apt_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        name: p.name, address: p.address, city: p.city, state: p.state, zip: p.zip,
+        phone: p.phone, email: p.email,
+        priceTier: p.priceTier || '', dateContacted: null,
+        dateAdded: new Date().toISOString().slice(0,10)
+      });
+      added++;
+    });
+
+    const ok = await saveMailStorageRecords();
+    textarea.value = '';
+    renderMailStorageTable();
+
+    let msg = ok ? `Added ${added} facility${added===1?'':'es'}.` : 'Save failed \u2014 check your connection.';
+    if(skipped > 0) msg += ` Skipped ${skipped} duplicate${skipped===1?'':'s'}.`;
+    if(errors.length > 0) msg += ` ${errors.length} line${errors.length===1?'':'s'} could not be parsed.`;
+    statusEl.textContent = msg;
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('mailStorage_filter').addEventListener('input', renderMailStorageTable);
+  document.getElementById('mailStorage_statusFilter').addEventListener('change', renderMailStorageTable);
+  document.getElementById('mailStorage_sortBy').addEventListener('change', renderMailStorageTable);
+
+  document.getElementById('mailStorage_selectAll').addEventListener('change', (e)=>{
+    document.querySelectorAll('.mailStorage-select').forEach(cb => cb.checked = e.target.checked);
+  });
+
+  document.getElementById('mailStorage_markContactedBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mailStorage_bulkStatus');
+    const selectedIds = Array.from(document.querySelectorAll('.mailStorage-select:checked')).map(cb => cb.dataset.id);
+    if(selectedIds.length === 0){
+      statusEl.textContent = 'Select at least one facility first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const today = new Date().toISOString().slice(0,10);
+    selectedIds.forEach(id => {
+      const rec = mailStorageRecords.find(r => r.id === id);
+      if(rec){ rec.dateContacted = today; }
+    });
+    const ok = await saveMailStorageRecords();
+    renderMailStorageTable();
+    statusEl.textContent = ok ? `Marked ${selectedIds.length} facility${selectedIds.length===1?'':'es'} as contacted.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('mailStorage_clearAllBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mailStorage_bulkStatus');
+    const count = mailStorageRecords.length;
+    if(count === 0){
+      statusEl.textContent = 'The list is already empty.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(!confirm(`Delete all ${count} storage facility${count===1?'':'es'} from the outreach list? This cannot be undone.`)) return;
+    mailStorageRecords = [];
+    const ok = await saveMailStorageRecords();
+    renderMailStorageTable();
+    statusEl.textContent = ok ? `Cleared ${count} facility${count===1?'':'es'}.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('mailStorage_exportQuantumBtn').addEventListener('click', ()=>{
+    const statusEl = document.getElementById('mailStorage_bulkStatus');
+    if(mailStorageRecords.length === 0){
+      statusEl.textContent = 'Nothing to export.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    // QuantumDigital/QuantumPostcards requires this exact header row: firstname,
+    // lastname, address, city, state, zip -- either first or last name must be
+    // filled for every row. The "company" column displays below the recipient
+    // name on the postcard, so the facility name goes there.
+    const rows = mailStorageRecords.map(r => ({
+      firstname: 'Property', lastname: 'Manager',
+      address: r.address, city: r.city, state: r.state, zip: r.zip,
+      company: r.name
+    }));
+    const sheet = XLSX.utils.json_to_sheet(rows, { header: ['firstname','lastname','address','city','state','zip','company'] });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Quantum Upload');
+    const dateStr = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(workbook, `storage-outreach-quantum-${dateStr}.xlsx`);
+    statusEl.textContent = `Exported ${rows.length} facility${rows.length===1?'':'es'} in Quantum upload format.`;
+    statusEl.className = 'status-msg ok';
+  });
+
+  document.getElementById('mailStorage_exportFullBtn').addEventListener('click', ()=>{
+    const statusEl = document.getElementById('mailStorage_bulkStatus');
+    if(mailStorageRecords.length === 0){
+      statusEl.textContent = 'Nothing to export.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const rows = mailStorageRecords.map(r => ({
+      name: r.name, address: r.address, city: r.city, state: r.state, zip: r.zip,
+      phone: r.phone, email: r.email, priceTier: r.priceTier || '',
+      dateContacted: r.dateContacted || '',
+      contactStatus: mailAptIsOverdue(r) ? 'Overdue' : 'Contacted This Quarter'
+    }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Storage Unit Outreach');
+    const dateStr = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(workbook, `storage-outreach-full-${dateStr}.xlsx`);
+    statusEl.textContent = `Exported ${rows.length} facility${rows.length===1?'':'es'}.`;
+    statusEl.className = 'status-msg ok';
+  });
+
+  (async ()=>{
+    try{
+      const data = await window.dashboardApi.get(MAIL_STORAGE_KEY, null);
+      if(data){
+        mailStorageRecords = data;
+        updateMailListTileBadge();
+      }
+    }catch(err){ console.error('Initial storage outreach status check failed:', err); }
   })();
 
   // ---------- Settings ----------
