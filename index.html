@@ -1611,7 +1611,7 @@
           <tbody id="mailStorage_rows"></tbody>
         </table>
         <p class="form-note" id="mailStorage_emptyNote" style="display:none;">No storage facilities yet &mdash; paste some in above to get started.</p>
-        <p class="form-note" id="mailStorage_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each facility's published starting rate for a comparable unit size, bucketed into quartiles relative to this specific list (not a fixed citywide scale). Pending research.</p>
+        <p class="form-note" id="mailStorage_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each facility's published starting rate for its smallest standard unit (5x5 or 5x10), bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Storage Sense-Martinez-Wheeler Rd, U-Haul Columbia Fairgrounds, and Surrey Storage have no published rate; Southern Boat & RV Storage and Premier Storage Group are RV/boat-only lots not comparable to standard units \u2014 all five are left unpriced.</p>
       </div>
       </div>
     </div>
@@ -4879,44 +4879,44 @@
   let mailStorageRecords = [];
 
   const MAIL_STORAGE_SEED = [
-    { name: "Storage Sense - Evans", address: "457 Columbia Industrial Blvd", city: "Evans", state: "GA", zip: "30809", phone: "706-922-7867", email: "", priceTier: "" },
-    { name: "Public Storage - Evans", address: "1106 Furys Ferry Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-925-9381", email: "", priceTier: "" },
-    { name: "Washington Road Self Storage", address: "4731 Washington Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-651-1881", email: "", priceTier: "" },
-    { name: "Washington Road Storage - Blanchard Road Annex", address: "854 Blanchard Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-651-1881", email: "", priceTier: "" },
-    { name: "Public Storage - Washington Rd Martinez", address: "4080 Washington Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-447-9353", email: "", priceTier: "" },
-    { name: "Public Storage - Columbia Rd", address: "4133 Columbia Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-770-6998", email: "", priceTier: "" },
-    { name: "Storage Sense - Martinez - Old Evans", address: "109 Old Evans Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-922-7827", email: "", priceTier: "" },
-    { name: "Storage Rentals of America - Washington Rd Martinez", address: "3700 Washington Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-710-8075", email: "", priceTier: "" },
-    { name: "Storage Rentals of America - Davis Rd", address: "122 Davis Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-710-8075", email: "", priceTier: "" },
-    { name: "Public Storage - River Watch Pkwy", address: "3497 River Watch Pkwy", city: "Martinez", state: "GA", zip: "30907", phone: "706-955-0499", email: "", priceTier: "" },
-    { name: "Monster Self Storage South Belair Rd", address: "216 S Belair Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-723-1050", email: "", priceTier: "" },
-    { name: "Storage Star", address: "159 Cooper Dr", city: "Augusta", state: "GA", zip: "30907", phone: "762-224-1144", email: "", priceTier: "" },
-    { name: "USA Storage Centers - Evans", address: "5090 Washington Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-917-5001", email: "", priceTier: "" },
+    { name: "Storage Sense - Evans", address: "457 Columbia Industrial Blvd", city: "Evans", state: "GA", zip: "30809", phone: "706-922-7867", email: "", priceTier: "$$$" },
+    { name: "Public Storage - Evans", address: "1106 Furys Ferry Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-925-9381", email: "", priceTier: "$" },
+    { name: "Washington Road Self Storage", address: "4731 Washington Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-651-1881", email: "", priceTier: "$$" },
+    { name: "Washington Road Storage - Blanchard Road Annex", address: "854 Blanchard Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-651-1881", email: "", priceTier: "$$$$" },
+    { name: "Public Storage - Washington Rd Martinez", address: "4080 Washington Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-447-9353", email: "", priceTier: "$$$" },
+    { name: "Public Storage - Columbia Rd", address: "4133 Columbia Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-770-6998", email: "", priceTier: "$$" },
+    { name: "Storage Sense - Martinez - Old Evans", address: "109 Old Evans Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-922-7827", email: "", priceTier: "$" },
+    { name: "Storage Rentals of America - Washington Rd Martinez", address: "3700 Washington Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-710-8075", email: "", priceTier: "$" },
+    { name: "Storage Rentals of America - Davis Rd", address: "122 Davis Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-710-8075", email: "", priceTier: "$" },
+    { name: "Public Storage - River Watch Pkwy", address: "3497 River Watch Pkwy", city: "Martinez", state: "GA", zip: "30907", phone: "706-955-0499", email: "", priceTier: "$$$" },
+    { name: "Monster Self Storage South Belair Rd", address: "216 S Belair Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-723-1050", email: "", priceTier: "$$" },
+    { name: "Storage Star", address: "159 Cooper Dr", city: "Augusta", state: "GA", zip: "30907", phone: "762-224-1144", email: "", priceTier: "$" },
+    { name: "USA Storage Centers - Evans", address: "5090 Washington Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-917-5001", email: "", priceTier: "$$" },
     { name: "Storage Sense - Martinez - Wheeler Road", address: "4206 Wheeler Rd", city: "Martinez", state: "GA", zip: "30907", phone: "706-868-1111", email: "", priceTier: "" },
-    { name: "Storage Sense - Augusta - Wheeler Rd", address: "3772 Wheeler Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-868-1111", email: "", priceTier: "" },
-    { name: "Riverwatch Self Storage", address: "922 Stevens Creek Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-863-1603", email: "", priceTier: "" },
-    { name: "YourWay Storage", address: "3637 Walton Wy Ext", city: "Augusta", state: "GA", zip: "30909", phone: "706-487-3239", email: "", priceTier: "" },
-    { name: "Storage Rentals of America - Washington Rd Augusta", address: "3044 Washington Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-508-6545", email: "", priceTier: "" },
-    { name: "Storage Sense - Augusta - Jimmie Dyess Pkwy", address: "1005 Jimmie Dyess Pkwy", city: "Augusta", state: "GA", zip: "30909", phone: "706-854-8884", email: "", priceTier: "" },
-    { name: "Augusta Self Storage", address: "255 Boy Scout Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-736-5795", email: "", priceTier: "" },
-    { name: "Summit Self Storage - Augusta", address: "2955 Gun Club Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-664-0101", email: "", priceTier: "" },
-    { name: "Gateway Storage", address: "475 Lewiston Rd #101", city: "Grovetown", state: "GA", zip: "30813", phone: "706-814-5761", email: "", priceTier: "" },
+    { name: "Storage Sense - Augusta - Wheeler Rd", address: "3772 Wheeler Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-868-1111", email: "", priceTier: "$$$" },
+    { name: "Riverwatch Self Storage", address: "922 Stevens Creek Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-863-1603", email: "", priceTier: "$$$$" },
+    { name: "YourWay Storage", address: "3637 Walton Wy Ext", city: "Augusta", state: "GA", zip: "30909", phone: "706-487-3239", email: "", priceTier: "$$$" },
+    { name: "Storage Rentals of America - Washington Rd Augusta", address: "3044 Washington Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-508-6545", email: "", priceTier: "$" },
+    { name: "Storage Sense - Augusta - Jimmie Dyess Pkwy", address: "1005 Jimmie Dyess Pkwy", city: "Augusta", state: "GA", zip: "30909", phone: "706-854-8884", email: "", priceTier: "$$" },
+    { name: "Augusta Self Storage", address: "255 Boy Scout Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-736-5795", email: "", priceTier: "$$$" },
+    { name: "Summit Self Storage - Augusta", address: "2955 Gun Club Rd", city: "Augusta", state: "GA", zip: "30907", phone: "706-664-0101", email: "", priceTier: "$$$" },
+    { name: "Gateway Storage", address: "475 Lewiston Rd #101", city: "Grovetown", state: "GA", zip: "30813", phone: "706-814-5761", email: "", priceTier: "$$" },
     { name: "Southern Boat & RV Storage", address: "324 UN Court", city: "Grovetown", state: "GA", zip: "30813", phone: "706-814-4248", email: "", priceTier: "" },
     { name: "Premier Storage Group", address: "340 Grimaude Blvd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-955-6740", email: "", priceTier: "" },
-    { name: "William Few Storage", address: "1824 William Few Pkwy", city: "Grovetown", state: "GA", zip: "30813", phone: "706-364-2401", email: "", priceTier: "" },
-    { name: "Forest Hills Storage", address: "3134 Wrightsboro Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-445-3945", email: "", priceTier: "" },
-    { name: "Storage Sense - Grovetown", address: "4965 Wrightsboro Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-651-0072", email: "", priceTier: "" },
+    { name: "William Few Storage", address: "1824 William Few Pkwy", city: "Grovetown", state: "GA", zip: "30813", phone: "706-364-2401", email: "", priceTier: "$$$$" },
+    { name: "Forest Hills Storage", address: "3134 Wrightsboro Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-445-3945", email: "", priceTier: "$$$$" },
+    { name: "Storage Sense - Grovetown", address: "4965 Wrightsboro Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-651-0072", email: "", priceTier: "$$$$" },
     { name: "U-Haul Moving & Storage at Columbia Fairgrounds", address: "5060 High Meadows Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-504-9116", email: "", priceTier: "" },
-    { name: "Storage Rentals of America - Wrightsboro Rd", address: "5116 Wrightsboro Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-740-3848", email: "", priceTier: "" },
-    { name: "Legacy Self Storage - Grovetown", address: "659 E Robinson Ave", city: "Grovetown", state: "GA", zip: "30813", phone: "706-305-9530", email: "", priceTier: "" },
-    { name: "Blue Sky Self Storage - Parham Rd", address: "5025 Parham Road", city: "Grovetown", state: "GA", zip: "30813", phone: "706-210-5936", email: "", priceTier: "" },
+    { name: "Storage Rentals of America - Wrightsboro Rd", address: "5116 Wrightsboro Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-740-3848", email: "", priceTier: "$$" },
+    { name: "Legacy Self Storage - Grovetown", address: "659 E Robinson Ave", city: "Grovetown", state: "GA", zip: "30813", phone: "706-305-9530", email: "", priceTier: "$$$$" },
+    { name: "Blue Sky Self Storage - Parham Rd", address: "5025 Parham Road", city: "Grovetown", state: "GA", zip: "30813", phone: "706-210-5936", email: "", priceTier: "$$$$" },
     { name: "Surrey Storage", address: "Bldg 29300 30th St", city: "Fort Gordon", state: "GA", zip: "30905", phone: "706-791-5241", email: "", priceTier: "" },
-    { name: "Storage Zone Self Storage and Business Centers", address: "3510 Deans Bridge Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-796-8600", email: "", priceTier: "" },
-    { name: "Gate 5 Self Storage", address: "2740 Tobacco Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "762-204-1484", email: "", priceTier: "" },
-    { name: "Public Storage - Windsor Spring Rd", address: "4108A Windsor Spring Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-770-6849", email: "", priceTier: "" },
-    { name: "Storage Rentals of America - Peach Orchard Rd", address: "3531 Peach Orchard Rd", city: "Augusta", state: "GA", zip: "30906", phone: "706-909-3238", email: "", priceTier: "" },
-    { name: "Storage Rentals of America - Brown Rd", address: "2241 Brown Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-909-3238", email: "", priceTier: "" },
-    { name: "Pit Stop Self Storage", address: "2366 GA-88", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-751-2347", email: "", priceTier: "" }
+    { name: "Storage Zone Self Storage and Business Centers", address: "3510 Deans Bridge Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-796-8600", email: "", priceTier: "$$$$" },
+    { name: "Gate 5 Self Storage", address: "2740 Tobacco Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "762-204-1484", email: "", priceTier: "$$$" },
+    { name: "Public Storage - Windsor Spring Rd", address: "4108A Windsor Spring Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-770-6849", email: "", priceTier: "$" },
+    { name: "Storage Rentals of America - Peach Orchard Rd", address: "3531 Peach Orchard Rd", city: "Augusta", state: "GA", zip: "30906", phone: "706-909-3238", email: "", priceTier: "$" },
+    { name: "Storage Rentals of America - Brown Rd", address: "2241 Brown Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-909-3238", email: "", priceTier: "$$" },
+    { name: "Pit Stop Self Storage", address: "2366 GA-88", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-751-2347", email: "", priceTier: "$$$$" }
   ];
 
   function mailAptGetQuarter(dateStr){
