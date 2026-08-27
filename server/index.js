@@ -57,7 +57,8 @@ const ALLOWED_KEYS = new Set([
   'compliance-drivers',
   'settings-config-files',
   'settings-handoff-guide',
-  'mail-marketing-list'
+  'mail-marketing-list',
+  'mail-apartment-outreach'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-'];
 
