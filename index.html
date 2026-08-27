@@ -3906,12 +3906,12 @@
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
 
-  async function mailLookupZip(address, city, state){
+  async function mailLookupZip(address, state){
     try{
       const res = await fetch(`${API_BASE}/api/lookup-zip`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({address, city, state})
+        body: JSON.stringify({address, state})
       });
       if(handleAuthFailure(res)) return { error: 'auth' };
       if(!res.ok){
@@ -3919,7 +3919,7 @@
         return { error: body.error || ('HTTP ' + res.status) };
       }
       const data = await res.json();
-      return { zip: data.zip || '', deliverability: data.deliverability || '' };
+      return { zip: data.zip || '', city: data.city || '', deliverability: data.deliverability || '' };
     }catch(err){
       console.error('Zip lookup request failed:', err);
       return { error: 'network error' };
@@ -3933,23 +3933,27 @@
 
   document.getElementById('mail_lookupZipsBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('mail_bulkStatus');
-    const eligible = mailListRecords.filter(r => !r.zip && r.address && r.city && r.state);
-    const incomplete = mailListRecords.filter(r => !r.zip && (!r.address || !r.city || !r.state)).length;
+    const eligible = mailListRecords.filter(r => !r.zip && r.address && r.state);
+    const incomplete = mailListRecords.filter(r => !r.zip && (!r.address || !r.state)).length;
     if(eligible.length === 0){
       statusEl.textContent = incomplete > 0
-        ? `${incomplete} address${incomplete===1?'':'es'} missing a zip also need${incomplete===1?'s':''} a city/state before they can be looked up.`
+        ? `${incomplete} address${incomplete===1?'':'es'} missing a zip also need${incomplete===1?'s':''} a street address/state before they can be looked up.`
         : 'No addresses are missing a zip.';
       statusEl.className = 'status-msg err';
       return;
     }
     const btn = document.getElementById('mail_lookupZipsBtn');
     btn.disabled = true;
-    let found = 0, defaulted = 0, notFound = 0, failed = 0, firstErrorDetail = '';
+    let found = 0, corrected = 0, defaulted = 0, notFound = 0, failed = 0, firstErrorDetail = '';
     for(let i = 0; i < eligible.length; i++){
       const rec = eligible[i];
       statusEl.textContent = `Looking up zip ${i+1} of ${eligible.length}...`;
       statusEl.className = 'status-msg';
-      const result = await mailLookupZip(rec.address, rec.city, rec.state);
+      // Deliberately don't send the stored city -- Lob determines it fresh
+      // from the street address and state, so a wrong city on our end (like
+      // a blanket "Evans" label) can't cause a false undeliverable result,
+      // and a genuinely wrong city gets corrected instead of just skipped.
+      const result = await mailLookupZip(rec.address, rec.state);
       if(result.error === 'auth'){
         btn.disabled = false;
         return;
@@ -3959,6 +3963,12 @@
         if(!firstErrorDetail) firstErrorDetail = result.error;
       } else if(result.zip){
         rec.zip = result.zip;
+        if(result.city && rec.city && result.city.trim().toLowerCase() !== rec.city.trim().toLowerCase()){
+          rec.city = result.city;
+          corrected++;
+        } else if(result.city && !rec.city){
+          rec.city = result.city;
+        }
         found++;
       } else {
         // Lob couldn't confirm a zip -- fall back to a known default for
@@ -3979,6 +3989,7 @@
     btn.disabled = false;
     const totalFilled = found + defaulted;
     let msg = ok ? `Found ${totalFilled} of ${eligible.length} zip${eligible.length===1?'':'s'}${defaulted>0 ? ` (${found} confirmed by Lob, ${defaulted} from local defaults)` : ''}.` : 'Save failed \u2014 check your connection.';
+    if(corrected > 0) msg += ` ${corrected} city name${corrected===1?' was':'s were'} corrected.`;
     if(notFound > 0) msg += ` ${notFound} address${notFound===1?'':'es'} could not be verified.`;
     if(failed > 0) msg += ` ${failed} lookup${failed===1?'':'s'} failed${firstErrorDetail ? ': ' + firstErrorDetail : ''}.`;
     statusEl.textContent = msg;
