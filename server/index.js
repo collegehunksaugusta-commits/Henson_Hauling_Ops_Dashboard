@@ -2,11 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const Redis = require('ioredis');
 const crypto = require('crypto');
- 
+
 const app = express();
 app.use(express.json({ limit: '15mb' }));
 app.use(cors());
- 
+
 function hashPassword(password) {
   return new Promise((resolve, reject) => {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -29,7 +29,7 @@ function verifyPassword(password, storedHash) {
     });
   });
 }
- 
+
 const REDIS_URL = process.env.REDIS_URL || process.env.RENDER_KEY_VALUE_URL;
 if (!REDIS_URL) {
   console.error('FATAL: No REDIS_URL / RENDER_KEY_VALUE_URL environment variable set.');
@@ -37,7 +37,7 @@ if (!REDIS_URL) {
 }
 const redis = new Redis(REDIS_URL);
 redis.on('error', (err) => { console.error('Redis connection error:', err.message); });
- 
+
 // ============ Data key whitelist (existing dashboard data) ============
 const ALLOWED_KEYS = new Set([
   'labor-weeks',
@@ -62,23 +62,23 @@ const ALLOWED_KEYS = new Set([
   'mail-storage-outreach'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-'];
- 
+
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
   return ALLOWED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
 }
- 
+
 // ============ Auth: user accounts (stored separately, never exposed via /api/data) ============
 const USERS_KEY = 'auth:users';
 const SESSION_PREFIX = 'auth:session:';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
- 
+
 const SEED_USERS = [
   { email: 'aaron.henson@chhj.com', role: 'admin' },
   { email: 'administrative.assistantaug@chhj.com', role: 'user' }
 ];
 const TEMP_PASSWORD = 'Password123!';
- 
+
 async function ensureUsersSeeded() {
   try {
     const raw = await redis.get(USERS_KEY);
@@ -103,7 +103,7 @@ async function ensureUsersSeeded() {
     console.error('User seeding failed:', err.message);
   }
 }
- 
+
 async function getUsers() {
   const raw = await redis.get(USERS_KEY);
   return raw ? JSON.parse(raw) : {};
@@ -111,7 +111,7 @@ async function getUsers() {
 async function saveUsers(users) {
   await redis.set(USERS_KEY, JSON.stringify(users));
 }
- 
+
 // Simple in-memory rate limiting for login attempts (per IP).
 const loginAttempts = new Map(); // ip -> [timestamps]
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -127,7 +127,7 @@ function recordLoginAttempt(ip) {
   attempts.push(Date.now());
   loginAttempts.set(ip, attempts);
 }
- 
+
 app.post('/api/login', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (isRateLimited(ip)) {
@@ -156,7 +156,7 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ error: 'Login failed.' });
   }
 });
- 
+
 app.post('/api/change-password', async (req, res) => {
   const { token, newPassword } = req.body || {};
   if (!token || !newPassword) {
@@ -179,7 +179,7 @@ app.post('/api/change-password', async (req, res) => {
     res.status(500).json({ error: 'Password change failed.' });
   }
 });
- 
+
 app.post('/api/logout', async (req, res) => {
   const { token } = req.body || {};
   if (token) {
@@ -187,7 +187,7 @@ app.post('/api/logout', async (req, res) => {
   }
   res.json({ ok: true });
 });
- 
+
 // ============ Auth middleware: require a valid session for all data routes ============
 async function requireAuth(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
@@ -203,7 +203,7 @@ async function requireAuth(req, res, next) {
     res.status(500).json({ error: 'Auth check failed.' });
   }
 }
- 
+
 async function requireAdmin(req, res, next) {
   try {
     const users = await getUsers();
@@ -217,7 +217,7 @@ async function requireAdmin(req, res, next) {
     res.status(500).json({ error: 'Admin check failed.' });
   }
 }
- 
+
 // Employee names (not the financial payroll details) are needed by
 // Attendance Tracking and Regulatory Compliance's Drivers section, which
 // aren't restricted to admins -- so this computes just the name list from
@@ -236,7 +236,7 @@ app.get('/api/roster', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load roster.' });
   }
 });
- 
+
 // List users -- any logged-in user can see the roster (matches the existing
 // "Manage Documents" style visibility elsewhere in the app), but only admins
 // can add new ones.
@@ -254,7 +254,7 @@ app.get('/api/admin/users', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load users.' });
   }
 });
- 
+
 app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   const { email, role } = req.body || {};
   const cleanEmail = (email || '').toLowerCase().trim();
@@ -278,7 +278,42 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Could not add user.' });
   }
 });
- 
+
+// Generates a one-off temporary password for an admin-initiated reset. Random
+// per use (unlike the fixed TEMP_PASSWORD used for brand-new accounts), and
+// avoids ambiguous characters (0/O, 1/l/I) since an admin may read or text
+// this to the affected user.
+function generateTempPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(10);
+  let pw = '';
+  for (let i = 0; i < bytes.length; i++) pw += chars[bytes[i] % chars.length];
+  return pw + '!';
+}
+
+// Lets an admin force-reset another user's password (e.g. they're locked out
+// and can't receive a self-service reset email). Sets a fresh random
+// temporary password and flags the account so the user is required to set
+// their own password on their very next login -- the same mustReset flow
+// already used when a new account is first created.
+app.post('/api/admin/users/:email/reset-password', requireAuth, requireAdmin, async (req, res) => {
+  const cleanEmail = (req.params.email || '').toLowerCase().trim();
+  try {
+    const users = await getUsers();
+    if (!users[cleanEmail]) {
+      return res.status(404).json({ error: 'No user found with that email.' });
+    }
+    const tempPassword = generateTempPassword();
+    users[cleanEmail].passwordHash = await hashPassword(tempPassword);
+    users[cleanEmail].mustReset = true;
+    await saveUsers(users);
+    res.json({ ok: true, email: cleanEmail, tempPassword });
+  } catch (err) {
+    console.error('Admin password reset failed:', err.message);
+    res.status(500).json({ error: 'Could not reset password.' });
+  }
+});
+
 app.get('/health', async (req, res) => {
   try {
     await redis.ping();
@@ -287,7 +322,7 @@ app.get('/health', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
- 
+
 // Payroll data is sensitive. The two vestigial rate/gross keys are fully
 // admin-only (nothing currently reads or writes them, but they're locked
 // down if that changes). labor-weeks is different: any logged-in user can
@@ -297,13 +332,13 @@ app.get('/health', async (req, res) => {
 // response goes out, not just hidden in the UI.
 const ADMIN_ONLY_KEYS = new Set(['labor-employee-rates', 'labor-last-admin-gross']);
 const ADMIN_WRITE_ONLY_KEYS = new Set(['labor-weeks']);
- 
+
 async function isRequestingUserAdmin(req) {
   const users = await getUsers();
   const user = users[req.userEmail];
   return !!(user && user.role === 'admin');
 }
- 
+
 async function checkAdminOnlyKey(req, res, key) {
   if (!ADMIN_ONLY_KEYS.has(key)) return true;
   try {
@@ -318,7 +353,7 @@ async function checkAdminOnlyKey(req, res, key) {
     return false;
   }
 }
- 
+
 async function checkAdminWriteOnlyKey(req, res, key) {
   if (!ADMIN_WRITE_ONLY_KEYS.has(key)) return true;
   try {
@@ -333,18 +368,18 @@ async function checkAdminWriteOnlyKey(req, res, key) {
     return false;
   }
 }
- 
+
 // Local market cities to try, in addition to whatever city is already
 // stored, when looking up a zip. Lob's US Verification API requires either
 // a zip_code or both city AND state -- state alone isn't enough -- so a
 // wrong or missing stored city means we have to guess and check rather than
 // ask Lob to resolve the city from the address alone.
 const MAIL_CANDIDATE_CITIES = ['Augusta', 'Evans', 'Grovetown', 'Martinez'];
- 
+
 function mailTitleCase(str){
   return str ? str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()) : '';
 }
- 
+
 // Looks up the correct city, state, and zip code for a given street address
 // using Lob's US Address Verification API (CASS-certified), so the Mail
 // Marketing List tile can fill in zips automatically -- and correct a wrong
@@ -364,13 +399,13 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     console.error('Zip lookup requested but LOB_API_KEY is not set on this service.');
     return res.status(500).json({ error: 'Zip lookup is not configured on the server yet (LOB_API_KEY is missing).' });
   }
- 
+
   const candidates = [];
   if (city) candidates.push(city);
   for (const c of MAIL_CANDIDATE_CITIES) {
     if (!candidates.some(existing => existing.toLowerCase() === c.toLowerCase())) candidates.push(c);
   }
- 
+
   let anySuccessfulCall = false;
   let lastHttpError = null;
   try {
@@ -417,7 +452,7 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Zip lookup failed: ' + err.message });
   }
 });
- 
+
 app.get('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -437,7 +472,7 @@ app.get('/api/data/:key', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Storage read failed.' });
   }
 });
- 
+
 app.put('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -451,7 +486,7 @@ app.put('/api/data/:key', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Storage write failed.' });
   }
 });
- 
+
 app.delete('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -465,7 +500,7 @@ app.delete('/api/data/:key', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Storage delete failed.' });
   }
 });
- 
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Henson dashboard backend listening on port ${PORT}`);
