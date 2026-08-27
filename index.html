@@ -1536,21 +1536,29 @@
         <p class="form-note" id="mailApt_emptyNote" style="display:none;">No apartment complexes yet &mdash; paste some in above to get started.</p>
         <p class="form-note" id="mailApt_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each complex's published starting rent, bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Pines at Five and Providence Family Homes have no comparable fixed monthly rate (per-stay or BAH-based) and are left unpriced.</p>
       </div>
+      </div>
+    </div>
+  </div>
 
-      <div class="panel" id="mailAptRoutePanel" style="display:none;">
-        <h3>Route Planner</h3>
-        <p class="form-note">One route per price tier, ordered to minimize driving distance starting from 3001 McCrary Ct, Evans, GA. Distances are straight-line estimates between stops, not turn-by-turn \u2014 tap "Directions" on a stop to navigate there with your phone's map app. "Mark Arrived" checks your GPS location against the stop before checking it off.</p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
-          <button type="button" class="mailApt-route-tier-btn" data-tier="$" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; background:#fff; border:1px solid var(--line); color:var(--muted);">$</button>
-          <button type="button" class="mailApt-route-tier-btn" data-tier="$$" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; background:#fff; border:1px solid var(--line); color:var(--muted);">$$</button>
-          <button type="button" class="mailApt-route-tier-btn" data-tier="$$$" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; background:#fff; border:1px solid var(--line); color:var(--muted);">$$$</button>
-          <button type="button" class="mailApt-route-tier-btn" data-tier="$$$$" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; background:#fff; border:1px solid var(--line); color:var(--muted);">$$$$</button>
-        </div>
-        <div id="mailApt_routeSummary" style="font-weight:600; margin-bottom:14px;"></div>
-        <div id="mailApt_routeList"></div>
-        <p class="status-msg" id="mailApt_routeStatus" style="margin-top:10px;"></p>
+  <!-- ============ MAIL ROUTE PLANNER DETAIL ============ -->
+  <div id="mailRouteDetail" style="display:none;">
+    <button class="backlink" id="mailRouteBackBtn">&larr; Mail Marketing List</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Route Planner</h2>
+        <p>Driving order by price tier, starting from 3001 McCrary Ct. Tap Directions for turn-by-turn navigation, tap Mark Arrived once you're at a stop.</p>
       </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px;">
+        <button type="button" class="mailApt-route-tier-btn" data-tier="$" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:22px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">$</button>
+        <button type="button" class="mailApt-route-tier-btn" data-tier="$$" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:22px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">$$</button>
+        <button type="button" class="mailApt-route-tier-btn" data-tier="$$$" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:22px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">$$$</button>
+        <button type="button" class="mailApt-route-tier-btn" data-tier="$$$$" style="flex:1; min-width:70px; padding:18px 10px; border-radius:8px; font-size:22px; font-weight:700; cursor:pointer; background:#fff; border:2px solid var(--line); color:var(--muted);">$$$$</button>
       </div>
+
+      <div id="mailApt_routeSummary" style="font-weight:600; margin-bottom:18px; font-size:15px;"></div>
+      <div id="mailApt_routeList"></div>
+      <p class="status-msg" id="mailApt_routeStatus" style="margin-top:16px; font-size:14px;"></p>
     </div>
   </div>
 
@@ -1745,6 +1753,7 @@
   const complianceDetail = document.getElementById('complianceDetail');
   const settingsDetail = document.getElementById('settingsDetail');
   const mailListDetail = document.getElementById('mailListDetail');
+  const mailRouteDetail = document.getElementById('mailRouteDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -1756,6 +1765,7 @@
     complianceDetail.style.display = view === 'compliance' ? 'block' : 'none';
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
     mailListDetail.style.display = view === 'maillist' ? 'block' : 'none';
+    mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -1775,6 +1785,9 @@
       loadMailListData();
       loadMailAptData();
       showMailSection(mailCurrentSection);
+    }
+    if(view === 'mailroute'){
+      renderMailAptRoute(mailCurrentRouteTier || '$');
     }
   }
 
@@ -1822,6 +1835,7 @@
   document.getElementById('tile-maillist').addEventListener('click', ()=> navigateTo('maillist'));
   document.getElementById('tile-maillist').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('maillist'); }});
   document.getElementById('mailListBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('mailRouteBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
 
@@ -4377,18 +4391,20 @@
       const visited = rec.dateContacted === todayStr();
       const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.coords.lat},${s.coords.lng}`;
       return `
-      <div data-id="${rec.id}" style="display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid var(--line);">
-        <div style="flex-shrink:0; width:28px; height:28px; border-radius:50%; background:${visited ? 'var(--brand-green)' : 'var(--charcoal)'}; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;">${visited ? '\u2713' : (i+1)}</div>
-        <div style="flex:1; min-width:0;">
-          <div style="font-weight:600;">${mailEsc(rec.name)}</div>
-          <div style="font-size:12.5px; color:var(--muted);">${mailEsc(rec.address)}, ${mailEsc(rec.city)}, ${mailEsc(rec.state)} ${mailEsc(rec.zip)}</div>
-          <div style="font-size:12px; color:var(--muted); margin-top:2px;">${i===0 ? 'From office' : 'From previous stop'}: ${s.distanceFromPrev.toFixed(1)} mi</div>
+      <div data-id="${rec.id}" style="padding:16px 0; border-bottom:1px solid var(--line);">
+        <div style="display:flex; gap:12px; align-items:flex-start; margin-bottom:12px;">
+          <div style="flex-shrink:0; width:34px; height:34px; border-radius:50%; background:${visited ? 'var(--brand-green)' : 'var(--charcoal)'}; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;">${visited ? '\u2713' : (i+1)}</div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:700; font-size:16px;">${mailEsc(rec.name)}</div>
+            <div style="font-size:13.5px; color:var(--muted); margin-top:2px;">${mailEsc(rec.address)}, ${mailEsc(rec.city)}, ${mailEsc(rec.state)} ${mailEsc(rec.zip)}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin-top:3px;">${i===0 ? 'From office' : 'From previous stop'}: ${s.distanceFromPrev.toFixed(1)} mi</div>
+          </div>
         </div>
-        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end; flex-shrink:0;">
-          <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="font-size:12px; color:var(--charcoal); text-decoration:underline;">Directions</a>
+        <div style="display:flex; gap:10px; padding-left:46px;">
+          <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="flex:1; text-align:center; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:11px 10px; border-radius:6px; font-size:14px; font-weight:600; text-decoration:none;">Directions</a>
           ${visited
-            ? `<span style="font-size:12px; color:var(--brand-green); font-weight:600;">Arrived Today</span>`
-            : `<button type="button" class="mailApt-arrive-btn" data-id="${rec.id}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:600; cursor:pointer;">Mark Arrived</button>`}
+            ? `<span style="flex:1; text-align:center; background:#EAF6EE; color:var(--brand-green-dark); padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700;">\u2713 Arrived Today</span>`
+            : `<button type="button" class="mailApt-arrive-btn" data-id="${rec.id}" style="flex:1; background:var(--brand-green); color:#fff; border:none; padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer;">Mark Arrived</button>`}
         </div>
       </div>`;
     }).join('');
@@ -4451,10 +4467,7 @@
   }
 
   document.getElementById('mailApt_planRoutesBtn').addEventListener('click', ()=>{
-    const panel = document.getElementById('mailAptRoutePanel');
-    const showing = panel.style.display !== 'none';
-    panel.style.display = showing ? 'none' : 'block';
-    if(!showing) renderMailAptRoute(mailCurrentRouteTier || '$');
+    navigateTo('mailroute');
   });
   document.querySelectorAll('.mailApt-route-tier-btn').forEach(btn => {
     btn.addEventListener('click', ()=> renderMailAptRoute(btn.dataset.tier));
