@@ -332,14 +332,26 @@ async function checkAdminWriteOnlyKey(req, res, key) {
   }
 }
 
+// Local market cities to try, in addition to whatever city is already
+// stored, when looking up a zip. Lob's US Verification API requires either
+// a zip_code or both city AND state -- state alone isn't enough -- so a
+// wrong or missing stored city means we have to guess and check rather than
+// ask Lob to resolve the city from the address alone.
+const MAIL_CANDIDATE_CITIES = ['Augusta', 'Evans', 'Grovetown', 'Martinez'];
+
+function mailTitleCase(str){
+  return str ? str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()) : '';
+}
+
 // Looks up the correct city, state, and zip code for a given street address
 // using Lob's US Address Verification API (CASS-certified), so the Mail
 // Marketing List tile can fill in zips automatically -- and correct a wrong
-// city -- for addresses pasted without one. City is optional; when omitted,
-// only the street address and state are sent, and Lob's own matched city is
-// returned. Requires the LOB_API_KEY environment variable (a Lob "live"
-// secret key) to be set; address verification only works with a live key,
-// not a test key.
+// city -- for addresses pasted without one. Since Lob requires a city guess
+// (when there's no zip to search with), this tries the given city first,
+// then a short list of local candidate cities, stopping at the first
+// deliverable match. Requires the LOB_API_KEY environment variable (a Lob
+// "live" secret key) to be set; address verification only works with a live
+// key, not a test key.
 app.post('/api/lookup-zip', requireAuth, async (req, res) => {
   const { address, city, state } = req.body || {};
   if (!address || !state) {
@@ -350,34 +362,54 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     console.error('Zip lookup requested but LOB_API_KEY is not set on this service.');
     return res.status(500).json({ error: 'Zip lookup is not configured on the server yet (LOB_API_KEY is missing).' });
   }
+
+  const candidates = [];
+  if (city) candidates.push(city);
+  for (const c of MAIL_CANDIDATE_CITIES) {
+    if (!candidates.some(existing => existing.toLowerCase() === c.toLowerCase())) candidates.push(c);
+  }
+
+  let anySuccessfulCall = false;
+  let lastHttpError = null;
   try {
-    const paramObj = { primary_line: address, state: state };
-    if (city) paramObj.city = city;
-    const params = new URLSearchParams(paramObj);
-    const lobRes = await fetch('https://api.lob.com/v1/us_verifications', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + Buffer.from(apiKey + ':').toString('base64'),
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: params.toString()
-    });
-    if (!lobRes.ok) {
-      const errBody = await lobRes.text().catch(() => '');
-      console.error('Lob verification request failed:', lobRes.status, errBody);
-      let detail = '';
-      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
-      return res.status(502).json({ error: `Lob returned an error (HTTP ${lobRes.status})${detail ? ': ' + detail : ''}` });
+    for (const cityGuess of candidates) {
+      const params = new URLSearchParams({ primary_line: address, city: cityGuess, state: state });
+      const lobRes = await fetch('https://api.lob.com/v1/us_verifications', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(apiKey + ':').toString('base64'),
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params.toString()
+      });
+      if (!lobRes.ok) {
+        const errBody = await lobRes.text().catch(() => '');
+        console.error(`Lob verification request failed (tried city "${cityGuess}"):`, lobRes.status, errBody);
+        let detail = '';
+        try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        lastHttpError = `Lob returned an error (HTTP ${lobRes.status})${detail ? ': ' + detail : ''}`;
+        continue;
+      }
+      anySuccessfulCall = true;
+      const data = await lobRes.json();
+      const deliverability = data.deliverability || '';
+      const isDeliverable = deliverability.indexOf('deliverable') === 0;
+      if (isDeliverable) {
+        const zip = data.components ? (data.components.zip_code || '') : '';
+        const matchedCity = mailTitleCase(data.components ? (data.components.city || '') : '');
+        console.log(`Zip lookup: "${address}, [tried "${cityGuess}"], ${state}" \u2192 MATCHED city="${matchedCity}" zip="${zip}"`);
+        return res.json({ zip, city: matchedCity, deliverability });
+      }
+      console.log(`Zip lookup: "${address}, [tried "${cityGuess}"], ${state}" \u2192 deliverability="${deliverability}" last_line="${data.last_line || ''}"`);
     }
-    const data = await lobRes.json();
-    const deliverability = data.deliverability || '';
-    const isDeliverable = deliverability.indexOf('deliverable') === 0;
-    const zip = isDeliverable && data.components ? (data.components.zip_code || '') : '';
-    // Title-case the returned city ("AUGUSTA" -> "Augusta") to match this app's convention.
-    const rawCity = isDeliverable && data.components ? (data.components.city || '') : '';
-    const matchedCity = rawCity ? rawCity.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()) : '';
-    console.log(`Zip lookup: "${address}, ${city || '(no city given)'}, ${state}" \u2192 deliverability="${deliverability}" last_line="${data.last_line || ''}" zip="${zip}" matchedCity="${matchedCity}"`);
-    res.json({ zip, city: matchedCity, deliverability });
+    // None of the candidate cities produced a deliverable match. If every
+    // single attempt failed at the HTTP level (none of them even got a real
+    // answer from Lob), surface that as a genuine error rather than a
+    // normal "couldn't verify" result.
+    if (!anySuccessfulCall && lastHttpError) {
+      return res.status(502).json({ error: lastHttpError });
+    }
+    res.json({ zip: '', city: '', deliverability: 'undeliverable' });
   } catch (err) {
     console.error('Zip lookup failed:', err.message);
     res.status(500).json({ error: 'Zip lookup failed: ' + err.message });
