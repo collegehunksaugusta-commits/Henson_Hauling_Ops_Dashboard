@@ -288,6 +288,7 @@
       <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
         <button class="btn-primary" id="loginBtn" type="button" style="width:100%;">Log In</button>
         <span class="status-msg" id="login_status" style="text-align:center;"></span>
+        <p id="login_troubleNote" style="display:none; text-align:center; font-size:12.5px; color:var(--muted); margin:2px 0 0;">Having trouble logging in? Contact your administrator to reset your password.</p>
       </div>
     </div>
     <div id="resetPasswordForm" style="display:none;">
@@ -307,6 +308,8 @@
   if(localStorage.getItem('henson_auth_token')){
     document.getElementById('loginGate').style.display = 'none';
   }
+
+  let loginFailCount = 0;
 
   async function attemptLogin(){
     const statusEl = document.getElementById('login_status');
@@ -329,8 +332,14 @@
       if(!res.ok){
         statusEl.textContent = data.error || 'Login failed.';
         statusEl.className = 'status-msg err';
+        loginFailCount++;
+        if(loginFailCount >= 3){
+          document.getElementById('login_troubleNote').style.display = 'block';
+        }
         return;
       }
+      loginFailCount = 0;
+      document.getElementById('login_troubleNote').style.display = 'none';
       localStorage.setItem('henson_auth_token', data.token);
       localStorage.setItem('henson_auth_role', data.role || 'user');
       localStorage.setItem('henson_auth_email', email);
@@ -1665,9 +1674,11 @@
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Email</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Role</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="set_userRows"></tbody>
           </table>
+          <p class="status-msg" id="set_resetPwStatus" style="margin-top:10px;"></p>
         </div>
 
         <div class="panel" id="set_addUserPanel">
@@ -5309,6 +5320,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   async function renderUserList(){
     const tbody = document.getElementById('set_userRows');
+    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
+    const currentEmail = (localStorage.getItem('henson_auth_email') || '').toLowerCase();
     try{
       const res = await fetch(`${API_BASE}/api/admin/users`, { headers: authHeaders() });
       if(handleAuthFailure(res)) return;
@@ -5320,10 +5333,39 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(u.email)}</td>
           <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${roleLabels[u.role] || fleetEsc(u.role)}</td>
           <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${u.mustReset ? '<span style="color:#8a6100;">Needs password reset</span>' : '<span style="color:#00612C;">Active</span>'}</td>
+          <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${(isAdmin && u.email.toLowerCase() !== currentEmail) ? `<button type="button" class="set-reset-pw-btn" data-email="${fleetEsc(u.email)}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer;">Reset Password</button>` : ''}</td>
         </tr>`).join('');
+      tbody.querySelectorAll('.set-reset-pw-btn').forEach(btn => btn.addEventListener('click', ()=> resetUserPassword(btn.dataset.email)));
     }catch(err){
       console.error('User list load failed:', err);
-      tbody.innerHTML = '<tr><td colspan="3" style="padding:8px 4px; color:#b3261e;">Could not load users \u2014 check your connection.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" style="padding:8px 4px; color:#b3261e;">Could not load users \u2014 check your connection.</td></tr>';
+    }
+  }
+
+  async function resetUserPassword(email){
+    const statusEl = document.getElementById('set_resetPwStatus');
+    if(!confirm(`Reset the password for ${email}? Their current password will stop working immediately, and they'll need the new temporary password to log back in.`)) return;
+    statusEl.textContent = 'Resetting...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(email)}/reset-password`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not reset password.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = `Temporary password for ${email}: ${data.tempPassword} \u2014 copy this now, it won't be shown again. Share it with them; they'll be asked to set their own password on next login.`;
+      statusEl.className = 'status-msg ok';
+      renderUserList();
+    }catch(err){
+      console.error('Reset password failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
     }
   }
 
