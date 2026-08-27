@@ -472,6 +472,7 @@
         <p>Business authorizations, truck safety records, and driver qualification files.</p>
       </div>
       <div class="tile" id="tile-maillist" tabindex="0" role="button" aria-label="Open Mail Marketing List">
+        <span class="badge" id="mailListTileBadge" style="display:none;">Attention Needed</span>
         <span class="icon">📬</span>
         <h3>Mail Marketing List</h3>
         <p>Postcard mailing list of recent home listings, with mailed-status tracking and mail-merge export.</p>
@@ -1473,24 +1474,40 @@
 
       <div class="panel" id="mailAptTablePanel">
         <h3>Apartment Complexes (<span id="mailApt_count">0</span>)</h3>
+        <div class="kpi-row" style="grid-template-columns:repeat(2,1fr); margin-bottom:20px;">
+          <div class="kpi-card">
+            <div class="label">Contacted This Quarter</div>
+            <div class="big" id="mailApt_kpiUpToDate">0</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">Overdue (Not Contacted This Quarter)</div>
+            <div class="big" id="mailApt_kpiOverdue">0</div>
+          </div>
+        </div>
         <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
           <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
             Filter
             <input type="text" id="mailApt_filter" placeholder="Search name, address, or city..." style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; min-width:220px;">
           </label>
           <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
-            Status
+            Contact Status
             <select id="mailApt_statusFilter" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
               <option value="all">All</option>
-              <option value="not_contacted">Not Contacted</option>
-              <option value="contacted">Contacted</option>
-              <option value="follow_up">Follow-Up Needed</option>
-              <option value="declined">Declined</option>
+              <option value="overdue">Overdue</option>
+              <option value="up_to_date">Contacted This Quarter</option>
+            </select>
+          </label>
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Sort By
+            <select id="mailApt_sortBy" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
+              <option value="name">Name (A-Z)</option>
+              <option value="price_asc">Price ($ first)</option>
+              <option value="price_desc">Price ($$$$ first)</option>
             </select>
           </label>
         </div>
         <div class="form-actions" style="margin-bottom:14px; flex-wrap:wrap;">
-          <button type="button" id="mailApt_markContactedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Contacted</button>
+          <button type="button" id="mailApt_markContactedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Contacted Today</button>
           <button type="button" id="mailApt_exportQuantumBtn" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export for Quantum (.xlsx)</button>
           <button type="button" id="mailApt_exportFullBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Full Contact List (.xlsx)</button>
           <button type="button" id="mailApt_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
@@ -1506,12 +1523,14 @@
             <th>Zip</th>
             <th>Phone</th>
             <th>Email</th>
-            <th>Status</th>
+            <th>Price</th>
+            <th>Date Contacted</th>
             <th></th>
           </tr></thead>
           <tbody id="mailApt_rows"></tbody>
         </table>
         <p class="form-note" id="mailApt_emptyNote" style="display:none;">No apartment complexes yet &mdash; paste some in above to get started.</p>
+        <p class="form-note" id="mailApt_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each complex's published starting rent, bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Pines at Five and Providence Family Homes have no comparable fixed monthly rate (per-stay or BAH-based) and are left unpriced.</p>
       </div>
       </div>
     </div>
@@ -4126,56 +4145,79 @@
   let mailAptRecords = [];
 
   const MAIL_APT_SEED = [
-    { name: "Ansley at Town Center Apartments", address: "1000 Alder Way", city: "Evans", state: "GA", zip: "30809", phone: "706-701-2937", email: "" },
-    { name: "The Premier", address: "1065 Williamsburg Way", city: "Evans", state: "GA", zip: "30809", phone: "706-397-3712", email: "thepremier@greystar.com" },
-    { name: "Walden Glen Apartments", address: "336 N Belair Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-920-5544", email: "" },
-    { name: "Blue Ridge Commons", address: "100 Commons Dr", city: "Evans", state: "GA", zip: "30809", phone: "706-722-8334", email: "" },
-    { name: "The Belmont", address: "650 Thoroughbred Ln", city: "Evans", state: "GA", zip: "30809", phone: "706-955-9710", email: "" },
-    { name: "Owens Woods Apartments", address: "4445 Owens Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-863-8182", email: "" },
-    { name: "Lullwater at Riverwood", address: "120 Lullwater Dr", city: "Evans", state: "GA", zip: "30809", phone: "762-222-4896", email: "lullwateratriverwoodi-fb@m.knck.io" },
-    { name: "Cottages at Hanover", address: "4045 Evans to Locks Rd", city: "Evans", state: "GA", zip: "30809", phone: "762-230-6822", email: "" },
-    { name: "Reed Creek Apartments", address: "303 Wave Hill", city: "Martinez", state: "GA", zip: "30907", phone: "706-309-1130", email: "" },
-    { name: "Lakeside on Riverwatch", address: "4300 River Watch Pkwy", city: "Martinez", state: "GA", zip: "30907", phone: "706-954-4227", email: "lakeside-cm@pegasusresidential.com" },
-    { name: "The Heron at River Island Apartments", address: "600 Grand Oaks Wy", city: "Martinez", state: "GA", zip: "30907", phone: "706-744-1487", email: "riverisland@greystar.com" },
-    { name: "Shenandoah Ridge Apartments", address: "4079 River Watch Pkwy", city: "Martinez", state: "GA", zip: "30907", phone: "706-715-8647", email: "shenandoahridge@samapartments.com" },
-    { name: "Argento at Riverwatch Apartments", address: "420 Topgolf Wy", city: "Augusta", state: "GA", zip: "30909", phone: "706-504-9393", email: "" },
-    { name: "Residence at Riverwatch", address: "205 River Pl", city: "Augusta", state: "GA", zip: "30909", phone: "706-764-4902", email: "Riverwatch@bhmanagement.com" },
-    { name: "Grand Oaks at Crane Creek Apartments", address: "680 Crane Creek Dr", city: "Augusta", state: "GA", zip: "30907", phone: "706-247-7588", email: "Cranecreek@greystar.com" },
-    { name: "Sanctuary Apartments and Townhomes", address: "5000 Sanctuary Dr", city: "Augusta", state: "GA", zip: "30909", phone: "706-480-8434", email: "" },
-    { name: "The Mason Augusta", address: "101 Pine Forest Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-388-3537", email: "" },
-    { name: "Highborne Apartments", address: "1414 Kingsman Dr", city: "Augusta", state: "GA", zip: "30906", phone: "706-719-4635", email: "" },
-    { name: "Ballantyne Commons of Augusta", address: "3150 Skinner Mill Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-607-6420", email: "" },
-    { name: "Walton Green & The Legacy at Walton Green (55+)", address: "1550 15th St", city: "Augusta", state: "GA", zip: "30901", phone: "706-842-7910", email: "" },
-    { name: "The Cobb House", address: "1001 Greene St", city: "Augusta", state: "GA", zip: "30901", phone: "706-737-4548", email: "" },
-    { name: "Avalon Apartments", address: "3647 Wrightsboro Rd", city: "Augusta", state: "GA", zip: "30909", phone: "844-541-6410", email: "AvalonGroup.Facebook.PrecisionManagement@assist.rent" },
-    { name: "The Laney Apartments", address: "9000 Lifestyle Cir", city: "Augusta", state: "GA", zip: "30909", phone: "706-920-5990", email: "laney@assetliving.com" },
-    { name: "Parc at Flowing Wells Apartment Homes", address: "1150 Interstate Pkwy", city: "Augusta", state: "GA", zip: "30909", phone: "706-705-5558", email: "" },
-    { name: "Gateway Crossing", address: "601 Giddings Ct", city: "Augusta", state: "GA", zip: "30907", phone: "706-808-2398", email: "" },
-    { name: "MacArthur Park", address: "101 Little Rock Dr", city: "Augusta", state: "GA", zip: "30909", phone: "706-541-6151", email: "macarthur@atcdevelopment.com" },
-    { name: "Helena Springs", address: "3401 Helena Springs Ln", city: "Augusta", state: "GA", zip: "30909", phone: "706-917-1884", email: "helenasprings@atcdevelopment.com" },
-    { name: "Sterlington Apartments", address: "4105 Sterlington Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-809-5812", email: "sterlington@atcdevelopment.com" },
-    { name: "The Station at Brighton", address: "1000 Station Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-808-4141", email: "" },
-    { name: "Riverstone Apartments", address: "101 Halton Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-723-9796", email: "riverstone-cm@pegasusresidential.com" },
-    { name: "Grovetown Crossing Townhomes", address: "530 Beretta Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-863-8182", email: "" },
-    { name: "Highland Hills Apartments", address: "1100 Outlook Drive", city: "Grovetown", state: "GA", zip: "30813", phone: "855-798-2545", email: "" },
-    { name: "Joiner Crossing Apartments", address: "724 Tarvin Cir", city: "Grovetown", state: "GA", zip: "30813", phone: "706-907-0278", email: "" },
-    { name: "The Reserve at Whiskey Creek", address: "100 Whiskey Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-868-0717", email: "" },
-    { name: "Brighton Park Apartments", address: "7025 Hummingbird Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-574-3111", email: "" },
-    { name: "Cottages at Grovetown", address: "733 Benelli Ct", city: "Grovetown", state: "GA", zip: "30813", phone: "", email: "" },
-    { name: "Pines at Five (Furnished Corporate Housing)", address: "3682 Deans Bridge Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-808-2601", email: "" },
-    { name: "Providence Family Homes (Fort Gordon military housing)", address: "155 3rd Ave", city: "Fort Gordon", state: "GA", zip: "30905", phone: "706-772-7041", email: "Fort_Gordon_Housing_RCI@army.mil" }
+    { name: "Ansley at Town Center Apartments", address: "1000 Alder Way", city: "Evans", state: "GA", zip: "30809", phone: "706-701-2937", email: "", priceTier: "$$$" },
+    { name: "The Premier", address: "1065 Williamsburg Way", city: "Evans", state: "GA", zip: "30809", phone: "706-397-3712", email: "thepremier@greystar.com", priceTier: "$$$$" },
+    { name: "Walden Glen Apartments", address: "336 N Belair Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-920-5544", email: "", priceTier: "$$" },
+    { name: "Blue Ridge Commons", address: "100 Commons Dr", city: "Evans", state: "GA", zip: "30809", phone: "706-722-8334", email: "", priceTier: "$$" },
+    { name: "The Belmont", address: "650 Thoroughbred Ln", city: "Evans", state: "GA", zip: "30809", phone: "706-955-9710", email: "", priceTier: "$$" },
+    { name: "Owens Woods Apartments", address: "4445 Owens Rd", city: "Evans", state: "GA", zip: "30809", phone: "706-863-8182", email: "", priceTier: "$$$" },
+    { name: "Lullwater at Riverwood", address: "120 Lullwater Dr", city: "Evans", state: "GA", zip: "30809", phone: "762-222-4896", email: "lullwateratriverwoodi-fb@m.knck.io", priceTier: "$$$" },
+    { name: "Cottages at Hanover", address: "4045 Evans to Locks Rd", city: "Evans", state: "GA", zip: "30809", phone: "762-230-6822", email: "", priceTier: "$$$$" },
+    { name: "Reed Creek Apartments", address: "303 Wave Hill", city: "Martinez", state: "GA", zip: "30907", phone: "706-309-1130", email: "", priceTier: "$$" },
+    { name: "Lakeside on Riverwatch", address: "4300 River Watch Pkwy", city: "Martinez", state: "GA", zip: "30907", phone: "706-954-4227", email: "lakeside-cm@pegasusresidential.com", priceTier: "$$" },
+    { name: "The Heron at River Island Apartments", address: "600 Grand Oaks Wy", city: "Martinez", state: "GA", zip: "30907", phone: "706-744-1487", email: "riverisland@greystar.com", priceTier: "$$$$" },
+    { name: "Shenandoah Ridge Apartments", address: "4079 River Watch Pkwy", city: "Martinez", state: "GA", zip: "30907", phone: "706-715-8647", email: "shenandoahridge@samapartments.com", priceTier: "$" },
+    { name: "Argento at Riverwatch Apartments", address: "420 Topgolf Wy", city: "Augusta", state: "GA", zip: "30909", phone: "706-504-9393", email: "", priceTier: "$$$" },
+    { name: "Residence at Riverwatch", address: "205 River Pl", city: "Augusta", state: "GA", zip: "30909", phone: "706-764-4902", email: "Riverwatch@bhmanagement.com", priceTier: "$$$$" },
+    { name: "Grand Oaks at Crane Creek Apartments", address: "680 Crane Creek Dr", city: "Augusta", state: "GA", zip: "30907", phone: "706-247-7588", email: "Cranecreek@greystar.com", priceTier: "$$$" },
+    { name: "Sanctuary Apartments and Townhomes", address: "5000 Sanctuary Dr", city: "Augusta", state: "GA", zip: "30909", phone: "706-480-8434", email: "", priceTier: "$" },
+    { name: "The Mason Augusta", address: "101 Pine Forest Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-388-3537", email: "", priceTier: "$$$" },
+    { name: "Highborne Apartments", address: "1414 Kingsman Dr", city: "Augusta", state: "GA", zip: "30906", phone: "706-719-4635", email: "", priceTier: "$$$$" },
+    { name: "Ballantyne Commons of Augusta", address: "3150 Skinner Mill Rd", city: "Augusta", state: "GA", zip: "30909", phone: "706-607-6420", email: "", priceTier: "$$$" },
+    { name: "Walton Green & The Legacy at Walton Green (55+)", address: "1550 15th St", city: "Augusta", state: "GA", zip: "30901", phone: "706-842-7910", email: "", priceTier: "$" },
+    { name: "The Cobb House", address: "1001 Greene St", city: "Augusta", state: "GA", zip: "30901", phone: "706-737-4548", email: "", priceTier: "$" },
+    { name: "Avalon Apartments", address: "3647 Wrightsboro Rd", city: "Augusta", state: "GA", zip: "30909", phone: "844-541-6410", email: "AvalonGroup.Facebook.PrecisionManagement@assist.rent", priceTier: "$" },
+    { name: "The Laney Apartments", address: "9000 Lifestyle Cir", city: "Augusta", state: "GA", zip: "30909", phone: "706-920-5990", email: "laney@assetliving.com", priceTier: "$$$$" },
+    { name: "Parc at Flowing Wells Apartment Homes", address: "1150 Interstate Pkwy", city: "Augusta", state: "GA", zip: "30909", phone: "706-705-5558", email: "", priceTier: "$$" },
+    { name: "Gateway Crossing", address: "601 Giddings Ct", city: "Augusta", state: "GA", zip: "30907", phone: "706-808-2398", email: "", priceTier: "$$" },
+    { name: "MacArthur Park", address: "101 Little Rock Dr", city: "Augusta", state: "GA", zip: "30909", phone: "706-541-6151", email: "macarthur@atcdevelopment.com", priceTier: "$" },
+    { name: "Helena Springs", address: "3401 Helena Springs Ln", city: "Augusta", state: "GA", zip: "30909", phone: "706-917-1884", email: "helenasprings@atcdevelopment.com", priceTier: "$" },
+    { name: "Sterlington Apartments", address: "4105 Sterlington Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-809-5812", email: "sterlington@atcdevelopment.com", priceTier: "$" },
+    { name: "The Station at Brighton", address: "1000 Station Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-808-4141", email: "", priceTier: "$$$" },
+    { name: "Riverstone Apartments", address: "101 Halton Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-723-9796", email: "riverstone-cm@pegasusresidential.com", priceTier: "$$$$" },
+    { name: "Grovetown Crossing Townhomes", address: "530 Beretta Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-863-8182", email: "", priceTier: "$$$$" },
+    { name: "Highland Hills Apartments", address: "1100 Outlook Drive", city: "Grovetown", state: "GA", zip: "30813", phone: "855-798-2545", email: "", priceTier: "$$" },
+    { name: "Joiner Crossing Apartments", address: "724 Tarvin Cir", city: "Grovetown", state: "GA", zip: "30813", phone: "706-907-0278", email: "", priceTier: "$$" },
+    { name: "The Reserve at Whiskey Creek", address: "100 Whiskey Rd", city: "Grovetown", state: "GA", zip: "30813", phone: "706-868-0717", email: "", priceTier: "$" },
+    { name: "Brighton Park Apartments", address: "7025 Hummingbird Dr", city: "Grovetown", state: "GA", zip: "30813", phone: "706-574-3111", email: "", priceTier: "$$" },
+    { name: "Cottages at Grovetown", address: "733 Benelli Ct", city: "Grovetown", state: "GA", zip: "30813", phone: "", email: "", priceTier: "$$$$" },
+    { name: "Pines at Five (Furnished Corporate Housing)", address: "3682 Deans Bridge Rd", city: "Hephzibah", state: "GA", zip: "30815", phone: "706-808-2601", email: "", priceTier: "" },
+    { name: "Providence Family Homes (Fort Gordon military housing)", address: "155 3rd Ave", city: "Fort Gordon", state: "GA", zip: "30905", phone: "706-772-7041", email: "Fort_Gordon_Housing_RCI@army.mil", priceTier: "" }
   ];
 
-  const MAIL_APT_STATUS_LABELS = {
-    not_contacted: 'Not Contacted',
-    contacted: 'Contacted',
-    follow_up: 'Follow-Up Needed',
-    declined: 'Declined'
-  };
+  function mailAptGetQuarter(dateStr){
+    if(!dateStr) return null;
+    const d = new Date(dateStr + 'T00:00:00');
+    if(isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+  }
+
+  function mailAptIsOverdue(rec){
+    return mailAptGetQuarter(rec.dateContacted) !== mailAptGetQuarter(todayStr());
+  }
+
+  function updateMailListTileBadge(){
+    const anyOverdue = mailAptRecords.some(r => mailAptIsOverdue(r));
+    const tile = document.getElementById('tile-maillist');
+    const badge = document.getElementById('mailListTileBadge');
+    if(anyOverdue){
+      tile.classList.add('attention');
+      badge.style.display = 'inline-block';
+    } else {
+      tile.classList.remove('attention');
+      badge.style.display = 'none';
+    }
+  }
 
   function mailAptNormalizeKey(rec){
     return (rec.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
+
+  const MAIL_APT_PRICE_LOOKUP = (() => {
+    const map = {};
+    MAIL_APT_SEED.forEach(r => { map[mailAptNormalizeKey(r)] = r.priceTier || ''; });
+    return map;
+  })();
 
   async function loadMailAptData(){
     try{
@@ -4186,28 +4228,44 @@
           id: 'apt_seed_' + i,
           name: r.name, address: r.address, city: r.city, state: r.state, zip: r.zip,
           phone: r.phone, email: r.email,
-          status: 'not_contacted', dateContacted: null,
+          priceTier: r.priceTier || '', dateContacted: null,
           dateAdded: new Date().toISOString().slice(0,10)
         }));
         await saveMailAptRecords();
       } else {
         mailAptRecords = data || [];
+        // Backfill price tiers for records that predate the pricing research --
+        // matches by complex name, only touching records missing a tier.
+        let backfilled = false;
+        mailAptRecords.forEach(rec => {
+          if(!rec.priceTier){
+            const key = mailAptNormalizeKey(rec);
+            if(MAIL_APT_PRICE_LOOKUP.hasOwnProperty(key) && MAIL_APT_PRICE_LOOKUP[key]){
+              rec.priceTier = MAIL_APT_PRICE_LOOKUP[key];
+              backfilled = true;
+            }
+          }
+        });
+        if(backfilled) await saveMailAptRecords();
       }
     }catch(err){
       console.error('Apartment outreach load failed:', err);
       mailAptRecords = mailAptRecords || [];
     }
     renderMailAptTable();
+    updateMailListTileBadge();
   }
 
   async function saveMailAptRecords(){
     try{ return await window.dashboardApi.set(MAIL_APT_KEY, mailAptRecords); }
     catch(err){ console.error('Apartment outreach save failed:', err); return false; }
+    finally{ updateMailListTileBadge(); }
   }
 
   function renderMailAptTable(){
     const filter = (document.getElementById('mailApt_filter').value || '').trim().toLowerCase();
     const statusFilter = document.getElementById('mailApt_statusFilter').value;
+    const sortBy = document.getElementById('mailApt_sortBy').value;
     const tbody = document.getElementById('mailApt_rows');
     const emptyNote = document.getElementById('mailApt_emptyNote');
 
@@ -4219,15 +4277,28 @@
         (r.city || '').toLowerCase().includes(filter)
       );
     }
-    if(statusFilter !== 'all') filtered = filtered.filter(r => r.status === statusFilter);
+    if(statusFilter === 'overdue') filtered = filtered.filter(r => mailAptIsOverdue(r));
+    if(statusFilter === 'up_to_date') filtered = filtered.filter(r => !mailAptIsOverdue(r));
 
-    filtered.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    if(sortBy === 'price_asc' || sortBy === 'price_desc'){
+      const tierRank = t => t ? t.length : (sortBy === 'price_asc' ? 99 : -1); // unpriced sorts last either direction
+      filtered.sort((a,b)=> sortBy === 'price_asc' ? tierRank(a.priceTier) - tierRank(b.priceTier) : tierRank(b.priceTier) - tierRank(a.priceTier));
+    } else {
+      filtered.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    }
 
-    document.getElementById('mailApt_count').textContent = mailAptRecords.length;
-    emptyNote.style.display = mailAptRecords.length === 0 ? 'block' : 'none';
+    const total = mailAptRecords.length;
+    const overdueCount = mailAptRecords.filter(r => mailAptIsOverdue(r)).length;
+    document.getElementById('mailApt_count').textContent = total;
+    document.getElementById('mailApt_kpiOverdue').textContent = overdueCount;
+    document.getElementById('mailApt_kpiUpToDate').textContent = total - overdueCount;
+    emptyNote.style.display = total === 0 ? 'block' : 'none';
 
-    tbody.innerHTML = filtered.map(r => `
-      <tr data-id="${r.id}">
+    tbody.innerHTML = filtered.map(r => {
+      const overdue = mailAptIsOverdue(r);
+      const rowBg = overdue ? 'background:#FDEDEA;' : '';
+      return `
+      <tr data-id="${r.id}" style="${rowBg}">
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="checkbox" class="mailApt-select" data-id="${r.id}"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600; max-width:220px;">${mailEsc(r.name)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="address" value="${mailEsc(r.address)}" style="width:150px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
@@ -4236,13 +4307,11 @@
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="zip" value="${mailEsc(r.zip)}" style="width:55px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="phone" value="${mailEsc(r.phone)}" style="width:105px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="email" value="${mailEsc(r.email)}" style="width:170px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">
-          <select class="mailApt-status" data-id="${r.id}" style="font-size:12px; padding:4px 5px; border:1px solid var(--line); border-radius:3px;">
-            ${Object.entries(MAIL_APT_STATUS_LABELS).map(([val, label]) => `<option value="${val}" ${r.status===val?'selected':''}>${label}</option>`).join('')}
-          </select>
-        </td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono',monospace; color:var(--brand-green); font-weight:600; white-space:nowrap;">${r.priceTier ? mailEsc(r.priceTier) : '<span style="color:var(--muted);">&mdash;</span>'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="date" class="mailApt-date" data-id="${r.id}" value="${r.dateContacted || ''}" style="font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="mailApt-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
 
     tbody.querySelectorAll('.mailApt-edit').forEach(inp => inp.addEventListener('change', async (e)=>{
       const rec = mailAptRecords.find(r => r.id === e.target.dataset.id);
@@ -4251,12 +4320,12 @@
       rec[field] = field === 'state' ? e.target.value.trim().toUpperCase() : e.target.value.trim();
       await saveMailAptRecords();
     }));
-    tbody.querySelectorAll('.mailApt-status').forEach(sel => sel.addEventListener('change', async (e)=>{
+    tbody.querySelectorAll('.mailApt-date').forEach(inp => inp.addEventListener('change', async (e)=>{
       const rec = mailAptRecords.find(r => r.id === e.target.dataset.id);
       if(!rec) return;
-      rec.status = e.target.value;
-      rec.dateContacted = e.target.value === 'contacted' ? new Date().toISOString().slice(0,10) : rec.dateContacted;
+      rec.dateContacted = e.target.value || null;
       await saveMailAptRecords();
+      renderMailAptTable();
     }));
     tbody.querySelectorAll('.mailApt-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.target.dataset.id;
@@ -4280,14 +4349,14 @@
         errors.push(`Line ${idx+1}: expected at least 5 fields (Name, Address, City, State, Zip) \u2014 got ${cols.length}: "${line}"`);
         return;
       }
-      const [name, address, city, state, zip, phone, email] = cols;
+      const [name, address, city, state, zip, phone, email, priceTier] = cols;
       if(!name || !address){
         errors.push(`Line ${idx+1}: missing name or address \u2014 "${line}"`);
         return;
       }
       parsed.push({
         name, address, city: city || '', state: (state || '').toUpperCase(), zip: zip || '',
-        phone: phone || '', email: email || ''
+        phone: phone || '', email: email || '', priceTier: priceTier || ''
       });
     });
     return { parsed, errors };
@@ -4319,7 +4388,7 @@
         id: 'apt_' + Date.now() + '_' + Math.floor(Math.random()*1000),
         name: p.name, address: p.address, city: p.city, state: p.state, zip: p.zip,
         phone: p.phone, email: p.email,
-        status: 'not_contacted', dateContacted: null,
+        priceTier: p.priceTier || '', dateContacted: null,
         dateAdded: new Date().toISOString().slice(0,10)
       });
       added++;
@@ -4338,6 +4407,7 @@
 
   document.getElementById('mailApt_filter').addEventListener('input', renderMailAptTable);
   document.getElementById('mailApt_statusFilter').addEventListener('change', renderMailAptTable);
+  document.getElementById('mailApt_sortBy').addEventListener('change', renderMailAptTable);
 
   document.getElementById('mailApt_selectAll').addEventListener('change', (e)=>{
     document.querySelectorAll('.mailApt-select').forEach(cb => cb.checked = e.target.checked);
@@ -4354,7 +4424,7 @@
     const today = new Date().toISOString().slice(0,10);
     selectedIds.forEach(id => {
       const rec = mailAptRecords.find(r => r.id === id);
-      if(rec){ rec.status = 'contacted'; rec.dateContacted = today; }
+      if(rec){ rec.dateContacted = today; }
     });
     const ok = await saveMailAptRecords();
     renderMailAptTable();
@@ -4412,8 +4482,9 @@
     }
     const rows = mailAptRecords.map(r => ({
       name: r.name, address: r.address, city: r.city, state: r.state, zip: r.zip,
-      phone: r.phone, email: r.email, status: MAIL_APT_STATUS_LABELS[r.status] || r.status,
-      dateContacted: r.dateContacted || ''
+      phone: r.phone, email: r.email, priceTier: r.priceTier || '',
+      dateContacted: r.dateContacted || '',
+      contactStatus: mailAptIsOverdue(r) ? 'Overdue' : 'Contacted This Quarter'
     }));
     const sheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -4423,6 +4494,16 @@
     statusEl.textContent = `Exported ${rows.length} complex${rows.length===1?'':'es'}.`;
     statusEl.className = 'status-msg ok';
   });
+
+  (async ()=>{
+    try{
+      const data = await window.dashboardApi.get(MAIL_APT_KEY, null);
+      if(data){
+        mailAptRecords = data;
+        updateMailListTileBadge();
+      }
+    }catch(err){ console.error('Initial apartment outreach status check failed:', err); }
+  })();
 
   // ---------- Settings ----------
   const SETTINGS_CONFIG_FILES_KEY = 'settings-config-files';
