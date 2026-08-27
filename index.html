@@ -1425,6 +1425,7 @@
         </div>
         <div class="form-actions" style="margin-bottom:14px;">
           <button type="button" id="mail_lookupZipsBtn" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Look Up Missing Zips</button>
+          <button type="button" id="mail_dedupBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Remove Duplicates</button>
           <button type="button" id="mail_markMailedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Mailed</button>
           <button type="button" id="mail_exportUnmailedBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Not-Yet-Mailed (.xlsx)</button>
           <button type="button" id="mail_exportAllBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export All (.xlsx)</button>
@@ -3571,10 +3572,11 @@
   }
 
   function mailNormalizeKey(rec){
-    const addr = (rec.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const zip = (rec.zip || '').trim();
-    const city = (rec.city || '').trim().toLowerCase();
-    return addr + '|' + (zip || city);
+    // Address alone -- city has proven unreliable as an identity signal
+    // (the same real address can get pulled with different, sometimes
+    // wrong, city labels across different weeks), so keying on it let real
+    // duplicates slip through undetected.
+    return (rec.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
 
   async function loadMailListData(){
@@ -3903,6 +3905,50 @@
     renderMailListTable();
     renderMailListKpis();
     statusEl.textContent = ok ? `Cleared ${count} address${count===1?'':'es'}.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('mail_dedupBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_bulkStatus');
+    const groups = new Map();
+    mailListRecords.forEach(rec => {
+      const key = mailNormalizeKey(rec);
+      if(!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(rec);
+    });
+
+    const duplicateGroups = Array.from(groups.values()).filter(g => g.length > 1);
+    if(duplicateGroups.length === 0){
+      statusEl.textContent = 'No duplicate addresses found.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const removedCount = duplicateGroups.reduce((sum, g) => sum + g.length - 1, 0);
+    if(!confirm(`Found ${duplicateGroups.length} address${duplicateGroups.length===1?'':'es'} with duplicates, ${removedCount} record${removedCount===1?'':'s'} total to remove. Continue?`)) return;
+
+    const survivors = [];
+    groups.forEach(group => {
+      if(group.length === 1){
+        survivors.push(group[0]);
+        return;
+      }
+      // Keep whichever copy has a confirmed zip (more likely to also have a
+      // corrected city); fall back to the first if none do. Carry over
+      // mailed status from any copy so a duplicate already marked mailed
+      // never results in a surviving record that looks un-mailed.
+      let keeper = group.find(r => r.zip) || group[0];
+      const mailedCopy = group.find(r => r.mailed);
+      if(mailedCopy && !keeper.mailed){
+        keeper = Object.assign({}, keeper, { mailed: true, dateMailed: keeper.dateMailed || mailedCopy.dateMailed });
+      }
+      survivors.push(keeper);
+    });
+
+    mailListRecords = survivors;
+    const ok = await saveMailListRecords();
+    renderMailListTable();
+    renderMailListKpis();
+    statusEl.textContent = ok ? `Removed ${removedCount} duplicate${removedCount===1?'':'s'}.` : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
 
