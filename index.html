@@ -3906,12 +3906,12 @@
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
 
-  async function mailLookupZip(address, state){
+  async function mailLookupZip(address, city, state){
     try{
       const res = await fetch(`${API_BASE}/api/lookup-zip`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({address, state})
+        body: JSON.stringify({address, city, state})
       });
       if(handleAuthFailure(res)) return { error: 'auth' };
       if(!res.ok){
@@ -3949,11 +3949,11 @@
       const rec = eligible[i];
       statusEl.textContent = `Looking up zip ${i+1} of ${eligible.length}...`;
       statusEl.className = 'status-msg';
-      // Deliberately don't send the stored city -- Lob determines it fresh
-      // from the street address and state, so a wrong city on our end (like
-      // a blanket "Evans" label) can't cause a false undeliverable result,
-      // and a genuinely wrong city gets corrected instead of just skipped.
-      const result = await mailLookupZip(rec.address, rec.state);
+      // Send the stored city as a starting hint -- Lob requires a city
+      // guess when there's no zip to search with. If that guess is wrong,
+      // the backend automatically retries with other local candidate
+      // cities and reports back whichever one actually matched.
+      const result = await mailLookupZip(rec.address, rec.city, rec.state);
       if(result.error === 'auth'){
         btn.disabled = false;
         return;
