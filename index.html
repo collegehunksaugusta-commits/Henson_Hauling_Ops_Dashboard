@@ -2117,8 +2117,38 @@
         <span class="status-msg" id="mail_copilotStatus"></span>
       </div>
 
+      <div class="panel" id="mailScreenshotPanel">
+        <h3>Upload Listing Screenshots</h3>
+        <p class="form-note">Upload screenshots of listings (Redfin, Zillow, or any source) and Claude will read the addresses directly from the images &mdash; no pasting or retyping needed. Review the results below before anything is added to the list.</p>
+        <input type="file" id="mail_screenshotFiles" accept=".jpg,.jpeg,.png" multiple style="font-family:'Inter',sans-serif; font-size:13px;">
+        <div class="form-actions">
+          <button class="btn-primary" id="mail_extractBtn" type="button">Extract Addresses</button>
+          <span class="status-msg" id="mail_extractStatus"></span>
+        </div>
+
+        <div id="mail_extractReviewWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Review Before Adding</h4>
+          <p class="form-note">Check each address, edit anything that looks wrong, and remove any that shouldn't be added.</p>
+          <table>
+            <thead><tr>
+              <th>Address</th>
+              <th>City</th>
+              <th>State</th>
+              <th>Zip</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="mail_extractReviewRows"></tbody>
+          </table>
+          <div class="form-actions" style="margin-top:14px;">
+            <button class="btn-primary" id="mail_confirmExtractBtn" type="button">Add These to List</button>
+            <button type="button" id="mail_cancelExtractBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Cancel</button>
+            <span class="status-msg" id="mail_confirmExtractStatus"></span>
+          </div>
+        </div>
+      </div>
+
       <div class="panel" id="mailListAddPanel">
-        <h3>Add Addresses</h3>
+        <h3>Or Paste Addresses</h3>
         <p class="form-note">Paste one address per line, tab- or comma-separated: <span class="mono">Address, City, State, Zip</span>. Name defaults to "Current Resident" &mdash; include two extra columns at the front, <span class="mono">First, Last</span>, to override. State and zip can be combined in one chunk (like "GA 30809") and will be split automatically; zip can also be left blank if unconfirmed. Anything after the zip (price, agent, MLS #, etc.) is ignored automatically. Duplicate addresses already on the list are skipped automatically.</p>
         <textarea id="mail_bulkInput" rows="6" placeholder="320 Kirkwood Dr, Evans, GA, 30809" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; box-sizing:border-box;"></textarea>
         <div class="form-actions">
@@ -4904,6 +4934,143 @@
       statusEl.textContent = 'Command ready (copy from the popup).';
       statusEl.className = 'status-msg ok';
     }
+  });
+
+  let mailExtractReview = [];
+
+  document.getElementById('mail_extractBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_extractStatus');
+    const fileInput = document.getElementById('mail_screenshotFiles');
+    const files = Array.from(fileInput.files || []);
+    if(files.length === 0){
+      statusEl.textContent = 'Choose at least one screenshot first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(files.length > 20){
+      statusEl.textContent = 'Please upload 20 screenshots or fewer at a time.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const oversized = files.find(f => f.size > 10*1024*1024);
+    if(oversized){
+      statusEl.textContent = `"${oversized.name}" is over 10MB \u2014 please use a smaller image.`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    statusEl.textContent = `Reading ${files.length} screenshot${files.length===1?'':'s'}...`;
+    statusEl.className = 'status-msg';
+    try{
+      const images = await Promise.all(files.map(f => readFileAsDataUri(f)));
+
+      statusEl.textContent = 'Extracting addresses \u2014 this may take a moment...';
+      const res = await fetch(`${API_BASE}/api/admin/extract-listings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ images })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Extraction failed.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      const listings = data.listings || [];
+      if(listings.length === 0){
+        statusEl.textContent = 'No addresses were found in those screenshots.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      mailExtractReview = listings.map((l, i) => ({
+        reviewId: 'rev_' + i,
+        address: l.address || '', city: l.city || '', state: (l.state || '').toUpperCase(), zip: l.zip || ''
+      }));
+      renderExtractReview();
+      statusEl.textContent = `Found ${listings.length} address${listings.length===1?'':'es'} \u2014 review below before adding.`;
+      statusEl.className = 'status-msg ok';
+      fileInput.value = '';
+    }catch(err){
+      console.error('Screenshot extraction failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  function renderExtractReview(){
+    const wrap = document.getElementById('mail_extractReviewWrap');
+    const tbody = document.getElementById('mail_extractReviewRows');
+    if(mailExtractReview.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    tbody.innerHTML = mailExtractReview.map(r => `
+      <tr data-review-id="${r.reviewId}">
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-extract-edit" data-review-id="${r.reviewId}" data-field="address" value="${mailEsc(r.address)}" style="width:100%; font-size:12.5px; padding:4px 5px; border:1px solid var(--line); border-radius:3px; box-sizing:border-box;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-extract-edit" data-review-id="${r.reviewId}" data-field="city" value="${mailEsc(r.city)}" style="width:100px; font-size:12.5px; padding:4px 5px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-extract-edit" data-review-id="${r.reviewId}" data-field="state" value="${mailEsc(r.state)}" style="width:40px; font-size:12.5px; padding:4px 5px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-extract-edit" data-review-id="${r.reviewId}" data-field="zip" value="${mailEsc(r.zip)}" style="width:65px; font-size:12.5px; padding:4px 5px; border:1px solid var(--line); border-radius:3px; ${!r.zip ? 'background:#FFF9E6;' : ''}"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="mail-extract-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Remove</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.mail-extract-edit').forEach(inp => inp.addEventListener('change', (e)=>{
+      const rec = mailExtractReview.find(r => r.reviewId === e.target.dataset.reviewId);
+      if(!rec) return;
+      const field = e.target.dataset.field;
+      rec[field] = field === 'state' ? e.target.value.trim().toUpperCase() : e.target.value.trim();
+    }));
+    tbody.querySelectorAll('.mail-extract-remove').forEach(btn => btn.addEventListener('click', (e)=>{
+      mailExtractReview = mailExtractReview.filter(r => r.reviewId !== e.target.dataset.reviewId);
+      renderExtractReview();
+    }));
+  }
+
+  document.getElementById('mail_cancelExtractBtn').addEventListener('click', ()=>{
+    mailExtractReview = [];
+    renderExtractReview();
+    document.getElementById('mail_extractStatus').textContent = '';
+  });
+
+  document.getElementById('mail_confirmExtractBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_confirmExtractStatus');
+    const valid = mailExtractReview.filter(r => r.address && r.city && r.state);
+    const skippedInvalid = mailExtractReview.length - valid.length;
+    if(valid.length === 0){
+      statusEl.textContent = 'Nothing valid to add \u2014 each row needs at least an address, city, and state.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const existingKeys = new Set(mailListRecords.map(mailNormalizeKey));
+    let added = 0, skippedDupe = 0;
+    valid.forEach(r => {
+      const key = mailNormalizeKey(r);
+      if(existingKeys.has(key)){ skippedDupe++; return; }
+      existingKeys.add(key);
+      mailListRecords.push({
+        id: 'mail_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        firstName: 'Current', lastName: 'Resident',
+        address: r.address, city: r.city, state: r.state, zip: r.zip,
+        dateAdded: new Date().toISOString().slice(0,10),
+        mailed: false, dateMailed: null
+      });
+      added++;
+    });
+
+    const ok = await saveMailListRecords();
+    renderMailListTable();
+    renderMailListKpis();
+    mailExtractReview = [];
+    renderExtractReview();
+    document.getElementById('mail_extractStatus').textContent = '';
+
+    let msg = ok ? `Added ${added} address${added===1?'':'es'}.` : 'Save failed \u2014 check your connection.';
+    if(skippedDupe > 0) msg += ` Skipped ${skippedDupe} duplicate${skippedDupe===1?'':'s'}.`;
+    if(skippedInvalid > 0) msg += ` Skipped ${skippedInvalid} incomplete row${skippedInvalid===1?'':'s'}.`;
+    statusEl.textContent = msg;
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
 
   document.getElementById('mail_addBtn').addEventListener('click', async ()=>{
