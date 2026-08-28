@@ -5778,8 +5778,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('set_saveDriverCodeBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('set_driverCodeStatus');
     const newCode = document.getElementById('set_newDriverCode').value.trim();
-    if(newCode.length < 6){
-      statusEl.textContent = 'Access code must be at least 6 characters.';
+    if(newCode.length < 5){
+      statusEl.textContent = 'Access code must be at least 5 characters.';
       statusEl.className = 'status-msg err';
       return;
     }
