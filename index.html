@@ -126,16 +126,20 @@
   .comp-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
   .comp-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
   .mail-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
+  .tips-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
   .mail-layout{display:flex; gap:20px; align-items:flex-start;}
   .mail-sidebar{display:flex; flex-direction:column; gap:6px; min-width:210px; flex-shrink:0;}
   .mail-sidebar .mail-section-btn{text-align:left; width:100%;}
+  .mail-sidebar .tips-section-btn{text-align:left; width:100%;}
   .mail-content{flex:1; min-width:0; width:100%; overflow-x:auto;}
   @media (max-width:760px){
     .mail-layout{flex-direction:column;}
     .mail-sidebar{flex-direction:row; flex-wrap:wrap; min-width:0; width:100%;}
     .mail-sidebar .mail-section-btn{width:auto; text-align:center;}
+    .mail-sidebar .tips-section-btn{width:auto; text-align:center;}
   }
   .mail-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
+  .tips-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
   .mailApt-route-tier-btn.active{background:var(--brand-orange); border-color:var(--brand-orange-dark); color:#fff;}
   .set-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
   .set-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
@@ -1172,6 +1176,12 @@
         <span class="icon">📬</span>
         <h3>Marketing</h3>
         <p>Residential, apartment, and storage outreach, door-hanger routes, and marketing materials &mdash; all in one place.</p>
+      </div>
+      <div class="tile" id="tile-tips" tabindex="0" role="button" aria-label="Open Tip Allocation">
+        <span class="badge" id="tipsTileBadge" style="display:none;">Needs Attention</span>
+        <span class="icon">💵</span>
+        <h3>Tip Allocation</h3>
+        <p>Split Square tips among the crew on each job, totaled automatically by pay period.</p>
       </div>
     </div>
   </div>
@@ -2481,6 +2491,106 @@
     </div>
   </div>
 
+  <!-- ============ TIP ALLOCATION DETAIL ============ -->
+  <div id="tipsDetail" style="display:none;">
+    <button class="backlink" id="tipsBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Tip Allocation</h2>
+        <p>Pulls tipped transactions from Square, reads the job number from the payment note, and splits each tip evenly among whichever crew members worked that job.</p>
+      </div>
+
+      <div class="mail-layout">
+        <div class="panel mail-sidebar" id="tipsSectionPanel">
+          <button type="button" class="tips-section-btn" data-section="allocate" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Allocate Tips</button>
+          <button type="button" class="tips-section-btn" data-section="summary" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Pay Period Summary</button>
+        </div>
+
+        <div class="mail-content">
+        <div id="tips_section_allocate" class="mail-section">
+          <div class="panel" id="tipsFetchPanel">
+            <div class="form-grid">
+              <label>Pull From Square, Last
+                <select id="tips_daysBack">
+                  <option value="14">14 Days</option>
+                  <option value="30" selected>30 Days</option>
+                  <option value="60">60 Days</option>
+                  <option value="90">90 Days</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="btn-primary" id="tips_refreshBtn" type="button">Refresh From Square</button>
+              <span class="status-msg" id="tips_fetchStatus"></span>
+            </div>
+          </div>
+
+          <div class="panel" id="tipsNeedsAttentionPanel" style="display:none;">
+            <h3>Needs a Job Number</h3>
+            <p class="form-note">These tips didn't have a clean 8-digit job number in the Square note. Enter one manually to allocate them.</p>
+            <table style="min-width:560px;">
+              <thead><tr>
+                <th>Date</th>
+                <th>Square Note</th>
+                <th>Tip</th>
+                <th>Job Number</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="tips_needsAttentionRows"></tbody>
+            </table>
+          </div>
+
+          <div class="panel" id="tipsAllocatePanel">
+            <h3>Allocate</h3>
+            <table style="min-width:600px;">
+              <thead><tr>
+                <th>Date</th>
+                <th>Job #</th>
+                <th>Tip</th>
+                <th>Employees</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="tips_allocateRows"></tbody>
+            </table>
+            <p class="form-note" id="tips_allocateEmptyNote" style="display:none;">No tipped transactions to allocate right now.</p>
+          </div>
+
+          <div class="panel" id="tipsAllocatedPanel">
+            <h3>Already Allocated</h3>
+            <table style="min-width:560px;">
+              <thead><tr>
+                <th>Date</th>
+                <th>Job #</th>
+                <th>Tip</th>
+                <th>Employees</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="tips_allocatedRows"></tbody>
+            </table>
+            <p class="form-note" id="tips_allocatedEmptyNote" style="display:none;">Nothing allocated yet.</p>
+          </div>
+        </div>
+
+        <div id="tips_section_summary" class="mail-section" style="display:none;">
+          <div class="panel" id="tipsSummaryPanel">
+            <h3>Pay Period Summary</h3>
+            <label>Week <select id="tips_summaryWeek"></select></label>
+            <table>
+              <thead><tr>
+                <th>Employee</th>
+                <th style="text-align:right;">Jobs</th>
+                <th style="text-align:right;">Total Tips</th>
+              </tr></thead>
+              <tbody id="tips_summaryRows"></tbody>
+            </table>
+            <p class="form-note" id="tips_summaryEmptyNote" style="display:none;">No allocated tips for this week yet.</p>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ SETTINGS DETAIL ============ -->
   <div id="settingsDetail" style="display:none;">
     <button class="backlink" id="settingsBackBtn">&larr; Dispatch</button>
@@ -2741,6 +2851,7 @@
   const settingsDetail = document.getElementById('settingsDetail');
   const mailListDetail = document.getElementById('mailListDetail');
   const mailRouteDetail = document.getElementById('mailRouteDetail');
+  const tipsDetail = document.getElementById('tipsDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -2753,6 +2864,7 @@
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
     mailListDetail.style.display = view === 'maillist' ? 'block' : 'none';
     mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
+    tipsDetail.style.display = view === 'tips' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -2779,6 +2891,10 @@
     }
     if(view === 'mailroute'){
       renderMailAptRoute(mailCurrentRouteSource || 'apartments', mailCurrentRouteTier || 'all');
+    }
+    if(view === 'tips'){
+      loadTipsData();
+      showTipsSection(tipsCurrentSection);
     }
   }
 
@@ -2827,6 +2943,10 @@
   document.getElementById('tile-maillist').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('maillist'); }});
   document.getElementById('mailListBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('mailRouteBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-tips').addEventListener('click', ()=> navigateTo('tips'));
+  document.getElementById('tile-tips').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('tips'); }});
+  document.getElementById('tipsBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
 
@@ -3822,6 +3942,255 @@
       updateFleetTileBadge();
     }catch(err){ console.error('Initial fleet status check failed:', err); }
   })();
+
+  // ---------- Tip Allocation ----------
+  const TIPS_ALLOCATIONS_KEY = 'square-tip-allocations';
+  let tipsPayments = [];       // raw fetched Square payments with a tip
+  let tipsAllocations = {};    // paymentId -> { jobNumber, tipAmount, date, employees: [names], allocatedAt }
+  let tipsJobOverrides = {};   // paymentId -> manually-entered job number, for notes Square's regex couldn't cleanly match
+  let tipsRoster = [];         // employee names
+  let tipsWeeks = [];          // [{weekStart, weekEnd}] pay period boundaries, sourced from labor-weeks
+  let tipsCurrentSection = 'allocate';
+
+  function tipsEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  function tipsMoney(n){
+    return '$' + (Number(n)||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  async function loadTipsData(){
+    try{
+      const saved = await window.dashboardApi.get(TIPS_ALLOCATIONS_KEY, {allocations:{}, overrides:{}});
+      tipsAllocations = (saved && saved.allocations) || {};
+      tipsJobOverrides = (saved && saved.overrides) || {};
+    }catch(err){ console.error('Tip allocations load failed:', err); }
+
+    try{ tipsRoster = await getCurrentEmployeeRoster(); }
+    catch(err){ console.error('Roster load failed for tips:', err); tipsRoster = []; }
+
+    try{
+      const rawWeeks = await window.dashboardApi.get('labor-weeks', []);
+      tipsWeeks = (rawWeeks || [])
+        .map(w => ({ weekStart: w.weekStart, weekEnd: w.weekEnd }))
+        .filter(w => w.weekStart && w.weekEnd)
+        .sort((a,b) => b.weekStart.localeCompare(a.weekStart));
+    }catch(err){ console.error('Pay period load failed for tips:', err); tipsWeeks = []; }
+
+    if(tipsPayments.length === 0){
+      await tipsRefreshFromSquare();
+    } else {
+      renderTipsAll();
+    }
+  }
+
+  async function tipsSaveAllocations(){
+    try{
+      return await window.dashboardApi.set(TIPS_ALLOCATIONS_KEY, { allocations: tipsAllocations, overrides: tipsJobOverrides });
+    }catch(err){ console.error('Tip allocations save failed:', err); return false; }
+  }
+
+  async function tipsRefreshFromSquare(){
+    const statusEl = document.getElementById('tips_fetchStatus');
+    const days = document.getElementById('tips_daysBack').value;
+    statusEl.textContent = 'Pulling from Square\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/square-tips?days=${days}`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not reach Square.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      tipsPayments = data.payments || [];
+      tipsPayments.forEach(p => {
+        if(!p.jobNumber && tipsJobOverrides[p.id]) p.jobNumber = tipsJobOverrides[p.id];
+      });
+      statusEl.textContent = `Loaded ${tipsPayments.length} tipped transaction${tipsPayments.length===1?'':'s'} from the last ${days} days.`;
+      statusEl.className = 'status-msg ok';
+      renderTipsAll();
+    }catch(err){
+      console.error('Square tips fetch failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+  document.getElementById('tips_refreshBtn').addEventListener('click', tipsRefreshFromSquare);
+
+  function updateTipsTileBadge(){
+    const needsAttentionCount = tipsPayments.filter(p => !p.jobNumber).length;
+    document.getElementById('tipsTileBadge').style.display = needsAttentionCount > 0 ? 'inline-block' : 'none';
+  }
+
+  function renderTipsAll(){
+    renderTipsNeedsAttention();
+    renderTipsAllocate();
+    renderTipsAllocated();
+    renderTipsSummaryWeekOptions();
+    renderTipsSummary();
+    updateTipsTileBadge();
+  }
+
+  function renderTipsNeedsAttention(){
+    const panel = document.getElementById('tipsNeedsAttentionPanel');
+    const tbody = document.getElementById('tips_needsAttentionRows');
+    const rows = tipsPayments.filter(p => !p.jobNumber);
+    panel.style.display = rows.length > 0 ? 'block' : 'none';
+    tbody.innerHTML = rows.map(p => `
+      <tr data-id="${p.id}">
+        <td>${tipsEsc(p.date)}</td>
+        <td style="max-width:220px; overflow-wrap:break-word;">${p.note ? tipsEsc(p.note) : '<i>(no note)</i>'}</td>
+        <td>${tipsMoney(p.tipAmount)}</td>
+        <td><input type="text" class="tips-manual-job" data-id="${p.id}" maxlength="8" placeholder="8-digit job #" style="width:110px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td><button type="button" class="tips-save-job" data-id="${p.id}" style="background:var(--charcoal); color:#fff; border:none; padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Save</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.tips-save-job').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const input = tbody.querySelector(`.tips-manual-job[data-id="${id}"]`);
+      const val = (input.value || '').trim();
+      if(!/^\d{8}$/.test(val)){
+        input.style.borderColor = '#b3261e';
+        input.focus();
+        return;
+      }
+      tipsJobOverrides[id] = val;
+      const payment = tipsPayments.find(p => p.id === id);
+      if(payment) payment.jobNumber = val;
+      await tipsSaveAllocations();
+      renderTipsAll();
+    }));
+  }
+
+  function tipsEmployeeCheckboxesHtml(selected){
+    if(tipsRoster.length === 0){
+      return '<span class="form-note">No roster available.</span>';
+    }
+    const sel = new Set(selected || []);
+    return `<div class="tips-emp-list" style="max-height:110px; overflow-y:auto; border:1px solid var(--line); border-radius:4px; padding:6px; font-size:12.5px;">
+      ${tipsRoster.map(name => `
+        <label style="display:flex; align-items:center; gap:6px; padding:2px 0; cursor:pointer;">
+          <input type="checkbox" class="tips-emp-check" value="${tipsEsc(name)}" ${sel.has(name) ? 'checked' : ''}>
+          ${tipsEsc(name)}
+        </label>`).join('')}
+    </div>`;
+  }
+
+  function renderTipsAllocate(){
+    const tbody = document.getElementById('tips_allocateRows');
+    const emptyNote = document.getElementById('tips_allocateEmptyNote');
+    const rows = tipsPayments.filter(p => p.jobNumber && !tipsAllocations[p.id]);
+    emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
+    tbody.innerHTML = rows.map(p => `
+      <tr data-id="${p.id}">
+        <td>${tipsEsc(p.date)}</td>
+        <td style="font-weight:600;">${tipsEsc(p.jobNumber)}</td>
+        <td>${tipsMoney(p.tipAmount)}</td>
+        <td>${tipsEmployeeCheckboxesHtml([])}</td>
+        <td><button type="button" class="tips-save-alloc" data-id="${p.id}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:3px; font-size:12px; cursor:pointer;">Split &amp; Save</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.tips-save-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const row = tbody.querySelector(`tr[data-id="${id}"]`);
+      const checked = Array.from(row.querySelectorAll('.tips-emp-check:checked')).map(cb => cb.value);
+      if(checked.length === 0){
+        alert('Select at least one employee to split this tip.');
+        return;
+      }
+      const payment = tipsPayments.find(p => p.id === id);
+      if(!payment) return;
+      tipsAllocations[id] = {
+        jobNumber: payment.jobNumber, tipAmount: payment.tipAmount, date: payment.date,
+        employees: checked, allocatedAt: new Date().toISOString()
+      };
+      const ok = await tipsSaveAllocations();
+      if(!ok){ alert('Save failed \u2014 check your connection and try again.'); return; }
+      renderTipsAll();
+    }));
+  }
+
+  function renderTipsAllocated(){
+    const tbody = document.getElementById('tips_allocatedRows');
+    const emptyNote = document.getElementById('tips_allocatedEmptyNote');
+    const entries = Object.entries(tipsAllocations).sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
+    emptyNote.style.display = entries.length === 0 ? 'block' : 'none';
+    tbody.innerHTML = entries.map(([id, a]) => {
+      const perPerson = a.tipAmount / a.employees.length;
+      return `
+      <tr data-id="${id}">
+        <td>${tipsEsc(a.date)}</td>
+        <td style="font-weight:600;">${tipsEsc(a.jobNumber)}</td>
+        <td>${tipsMoney(a.tipAmount)}</td>
+        <td>${a.employees.map(n => tipsEsc(n)).join(', ')} <span class="form-note">(${tipsMoney(perPerson)} each)</span></td>
+        <td><button type="button" class="tips-undo-alloc" data-id="${id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.tips-undo-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      delete tipsAllocations[id];
+      await tipsSaveAllocations();
+      renderTipsAll();
+    }));
+  }
+
+  function tipsWeekLabel(w){
+    return fmtDate(w.weekStart) + ' \u2013 ' + fmtDate(w.weekEnd);
+  }
+
+  function renderTipsSummaryWeekOptions(){
+    const sel = document.getElementById('tips_summaryWeek');
+    const prevValue = sel.value;
+    sel.innerHTML = tipsWeeks.map(w => `<option value="${w.weekStart}">${tipsWeekLabel(w)}</option>`).join('');
+    if(prevValue && tipsWeeks.some(w => w.weekStart === prevValue)) sel.value = prevValue;
+  }
+
+  function renderTipsSummary(){
+    const tbody = document.getElementById('tips_summaryRows');
+    const emptyNote = document.getElementById('tips_summaryEmptyNote');
+    const weekStart = document.getElementById('tips_summaryWeek').value;
+    const week = tipsWeeks.find(w => w.weekStart === weekStart);
+    if(!week){
+      tbody.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    const totals = {};
+    Object.values(tipsAllocations).forEach(a => {
+      if(a.date < week.weekStart || a.date > week.weekEnd) return;
+      const share = a.tipAmount / a.employees.length;
+      a.employees.forEach(name => {
+        if(!totals[name]) totals[name] = { total: 0, jobs: new Set() };
+        totals[name].total += share;
+        totals[name].jobs.add(a.jobNumber);
+      });
+    });
+    const names = Object.keys(totals).sort();
+    emptyNote.style.display = names.length === 0 ? 'block' : 'none';
+    tbody.innerHTML = names.map(name => `
+      <tr>
+        <td>${tipsEsc(name)}</td>
+        <td style="text-align:right;">${totals[name].jobs.size}</td>
+        <td style="text-align:right; font-weight:600;">${tipsMoney(totals[name].total)}</td>
+      </tr>`).join('');
+  }
+  document.getElementById('tips_summaryWeek').addEventListener('change', renderTipsSummary);
+
+  function showTipsSection(section){
+    tipsCurrentSection = section;
+    document.getElementById('tips_section_allocate').style.display = section === 'allocate' ? 'block' : 'none';
+    document.getElementById('tips_section_summary').style.display = section === 'summary' ? 'block' : 'none';
+    document.querySelectorAll('.tips-section-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.section === section);
+    });
+  }
+  document.querySelectorAll('.tips-section-btn').forEach(btn => btn.addEventListener('click', ()=> showTipsSection(btn.dataset.section)));
 
   // ---------- Attendance Tracking ----------
   const ATTENDANCE_KEY = 'attendance-records';
