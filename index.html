@@ -3090,6 +3090,21 @@
       });
     }
 
+    // College Hunks benchmark -- a fixed target, not computed from data, so
+    // it always sits at exactly 28% regardless of what's shown. Same green
+    // used for "on target" on the gauge below, for visual consistency.
+    datasets.push({
+      label:'CHHJ Benchmark (28%)',
+      data: labels.map(()=> 28),
+      borderColor:'#00843D',
+      borderDash:[7,5],
+      borderWidth:2,
+      pointRadius:0,
+      pointHoverRadius:0,
+      fill:false,
+      tension:0,
+    });
+
     // Overall trend line (linear regression) across whatever's currently displayed.
     const trendValues = linearRegression(data);
     if(trendValues){
