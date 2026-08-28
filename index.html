@@ -3526,7 +3526,7 @@
   // screenshots (especially PNGs) can be several MB each, and a batch of
   // several can be large enough to get rejected before the request even
   // reaches the backend. A listing screenshot only needs to be legible for
-  // Claude to read the text off it, so this caps the longest side at 1600px
+  // Claude to read the text off it, so this caps the longest side at 2000px
   // and re-encodes as JPEG, which is typically 80-95% smaller with no
   // meaningful loss of readability.
   function compressImageForUpload(file, maxDimension, quality){
@@ -4977,7 +4977,7 @@
   }
 
   function addPastedBlob(blob){
-    return compressImageForUpload(blob, 1600, 0.85).then(dataUri => {
+    return compressImageForUpload(blob, 2000, 0.92).then(dataUri => {
       // Estimate decoded byte size from the base64 payload length for the size-limit check below.
       const approxBytes = Math.round((dataUri.length - dataUri.indexOf(',') - 1) * 0.75);
       mailPastedImages.push({ id: 'paste_' + Date.now() + '_' + Math.floor(Math.random()*1000), dataUri, sizeBytes: approxBytes });
@@ -5057,6 +5057,7 @@
         return;
       }
       const listings = data.listings || [];
+      const partialFailures = data.partialFailures || 0;
       if(listings.length === 0){
         statusEl.textContent = 'No addresses were found in those screenshots.';
         statusEl.className = 'status-msg err';
@@ -5067,7 +5068,9 @@
         address: l.address || '', city: l.city || '', state: (l.state || '').toUpperCase(), zip: l.zip || ''
       }));
       renderExtractReview();
-      statusEl.textContent = `Found ${listings.length} address${listings.length===1?'':'es'} \u2014 review below before adding.`;
+      let successMsg = `Found ${listings.length} address${listings.length===1?'':'es'} \u2014 review below before adding.`;
+      if(partialFailures > 0) successMsg += ` (${partialFailures} batch${partialFailures===1?'':'es'} of screenshots failed to process \u2014 you may want to try those again.)`;
+      statusEl.textContent = successMsg;
       statusEl.className = 'status-msg ok';
       mailPastedImages = [];
       renderPastedThumbnails();
