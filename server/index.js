@@ -475,6 +475,37 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
   }
 });
 
+// ============ Dashboard Tile Order ============
+// Lets an admin drag-reorder the home screen tiles; everyone sees the same
+// resulting order, since this is a shared dashboard layout, not a personal
+// preference.
+const TILE_ORDER_KEY = 'dashboard-tile-order';
+
+app.get('/api/tile-order', requireAuth, async (req, res) => {
+  try {
+    const raw = await redis.get(TILE_ORDER_KEY);
+    const order = raw ? JSON.parse(raw) : [];
+    res.json({ order });
+  } catch (err) {
+    console.error('Get tile order failed:', err.message);
+    res.status(500).json({ error: 'Could not load tile order.' });
+  }
+});
+
+app.post('/api/admin/tile-order', requireAuth, requireAdmin, async (req, res) => {
+  const { order } = req.body || {};
+  if (!Array.isArray(order) || !order.every(id => typeof id === 'string')) {
+    return res.status(400).json({ error: 'Order must be an array of tile IDs.' });
+  }
+  try {
+    await redis.set(TILE_ORDER_KEY, JSON.stringify(order));
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('Save tile order failed:', err.message);
+    res.status(500).json({ error: 'Could not save tile order.' });
+  }
+});
+
 // Employee names (not the financial payroll details) are needed by
 // Attendance Tracking and Regulatory Compliance's Drivers section, which
 // aren't restricted to admins -- so this computes just the name list from
