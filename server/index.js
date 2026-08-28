@@ -886,7 +886,12 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
 
     const JOB_NUMBER_RE = /\b\d{8}\b/;
     const withTips = allPayments
-      .filter(p => p.tip_money && p.tip_money.amount > 0)
+      // Only COMPLETED payments actually earned revenue -- a connectivity
+      // glitch during checkout can leave a FAILED or CANCELED attempt in
+      // Square's records (with the tip already entered) alongside the
+      // successful retry. Square's own dashboard only shows COMPLETED
+      // payments, so this keeps the two views consistent.
+      .filter(p => p.status === 'COMPLETED' && p.tip_money && p.tip_money.amount > 0)
       .map(p => {
         const note = p.note || '';
         const match = note.match(JOB_NUMBER_RE);
@@ -904,7 +909,27 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
         };
       });
 
-    res.json({ payments: withTips });
+    // Safety net: if the same job number shows an identical tip amount on
+    // the same day more than once, it's almost certainly an accidental
+    // duplicate charge rather than two real, separate payments (a deposit
+    // and a final payment differ in amount and/or date). Keep the first,
+    // drop the rest, and log it so it stays auditable rather than silently
+    // vanishing.
+    const seenDupeKeys = new Set();
+    const deduped = [];
+    withTips.forEach(p => {
+      if (p.jobNumber) {
+        const dupeKey = `${p.jobNumber}|${p.date}|${p.tipAmount}`;
+        if (seenDupeKeys.has(dupeKey)) {
+          console.warn(`Square tips: dropped likely duplicate payment ${p.id} -- job ${p.jobNumber}, ${p.date}, $${p.tipAmount} already seen.`);
+          return;
+        }
+        seenDupeKeys.add(dupeKey);
+      }
+      deduped.push(p);
+    });
+
+    res.json({ payments: deduped });
   } catch (err) {
     console.error('Square tips fetch failed:', err.message);
     res.status(500).json({ error: 'Could not reach Square: ' + err.message });
