@@ -407,6 +407,21 @@
         <button class="btn-primary" id="nbhd_findBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Find Nearby Neighborhood</button>
         <span class="status-msg" id="nbhd_findStatus" style="text-align:center;"></span>
       </div>
+      <div id="nbhd_manualAreaWrap" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+        <label>Your Current Area
+          <select id="nbhd_currentArea">
+            <option value="evans">Evans</option>
+            <option value="martinez">Martinez</option>
+            <option value="augusta">Augusta</option>
+            <option value="grovetown">Grovetown</option>
+            <option value="hephzibah">Hephzibah</option>
+            <option value="fort gordon">Fort Gordon</option>
+          </select>
+        </label>
+        <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+          <button class="btn-primary" id="nbhd_findWithoutGpsBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Search Without Location</button>
+        </div>
+      </div>
     </div>
 
     <div id="nbhd_resultsPanel" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
@@ -556,6 +571,7 @@
     document.getElementById('driverNbhdView').style.display = 'block';
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
     document.getElementById('nbhd_visitPanel').style.display = 'none';
+    document.getElementById('nbhd_manualAreaWrap').style.display = 'none';
     document.getElementById('nbhd_findStatus').textContent = '';
     loadDriverRosterForNbhd();
   }
@@ -837,57 +853,73 @@
     }
   }
 
+  async function runNbhdSearch(current){
+    const statusEl = document.getElementById('nbhd_findStatus');
+    const nextArea = document.getElementById('nbhd_nextArea').value;
+    const nextCoords = DRIVER_AREA_CENTROIDS[nextArea];
+
+    statusEl.textContent = 'Finding nearby neighborhoods...';
+    statusEl.className = 'status-msg';
+    const neighborhoods = await loadDriverNeighborhoods();
+    if(neighborhoods === null){
+      statusEl.textContent = 'Could not load neighborhoods \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(neighborhoods.length === 0){
+      statusEl.textContent = 'No neighborhoods are set up yet \u2014 ask your administrator to add some.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const directDistance = driverHaversineMiles(current.lat, current.lng, nextCoords.lat, nextCoords.lng);
+    const ranked = neighborhoods.map(n => {
+      const toNbhd = driverHaversineMiles(current.lat, current.lng, n.lat, n.lng);
+      const nbhdToNext = driverHaversineMiles(n.lat, n.lng, nextCoords.lat, nextCoords.lng);
+      const detour = (toNbhd + nbhdToNext) - directDistance;
+      return Object.assign({}, n, { distanceFromMe: toNbhd, detour: Math.max(0, detour) });
+    }).sort((a,b) => a.detour - b.detour);
+
+    driverNbhdResults = ranked.slice(0, 5);
+    renderNbhdResults();
+    statusEl.textContent = '';
+    document.getElementById('nbhd_resultsPanel').style.display = 'block';
+  }
+
   document.getElementById('nbhd_findBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('nbhd_findStatus');
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
     document.getElementById('nbhd_visitPanel').style.display = 'none';
+    document.getElementById('nbhd_manualAreaWrap').style.display = 'none';
     statusEl.textContent = 'Getting your location...';
     statusEl.className = 'status-msg';
 
     if(!navigator.geolocation){
       statusEl.textContent = 'Location services aren\u2019t available in this browser.';
       statusEl.className = 'status-msg err';
+      document.getElementById('nbhd_manualAreaWrap').style.display = 'block';
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        const nextArea = document.getElementById('nbhd_nextArea').value;
-        const nextCoords = DRIVER_AREA_CENTROIDS[nextArea];
-
-        statusEl.textContent = 'Finding nearby neighborhoods...';
-        const neighborhoods = await loadDriverNeighborhoods();
-        if(neighborhoods === null){
-          statusEl.textContent = 'Could not load neighborhoods \u2014 check your connection.';
-          statusEl.className = 'status-msg err';
-          return;
-        }
-        if(neighborhoods.length === 0){
-          statusEl.textContent = 'No neighborhoods are set up yet \u2014 ask your administrator to add some.';
-          statusEl.className = 'status-msg err';
-          return;
-        }
-
-        const directDistance = driverHaversineMiles(current.lat, current.lng, nextCoords.lat, nextCoords.lng);
-        const ranked = neighborhoods.map(n => {
-          const toNbhd = driverHaversineMiles(current.lat, current.lng, n.lat, n.lng);
-          const nbhdToNext = driverHaversineMiles(n.lat, n.lng, nextCoords.lat, nextCoords.lng);
-          const detour = (toNbhd + nbhdToNext) - directDistance;
-          return Object.assign({}, n, { distanceFromMe: toNbhd, detour: Math.max(0, detour) });
-        }).sort((a,b) => a.detour - b.detour);
-
-        driverNbhdResults = ranked.slice(0, 5);
-        renderNbhdResults();
-        statusEl.textContent = '';
-        document.getElementById('nbhd_resultsPanel').style.display = 'block';
+      (pos) => {
+        runNbhdSearch({ lat: pos.coords.latitude, lng: pos.coords.longitude });
       },
       (err) => {
-        statusEl.textContent = `Couldn't get your location (${err.message}). Location access is required to find nearby neighborhoods.`;
+        statusEl.textContent = `Couldn't get your location (${err.message}). No problem \u2014 just pick your general area below instead.`;
         statusEl.className = 'status-msg err';
+        document.getElementById('nbhd_manualAreaWrap').style.display = 'block';
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
+  });
+
+  document.getElementById('nbhd_findWithoutGpsBtn').addEventListener('click', ()=>{
+    document.getElementById('nbhd_resultsPanel').style.display = 'none';
+    document.getElementById('nbhd_visitPanel').style.display = 'none';
+    const area = document.getElementById('nbhd_currentArea').value;
+    const coords = DRIVER_AREA_CENTROIDS[area];
+    runNbhdSearch(coords);
   });
 
   function renderNbhdResults(){
