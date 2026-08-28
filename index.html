@@ -2110,9 +2110,9 @@
       </div>
 
       <div class="form-actions" style="margin-bottom:14px;">
-        <a href="https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">South Carolina</a>
-        <a href="https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Evans and Martinez</a>
-        <a href="https://www.redfin.com/zipcode/30916/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12928+2:12930" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Augusta</a>
+        <a id="mail_redfinSc" href="https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">South Carolina</a>
+        <a id="mail_redfinEm" href="https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Evans and Martinez</a>
+        <a id="mail_redfinAug" href="https://www.redfin.com/zipcode/30916/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12928+2:12930" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Augusta</a>
         <span class="status-msg" id="mail_copilotStatus"></span>
       </div>
 
@@ -2536,6 +2536,28 @@
 
       <!-- ---- CONFIGURATION ---- -->
       <div id="set_config" class="set-section" style="display:none;">
+        <div class="panel" id="set_appSettingsPanel">
+          <h3>App Settings</h3>
+          <p class="form-note">Settings used elsewhere in the dashboard, grouped by which tile they belong to. Change these here instead of asking Claude to edit the code each time \u2014 helpful as things like search sources or contact emails change over time, and for handing this off to a future owner.</p>
+
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Marketing</h4>
+          <label>South Carolina Search URL <input type="url" id="appset_redfinSouthCarolina"></label>
+          <label>Evans and Martinez Search URL <input type="url" id="appset_redfinEvansMartinez"></label>
+          <label>Augusta Search URL <input type="url" id="appset_redfinAugusta"></label>
+          <p class="form-note">These are the URLs behind the three quick-search buttons in Marketing &rarr; Residential. If you switch from Redfin to Zillow or another source, update the URLs here.</p>
+
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Paperwork</h4>
+          <label>Completed Paperwork Email CC List <input type="text" id="appset_completedPaperworkCc" placeholder="email1@example.com, email2@example.com"></label>
+          <p class="form-note">Comma-separated. These addresses get CC'd whenever the "Email Client" button is used after uploading completed paperwork.</p>
+          <label>Google Review Link <input type="url" id="appset_googleReviewLink"></label>
+          <p class="form-note">Included in the thank-you email sent to clients. Update if your Google Business listing ever changes.</p>
+
+          <div class="form-actions" style="margin-top:16px;">
+            <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
+            <span class="status-msg" id="set_appSettingsStatus"></span>
+          </div>
+        </div>
+
         <div class="panel" id="set_configUploadPanel">
           <h3>Dashboard Source Code</h3>
           <p class="form-note">Store the current source files here as you update the dashboard over time, so the full build history lives inside the app itself &mdash; not just in GitHub or a chat history that might not transfer to a future owner.</p>
@@ -2652,6 +2674,39 @@
     }
   };
 
+  // ---------- App Settings (admin-editable values used across tiles) ----------
+  // Defaults mirror the backend's DEFAULT_APP_SETTINGS, so the app behaves
+  // identically to before this existed until an admin actually changes
+  // something. Loaded once at startup and cached here; any tile that needs
+  // a setting reads window.appSettings directly rather than re-fetching.
+  window.appSettings = {
+    marketing: {
+      redfinSouthCarolina: 'https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308',
+      redfinEvansMartinez: 'https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924',
+      redfinAugusta: 'https://www.redfin.com/zipcode/30916/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12928+2:12930'
+    },
+    paperwork: {
+      completedPaperworkCc: 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com',
+      googleReviewLink: 'https://g.page/r/CTsnaSA6YbvlEBM/review'
+    }
+  };
+  let appSettingsLoaded = false;
+  async function ensureAppSettingsLoaded(){
+    if(appSettingsLoaded) return window.appSettings;
+    try{
+      const res = await fetch(`${API_BASE}/api/app-settings`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return window.appSettings;
+      if(res.ok){
+        const data = await res.json();
+        if(data.settings) window.appSettings = data.settings;
+      }
+    }catch(err){
+      console.error('Load app settings failed, using defaults:', err);
+    }
+    appSettingsLoaded = true;
+    return window.appSettings;
+  }
+
   let weeks = [];
   let chart = null;
 
@@ -2708,6 +2763,7 @@
       loadMailStorageData();
       loadMailNbhdData();
       loadMailMaterialsData();
+      applyMarketingLinkSettings();
       showMailSection(mailCurrentSection);
     }
     if(view === 'mailroute'){
@@ -4729,7 +4785,18 @@
     }catch(err){ console.error('Initial compliance status check failed:', err); }
   })();
 
+  // Load app settings on initial page load so Marketing and Paperwork have
+  // the current values ready as soon as those tiles open.
+  ensureAppSettingsLoaded();
+
   // ---------- Mail Marketing List ----------
+  async function applyMarketingLinkSettings(){
+    await ensureAppSettingsLoaded();
+    const m = window.appSettings.marketing || {};
+    if(m.redfinSouthCarolina) document.getElementById('mail_redfinSc').href = m.redfinSouthCarolina;
+    if(m.redfinEvansMartinez) document.getElementById('mail_redfinEm').href = m.redfinEvansMartinez;
+    if(m.redfinAugusta) document.getElementById('mail_redfinAug').href = m.redfinAugusta;
+  }
   let mailCurrentSection = 'residential';
   function showMailSection(section){
     mailCurrentSection = section;
@@ -6794,6 +6861,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     await renderUserList();
     setupAddUserGate();
     await loadDriverCode();
+    await loadAppSettings();
     await renderConfigFilesList();
     await loadHandoffGuide();
   }
@@ -6812,6 +6880,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('set_addUserForm').style.display = isAdmin ? 'block' : 'none';
     document.getElementById('set_notAdminNote').style.display = isAdmin ? 'none' : 'block';
     document.getElementById('set_driverCodePanel').style.display = isAdmin ? 'block' : 'none';
+    document.getElementById('set_appSettingsPanel').style.display = isAdmin ? 'block' : 'none';
   }
 
   async function loadDriverCode(){
@@ -6858,6 +6927,64 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Save driver code failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  async function loadAppSettings(){
+    if(!isCurrentUserAdmin()) return;
+    await ensureAppSettingsLoaded();
+    const s = window.appSettings;
+    document.getElementById('appset_redfinSouthCarolina').value = s.marketing.redfinSouthCarolina || '';
+    document.getElementById('appset_redfinEvansMartinez').value = s.marketing.redfinEvansMartinez || '';
+    document.getElementById('appset_redfinAugusta').value = s.marketing.redfinAugusta || '';
+    document.getElementById('appset_completedPaperworkCc').value = s.paperwork.completedPaperworkCc || '';
+    document.getElementById('appset_googleReviewLink').value = s.paperwork.googleReviewLink || '';
+  }
+
+  document.getElementById('set_saveAppSettingsBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('set_appSettingsStatus');
+    const marketing = {
+      redfinSouthCarolina: document.getElementById('appset_redfinSouthCarolina').value.trim(),
+      redfinEvansMartinez: document.getElementById('appset_redfinEvansMartinez').value.trim(),
+      redfinAugusta: document.getElementById('appset_redfinAugusta').value.trim()
+    };
+    const paperwork = {
+      completedPaperworkCc: document.getElementById('appset_completedPaperworkCc').value.trim(),
+      googleReviewLink: document.getElementById('appset_googleReviewLink').value.trim()
+    };
+    if(!marketing.redfinSouthCarolina || !marketing.redfinEvansMartinez || !marketing.redfinAugusta){
+      statusEl.textContent = 'All three search URLs are required.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(!paperwork.completedPaperworkCc){
+      statusEl.textContent = 'The CC list can\u2019t be empty \u2014 remove the field content only if you want no one CC\u2019d.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { marketing, paperwork } })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save settings.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings = data.settings;
+      applyMarketingLinkSettings();
+      statusEl.textContent = 'Settings saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save app settings failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -8802,10 +8929,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         a.click();
         document.body.removeChild(a);
 
+        await ensureAppSettingsLoaded();
+        const pw = window.appSettings.paperwork || {};
+        const reviewLink = pw.googleReviewLink || 'https://g.page/r/CTsnaSA6YbvlEBM/review';
         const firstName = (upload.clientName || '').split(' ')[0] || 'there';
         const subject = 'Thank You for Choosing College Hunks';
-        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\nIf you were happy with our service, we'd really appreciate a 5-star review on Google: https://g.page/r/CTsnaSA6YbvlEBM/review\n\nIf anything about your experience wasn't up to standard, please give us a call so we can make it right.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
-        const cc = 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com';
+        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\nIf you were happy with our service, we'd really appreciate a 5-star review on Google: ${reviewLink}\n\nIf anything about your experience wasn't up to standard, please give us a call so we can make it right.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
+        const cc = pw.completedPaperworkCc || 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com';
 
         let clipboardOk = false;
         try{
