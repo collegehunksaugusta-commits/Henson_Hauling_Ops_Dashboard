@@ -126,6 +126,15 @@
   .comp-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
   .comp-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
   .mail-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
+  .mail-layout{display:flex; gap:20px; align-items:flex-start;}
+  .mail-sidebar{display:flex; flex-direction:column; gap:6px; min-width:210px; flex-shrink:0;}
+  .mail-sidebar .mail-section-btn{text-align:left; width:100%;}
+  .mail-content{flex:1; min-width:0; width:100%; overflow-x:auto;}
+  @media (max-width:760px){
+    .mail-layout{flex-direction:column;}
+    .mail-sidebar{flex-direction:row; flex-wrap:wrap; min-width:0; width:100%;}
+    .mail-sidebar .mail-section-btn{width:auto; text-align:center;}
+  }
   .mail-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
   .mailApt-route-tier-btn.active{background:var(--brand-orange); border-color:var(--brand-orange-dark); color:#fff;}
   .set-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
@@ -298,7 +307,7 @@
         <button class="btn-primary" id="loginBtn" type="button" style="width:100%;">Log In</button>
         <span class="status-msg" id="login_status" style="text-align:center;"></span>
         <p id="login_troubleNote" style="display:none; text-align:center; font-size:12.5px; color:var(--muted); margin:2px 0 0;">Having trouble logging in? Contact your administrator to reset your password.</p>
-        <button type="button" id="showDriverGateBtn" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:6px; margin-top:4px;">Driver? Submit a Pre-Trip Inspection</button>
+        <button type="button" id="showDriverGateBtn" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:6px; margin-top:4px;">Driver Portal</button>
       </div>
     </div>
     <div id="resetPasswordForm" style="display:none;">
@@ -1152,11 +1161,11 @@
         <h3>Regulatory Compliance</h3>
         <p>Business authorizations, truck safety records, and driver qualification files.</p>
       </div>
-      <div class="tile" id="tile-maillist" tabindex="0" role="button" aria-label="Open Mail Marketing List">
+      <div class="tile" id="tile-maillist" tabindex="0" role="button" aria-label="Open Marketing">
         <span class="badge" id="mailListTileBadge" style="display:none;">Attention Needed</span>
         <span class="icon">📬</span>
-        <h3>Mail Marketing List</h3>
-        <p>Postcard mailing list of recent home listings, with mailed-status tracking and mail-merge export.</p>
+        <h3>Marketing</h3>
+        <p>Residential, apartment, and storage outreach, door-hanger routes, and marketing materials &mdash; all in one place.</p>
       </div>
     </div>
   </div>
@@ -2065,24 +2074,25 @@
     </div>
   </div>
 
-  <!-- ============ MAIL MARKETING LIST DETAIL ============ -->
+  <!-- ============ MARKETING DETAIL ============ -->
   <div id="mailListDetail" style="display:none;">
     <button class="backlink" id="mailListBackBtn">&larr; Dispatch</button>
     <div class="wrap">
       <div class="detail-head">
-        <h2 class="display">Mail Marketing List</h2>
-        <p>Postcard mailing list built from recent home listings. Send Claude new listing screenshots (Redfin, Zillow, or any source) to grow the list, then paste the results below.</p>
+        <h2 class="display">Marketing</h2>
+        <p>Residential postcard mail, apartment and storage facility outreach, door-hanger neighborhood routes, and marketing materials &mdash; all in one place. Send Claude new listing screenshots or research requests to grow any of these lists.</p>
       </div>
 
-      <div class="panel" id="mailSectionPanel">
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <div class="mail-layout">
+      <div class="panel mail-sidebar" id="mailSectionPanel">
           <button type="button" class="mail-section-btn" data-section="residential" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Residential</button>
           <button type="button" class="mail-section-btn" data-section="apartments" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Apartment Outreach</button>
           <button type="button" class="mail-section-btn" data-section="storage" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Storage Unit Outreach</button>
           <button type="button" class="mail-section-btn" data-section="neighborhoods" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Neighborhoods</button>
-        </div>
+          <button type="button" class="mail-section-btn" data-section="materials" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Marketing Materials</button>
       </div>
 
+      <div class="mail-content">
       <div id="mail_section_residential" class="mail-section">
       <div class="kpi-row">
         <div class="kpi-card">
@@ -2349,6 +2359,57 @@
         <p class="form-note" id="mailNbhd_emptyNote" style="display:none;">No neighborhoods yet &mdash; paste some in above to get started.</p>
       </div>
       </div>
+
+      <div id="mail_section_materials" class="mail-section">
+      <div class="panel" id="mailMatAddPanel">
+        <h3>Add Marketing Material</h3>
+        <p class="form-note">Templates and reference materials for postcards, door hangers, flyers, and other marketing &mdash; add to this over time so everything lives in one place.</p>
+        <div class="form-grid">
+          <label>Name <input type="text" id="mailMat_name" placeholder="e.g. Spring Postcard Template"></label>
+          <label>Category
+            <select id="mailMat_category">
+              <option value="Postcard">Postcard</option>
+              <option value="Door Hanger">Door Hanger</option>
+              <option value="Flyer">Flyer</option>
+              <option value="Social Media">Social Media</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+        </div>
+        <label>Description (optional) <textarea id="mailMat_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+        <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">
+          File (optional)
+          <input type="file" id="mailMat_file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+        </label>
+        <div class="form-actions">
+          <button class="btn-primary" id="mailMat_addBtn" type="button">Add Material</button>
+          <span class="status-msg" id="mailMat_addStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="mailMatListPanel">
+        <h3>Marketing Materials (<span id="mailMat_count">0</span>)</h3>
+        <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Filter
+            <input type="text" id="mailMat_filter" placeholder="Search name or category..." style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; min-width:220px;">
+          </label>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Name</th>
+            <th>Category</th>
+            <th>Description</th>
+            <th>Added</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="mailMat_rows"></tbody>
+        </table>
+        <p class="form-note" id="mailMat_emptyNote" style="display:none;">No marketing materials yet &mdash; add your first one above.</p>
+      </div>
+      </div>
+      </div>
+      </div>
     </div>
   </div>
 
@@ -2612,6 +2673,7 @@
       loadMailAptData();
       loadMailStorageData();
       loadMailNbhdData();
+      loadMailMaterialsData();
       showMailSection(mailCurrentSection);
     }
     if(view === 'mailroute'){
@@ -4606,6 +4668,7 @@
     document.getElementById('mail_section_apartments').style.display = section === 'apartments' ? 'block' : 'none';
     document.getElementById('mail_section_storage').style.display = section === 'storage' ? 'block' : 'none';
     document.getElementById('mail_section_neighborhoods').style.display = section === 'neighborhoods' ? 'block' : 'none';
+    document.getElementById('mail_section_materials').style.display = section === 'materials' ? 'block' : 'none';
     document.querySelectorAll('.mail-section-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.section === section);
     });
@@ -6318,6 +6381,118 @@
     statusEl.textContent = ok ? `Cleared ${count} neighborhood${count===1?'':'s'}.` : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
+
+  // ---------- Marketing Materials ----------
+  const MAIL_MAT_KEY = 'mail-marketing-materials';
+  let mailMatRecords = [];
+
+  async function loadMailMaterialsData(){
+    try{
+      mailMatRecords = await window.dashboardApi.get(MAIL_MAT_KEY, []);
+    }catch(err){
+      console.error('Marketing materials load failed:', err);
+      mailMatRecords = mailMatRecords || [];
+    }
+    renderMailMatTable();
+  }
+
+  async function saveMailMatRecords(){
+    try{ return await window.dashboardApi.set(MAIL_MAT_KEY, mailMatRecords); }
+    catch(err){ console.error('Marketing materials save failed:', err); return false; }
+  }
+
+  function renderMailMatTable(){
+    const filter = (document.getElementById('mailMat_filter').value || '').trim().toLowerCase();
+    const tbody = document.getElementById('mailMat_rows');
+    const emptyNote = document.getElementById('mailMat_emptyNote');
+
+    let filtered = [...mailMatRecords];
+    if(filter){
+      filtered = filtered.filter(r => (r.name||'').toLowerCase().includes(filter) || (r.category||'').toLowerCase().includes(filter));
+    }
+    filtered.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+
+    document.getElementById('mailMat_count').textContent = mailMatRecords.length;
+    emptyNote.style.display = mailMatRecords.length === 0 ? 'block' : 'none';
+
+    tbody.innerHTML = filtered.map(r => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(r.name)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(r.category)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(r.description || '')}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(r.dateAdded)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          ${r.hasFile ? `<button type="button" class="mailMat-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>` : ''}
+          <button type="button" class="mailMat-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.mailMat-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      try{
+        const dataUri = await window.dashboardApi.get('marketing-material-doc-' + id, null);
+        if(!dataUri){ alert('Could not load this file.'); return; }
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
+        else if(dataUri.startsWith('data:image')){ const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        else { const win = window.open(); if(win) win.location.href = dataUri; }
+      }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
+    }));
+    tbody.querySelectorAll('.mailMat-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this marketing material?')) return;
+      mailMatRecords = mailMatRecords.filter(r => r.id !== id);
+      await saveMailMatRecords();
+      renderMailMatTable();
+    }));
+  }
+
+  document.getElementById('mailMat_addBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mailMat_addStatus');
+    const name = document.getElementById('mailMat_name').value.trim();
+    const category = document.getElementById('mailMat_category').value;
+    const description = document.getElementById('mailMat_description').value.trim();
+    const file = document.getElementById('mailMat_file').files[0];
+
+    if(!name){
+      statusEl.textContent = 'Enter a name.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(file && file.size > 10*1024*1024){
+      statusEl.textContent = 'That file is over 10MB.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+
+    const recId = 'mat_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    let hasFile = false;
+    if(file){
+      try{
+        const dataUri = await readFileAsDataUri(file);
+        hasFile = await window.dashboardApi.set('marketing-material-doc-' + recId, dataUri);
+      }catch(err){ console.error('Material file upload failed:', err); }
+    }
+
+    mailMatRecords.push({
+      id: recId, name, category, description, hasFile,
+      dateAdded: new Date().toISOString().slice(0,10)
+    });
+    const ok = await saveMailMatRecords();
+
+    document.getElementById('mailMat_name').value = '';
+    document.getElementById('mailMat_description').value = '';
+    document.getElementById('mailMat_file').value = '';
+    renderMailMatTable();
+
+    statusEl.textContent = ok ? 'Material added.' : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('mailMat_filter').addEventListener('input', renderMailMatTable);
 
   // ---------- Settings ----------
   const SETTINGS_CONFIG_FILES_KEY = 'settings-config-files';
