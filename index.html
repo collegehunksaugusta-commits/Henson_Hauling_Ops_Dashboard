@@ -2104,7 +2104,7 @@
 
       <div class="mail-content">
       <div id="mail_section_residential" class="mail-section">
-      <div class="kpi-row">
+      <div class="kpi-row kpi-row-4">
         <div class="kpi-card">
           <div class="label">Total Addresses</div>
           <div class="big" id="mail_kpiTotal">0</div>
@@ -2116,6 +2116,10 @@
         <div class="kpi-card">
           <div class="label">Mailed</div>
           <div class="big" id="mail_kpiMailed">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="label">Permanently Remembered</div>
+          <div class="big" id="mail_kpiHistory">0</div>
         </div>
       </div>
 
@@ -4920,6 +4924,8 @@
 
   const MAIL_LIST_KEY = 'mail-marketing-list';
   let mailListRecords = [];
+  const MAIL_HISTORY_KEY = 'mail-mailed-history';
+  let mailMailedHistory = []; // permanent record of every address ever mailed -- survives "Clear Entire List"
 
   function mailEsc(s){
     const d = document.createElement('div');
@@ -4935,9 +4941,35 @@
     return (rec.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
 
+  function mailIsInHistory(rec){
+    const key = mailNormalizeKey(rec);
+    return mailMailedHistory.some(h => h.key === key);
+  }
+
+  // Appends newly-mailed addresses to the permanent history (skipping ones
+  // already recorded there, so re-mailing the same address later doesn't
+  // pile up duplicate history entries). Does not touch mailListRecords.
+  async function mailRecordToHistory(records){
+    const existingKeys = new Set(mailMailedHistory.map(h => h.key));
+    let added = false;
+    records.forEach(r => {
+      const key = mailNormalizeKey(r);
+      if(existingKeys.has(key)) return;
+      existingKeys.add(key);
+      mailMailedHistory.push({ key, address: r.address, city: r.city, state: r.state, dateMailed: r.dateMailed || todayStr() });
+      added = true;
+    });
+    if(added){
+      try{ await window.dashboardApi.set(MAIL_HISTORY_KEY, mailMailedHistory); }
+      catch(err){ console.error('Mailed history save failed:', err); }
+    }
+  }
+
   async function loadMailListData(){
     try{ mailListRecords = await window.dashboardApi.get(MAIL_LIST_KEY, []); }
     catch(err){ console.error('Mail list load failed:', err); mailListRecords = mailListRecords || []; }
+    try{ mailMailedHistory = await window.dashboardApi.get(MAIL_HISTORY_KEY, []); }
+    catch(err){ console.error('Mailed history load failed:', err); mailMailedHistory = mailMailedHistory || []; }
     renderMailListTable();
     renderMailListKpis();
   }
@@ -4953,6 +4985,7 @@
     document.getElementById('mail_kpiTotal').textContent = total;
     document.getElementById('mail_kpiMailed').textContent = mailed;
     document.getElementById('mail_kpiUnmailed').textContent = total - mailed;
+    document.getElementById('mail_kpiHistory').textContent = mailMailedHistory.length;
   }
 
   function renderMailListTable(){
@@ -5301,10 +5334,11 @@
     }
 
     const existingKeys = new Set(mailListRecords.map(mailNormalizeKey));
+    const historyKeys = new Set(mailMailedHistory.map(h => h.key));
     let added = 0, skippedDupe = 0;
     valid.forEach(r => {
       const key = mailNormalizeKey(r);
-      if(existingKeys.has(key)){ skippedDupe++; return; }
+      if(existingKeys.has(key) || historyKeys.has(key)){ skippedDupe++; return; }
       existingKeys.add(key);
       mailListRecords.push({
         id: 'mail_' + Date.now() + '_' + Math.floor(Math.random()*1000),
@@ -5347,10 +5381,11 @@
     }
 
     const existingKeys = new Set(mailListRecords.map(mailNormalizeKey));
+    const historyKeys = new Set(mailMailedHistory.map(h => h.key));
     let added = 0, skipped = 0;
     parsed.forEach(p => {
       const key = mailNormalizeKey(p);
-      if(existingKeys.has(key)){ skipped++; return; }
+      if(existingKeys.has(key) || historyKeys.has(key)){ skipped++; return; }
       existingKeys.add(key);
       mailListRecords.push({
         id: 'mail_' + Date.now() + '_' + Math.floor(Math.random()*1000),
@@ -5390,11 +5425,13 @@
       return;
     }
     const today = new Date().toISOString().slice(0,10);
+    const newlyMailed = [];
     selectedIds.forEach(id => {
       const rec = mailListRecords.find(r => r.id === id);
-      if(rec){ rec.mailed = true; rec.dateMailed = today; }
+      if(rec){ rec.mailed = true; rec.dateMailed = today; newlyMailed.push(rec); }
     });
     const ok = await saveMailListRecords();
+    await mailRecordToHistory(newlyMailed);
     renderMailListTable();
     renderMailListKpis();
     statusEl.textContent = ok ? `Marked ${selectedIds.length} address${selectedIds.length===1?'':'es'} as mailed.` : 'Save failed \u2014 check your connection.';
@@ -5437,6 +5474,7 @@
       if(exportedIds.has(r.id)){ r.mailed = true; r.dateMailed = today; }
     });
     const ok = await saveMailListRecords();
+    await mailRecordToHistory(toExport);
     renderMailListTable();
     renderMailListKpis();
     const exportMsg = `Exported ${toExport.length} address${toExport.length===1?'':'es'} and marked them mailed.`;
@@ -5452,7 +5490,7 @@
       statusEl.className = 'status-msg err';
       return;
     }
-    if(!confirm(`Delete all ${count} address${count===1?'':'es'} from the mailing list? This cannot be undone.`)) return;
+    if(!confirm(`Delete all ${count} address${count===1?'':'es'} from the mailing list? This cannot be undone. (Addresses already marked mailed will still be remembered and won't be re-added later.)`)) return;
     mailListRecords = [];
     const ok = await saveMailListRecords();
     renderMailListTable();
