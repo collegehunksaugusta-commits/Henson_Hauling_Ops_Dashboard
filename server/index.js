@@ -296,6 +296,24 @@ app.get('/api/driver/trucks', requireDriverAuth, async (req, res) => {
   }
 });
 
+// Same name list as the staff /api/roster endpoint (most recent ADP payroll
+// week), just reachable via the driver-scoped session instead of a regular
+// staff login. Names only -- no pay, hours, or other payroll detail.
+app.get('/api/driver/roster', requireDriverAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('labor-weeks');
+    const weeks = raw ? JSON.parse(raw) : [];
+    if (!weeks.length) return res.json({ names: [] });
+    const sorted = [...weeks].sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
+    const mostRecent = sorted[0];
+    const names = (mostRecent.employees || []).map(e => e.name).filter(Boolean);
+    res.json({ names });
+  } catch (err) {
+    console.error('Driver roster fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load roster.' });
+  }
+});
+
 app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
   const { truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes } = req.body || {};
   if (!truckId || !driverName || !Array.isArray(checklist) || checklist.length === 0) {
