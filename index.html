@@ -177,7 +177,8 @@
   }
 
   .kpi-row{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:28px;}
-  @media (max-width:760px){ .kpi-row{grid-template-columns:1fr;} }
+  .kpi-row-4{grid-template-columns:repeat(4,1fr);}
+  @media (max-width:760px){ .kpi-row{grid-template-columns:1fr;} .kpi-row-4{grid-template-columns:1fr;} }
   .kpi-card{
     background:var(--paper); border:1px solid var(--line); border-radius:4px; padding:20px;
     display:flex; flex-direction:column; gap:6px;
@@ -1195,7 +1196,7 @@
         </label>
       </div>
 
-      <div class="kpi-row">
+      <div class="kpi-row kpi-row-4">
         <div class="kpi-card gauge-card">
           <span class="label">Labor Cost % of Revenue</span>
           <div class="gauge-wrap"><canvas id="gaugeCanvas" width="170" height="110"></canvas></div>
@@ -1205,7 +1206,10 @@
         <div class="kpi-card">
           <span class="label">Revenue</span>
           <span class="big" id="kpiRevenue">&mdash;</span>
-          <span class="sub" id="kpiLaborCost">&mdash;</span>
+        </div>
+        <div class="kpi-card">
+          <span class="label">Labor Cost</span>
+          <span class="big" id="kpiLaborCostDollars">&mdash;</span>
         </div>
         <div class="kpi-card">
           <span class="label">Overtime</span>
@@ -2994,7 +2998,7 @@
 
     if(!p){
       document.getElementById('kpiRevenue').textContent = '\u2014';
-      document.getElementById('kpiLaborCost').textContent = '\u2014';
+      document.getElementById('kpiLaborCostDollars').textContent = '\u2014';
       document.getElementById('kpiOtHours').textContent = '\u2014';
       document.getElementById('kpiOtPremium').textContent = '\u2014';
       drawGauge(0);
@@ -3006,7 +3010,7 @@
     const cost = laborCost(p);
 
     document.getElementById('kpiRevenue').textContent = money(p.revenue);
-    document.getElementById('kpiLaborCost').textContent = 'Labor cost: ' + money(cost);
+    document.getElementById('kpiLaborCostDollars').textContent = money(cost);
     document.getElementById('kpiOtHours').textContent = num(p.otHours,1) + ' hrs';
     document.getElementById('kpiOtPremium').textContent = 'Premium: ' + money(p.otPremium);
 
