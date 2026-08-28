@@ -63,7 +63,8 @@ const ALLOWED_KEYS = new Set([
   'mail-storage-outreach',
   'mail-neighborhoods',
   'mail-neighborhood-visits',
-  'mail-marketing-materials'
+  'mail-marketing-materials',
+  'mail-mailed-history'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-'];
 
