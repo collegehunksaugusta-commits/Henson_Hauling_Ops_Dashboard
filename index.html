@@ -2985,7 +2985,7 @@
     const p = periods.find(x=>x.key===weekSelect.value) || periods[periods.length-1];
 
     const employeePanel = document.getElementById('employeePanel');
-    employeePanel.style.display = mode === 'weekly' ? 'block' : 'none';
+    employeePanel.style.display = (mode === 'weekly' && isCurrentUserAdmin()) ? 'block' : 'none';
 
     if(!p){
       document.getElementById('kpiRevenue').textContent = '\u2014';
