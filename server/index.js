@@ -410,6 +410,69 @@ app.post('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) =
   }
 });
 
+// ============ App Settings: admin-editable values used elsewhere in the app ============
+// Grouped by which tile each setting belongs to. Defaults match whatever was
+// previously hardcoded, so nothing changes in behavior until an admin edits
+// something. Read is open to any logged-in staff (the Marketing and
+// Paperwork tiles need these values regardless of who's using them); only
+// admins can change them.
+const APP_SETTINGS_KEY = 'settings-app-config';
+const DEFAULT_APP_SETTINGS = {
+  marketing: {
+    redfinSouthCarolina: 'https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308',
+    redfinEvansMartinez: 'https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924',
+    redfinAugusta: 'https://www.redfin.com/zipcode/30916/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12928+2:12930'
+  },
+  paperwork: {
+    completedPaperworkCc: 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com',
+    googleReviewLink: 'https://g.page/r/CTsnaSA6YbvlEBM/review'
+  }
+};
+
+// Merges saved settings on top of the defaults, one group/field at a time,
+// so a newly-added setting (in a future update) always has a sensible
+// fallback even if the admin has never touched it.
+function mergeAppSettings(saved){
+  const merged = {};
+  for (const group of Object.keys(DEFAULT_APP_SETTINGS)) {
+    merged[group] = Object.assign({}, DEFAULT_APP_SETTINGS[group], (saved && saved[group]) || {});
+  }
+  return merged;
+}
+
+app.get('/api/app-settings', requireAuth, async (req, res) => {
+  try {
+    const raw = await redis.get(APP_SETTINGS_KEY);
+    const saved = raw ? JSON.parse(raw) : null;
+    res.json({ settings: mergeAppSettings(saved) });
+  } catch (err) {
+    console.error('Get app settings failed:', err.message);
+    res.status(500).json({ error: 'Could not load settings.' });
+  }
+});
+
+app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) => {
+  const { settings } = req.body || {};
+  if (!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'Settings object is required.' });
+  }
+  try {
+    const raw = await redis.get(APP_SETTINGS_KEY);
+    const existing = raw ? JSON.parse(raw) : {};
+    // Merge group-by-group so saving one group's fields never wipes another group's saved values.
+    const updated = Object.assign({}, existing);
+    for (const group of Object.keys(settings)) {
+      if (!DEFAULT_APP_SETTINGS[group]) continue; // ignore unknown groups
+      updated[group] = Object.assign({}, existing[group] || {}, settings[group]);
+    }
+    await redis.set(APP_SETTINGS_KEY, JSON.stringify(updated));
+    res.json({ ok: true, settings: mergeAppSettings(updated) });
+  } catch (err) {
+    console.error('Save app settings failed:', err.message);
+    res.status(500).json({ error: 'Could not save settings.' });
+  }
+});
+
 // Employee names (not the financial payroll details) are needed by
 // Attendance Tracking and Regulatory Compliance's Drivers section, which
 // aren't restricted to admins -- so this computes just the name list from
