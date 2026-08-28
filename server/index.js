@@ -60,7 +60,9 @@ const ALLOWED_KEYS = new Set([
   'settings-handoff-guide',
   'mail-marketing-list',
   'mail-apartment-outreach',
-  'mail-storage-outreach'
+  'mail-storage-outreach',
+  'mail-neighborhoods',
+  'mail-neighborhood-visits'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-'];
 
@@ -311,6 +313,46 @@ app.get('/api/driver/roster', requireDriverAuth, async (req, res) => {
   } catch (err) {
     console.error('Driver roster fetch failed:', err.message);
     res.status(500).json({ error: 'Could not load roster.' });
+  }
+});
+
+// Full neighborhood catalog for the door-hanger route tool -- name, general
+// area, and coordinates only (no addresses), nothing sensitive here so the
+// full record is fine to expose.
+app.get('/api/driver/neighborhoods', requireDriverAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('mail-neighborhoods');
+    const neighborhoods = raw ? JSON.parse(raw) : [];
+    res.json({ neighborhoods });
+  } catch (err) {
+    console.error('Driver neighborhoods fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load neighborhoods.' });
+  }
+});
+
+// Logs a door-hanger visit as a new entry in a growing history (mirrors the
+// pre-trip inspection log pattern) rather than overwriting a single
+// "last visited" field, so admins can see full coverage over time.
+app.post('/api/driver/neighborhood-visit', requireDriverAuth, async (req, res) => {
+  const { neighborhoodId, neighborhoodName, driverName } = req.body || {};
+  if (!neighborhoodId || !driverName) {
+    return res.status(400).json({ error: 'Neighborhood and driver name are required.' });
+  }
+  try {
+    const raw = await redis.get('mail-neighborhood-visits');
+    const visits = raw ? JSON.parse(raw) : [];
+    visits.push({
+      id: 'visit_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      neighborhoodId, neighborhoodName: neighborhoodName || '',
+      driverName: String(driverName).slice(0, 100),
+      date: new Date().toISOString().slice(0, 10),
+      submittedAt: new Date().toISOString()
+    });
+    await redis.set('mail-neighborhood-visits', JSON.stringify(visits));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Neighborhood visit log failed:', err.message);
+    res.status(500).json({ error: 'Could not log visit.' });
   }
 });
 
