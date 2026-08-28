@@ -2110,10 +2110,9 @@
       </div>
 
       <div class="form-actions" style="margin-bottom:14px;">
-        <a href="https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">South Carolina</a>
-        <a href="https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Evans and Martinez</a>
-        <a href="https://www.redfin.com/zipcode/30916/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,include=forsale+fsbo,status=active,mr=2:12928+2:12930" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Augusta</a>
-        <button type="button" id="mail_copyCopilotBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Copy Copilot Command</button>
+        <a href="https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">South Carolina</a>
+        <a href="https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Evans and Martinez</a>
+        <a href="https://www.redfin.com/zipcode/30916/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12928+2:12930" target="_blank" rel="noopener noreferrer" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none;">Augusta</a>
         <span class="status-msg" id="mail_copilotStatus"></span>
       </div>
 
@@ -4925,21 +4924,6 @@
     });
     return { parsed, errors };
   }
-
-  document.getElementById('mail_copyCopilotBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('mail_copilotStatus');
-    const command = 'Pull addresses into a list from the last 7 days. I want ALL listings within the last 7 days. Include city and state';
-    try{
-      await navigator.clipboard.writeText(command);
-      statusEl.textContent = 'Copied! Paste it into Copilot.';
-      statusEl.className = 'status-msg ok';
-    }catch(err){
-      console.error('Clipboard write failed:', err);
-      prompt('Could not auto-copy \u2014 copy this command manually:', command);
-      statusEl.textContent = 'Command ready (copy from the popup).';
-      statusEl.className = 'status-msg ok';
-    }
-  });
 
   let mailExtractReview = [];
   let mailPastedImages = [];
