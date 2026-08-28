@@ -2191,8 +2191,7 @@
           <button type="button" id="mail_lookupZipsBtn" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Look Up Missing Zips</button>
           <button type="button" id="mail_dedupBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Remove Duplicates</button>
           <button type="button" id="mail_markMailedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Mailed</button>
-          <button type="button" id="mail_exportUnmailedBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export Not-Yet-Mailed (.xlsx)</button>
-          <button type="button" id="mail_exportAllBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export All (.xlsx)</button>
+          <button type="button" id="mail_exportBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export &amp; Mark as Mailed (.xlsx)</button>
           <button type="button" id="mail_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
           <span class="status-msg" id="mail_bulkStatus"></span>
         </div>
@@ -5422,11 +5421,27 @@
     statusEl.className = 'status-msg ok';
   }
 
-  document.getElementById('mail_exportUnmailedBtn').addEventListener('click', ()=>{
-    mailExportToExcel(mailListRecords.filter(r => !r.mailed), 'not-yet-mailed');
-  });
-  document.getElementById('mail_exportAllBtn').addEventListener('click', ()=>{
-    mailExportToExcel(mailListRecords, 'all');
+  document.getElementById('mail_exportBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mail_bulkStatus');
+    const toExport = mailListRecords.filter(r => !r.mailed);
+    if(toExport.length === 0){
+      statusEl.textContent = 'Nothing to export \u2014 everything on the list has already been mailed.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    mailExportToExcel(toExport, 'export');
+
+    const today = todayStr();
+    const exportedIds = new Set(toExport.map(r => r.id));
+    mailListRecords.forEach(r => {
+      if(exportedIds.has(r.id)){ r.mailed = true; r.dateMailed = today; }
+    });
+    const ok = await saveMailListRecords();
+    renderMailListTable();
+    renderMailListKpis();
+    const exportMsg = `Exported ${toExport.length} address${toExport.length===1?'':'es'} and marked them mailed.`;
+    statusEl.textContent = ok ? exportMsg : `${exportMsg} (Save failed \u2014 check your connection, so they may not stay marked.)`;
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   });
 
   document.getElementById('mail_clearAllBtn').addEventListener('click', async ()=>{
