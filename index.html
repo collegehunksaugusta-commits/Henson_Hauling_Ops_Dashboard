@@ -1220,8 +1220,8 @@
       </div>
 
       <div class="panel" id="employeePanel">
-        <h3>Employee Detail &mdash; Selected Week</h3>
-        <table>
+        <h3>Employee Detail &mdash; Selected Week <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; background:var(--offwhite); padding:2px 8px; border-radius:10px; vertical-align:middle;">Admin Only</span></h3>
+        <table id="employeeDetailTable">
           <thead>
             <tr>
               <th>Employee</th><th>Role</th>
@@ -1234,6 +1234,7 @@
           <tbody id="employeeRows"></tbody>
         </table>
         <p class="form-note" id="noEmployeeNote" style="display:none;">Per-employee detail wasn't entered for this week &mdash; only the weekly totals below.</p>
+        <p class="form-note" id="employeeNonAdminNote" style="display:none;">This section only shows for administrators.</p>
       </div>
 
       <div class="panel" id="summaryPanel">
@@ -2985,7 +2986,11 @@
     const p = periods.find(x=>x.key===weekSelect.value) || periods[periods.length-1];
 
     const employeePanel = document.getElementById('employeePanel');
-    employeePanel.style.display = (mode === 'weekly' && isCurrentUserAdmin()) ? 'block' : 'none';
+    employeePanel.style.display = mode === 'weekly' ? 'block' : 'none';
+    const isAdminUser = isCurrentUserAdmin();
+    document.getElementById('employeeDetailTable').style.display = isAdminUser ? '' : 'none';
+    document.getElementById('employeeNonAdminNote').style.display = isAdminUser ? 'none' : 'block';
+    if(!isAdminUser) document.getElementById('noEmployeeNote').style.display = 'none';
 
     if(!p){
       document.getElementById('kpiRevenue').textContent = '\u2014';
@@ -3007,7 +3012,7 @@
 
     drawGauge(pct);
 
-    if(mode === 'weekly'){
+    if(mode === 'weekly' && isAdminUser){
       const rows = document.getElementById('employeeRows');
       const noNote = document.getElementById('noEmployeeNote');
       if(p.employees && p.employees.length){
@@ -3031,31 +3036,85 @@
     }
   }
 
+  // Simple least-squares linear regression over an array of y-values
+  // (x = 0, 1, 2, ... index order). Returns the fitted y-value at each x,
+  // or null if there aren't enough points to fit a meaningful line.
+  function linearRegression(values){
+    const n = values.length;
+    if(n < 2) return null;
+    const xMean = (n-1)/2;
+    const yMean = values.reduce((a,b)=>a+b,0)/n;
+    let num = 0, den = 0;
+    values.forEach((y,x)=>{ num += (x-xMean)*(y-yMean); den += (x-xMean)*(x-xMean); });
+    const slope = den === 0 ? 0 : num/den;
+    const intercept = yMean - slope*xMean;
+    return values.map((_,x)=> +(slope*x + intercept).toFixed(2));
+  }
+
   function renderTrend(){
     const periods = groupedPeriods();
     const labels = periods.map(p=> p.label);
     const data = periods.map(p=> +(laborPct(p)*100).toFixed(1));
+
+    const datasets = [{
+      label:'Labor Cost % of Revenue',
+      data,
+      borderColor:'#F7941D',
+      backgroundColor:'rgba(247,148,29,0.14)',
+      pointBackgroundColor:'#F7941D',
+      borderWidth:2.5,
+      tension:0.25,
+      fill:true,
+    }];
+
+    // Average for the current calendar year -- every period key (weekly,
+    // monthly, or yearly mode) starts with a 4-digit year, so this works
+    // the same way across view modes.
+    const currentYear = String(new Date().getFullYear());
+    const currentYearValues = periods
+      .map((p,i)=> ({ year: String(p.key).slice(0,4), value: data[i] }))
+      .filter(d => d.year === currentYear)
+      .map(d => d.value);
+    if(currentYearValues.length){
+      const yearAvg = +(currentYearValues.reduce((a,b)=>a+b,0)/currentYearValues.length).toFixed(1);
+      datasets.push({
+        label:`${currentYear} Average (${yearAvg}%)`,
+        data: labels.map(()=> yearAvg),
+        borderColor:'#3A3A3A',
+        borderDash:[7,5],
+        borderWidth:2,
+        pointRadius:0,
+        pointHoverRadius:0,
+        fill:false,
+        tension:0,
+      });
+    }
+
+    // Overall trend line (linear regression) across whatever's currently displayed.
+    const trendValues = linearRegression(data);
+    if(trendValues){
+      datasets.push({
+        label:'Trend',
+        data: trendValues,
+        borderColor:'#2E5C8A',
+        borderDash:[3,3],
+        borderWidth:2,
+        pointRadius:0,
+        pointHoverRadius:0,
+        fill:false,
+        tension:0,
+      });
+    }
+
     const ctx = document.getElementById('trendChart').getContext('2d');
     if(chart) chart.destroy();
     chart = new Chart(ctx, {
       type:'line',
-      data:{
-        labels,
-        datasets:[{
-          label:'Labor Cost % of Revenue',
-          data,
-          borderColor:'#F7941D',
-          backgroundColor:'rgba(247,148,29,0.14)',
-          pointBackgroundColor:'#F7941D',
-          borderWidth:2.5,
-          tension:0.25,
-          fill:true,
-        }]
-      },
+      data:{ labels, datasets },
       options:{
         responsive:true,
-        plugins:{ legend:{display:false},
-          tooltip:{ callbacks:{ label: c => c.parsed.y + '%' } } },
+        plugins:{ legend:{display: datasets.length > 1, labels:{boxWidth:16, font:{size:11}}},
+          tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${c.parsed.y}%` } } },
         scales:{
           y:{ ticks:{ callback: v => v + '%' }, grid:{color:'#E4E0D6'} },
           x:{ grid:{display:false} }
