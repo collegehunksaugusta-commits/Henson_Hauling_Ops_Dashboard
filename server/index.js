@@ -64,7 +64,8 @@ const ALLOWED_KEYS = new Set([
   'mail-neighborhoods',
   'mail-neighborhood-visits',
   'mail-marketing-materials',
-  'mail-mailed-history'
+  'mail-mailed-history',
+  'square-tip-allocations'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-'];
 
@@ -836,6 +837,80 @@ app.post('/api/admin/extract-listings', requireAuth, async (req, res) => {
   }
 });
 
+// ============ Square: Tip Allocation ============
+// Pulls recent Square payments, filters to ones with a tip, and extracts the
+// 8-digit job number the crew enters in the payment note at checkout. This
+// only ever reads payment data -- it never creates, modifies, refunds, or
+// voids anything in Square.
+app.get('/api/square-tips', requireAuth, async (req, res) => {
+  const token = process.env.SQUARE_ACCESS_TOKEN;
+  const locationId = process.env.SQUARE_LOCATION_ID;
+  if (!token || !locationId) {
+    console.error('Square tips requested but SQUARE_ACCESS_TOKEN/SQUARE_LOCATION_ID is not set.');
+    return res.status(500).json({ error: 'Square is not configured on the server yet.' });
+  }
+  const days = Math.min(Math.max(parseInt(req.query.days) || 60, 1), 365);
+  const beginTime = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const allPayments = [];
+    let cursor = null;
+    let pageCount = 0;
+    do {
+      const params = new URLSearchParams({
+        location_id: locationId,
+        begin_time: beginTime,
+        sort_order: 'DESC'
+      });
+      if (cursor) params.set('cursor', cursor);
+
+      const sqRes = await fetch(`https://connect.squareup.com/v2/payments?${params.toString()}`, {
+        headers: {
+          'Square-Version': '2026-07-15',
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!sqRes.ok) {
+        const errBody = await sqRes.text().catch(() => '');
+        console.error('Square API request failed:', sqRes.status, errBody);
+        let detail = '';
+        try { detail = ((JSON.parse(errBody).errors || [])[0] || {}).detail || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        return res.status(502).json({ error: `Square request failed (HTTP ${sqRes.status})${detail ? ': ' + detail : ''}` });
+      }
+      const data = await sqRes.json();
+      allPayments.push(...(data.payments || []));
+      cursor = data.cursor || null;
+      pageCount++;
+    } while (cursor && pageCount < 20); // safety cap against runaway pagination
+
+    const JOB_NUMBER_RE = /\b\d{8}\b/;
+    const withTips = allPayments
+      .filter(p => p.tip_money && p.tip_money.amount > 0)
+      .map(p => {
+        const note = p.note || '';
+        const match = note.match(JOB_NUMBER_RE);
+        const card = p.card_details && p.card_details.card ? p.card_details.card : null;
+        return {
+          id: p.id,
+          date: (p.created_at || '').slice(0, 10),
+          tipAmount: p.tip_money.amount / 100,
+          totalAmount: p.total_money ? p.total_money.amount / 100 : null,
+          note,
+          jobNumber: match ? match[0] : null,
+          receiptNumber: p.receipt_number || null,
+          cardBrand: card ? card.card_brand : null,
+          last4: card ? card.last_4 : null
+        };
+      });
+
+    res.json({ payments: withTips });
+  } catch (err) {
+    console.error('Square tips fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not reach Square: ' + err.message });
+  }
+});
+
 app.get('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -893,5 +968,8 @@ app.listen(PORT, async () => {
   console.log(process.env.ANTHROPIC_API_KEY
     ? `ANTHROPIC_API_KEY is set (starts with "${process.env.ANTHROPIC_API_KEY.slice(0, 8)}...")`
     : 'ANTHROPIC_API_KEY is NOT set \u2014 screenshot address extraction will not work until it is added.');
+  console.log((process.env.SQUARE_ACCESS_TOKEN && process.env.SQUARE_LOCATION_ID)
+    ? `SQUARE_ACCESS_TOKEN and SQUARE_LOCATION_ID are set (location starts with "${process.env.SQUARE_LOCATION_ID.slice(0, 4)}...")`
+    : 'SQUARE_ACCESS_TOKEN and/or SQUARE_LOCATION_ID is NOT set \u2014 tip allocation will not work until both are added.');
   await ensureUsersSeeded();
 });
