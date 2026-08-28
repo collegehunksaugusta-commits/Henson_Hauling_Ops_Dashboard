@@ -936,6 +936,72 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
   }
 });
 
+// ============ Motive: Truck Locations ============
+// Pulls current GPS locations for every company vehicle from Motive's
+// fleet API. Read-only -- never creates, updates, or dispatches anything
+// in Motive.
+app.get('/api/motive-locations', requireAuth, async (req, res) => {
+  const apiKey = process.env.MOTIVE_API_KEY;
+  if (!apiKey) {
+    console.error('Motive locations requested but MOTIVE_API_KEY is not set.');
+    return res.status(500).json({ error: 'Motive is not configured on the server yet.' });
+  }
+
+  try {
+    const allVehicles = [];
+    const perPage = 50;
+    let pageNo = 1;
+    let hasMore = true;
+    while (hasMore && pageNo <= 10) { // safety cap against runaway pagination
+      const params = new URLSearchParams({ per_page: String(perPage), page_no: String(pageNo) });
+      const mvRes = await fetch(`https://api.gomotive.com/v3/vehicle_locations?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'X-Metric-Units': 'false', // request speed in mph, not kph
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!mvRes.ok) {
+        const errBody = await mvRes.text().catch(() => '');
+        console.error('Motive API request failed:', mvRes.status, errBody);
+        let detail = '';
+        try { detail = JSON.parse(errBody).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        return res.status(502).json({ error: `Motive request failed (HTTP ${mvRes.status})${detail ? ': ' + detail : ''}` });
+      }
+      const data = await mvRes.json();
+      const vehicles = data.vehicles || [];
+      allVehicles.push(...vehicles);
+      hasMore = vehicles.length === perPage; // a full page means there could be more
+      pageNo++;
+    }
+
+    const trucks = allVehicles
+      .filter(v => v.current_location && typeof v.current_location.lat === 'number' && typeof v.current_location.lon === 'number')
+      .map(v => {
+        const loc = v.current_location;
+        return {
+          id: v.id,
+          number: v.number || String(v.id),
+          make: v.make || null,
+          model: v.model || null,
+          lat: loc.lat,
+          lon: loc.lon,
+          locatedAt: loc.located_at || null,
+          address: loc.current_location || null,
+          city: loc.city || null,
+          state: loc.state || null,
+          speed: typeof loc.kph === 'number' ? loc.kph : null,
+          vehicleState: loc.vehicle_state || null
+        };
+      });
+
+    res.json({ trucks });
+  } catch (err) {
+    console.error('Motive locations fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not reach Motive: ' + err.message });
+  }
+});
+
 app.get('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -996,5 +1062,8 @@ app.listen(PORT, async () => {
   console.log((process.env.SQUARE_ACCESS_TOKEN && process.env.SQUARE_LOCATION_ID)
     ? `SQUARE_ACCESS_TOKEN and SQUARE_LOCATION_ID are set (location starts with "${process.env.SQUARE_LOCATION_ID.slice(0, 4)}...")`
     : 'SQUARE_ACCESS_TOKEN and/or SQUARE_LOCATION_ID is NOT set \u2014 tip allocation will not work until both are added.');
+  console.log(process.env.MOTIVE_API_KEY
+    ? `MOTIVE_API_KEY is set (starts with "${process.env.MOTIVE_API_KEY.slice(0, 6)}...")`
+    : 'MOTIVE_API_KEY is NOT set \u2014 truck locations will not work until it is added.');
   await ensureUsersSeeded();
 });
