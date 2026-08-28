@@ -2509,16 +2509,7 @@
         <div class="mail-content">
         <div id="tips_section_allocate" class="mail-section">
           <div class="panel" id="tipsFetchPanel">
-            <div class="form-grid">
-              <label>Pull From Square, Last
-                <select id="tips_daysBack">
-                  <option value="14">14 Days</option>
-                  <option value="30" selected>30 Days</option>
-                  <option value="60">60 Days</option>
-                  <option value="90">90 Days</option>
-                </select>
-              </label>
-            </div>
+            <p class="form-note" id="tips_rangeNote">Pulling from Square starting the most recent complete pay period forward.</p>
             <div class="form-actions">
               <button class="btn-primary" id="tips_refreshBtn" type="button">Refresh From Square</button>
               <span class="status-msg" id="tips_fetchStatus"></span>
@@ -4001,13 +3992,30 @@
     }catch(err){ console.error('Tip allocations save failed:', err); return false; }
   }
 
+  // Returns the Monday that starts the most recent COMPLETE Monday-Sunday
+  // pay period -- last week's Monday, not this week's, since this week
+  // isn't over yet. If today is Fri Aug 28 2026, returns '2026-08-17'.
+  function tipsGetMostRecentCompleteWeekStart(){
+    const thisWeek = tipsGetWeekBounds(todayStr());
+    const thisMonday = new Date(thisWeek.weekStart + 'T00:00:00');
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(thisMonday.getDate() - 7);
+    return lastMonday.toISOString().slice(0,10);
+  }
+
   async function tipsRefreshFromSquare(){
     const statusEl = document.getElementById('tips_fetchStatus');
-    const days = document.getElementById('tips_daysBack').value;
+    const fetchStart = tipsGetMostRecentCompleteWeekStart(); // two Mondays ago
+    const today = todayStr();
+    // +2 day buffer covers timestamp/timezone rounding in the backend's
+    // day-based range; the client-side filter below trims back to exactly
+    // fetchStart so nothing from earlier ever slips through.
+    const daysBack = Math.ceil((new Date(today+'T00:00:00') - new Date(fetchStart+'T00:00:00')) / (1000*60*60*24)) + 2;
+    document.getElementById('tips_rangeNote').textContent = `Pulling tips from ${fmtDate(fetchStart)} forward \u2014 the most recent complete pay period through today.`;
     statusEl.textContent = 'Pulling from Square\u2026';
     statusEl.className = 'status-msg';
     try{
-      const res = await fetch(`${API_BASE}/api/square-tips?days=${days}`, { headers: authHeaders() });
+      const res = await fetch(`${API_BASE}/api/square-tips?days=${daysBack}`, { headers: authHeaders() });
       if(handleAuthFailure(res)) return;
       const data = await res.json();
       if(!res.ok){
@@ -4015,11 +4023,11 @@
         statusEl.className = 'status-msg err';
         return;
       }
-      tipsPayments = data.payments || [];
+      tipsPayments = (data.payments || []).filter(p => p.date >= fetchStart);
       tipsPayments.forEach(p => {
         if(!p.jobNumber && tipsJobOverrides[p.id]) p.jobNumber = tipsJobOverrides[p.id];
       });
-      statusEl.textContent = `Loaded ${tipsPayments.length} tipped transaction${tipsPayments.length===1?'':'s'} from the last ${days} days.`;
+      statusEl.textContent = `Loaded ${tipsPayments.length} tipped transaction${tipsPayments.length===1?'':'s'} since ${fmtDate(fetchStart)}.`;
       statusEl.className = 'status-msg ok';
       renderTipsAll();
     }catch(err){
@@ -4149,7 +4157,8 @@
   }
 
   function tipsWeekLabel(w){
-    return fmtDate(w.weekStart) + ' \u2013 ' + fmtDate(w.weekEnd);
+    const isComplete = w.weekEnd < todayStr();
+    return fmtDate(w.weekStart) + ' \u2013 ' + fmtDate(w.weekEnd) + (isComplete ? '' : ' (in progress)');
   }
 
   function renderTipsSummaryWeekOptions(){
@@ -4162,7 +4171,14 @@
     });
     tipsWeeks = Array.from(byWeekStart.values()).sort((a,b) => b.weekStart.localeCompare(a.weekStart));
     sel.innerHTML = tipsWeeks.map(w => `<option value="${w.weekStart}">${tipsWeekLabel(w)}</option>`).join('');
-    if(prevValue && tipsWeeks.some(w => w.weekStart === prevValue)) sel.value = prevValue;
+    if(prevValue && tipsWeeks.some(w => w.weekStart === prevValue)){
+      sel.value = prevValue;
+    } else {
+      // Default to the most recent COMPLETE week, not just whichever is newest --
+      // the current in-progress week isn't ready to sum up for payroll yet.
+      const mostRecentComplete = tipsGetMostRecentCompleteWeekStart();
+      if(tipsWeeks.some(w => w.weekStart === mostRecentComplete)) sel.value = mostRecentComplete;
+    }
   }
 
   function renderTipsSummary(){
