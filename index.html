@@ -325,8 +325,26 @@
     </div>
   </div>
 
+  <div id="driverMenuView" style="display:none; max-width:380px; width:100%; margin:60px auto 0;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 class="display" style="margin:0; font-size:18px;">Driver Tools</h2>
+      <button type="button" id="driverMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <button type="button" id="driverGoToInspectionBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
+        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Pre-Trip Inspection</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Complete your truck's daily checklist</div>
+      </button>
+      <button type="button" id="driverGoToNbhdBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
+        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Find a Neighborhood</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Find a nearby spot for door hangers on the way to your next job</div>
+      </button>
+    </div>
+  </div>
+
   <div id="driverInspectionView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="driverInspectionBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
       <h2 class="display" style="margin:0; font-size:20px;">Pre-Trip Inspection</h2>
       <button type="button" id="driverLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
@@ -346,7 +364,7 @@
         <label>Odometer (optional) <input type="text" id="pti_odometer" inputmode="numeric" placeholder="e.g. 84213"></label>
       </div>
       <label id="pti_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="pti_driverNameOther" placeholder="First and last name"></label>
-      <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet \u2014 ask your administrator to add one on the Fleet Maintenance tile.</p>
+      <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
@@ -363,6 +381,53 @@
     <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
       <button class="btn-primary" id="pti_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Inspection</button>
       <span class="status-msg" id="pti_submitStatus" style="text-align:center;"></span>
+    </div>
+  </div>
+
+  <div id="driverNbhdView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="driverNbhdBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
+      <h2 class="display" style="margin:0; font-size:20px;">Find a Neighborhood</h2>
+      <button type="button" id="driverNbhdLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <p class="form-note">Where's your next job? We'll find a nearby neighborhood that's genuinely on the way &mdash; not just close to you right now.</p>
+      <label>Next Job Area
+        <select id="nbhd_nextArea">
+          <option value="evans">Evans</option>
+          <option value="martinez">Martinez</option>
+          <option value="augusta">Augusta</option>
+          <option value="grovetown">Grovetown</option>
+          <option value="hephzibah">Hephzibah</option>
+          <option value="fort gordon">Fort Gordon</option>
+        </select>
+      </label>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+        <button class="btn-primary" id="nbhd_findBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Find Nearby Neighborhood</button>
+        <span class="status-msg" id="nbhd_findStatus" style="text-align:center;"></span>
+      </div>
+    </div>
+
+    <div id="nbhd_resultsPanel" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Suggested Stops</h3>
+      <div id="nbhd_resultsList"></div>
+    </div>
+
+    <div id="nbhd_visitPanel" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Log Your Visit</h3>
+      <p class="form-note" id="nbhd_visitingLabel"></p>
+      <label>Your Name
+        <select id="nbhd_driverNameSelect">
+          <option value="">Select your name...</option>
+          <option value="__other__">Not on the list (type your name)</option>
+        </select>
+      </label>
+      <label id="nbhd_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="nbhd_driverNameOther" placeholder="First and last name"></label>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+        <button class="btn-primary" id="nbhd_logVisitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Mark Visited</button>
+        <span class="status-msg" id="nbhd_visitStatus" style="text-align:center;"></span>
+      </div>
     </div>
   </div>
 </div>
@@ -455,22 +520,48 @@
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'block';
+    document.getElementById('driverMenuView').style.display = 'none';
     document.getElementById('driverInspectionView').style.display = 'none';
+    document.getElementById('driverNbhdView').style.display = 'none';
+  }
+
+  function showDriverMenu(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverMenuView').style.display = 'block';
+    document.getElementById('driverInspectionView').style.display = 'none';
+    document.getElementById('driverNbhdView').style.display = 'none';
   }
 
   function showDriverInspection(){
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverMenuView').style.display = 'none';
     document.getElementById('driverInspectionView').style.display = 'block';
+    document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
     loadDriverTrucks();
     loadDriverRoster();
     renderPtiChecklist();
   }
 
+  function showDriverNbhd(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverMenuView').style.display = 'none';
+    document.getElementById('driverInspectionView').style.display = 'none';
+    document.getElementById('driverNbhdView').style.display = 'block';
+    document.getElementById('nbhd_resultsPanel').style.display = 'none';
+    document.getElementById('nbhd_visitPanel').style.display = 'none';
+    document.getElementById('nbhd_findStatus').textContent = '';
+    loadDriverRosterForNbhd();
+  }
+
   if(driverToken){
-    showDriverInspection();
+    showDriverMenu();
   }
 
   document.getElementById('showDriverGateBtn').addEventListener('click', showDriverCodeForm);
@@ -478,6 +569,10 @@
     document.getElementById('driverGate').style.display = 'none';
     document.getElementById('loginGate').style.display = 'flex';
   });
+  document.getElementById('driverGoToInspectionBtn').addEventListener('click', showDriverInspection);
+  document.getElementById('driverGoToNbhdBtn').addEventListener('click', showDriverNbhd);
+  document.getElementById('driverInspectionBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverNbhdBackBtn').addEventListener('click', showDriverMenu);
 
   async function attemptDriverLogin(){
     const statusEl = document.getElementById('driver_loginStatus');
@@ -505,7 +600,7 @@
       driverToken = data.token;
       document.getElementById('driver_code').value = '';
       statusEl.textContent = '';
-      showDriverInspection();
+      showDriverMenu();
     }catch(err){
       console.error('Driver login failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
@@ -515,7 +610,7 @@
   document.getElementById('driverLoginBtn').addEventListener('click', attemptDriverLogin);
   document.getElementById('driver_code').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptDriverLogin(); });
 
-  document.getElementById('driverLogoutBtn').addEventListener('click', async ()=>{
+  async function driverLogout(){
     try{
       await fetch(API_BASE_AUTH + '/api/driver-logout', {
         method: 'POST',
@@ -526,7 +621,10 @@
     localStorage.removeItem('henson_driver_token');
     driverToken = null;
     showDriverCodeForm();
-  });
+  }
+  document.getElementById('driverMenuLogoutBtn').addEventListener('click', driverLogout);
+  document.getElementById('driverLogoutBtn').addEventListener('click', driverLogout);
+  document.getElementById('driverNbhdLogoutBtn').addEventListener('click', driverLogout);
 
   function driverSessionExpired(){
     localStorage.removeItem('henson_driver_token');
@@ -562,8 +660,8 @@
     }
   }
 
-  async function loadDriverRoster(){
-    const sel = document.getElementById('pti_driverNameSelect');
+  async function fetchDriverRosterInto(selectId){
+    const sel = document.getElementById(selectId);
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/roster', {
         headers: {'Authorization': 'Bearer ' + driverToken}
@@ -581,11 +679,25 @@
       sel.innerHTML = '<option value="">Select your name...</option><option value="__other__">Not on the list (type your name)</option>';
     }
   }
-  document.getElementById('pti_driverNameSelect').addEventListener('change', (e)=>{
-    const otherWrap = document.getElementById('pti_driverNameOtherWrap');
-    otherWrap.style.display = e.target.value === '__other__' ? 'block' : 'none';
-    if(e.target.value !== '__other__') document.getElementById('pti_driverNameOther').value = '';
-  });
+  function loadDriverRoster(){ return fetchDriverRosterInto('pti_driverNameSelect'); }
+  function loadDriverRosterForNbhd(){ return fetchDriverRosterInto('nbhd_driverNameSelect'); }
+
+  function wireOtherNameToggle(selectId, wrapId, otherInputId){
+    document.getElementById(selectId).addEventListener('change', (e)=>{
+      const otherWrap = document.getElementById(wrapId);
+      otherWrap.style.display = e.target.value === '__other__' ? 'block' : 'none';
+      if(e.target.value !== '__other__') document.getElementById(otherInputId).value = '';
+    });
+  }
+  wireOtherNameToggle('pti_driverNameSelect', 'pti_driverNameOtherWrap', 'pti_driverNameOther');
+  wireOtherNameToggle('nbhd_driverNameSelect', 'nbhd_driverNameOtherWrap', 'nbhd_driverNameOther');
+
+  function readSelectedDriverName(selectId, otherInputId){
+    const sel = document.getElementById(selectId);
+    return sel.value === '__other__'
+      ? document.getElementById(otherInputId).value.trim()
+      : sel.value.trim();
+  }
 
   function renderPtiChecklist(){
     const container = document.getElementById('pti_checklist');
@@ -679,6 +791,210 @@
       renderPtiChecklist();
     }catch(err){
       console.error('Submit inspection failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---------- Find a Neighborhood (door-hanger stops, driver-facing) ----------
+  function driverEsc(s){
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function driverHaversineMiles(lat1, lng1, lat2, lng2){
+    const R = 3958.8;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  // Same centroids as the admin side (computed from real researched
+  // coordinates) -- duplicated here since this script block runs before
+  // login, separate from the authenticated dashboard's script.
+  const DRIVER_AREA_CENTROIDS = {
+    "evans": { lat: 33.548878, lng: -82.156105 },
+    "martinez": { lat: 33.524554, lng: -82.092925 },
+    "augusta": { lat: 33.476573, lng: -82.086486 },
+    "grovetown": { lat: 33.462492, lng: -82.208302 },
+    "hephzibah": { lat: 33.362310, lng: -82.076912 },
+    "fort gordon": { lat: 33.408934, lng: -82.136444 }
+  };
+
+  let driverNbhdResults = [];
+  let driverSelectedNbhd = null;
+
+  async function loadDriverNeighborhoods(){
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/neighborhoods', {
+        headers: {'Authorization': 'Bearer ' + driverToken}
+      });
+      if(res.status === 401){ driverSessionExpired(); return null; }
+      const data = await res.json();
+      return data.neighborhoods || [];
+    }catch(err){
+      console.error('Load neighborhoods failed:', err);
+      return null;
+    }
+  }
+
+  document.getElementById('nbhd_findBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('nbhd_findStatus');
+    document.getElementById('nbhd_resultsPanel').style.display = 'none';
+    document.getElementById('nbhd_visitPanel').style.display = 'none';
+    statusEl.textContent = 'Getting your location...';
+    statusEl.className = 'status-msg';
+
+    if(!navigator.geolocation){
+      statusEl.textContent = 'Location services aren\u2019t available in this browser.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const nextArea = document.getElementById('nbhd_nextArea').value;
+        const nextCoords = DRIVER_AREA_CENTROIDS[nextArea];
+
+        statusEl.textContent = 'Finding nearby neighborhoods...';
+        const neighborhoods = await loadDriverNeighborhoods();
+        if(neighborhoods === null){
+          statusEl.textContent = 'Could not load neighborhoods \u2014 check your connection.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+        if(neighborhoods.length === 0){
+          statusEl.textContent = 'No neighborhoods are set up yet \u2014 ask your administrator to add some.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+
+        const directDistance = driverHaversineMiles(current.lat, current.lng, nextCoords.lat, nextCoords.lng);
+        const ranked = neighborhoods.map(n => {
+          const toNbhd = driverHaversineMiles(current.lat, current.lng, n.lat, n.lng);
+          const nbhdToNext = driverHaversineMiles(n.lat, n.lng, nextCoords.lat, nextCoords.lng);
+          const detour = (toNbhd + nbhdToNext) - directDistance;
+          return Object.assign({}, n, { distanceFromMe: toNbhd, detour: Math.max(0, detour) });
+        }).sort((a,b) => a.detour - b.detour);
+
+        driverNbhdResults = ranked.slice(0, 5);
+        renderNbhdResults();
+        statusEl.textContent = '';
+        document.getElementById('nbhd_resultsPanel').style.display = 'block';
+      },
+      (err) => {
+        statusEl.textContent = `Couldn't get your location (${err.message}). Location access is required to find nearby neighborhoods.`;
+        statusEl.className = 'status-msg err';
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+
+  function renderNbhdResults(){
+    const listEl = document.getElementById('nbhd_resultsList');
+    listEl.innerHTML = driverNbhdResults.map((n) => {
+      const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${n.lat},${n.lng}`;
+      return `
+      <div style="padding:14px 0; border-bottom:1px solid var(--line);">
+        <div style="font-weight:700; font-size:16px;">${driverEsc(n.name)}</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:2px;">${driverEsc(n.city)}, ${driverEsc(n.state)}</div>
+        <div style="font-size:12.5px; color:var(--muted); margin-top:3px;">${n.distanceFromMe.toFixed(1)} mi from you \u2014 adds ~${n.detour.toFixed(1)} mi to your trip</div>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="flex:1; text-align:center; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:10px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none;">Directions</a>
+          <button type="button" class="nbhd-select-btn" data-id="${n.id}" style="flex:1; background:var(--brand-green); color:#fff; border:none; padding:10px; border-radius:6px; font-size:13px; font-weight:700; cursor:pointer;">I'm Here</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('.nbhd-select-btn').forEach(btn => btn.addEventListener('click', (e)=> driverCheckAtNeighborhood(e.target.dataset.id)));
+  }
+
+  function driverCheckAtNeighborhood(id){
+    const n = driverNbhdResults.find(r => r.id === id);
+    if(!n) return;
+    const statusEl = document.getElementById('nbhd_findStatus');
+    statusEl.textContent = 'Checking your location...';
+    statusEl.className = 'status-msg';
+
+    if(!navigator.geolocation){
+      driverOfferManualVisit(n, 'Location services aren\u2019t available in this browser.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const dist = driverHaversineMiles(pos.coords.latitude, pos.coords.longitude, n.lat, n.lng);
+        statusEl.textContent = '';
+        if(dist <= 1.5){
+          openNbhdVisitPanel(n);
+        } else {
+          driverOfferManualVisit(n, `You're about ${dist.toFixed(1)} mi from ${n.name} \u2014 not close enough to auto-confirm.`);
+        }
+      },
+      (err) => {
+        driverOfferManualVisit(n, `Couldn't get your location (${err.message}).`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  function driverOfferManualVisit(n, reason){
+    const statusEl = document.getElementById('nbhd_findStatus');
+    statusEl.innerHTML = '';
+    statusEl.className = 'status-msg err';
+    const span = document.createElement('span');
+    span.textContent = reason + ' ';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Log Visit Anyway';
+    btn.style.cssText = 'background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:4px 10px; border-radius:4px; font-size:12px; cursor:pointer;';
+    btn.addEventListener('click', () => openNbhdVisitPanel(n));
+    statusEl.appendChild(span);
+    statusEl.appendChild(btn);
+  }
+
+  function openNbhdVisitPanel(n){
+    driverSelectedNbhd = n;
+    document.getElementById('nbhd_visitingLabel').textContent = `Logging your visit to ${n.name}, ${n.city}.`;
+    document.getElementById('nbhd_visitPanel').style.display = 'block';
+    document.getElementById('nbhd_visitStatus').textContent = '';
+  }
+
+  document.getElementById('nbhd_logVisitBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('nbhd_visitStatus');
+    if(!driverSelectedNbhd){
+      statusEl.textContent = 'Select a neighborhood first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const driverName = readSelectedDriverName('nbhd_driverNameSelect', 'nbhd_driverNameOther');
+    if(!driverName){
+      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Logging visit...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/neighborhood-visit', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ neighborhoodId: driverSelectedNbhd.id, neighborhoodName: driverSelectedNbhd.name, driverName })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not log visit.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = `Logged! Thanks for hitting ${driverSelectedNbhd.name}.`;
+      statusEl.className = 'status-msg ok';
+      document.getElementById('nbhd_driverNameSelect').value = '';
+      document.getElementById('nbhd_driverNameOther').value = '';
+      document.getElementById('nbhd_driverNameOtherWrap').style.display = 'none';
+      driverSelectedNbhd = null;
+    }catch(err){
+      console.error('Log visit failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -1533,7 +1849,7 @@
       <div id="comp_business" class="comp-section">
         <div class="panel" id="comp_einPanel">
           <h3>EIN Confirmation Letter</h3>
-          <p class="form-note">The IRS issues this once (Form CP 575) and will never reissue it \u2014 store it here so it's never lost. If it's already lost, the IRS can send a substitute "147C" letter by phone request.</p>
+          <p class="form-note">The IRS issues this once (Form CP 575) and will never reissue it &mdash; store it here so it's never lost. If it's already lost, the IRS can send a substitute "147C" letter by phone request.</p>
           <div id="comp_einDropzone" style="border:2px dashed var(--line); border-radius:8px; padding:24px 16px; text-align:center; background:var(--offwhite); cursor:pointer;">
             <div style="font-size:14px; font-weight:600;">Drag &amp; drop the EIN letter here</div>
             <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG</div>
@@ -1582,7 +1898,7 @@
         <div class="panel" id="comp_truckSelectPanel">
           <h3>Select a Truck</h3>
           <label>Truck <select id="comp_truckSelect"></select></label>
-          <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found \u2014 add one on the Fleet Maintenance tile first.</p>
+          <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found &mdash; add one on the Fleet Maintenance tile first.</p>
         </div>
 
         <div class="panel" id="comp_ptiPanel">
@@ -1696,7 +2012,7 @@
       <div id="comp_drivers" class="comp-section" style="display:none;">
         <div class="panel" id="comp_driverListPanel">
           <h3>Drivers</h3>
-          <p class="form-note" id="comp_noEmployeesNote" style="display:none;">No employees found yet \u2014 upload a payroll week on the Labor Cost tile first.</p>
+          <p class="form-note" id="comp_noEmployeesNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
           <table style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead><tr>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
@@ -1731,6 +2047,7 @@
           <button type="button" class="mail-section-btn" data-section="residential" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Residential</button>
           <button type="button" class="mail-section-btn" data-section="apartments" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Apartment Outreach</button>
           <button type="button" class="mail-section-btn" data-section="storage" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Storage Unit Outreach</button>
+          <button type="button" class="mail-section-btn" data-section="neighborhoods" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Neighborhoods</button>
         </div>
       </div>
 
@@ -1959,7 +2276,45 @@
           <tbody id="mailStorage_rows"></tbody>
         </table>
         <p class="form-note" id="mailStorage_emptyNote" style="display:none;">No storage facilities yet &mdash; paste some in above to get started.</p>
-        <p class="form-note" id="mailStorage_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each facility's published starting rate for its smallest standard unit (5x5 or 5x10), bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Storage Sense-Martinez-Wheeler Rd, U-Haul Columbia Fairgrounds, and Surrey Storage have no published rate; Southern Boat & RV Storage and Premier Storage Group are RV/boat-only lots not comparable to standard units \u2014 all five are left unpriced.</p>
+        <p class="form-note" id="mailStorage_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each facility's published starting rate for its smallest standard unit (5x5 or 5x10), bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Storage Sense-Martinez-Wheeler Rd, U-Haul Columbia Fairgrounds, and Surrey Storage have no published rate; Southern Boat & RV Storage and Premier Storage Group are RV/boat-only lots not comparable to standard units &mdash; all five are left unpriced.</p>
+      </div>
+      </div>
+
+      <div id="mail_section_neighborhoods" class="mail-section">
+      <div class="panel" id="mailNbhdAddPanel">
+        <h3>Add New Neighborhoods</h3>
+        <p class="form-note">Residential neighborhoods for door-hanger stops on slow days. Not addresses &mdash; just the neighborhood name and general area. Paste new ones below, tab- or comma-separated: <span class="mono">Neighborhood Name, City, State</span>. Employees find and log these through the driver access code on the login screen.</p>
+        <textarea id="mailNbhd_bulkInput" rows="4" placeholder="Highland Lakes, Evans, GA" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; box-sizing:border-box;"></textarea>
+        <div class="form-actions">
+          <button class="btn-primary" id="mailNbhd_addBtn" type="button">Add to List</button>
+          <span class="status-msg" id="mailNbhd_addStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="mailNbhdTablePanel">
+        <h3>Neighborhoods (<span id="mailNbhd_count">0</span>)</h3>
+        <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+          <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Filter
+            <input type="text" id="mailNbhd_filter" placeholder="Search name or city..." style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px; min-width:220px;">
+          </label>
+        </div>
+        <div class="form-actions" style="margin-bottom:14px; flex-wrap:wrap;">
+          <button type="button" id="mailNbhd_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
+          <span class="status-msg" id="mailNbhd_bulkStatus"></span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Neighborhood</th>
+            <th>City</th>
+            <th>State</th>
+            <th>Times Visited</th>
+            <th>Last Visited</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="mailNbhd_rows"></tbody>
+        </table>
+        <p class="form-note" id="mailNbhd_emptyNote" style="display:none;">No neighborhoods yet &mdash; paste some in above to get started.</p>
       </div>
       </div>
     </div>
@@ -2042,7 +2397,7 @@
 
         <div class="panel" id="set_driverCodePanel">
           <h3>Driver Access Code</h3>
-          <p class="form-note">Shared code drivers use on the login screen to submit Pre-Trip Inspections electronically. It's a separate, restricted access path \u2014 whoever has this code can only submit inspection forms, nothing else in the dashboard. Give it to any employee who needs to complete inspections.</p>
+          <p class="form-note">Shared code drivers use on the login screen to submit Pre-Trip Inspections electronically. It's a separate, restricted access path &mdash; whoever has this code can only submit inspection forms, nothing else in the dashboard. Give it to any employee who needs to complete inspections.</p>
           <div id="set_driverCodeDisplay" style="font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:700; padding:12px 16px; background:var(--offwhite); border:1px solid var(--line); border-radius:6px; margin-bottom:14px;">Loading...</div>
           <label>New Access Code (min 6 characters) <input type="text" id="set_newDriverCode" autocomplete="off"></label>
           <div class="form-actions">
@@ -2224,6 +2579,7 @@
       loadMailListData();
       loadMailAptData();
       loadMailStorageData();
+      loadMailNbhdData();
       showMailSection(mailCurrentSection);
     }
     if(view === 'mailroute'){
@@ -4217,6 +4573,7 @@
     document.getElementById('mail_section_residential').style.display = section === 'residential' ? 'block' : 'none';
     document.getElementById('mail_section_apartments').style.display = section === 'apartments' ? 'block' : 'none';
     document.getElementById('mail_section_storage').style.display = section === 'storage' ? 'block' : 'none';
+    document.getElementById('mail_section_neighborhoods').style.display = section === 'neighborhoods' ? 'block' : 'none';
     document.querySelectorAll('.mail-section-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.section === section);
     });
@@ -5689,6 +6046,246 @@
       }
     }catch(err){ console.error('Initial storage outreach status check failed:', err); }
   })();
+
+  // ---------- Neighborhoods (door-hanger routes, accessed by employees via the driver code) ----------
+  const MAIL_NBHD_KEY = 'mail-neighborhoods';
+  const MAIL_NBHD_VISITS_KEY = 'mail-neighborhood-visits';
+  let mailNbhdRecords = [];
+  let mailNbhdVisits = [];
+
+  // Real researched coordinates for the initial 32 neighborhoods. Area
+  // centroids (computed from this same data) are used as an approximation
+  // for any neighborhood added later without precise coordinates -- keeps
+  // the whole system geocoding-free, matching "general location, not
+  // addresses."
+  const MAIL_AREA_CENTROIDS = {
+    "evans": { lat: 33.548878, lng: -82.156105 },
+    "martinez": { lat: 33.524554, lng: -82.092925 },
+    "augusta": { lat: 33.476573, lng: -82.086486 },
+    "grovetown": { lat: 33.462492, lng: -82.208302 },
+    "hephzibah": { lat: 33.362310, lng: -82.076912 },
+    "fort gordon": { lat: 33.408934, lng: -82.136444 }
+  };
+  function mailAreaCentroidFor(city){
+    return MAIL_AREA_CENTROIDS[String(city||'').trim().toLowerCase()] || MAIL_BUSINESS_COORDS;
+  }
+
+  const MAIL_NBHD_SEED = [
+    { name: "Highland Lakes", city: "Evans", state: "GA", lat: 33.5475913, lng: -82.2121901 },
+    { name: "Whispering Pines", city: "Evans", state: "GA", lat: 33.551006, lng: -82.2077674 },
+    { name: "Crawford Creek", city: "Evans", state: "GA", lat: 33.5216149, lng: -82.1870616 },
+    { name: "Riverwood Plantation", city: "Evans", state: "GA", lat: 33.5747169, lng: -82.1896441 },
+    { name: "Four Oaks", city: "Evans", state: "GA", lat: 33.5130388, lng: -82.2027778 },
+    { name: "Southwind Village", city: "Evans", state: "GA", lat: 33.5246917, lng: -82.2026222 },
+    { name: "Highgrove at Williamsburg", city: "Evans", state: "GA", lat: 33.576509, lng: -82.168362 },
+    { name: "Bell Tower on the River", city: "Evans", state: "GA", lat: 33.5782255, lng: -82.1281585 },
+    { name: "Barrington", city: "Martinez", state: "GA", lat: 33.534527, lng: -82.053967 },
+    { name: "West Lake", city: "Martinez", state: "GA", lat: 33.543824, lng: -82.075151 },
+    { name: "Mosscreek", city: "Augusta", state: "GA", lat: 33.5079481, lng: -82.1357748 },
+    { name: "Wymberly", city: "Martinez", state: "GA", lat: 33.5065556, lng: -82.1490897 },
+    { name: "Cameron", city: "Augusta", state: "GA", lat: 33.4619052, lng: -82.1053879 },
+    { name: "Granite Hill", city: "Augusta", state: "GA", lat: 33.4500899, lng: -82.1043846 },
+    { name: "Hayne's Station", city: "Augusta", state: "GA", lat: 33.445366, lng: -82.158789 },
+    { name: "Sims Landing", city: "Augusta", state: "GA", lat: 33.4420615, lng: -82.1411517 },
+    { name: "Ridge Forest", city: "Augusta", state: "GA", lat: 33.375512, lng: -82.0502473 },
+    { name: "Kingston", city: "Augusta", state: "GA", lat: 33.4803076, lng: -82.077483 },
+    { name: "McCoy's Creek", city: "Grovetown", state: "GA", lat: 33.4364687, lng: -82.1770142 },
+    { name: "Deer Hollow", city: "Grovetown", state: "GA", lat: 33.4625551, lng: -82.2335675 },
+    { name: "Kelarie", city: "Grovetown", state: "GA", lat: 33.5056966, lng: -82.2515081 },
+    { name: "Euchee Lake", city: "Grovetown", state: "GA", lat: 33.453082, lng: -82.2410541 },
+    { name: "Caroleton", city: "Grovetown", state: "GA", lat: 33.446629, lng: -82.238078 },
+    { name: "Northlake", city: "Grovetown", state: "GA", lat: 33.4519266, lng: -82.21348 },
+    { name: "Tillery Park", city: "Grovetown", state: "GA", lat: 33.4859647, lng: -82.2468746 },
+    { name: "Indian Springs", city: "Grovetown", state: "GA", lat: 33.4707015, lng: -82.2223331 },
+    { name: "Amherst", city: "Grovetown", state: "GA", lat: 33.5061675, lng: -82.1772502 },
+    { name: "Southampton", city: "Hephzibah", state: "GA", lat: 33.3673139, lng: -82.079897 },
+    { name: "Laurel Park", city: "Hephzibah", state: "GA", lat: 33.377278, lng: -82.0837826 },
+    { name: "Walton Farms", city: "Hephzibah", state: "GA", lat: 33.359648, lng: -82.10958 },
+    { name: "Premier Estates", city: "Hephzibah", state: "GA", lat: 33.3248552, lng: -82.0234726 },
+    { name: "Diamond Lakes Townhomes", city: "Hephzibah", state: "GA", lat: 33.3567729, lng: -82.082122 }
+  ];
+
+  function mailNbhdNormalizeKey(rec){
+    return (rec.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  async function loadMailNbhdData(){
+    try{
+      const [nbhdData, visitData] = await Promise.all([
+        window.dashboardApi.get(MAIL_NBHD_KEY, null),
+        window.dashboardApi.get(MAIL_NBHD_VISITS_KEY, [])
+      ]);
+      if(nbhdData === null || nbhdData === undefined){
+        mailNbhdRecords = MAIL_NBHD_SEED.map((n, i) => ({
+          id: 'nbhd_seed_' + i,
+          name: n.name, city: n.city, state: n.state, lat: n.lat, lng: n.lng,
+          dateAdded: new Date().toISOString().slice(0,10)
+        }));
+        await saveMailNbhdRecords();
+      } else {
+        mailNbhdRecords = nbhdData || [];
+      }
+      mailNbhdVisits = visitData || [];
+    }catch(err){
+      console.error('Neighborhoods load failed:', err);
+      mailNbhdRecords = mailNbhdRecords || [];
+      mailNbhdVisits = mailNbhdVisits || [];
+    }
+    renderMailNbhdTable();
+  }
+
+  async function saveMailNbhdRecords(){
+    try{ return await window.dashboardApi.set(MAIL_NBHD_KEY, mailNbhdRecords); }
+    catch(err){ console.error('Neighborhoods save failed:', err); return false; }
+  }
+
+  function renderMailNbhdTable(){
+    const filter = (document.getElementById('mailNbhd_filter').value || '').trim().toLowerCase();
+    const tbody = document.getElementById('mailNbhd_rows');
+    const emptyNote = document.getElementById('mailNbhd_emptyNote');
+
+    let filtered = [...mailNbhdRecords];
+    if(filter){
+      filtered = filtered.filter(r => (r.name||'').toLowerCase().includes(filter) || (r.city||'').toLowerCase().includes(filter));
+    }
+    filtered.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+
+    document.getElementById('mailNbhd_count').textContent = mailNbhdRecords.length;
+    emptyNote.style.display = mailNbhdRecords.length === 0 ? 'block' : 'none';
+
+    tbody.innerHTML = filtered.map(r => {
+      const visits = mailNbhdVisits.filter(v => v.neighborhoodId === r.id).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+      const lastVisit = visits[0];
+      return `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(r.name)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(r.city)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(r.state)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${visits.length}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${lastVisit ? fleetEsc(lastVisit.date) : '\u2014'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          ${visits.length > 0 ? `<button type="button" class="mailNbhd-history" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">History</button>` : ''}
+          <button type="button" class="mailNbhd-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.mailNbhd-history').forEach(btn => btn.addEventListener('click', (e)=> viewNbhdHistory(e.target.dataset.id)));
+    tbody.querySelectorAll('.mailNbhd-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this neighborhood? Its visit history will be kept but no longer shown here.')) return;
+      mailNbhdRecords = mailNbhdRecords.filter(r => r.id !== id);
+      await saveMailNbhdRecords();
+      renderMailNbhdTable();
+    }));
+  }
+
+  function viewNbhdHistory(id){
+    const rec = mailNbhdRecords.find(r => r.id === id);
+    if(!rec) return;
+    const visits = mailNbhdVisits.filter(v => v.neighborhoodId === id).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+    const rows = visits.map(v => `
+      <tr>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(v.date)}</td>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(v.driverName)}</td>
+      </tr>`).join('');
+    const win = window.open();
+    if(!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Visit History \u2014 ${fleetEsc(rec.name)}</title></head>
+      <body style="font-family:Arial,sans-serif; padding:24px; max-width:500px; margin:0 auto; color:#1a1a1a;">
+        <h2 style="margin-bottom:4px;">${fleetEsc(rec.name)}</h2>
+        <p style="margin-top:0; color:#555;">${fleetEsc(rec.city)}, ${fleetEsc(rec.state)} \u2014 ${visits.length} visit${visits.length===1?'':'s'} on record</p>
+        <table style="border-collapse:collapse; width:100%;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Date</th>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Employee</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </body></html>`);
+    win.document.close();
+  }
+
+  function mailNbhdParseBulkInput(text){
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const parsed = [];
+    const errors = [];
+    lines.forEach((line, idx) => {
+      let cols = line.includes('\t') ? line.split('\t') : line.split(',');
+      cols = cols.map(c => c.trim());
+      if(cols.length < 2){
+        errors.push(`Line ${idx+1}: expected at least Name, City \u2014 got ${cols.length}: "${line}"`);
+        return;
+      }
+      const [name, city, state] = cols;
+      if(!name || !city){
+        errors.push(`Line ${idx+1}: missing name or city \u2014 "${line}"`);
+        return;
+      }
+      parsed.push({ name, city, state: (state || 'GA').toUpperCase() });
+    });
+    return { parsed, errors };
+  }
+
+  document.getElementById('mailNbhd_addBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mailNbhd_addStatus');
+    const textarea = document.getElementById('mailNbhd_bulkInput');
+    const text = textarea.value;
+    if(!text.trim()){
+      statusEl.textContent = 'Paste at least one neighborhood first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const { parsed, errors } = mailNbhdParseBulkInput(text);
+    if(parsed.length === 0){
+      statusEl.textContent = errors.length ? errors[0] : 'Nothing to add.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const existingKeys = new Set(mailNbhdRecords.map(mailNbhdNormalizeKey));
+    let added = 0, skipped = 0;
+    parsed.forEach(p => {
+      const key = mailNbhdNormalizeKey(p);
+      if(existingKeys.has(key)){ skipped++; return; }
+      existingKeys.add(key);
+      const centroid = mailAreaCentroidFor(p.city);
+      mailNbhdRecords.push({
+        id: 'nbhd_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        name: p.name, city: p.city, state: p.state, lat: centroid.lat, lng: centroid.lng,
+        dateAdded: new Date().toISOString().slice(0,10)
+      });
+      added++;
+    });
+
+    const ok = await saveMailNbhdRecords();
+    textarea.value = '';
+    renderMailNbhdTable();
+
+    let msg = ok ? `Added ${added} neighborhood${added===1?'':'s'}.` : 'Save failed \u2014 check your connection.';
+    if(skipped > 0) msg += ` Skipped ${skipped} duplicate${skipped===1?'':'s'}.`;
+    if(errors.length > 0) msg += ` ${errors.length} line${errors.length===1?'':'s'} could not be parsed.`;
+    statusEl.textContent = msg;
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
+
+  document.getElementById('mailNbhd_filter').addEventListener('input', renderMailNbhdTable);
+
+  document.getElementById('mailNbhd_clearAllBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mailNbhd_bulkStatus');
+    const count = mailNbhdRecords.length;
+    if(count === 0){
+      statusEl.textContent = 'The list is already empty.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(!confirm(`Delete all ${count} neighborhood${count===1?'':'s'}? This cannot be undone.`)) return;
+    mailNbhdRecords = [];
+    const ok = await saveMailNbhdRecords();
+    renderMailNbhdTable();
+    statusEl.textContent = ok ? `Cleared ${count} neighborhood${count===1?'':'s'}.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  });
 
   // ---------- Settings ----------
   const SETTINGS_CONFIG_FILES_KEY = 'settings-config-files';
