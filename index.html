@@ -2573,6 +2573,7 @@
               <tbody id="tips_prevWeekRows"></tbody>
             </table>
             <p class="form-note" id="tips_prevWeekEmptyNote" style="display:none;">No allocated tips for the previous pay week yet.</p>
+            <div id="tips_prevWeekUnassignedNote"></div>
           </div>
         </div>
 
@@ -2589,6 +2590,7 @@
               <tbody id="tips_summaryRows"></tbody>
             </table>
             <p class="form-note" id="tips_summaryEmptyNote" style="display:none;">No allocated tips for this week yet.</p>
+            <div id="tips_summaryUnassignedNote"></div>
           </div>
         </div>
         </div>
@@ -4145,17 +4147,33 @@
   }
 
   function tipsEmployeeCheckboxesHtml(selected){
-    if(tipsRoster.length === 0){
-      return '<span class="form-note">No roster available.</span>';
-    }
     const sel = new Set(selected || []);
-    return `<div class="tips-emp-list" style="max-height:110px; overflow-y:auto; border:1px solid var(--line); border-radius:4px; padding:6px; font-size:12.5px;">
-      ${tipsRoster.map(name => `
+    const rosterHtml = tipsRoster.length === 0
+      ? '<span class="form-note">No roster available.</span>'
+      : tipsRoster.map(name => `
         <label style="display:flex; align-items:center; gap:6px; padding:2px 0; cursor:pointer;">
           <input type="checkbox" class="tips-emp-check" value="${tipsEsc(name)}" ${sel.has(name) ? 'checked' : ''}>
           ${tipsEsc(name)}
-        </label>`).join('')}
+        </label>`).join('');
+    return `<div class="tips-emp-list" style="max-height:130px; overflow-y:auto; border:1px solid var(--line); border-radius:4px; padding:6px; font-size:12.5px;">
+      <label style="display:flex; align-items:center; gap:6px; padding:2px 0 6px; margin-bottom:4px; border-bottom:1px solid var(--line); cursor:pointer; font-style:italic; color:var(--muted);">
+        <input type="checkbox" class="tips-emp-none">
+        No One (can't be tied to an employee)
+      </label>
+      ${rosterHtml}
     </div>`;
+  }
+
+  function tipsWireEmployeeCheckboxExclusivity(row){
+    const noneCheck = row.querySelector('.tips-emp-none');
+    const empChecks = row.querySelectorAll('.tips-emp-check');
+    if(!noneCheck) return;
+    noneCheck.addEventListener('change', ()=>{
+      if(noneCheck.checked) empChecks.forEach(cb => { cb.checked = false; });
+    });
+    empChecks.forEach(cb => cb.addEventListener('change', ()=>{
+      if(cb.checked) noneCheck.checked = false;
+    }));
   }
 
   function renderTipsAllocate(){
@@ -4174,19 +4192,22 @@
         <td><button type="button" class="tips-save-alloc" data-job="${g.jobNumber}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:3px; font-size:12px; cursor:pointer;">Split &amp; Save</button></td>
       </tr>`).join('');
 
+    tbody.querySelectorAll('tr[data-job]').forEach(row => tipsWireEmployeeCheckboxExclusivity(row));
+
     tbody.querySelectorAll('.tips-save-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
       const jobNumber = e.target.dataset.job;
       const row = tbody.querySelector(`tr[data-job="${jobNumber}"]`);
+      const noneChecked = row.querySelector('.tips-emp-none').checked;
       const checked = Array.from(row.querySelectorAll('.tips-emp-check:checked')).map(cb => cb.value);
-      if(checked.length === 0){
-        alert('Select at least one employee to split this tip.');
+      if(!noneChecked && checked.length === 0){
+        alert('Select at least one employee, or check "No One" if this tip can\u2019t be tied to anyone.');
         return;
       }
       const group = grouped.find(g => g.jobNumber === jobNumber);
       if(!group) return;
       tipsAllocations[jobNumber] = {
         jobNumber, tipAmount: group.tipAmount, date: group.date, paymentIds: group.paymentIds,
-        employees: checked, allocatedAt: new Date().toISOString()
+        employees: noneChecked ? [] : checked, allocatedAt: new Date().toISOString()
       };
       const ok = await tipsSaveAllocations();
       if(!ok){ alert('Save failed \u2014 check your connection and try again.'); return; }
@@ -4200,14 +4221,16 @@
     const entries = Object.entries(tipsAllocations).sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
     emptyNote.style.display = entries.length === 0 ? 'block' : 'none';
     tbody.innerHTML = entries.map(([jobNumber, a]) => {
-      const perPerson = a.tipAmount / a.employees.length;
       const paymentCount = (a.paymentIds || []).length;
+      const employeesCell = a.employees.length === 0
+        ? '<span class="form-note" style="font-style:italic;">No One (unassigned)</span>'
+        : `${a.employees.map(n => tipsEsc(n)).join(', ')} <span class="form-note">(${tipsMoney(a.tipAmount / a.employees.length)} each)</span>`;
       return `
       <tr data-job="${jobNumber}">
         <td>${tipsEsc(a.date)}</td>
         <td style="font-weight:600;">${tipsEsc(a.jobNumber)}${paymentCount > 1 ? ` <span class="form-note">(${paymentCount} payments combined)</span>` : ''}</td>
         <td>${tipsMoney(a.tipAmount)}</td>
-        <td>${a.employees.map(n => tipsEsc(n)).join(', ')} <span class="form-note">(${tipsMoney(perPerson)} each)</span></td>
+        <td>${employeesCell}</td>
         <td><button type="button" class="tips-undo-alloc" data-job="${jobNumber}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
       </tr>`;
     }).join('');
@@ -4250,8 +4273,13 @@
   // count for a given Monday-Sunday week's worth of allocations.
   function tipsComputeWeekTotals(weekStart, weekEnd){
     const totals = {};
+    let unassignedTotal = 0;
     Object.values(tipsAllocations).forEach(a => {
       if(a.date < weekStart || a.date > weekEnd) return;
+      if(a.employees.length === 0){
+        unassignedTotal += a.tipAmount;
+        return;
+      }
       const share = a.tipAmount / a.employees.length;
       a.employees.forEach(name => {
         if(!totals[name]) totals[name] = { total: 0, jobs: new Set() };
@@ -4259,7 +4287,7 @@
         totals[name].jobs.add(a.jobNumber);
       });
     });
-    return totals;
+    return { totals, unassignedTotal };
   }
 
   function tipsRenderTotalsRows(totals){
@@ -4272,34 +4300,44 @@
       </tr>`).join('');
   }
 
+  function tipsUnassignedNoteHtml(unassignedTotal){
+    if(unassignedTotal <= 0) return '';
+    return `<p class="form-note" style="font-style:italic; margin-top:8px;">${tipsMoney(unassignedTotal)} in tips this week couldn't be tied to an employee.</p>`;
+  }
+
   function renderTipsSummary(){
     const tbody = document.getElementById('tips_summaryRows');
     const emptyNote = document.getElementById('tips_summaryEmptyNote');
+    const unassignedNoteEl = document.getElementById('tips_summaryUnassignedNote');
     const weekStart = document.getElementById('tips_summaryWeek').value;
     const week = tipsWeeks.find(w => w.weekStart === weekStart);
     if(!week){
       tbody.innerHTML = '';
       emptyNote.style.display = 'block';
+      unassignedNoteEl.innerHTML = '';
       return;
     }
-    const totals = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
+    const { totals, unassignedTotal } = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
     const hasAny = Object.keys(totals).length > 0;
-    emptyNote.style.display = hasAny ? 'none' : 'block';
+    emptyNote.style.display = (hasAny || unassignedTotal > 0) ? 'none' : 'block';
     tbody.innerHTML = tipsRenderTotalsRows(totals);
+    unassignedNoteEl.innerHTML = tipsUnassignedNoteHtml(unassignedTotal);
   }
   document.getElementById('tips_summaryWeek').addEventListener('change', renderTipsSummary);
 
   function renderTipsPrevWeekTotals(){
     const tbody = document.getElementById('tips_prevWeekRows');
     const emptyNote = document.getElementById('tips_prevWeekEmptyNote');
+    const unassignedNoteEl = document.getElementById('tips_prevWeekUnassignedNote');
     const labelEl = document.getElementById('tips_prevWeekLabel');
     const weekStart = tipsGetMostRecentCompleteWeekStart();
     const week = tipsGetWeekBounds(weekStart);
     labelEl.textContent = tipsWeekLabel(week);
-    const totals = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
+    const { totals, unassignedTotal } = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
     const hasAny = Object.keys(totals).length > 0;
-    emptyNote.style.display = hasAny ? 'none' : 'block';
+    emptyNote.style.display = (hasAny || unassignedTotal > 0) ? 'none' : 'block';
     tbody.innerHTML = tipsRenderTotalsRows(totals);
+    unassignedNoteEl.innerHTML = tipsUnassignedNoteHtml(unassignedTotal);
   }
 
   function showTipsSection(section){
