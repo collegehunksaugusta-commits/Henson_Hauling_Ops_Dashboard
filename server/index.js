@@ -699,44 +699,73 @@ app.post('/api/admin/extract-listings', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'No valid images were provided.' });
     }
 
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
-        tools: [EXTRACT_LISTINGS_TOOL],
-        tool_choice: { type: 'tool', name: 'extract_listings' },
-        messages: [{
-          role: 'user',
-          content: [
-            ...imageBlocks,
-            { type: 'text', text: 'These are screenshots of real estate listings (from Redfin, Zillow, or similar). Extract the street address, city, state, and zip code for every distinct property listing visible across all the images. Do not include agent names, prices, or MLS numbers -- only the address fields. If the same property appears in more than one screenshot, list it only once.' }
-          ]
-        }]
-      })
+    // Send at most 5 images per Anthropic request -- a single large batch
+    // (e.g. 20 images at once) appears to make extraction noticeably less
+    // reliable, sometimes returning nothing at all. Smaller batches, run in
+    // parallel, keep each individual request focused and fast without
+    // increasing total wait time much.
+    const BATCH_SIZE = 5;
+    const batches = [];
+    for (let i = 0; i < imageBlocks.length; i += BATCH_SIZE) {
+      batches.push(imageBlocks.slice(i, i + BATCH_SIZE));
+    }
+
+    async function runBatch(batchImages, batchIndex){
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 4096,
+          tools: [EXTRACT_LISTINGS_TOOL],
+          tool_choice: { type: 'tool', name: 'extract_listings' },
+          messages: [{
+            role: 'user',
+            content: [
+              ...batchImages,
+              { type: 'text', text: `These are ${batchImages.length} screenshot(s) of real estate listings (from Redfin, Zillow, or similar). Look carefully at each image individually and extract the street address, city, state, and zip code for every distinct property listing visible. Each screenshot generally shows at least one listing -- read the address text carefully even if it's small. Do not include agent names, prices, or MLS numbers -- only the address fields. If the same property appears in more than one screenshot, list it only once.` }
+            ]
+          }]
+        })
+      });
+
+      if (!anthropicRes.ok) {
+        const errBody = await anthropicRes.text().catch(() => '');
+        console.error(`Anthropic API request failed (batch ${batchIndex}, ${batchImages.length} images):`, anthropicRes.status, errBody);
+        let detail = '';
+        try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        return { error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
+      }
+
+      const data = await anthropicRes.json();
+      const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_listings');
+      if (!toolUseBlock) {
+        const textBlock = (data.content || []).find(b => b.type === 'text');
+        console.error(`Anthropic response had no tool_use block (batch ${batchIndex}, ${batchImages.length} images). stop_reason=${data.stop_reason}. Text content: ${textBlock ? textBlock.text.slice(0, 300) : '(none)'}`);
+        return { error: 'Could not read a structured response from the extraction service.' };
+      }
+      const listings = Array.isArray(toolUseBlock.input.listings) ? toolUseBlock.input.listings : [];
+      console.log(`Extraction batch ${batchIndex}: ${batchImages.length} image(s) in, ${listings.length} listing(s) out. stop_reason=${data.stop_reason}`);
+      return { listings };
+    }
+
+    const batchResults = await Promise.all(batches.map((b, i) => runBatch(b, i)));
+    const allListings = [];
+    const batchErrors = [];
+    batchResults.forEach(r => {
+      if (r.error) batchErrors.push(r.error);
+      else allListings.push(...r.listings);
     });
 
-    if (!anthropicRes.ok) {
-      const errBody = await anthropicRes.text().catch(() => '');
-      console.error('Anthropic API request failed:', anthropicRes.status, errBody);
-      let detail = '';
-      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
-      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    if (allListings.length === 0 && batchErrors.length > 0) {
+      // Every batch failed outright -- surface the error rather than silently returning nothing.
+      return res.status(502).json({ error: batchErrors[0] });
     }
-
-    const data = await anthropicRes.json();
-    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_listings');
-    if (!toolUseBlock) {
-      console.error('Anthropic response had no tool_use block:', JSON.stringify(data).slice(0, 500));
-      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
-    }
-    const listings = Array.isArray(toolUseBlock.input.listings) ? toolUseBlock.input.listings : [];
-    res.json({ listings });
+    res.json({ listings: allListings, partialFailures: batchErrors.length });
   } catch (err) {
     console.error('Listing extraction failed:', err.message);
     res.status(500).json({ error: 'Extraction failed: ' + err.message });
