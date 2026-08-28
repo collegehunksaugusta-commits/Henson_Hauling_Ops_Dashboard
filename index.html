@@ -111,6 +111,15 @@
     padding:3px 8px; border-radius:20px; border:1px solid var(--line);
   }
   .tile.attention{background:#FDEDEA; border-color:#E8A69C;}
+  .pti-item{padding:12px 0; border-bottom:1px solid var(--line);}
+  .pti-item:last-child{border-bottom:none;}
+  .pti-item-row{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;}
+  .pti-item-name{font-weight:600; font-size:14px;}
+  .pti-status-btn{background:#fff; border:1px solid var(--line); color:var(--muted); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:5px; cursor:pointer;}
+  .pti-status-btn.active[data-status="ok"]{background:var(--brand-green); border-color:var(--brand-green-dark); color:#fff;}
+  .pti-status-btn.active[data-status="defect"]{background:#B3261E; border-color:#8a1c17; color:#fff;}
+  .pti-status-btn.active[data-status="na"]{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
+  .pti-note{display:none; width:100%; margin-top:8px; padding:8px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:13px; box-sizing:border-box;}
   .tile.attention::before{background:#B3261E;}
   .tile.attention .badge{color:#B3261E; background:#FCDCD6; border-color:#E8A69C;}
   .tile.warning{background:#FFF6E8; border-color:#F0D9A8;}
@@ -289,6 +298,7 @@
         <button class="btn-primary" id="loginBtn" type="button" style="width:100%;">Log In</button>
         <span class="status-msg" id="login_status" style="text-align:center;"></span>
         <p id="login_troubleNote" style="display:none; text-align:center; font-size:12.5px; color:var(--muted); margin:2px 0 0;">Having trouble logging in? Contact your administrator to reset your password.</p>
+        <button type="button" id="showDriverGateBtn" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:6px; margin-top:4px;">Driver? Submit a Pre-Trip Inspection</button>
       </div>
     </div>
     <div id="resetPasswordForm" style="display:none;">
@@ -302,6 +312,55 @@
     </div>
   </div>
 </div>
+
+<div id="driverGate" style="display:none; position:fixed; inset:0; background:var(--offwhite); z-index:9999; overflow-y:auto; padding:20px;">
+  <div id="driverCodeForm" style="max-width:380px; width:100%; margin:60px auto 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:32px 28px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <h2 class="display" style="margin:0 0 4px; text-align:center; font-size:18px;">Pre-Trip Inspection</h2>
+    <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 24px;">Driver Access</p>
+    <label>Access Code <input type="password" id="driver_code" autocomplete="off"></label>
+    <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+      <button class="btn-primary" id="driverLoginBtn" type="button" style="width:100%;">Continue</button>
+      <span class="status-msg" id="driver_loginStatus" style="text-align:center;"></span>
+      <button type="button" id="driverBackToStaffBtn" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:6px;">Back to staff login</button>
+    </div>
+  </div>
+
+  <div id="driverInspectionView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <h2 class="display" style="margin:0; font-size:20px;">Pre-Trip Inspection</h2>
+      <button type="button" id="driverLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <div class="form-grid">
+        <label>Truck <select id="pti_truck"></select></label>
+        <label>Date <input type="date" id="pti_date"></label>
+      </div>
+      <div class="form-grid">
+        <label>Your Name <input type="text" id="pti_driverName" placeholder="First and last name"></label>
+        <label>Odometer (optional) <input type="text" id="pti_odometer" inputmode="numeric" placeholder="e.g. 84213"></label>
+      </div>
+      <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet \u2014 ask your administrator to add one on the Fleet Maintenance tile.</p>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Checklist</h3>
+      <p class="form-note">Tap OK, Defect, or N/A for each item. If you mark something Defect, add a quick note.</p>
+      <div id="pti_checklist"></div>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Additional Notes</h3>
+      <textarea id="pti_additionalNotes" rows="3" placeholder="Anything else worth flagging..." style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea>
+    </div>
+
+    <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+      <button class="btn-primary" id="pti_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Inspection</button>
+      <span class="status-msg" id="pti_submitStatus" style="text-align:center;"></span>
+    </div>
+  </div>
+</div>
+
 <script>
   const API_BASE_AUTH = 'https://henson-dashboard-backend.onrender.com';
 
@@ -360,6 +419,233 @@
   document.getElementById('loginBtn').addEventListener('click', attemptLogin);
   document.getElementById('login_password').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
   document.getElementById('login_email').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
+
+  // ---------- Driver Pre-Trip Inspection (separate access path, see server-side isolation notes) ----------
+  const PTI_CHECKLIST_ITEMS = [
+    'Engine oil level',
+    'Coolant level',
+    'Belts & hoses',
+    'Visible fluid leaks',
+    'Tires, tread & pressure',
+    'Wheel lug nuts',
+    'Brakes (pedal feel / parking brake)',
+    'Steering',
+    'Mirrors',
+    'Windshield & wipers',
+    'Horn',
+    'Headlights, brake lights & turn signals',
+    'Seat belts',
+    'Fire extinguisher',
+    'Emergency triangles / reflectors',
+    'Cargo area doors & latches',
+    'Cargo securement (straps, dollies, blankets)',
+    'Fuel level',
+    'Registration & insurance card present'
+  ];
+
+  let driverToken = localStorage.getItem('henson_driver_token');
+
+  function showDriverCodeForm(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'block';
+    document.getElementById('driverInspectionView').style.display = 'none';
+  }
+
+  function showDriverInspection(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverInspectionView').style.display = 'block';
+    document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
+    loadDriverTrucks();
+    renderPtiChecklist();
+  }
+
+  if(driverToken){
+    showDriverInspection();
+  }
+
+  document.getElementById('showDriverGateBtn').addEventListener('click', showDriverCodeForm);
+  document.getElementById('driverBackToStaffBtn').addEventListener('click', ()=>{
+    document.getElementById('driverGate').style.display = 'none';
+    document.getElementById('loginGate').style.display = 'flex';
+  });
+
+  async function attemptDriverLogin(){
+    const statusEl = document.getElementById('driver_loginStatus');
+    const code = document.getElementById('driver_code').value;
+    if(!code){
+      statusEl.textContent = 'Enter the access code.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Checking...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver-login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code})
+      });
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Login failed.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      localStorage.setItem('henson_driver_token', data.token);
+      driverToken = data.token;
+      document.getElementById('driver_code').value = '';
+      statusEl.textContent = '';
+      showDriverInspection();
+    }catch(err){
+      console.error('Driver login failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+  document.getElementById('driverLoginBtn').addEventListener('click', attemptDriverLogin);
+  document.getElementById('driver_code').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptDriverLogin(); });
+
+  document.getElementById('driverLogoutBtn').addEventListener('click', async ()=>{
+    try{
+      await fetch(API_BASE_AUTH + '/api/driver-logout', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({token: driverToken})
+      });
+    }catch(err){ console.error('Driver logout failed:', err); }
+    localStorage.removeItem('henson_driver_token');
+    driverToken = null;
+    showDriverCodeForm();
+  });
+
+  function driverSessionExpired(){
+    localStorage.removeItem('henson_driver_token');
+    driverToken = null;
+    showDriverCodeForm();
+    const statusEl = document.getElementById('driver_loginStatus');
+    statusEl.textContent = 'Your session expired \u2014 please log in again.';
+    statusEl.className = 'status-msg err';
+  }
+
+  async function loadDriverTrucks(){
+    const sel = document.getElementById('pti_truck');
+    const noTrucksNote = document.getElementById('pti_noTrucksNote');
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/trucks', {
+        headers: {'Authorization': 'Bearer ' + driverToken}
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      const trucks = data.trucks || [];
+      if(trucks.length === 0){
+        sel.innerHTML = '';
+        noTrucksNote.textContent = 'No trucks are set up yet \u2014 ask your administrator to add one on the Fleet Maintenance tile.';
+        noTrucksNote.style.display = 'block';
+      } else {
+        noTrucksNote.style.display = 'none';
+        sel.innerHTML = trucks.map(t => `<option value="${t.id}" data-nickname="${String(t.nickname||'').replace(/"/g,'&quot;')}">${t.nickname}</option>`).join('');
+      }
+    }catch(err){
+      console.error('Load trucks failed:', err);
+      noTrucksNote.textContent = 'Could not load trucks \u2014 check your connection.';
+      noTrucksNote.style.display = 'block';
+    }
+  }
+
+  function renderPtiChecklist(){
+    const container = document.getElementById('pti_checklist');
+    container.innerHTML = PTI_CHECKLIST_ITEMS.map((item, i) => `
+      <div class="pti-item" data-index="${i}">
+        <div class="pti-item-row">
+          <span class="pti-item-name">${item}</span>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="pti-status-btn" data-status="ok">OK</button>
+            <button type="button" class="pti-status-btn" data-status="defect">Defect</button>
+            <button type="button" class="pti-status-btn" data-status="na">N/A</button>
+          </div>
+        </div>
+        <textarea class="pti-note" placeholder="Describe the issue..."></textarea>
+      </div>`).join('');
+
+    container.querySelectorAll('.pti-status-btn').forEach(btn => {
+      btn.addEventListener('click', ()=>{
+        const item = btn.closest('.pti-item');
+        item.querySelectorAll('.pti-status-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const note = item.querySelector('.pti-note');
+        note.style.display = btn.dataset.status === 'defect' ? 'block' : 'none';
+      });
+    });
+  }
+
+  document.getElementById('pti_submitBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('pti_submitStatus');
+    const truckSel = document.getElementById('pti_truck');
+    const truckId = truckSel.value;
+    const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
+    const driverName = document.getElementById('pti_driverName').value.trim();
+    const date = document.getElementById('pti_date').value;
+    const odometer = document.getElementById('pti_odometer').value.trim();
+    const additionalNotes = document.getElementById('pti_additionalNotes').value.trim();
+
+    if(!truckId){
+      statusEl.textContent = 'Select a truck.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(!driverName){
+      statusEl.textContent = 'Enter your name.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const items = document.querySelectorAll('#pti_checklist .pti-item');
+    const checklist = [];
+    let missing = false;
+    items.forEach(item => {
+      const activeBtn = item.querySelector('.pti-status-btn.active');
+      const name = item.querySelector('.pti-item-name').textContent;
+      if(!activeBtn){ missing = true; return; }
+      const note = item.querySelector('.pti-note').value.trim();
+      checklist.push({ item: name, status: activeBtn.dataset.status, note: note || undefined });
+    });
+    if(missing){
+      statusEl.textContent = 'Please mark every checklist item before submitting.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    statusEl.textContent = 'Submitting...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/pretrip', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not submit inspection.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Inspection submitted. Thank you!';
+      statusEl.className = 'status-msg ok';
+      document.getElementById('pti_driverName').value = '';
+      document.getElementById('pti_odometer').value = '';
+      document.getElementById('pti_additionalNotes').value = '';
+      document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
+      renderPtiChecklist();
+    }catch(err){
+      console.error('Submit inspection failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   document.getElementById('resetPasswordBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('reset_status');
@@ -1262,6 +1548,22 @@
           <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found \u2014 add one on the Fleet Maintenance tile first.</p>
         </div>
 
+        <div class="panel" id="comp_ptiPanel">
+          <h3>Pre-Trip Inspections</h3>
+          <p class="form-note">Submitted electronically by drivers using the shared Driver Access code on the login screen. Manage that code in Settings.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Driver</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Odometer</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Status</th>
+              <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="comp_pti_rows"></tbody>
+          </table>
+          <p class="form-note" id="comp_pti_emptyNote" style="display:none; margin-top:10px;">No pre-trip inspections submitted yet for this truck.</p>
+        </div>
+
         <div class="panel" id="comp_dotInspectionPanel">
           <h3>DOT Inspections</h3>
           <div class="form-grid">
@@ -1698,6 +2000,17 @@
               <button class="btn-primary" id="set_addUserBtn" type="button">Add User</button>
               <span class="status-msg" id="set_addUserStatus"></span>
             </div>
+          </div>
+        </div>
+
+        <div class="panel" id="set_driverCodePanel">
+          <h3>Driver Access Code</h3>
+          <p class="form-note">Shared code drivers use on the login screen to submit Pre-Trip Inspections electronically. It's a separate, restricted access path \u2014 whoever has this code can only submit inspection forms, nothing else in the dashboard. Give it to any employee who needs to complete inspections.</p>
+          <div id="set_driverCodeDisplay" style="font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:700; padding:12px 16px; background:var(--offwhite); border:1px solid var(--line); border-radius:6px; margin-bottom:14px;">Loading...</div>
+          <label>New Access Code (min 6 characters) <input type="text" id="set_newDriverCode" autocomplete="off"></label>
+          <div class="form-actions">
+            <button class="btn-primary" id="set_saveDriverCodeBtn" type="button">Update Access Code</button>
+            <span class="status-msg" id="set_driverCodeStatus"></span>
           </div>
         </div>
       </div>
@@ -3067,12 +3380,14 @@
   const COMP_INCIDENT_KEY = 'compliance-truck-safety-incidents';
   const COMP_VIOLATION_KEY = 'compliance-truck-violations';
   const COMP_DRIVERS_KEY = 'compliance-drivers';
+  const COMP_PTI_KEY = 'compliance-pretrip-inspections';
 
   let compAuthorizations = [];
   let compDotInspections = [];
   let compIncidents = [];
   let compViolations = [];
   let compDrivers = [];
+  let compPretripInspections = [];
   let compCurrentSection = 'business';
   let compSelectedTruckId = null;
   let compSelectedDriverName = null;
@@ -3099,12 +3414,13 @@
 
   async function loadComplianceData(){
     try{
-      const [auths, dot, inc, vio, drv] = await Promise.all([
+      const [auths, dot, inc, vio, drv, pti] = await Promise.all([
         window.dashboardApi.get(COMP_AUTH_KEY, null),
         window.dashboardApi.get(COMP_DOT_KEY, []),
         window.dashboardApi.get(COMP_INCIDENT_KEY, []),
         window.dashboardApi.get(COMP_VIOLATION_KEY, []),
-        window.dashboardApi.get(COMP_DRIVERS_KEY, [])
+        window.dashboardApi.get(COMP_DRIVERS_KEY, []),
+        window.dashboardApi.get(COMP_PTI_KEY, [])
       ]);
       if(auths === null){
         compAuthorizations = seedComplianceAuthorizations();
@@ -3113,6 +3429,7 @@
         compAuthorizations = auths;
       }
       compDotInspections = dot; compIncidents = inc; compViolations = vio; compDrivers = drv;
+      compPretripInspections = pti || [];
     }catch(err){ console.error('Compliance data load failed:', err); }
 
     renderCompAuthTable();
@@ -3140,7 +3457,8 @@
     const warnStr = warn.toISOString().slice(0,10);
     const authDue = compAuthorizations.some(a => a.applies && a.dueDate && a.dueDate <= warnStr);
     const driverDue = compDrivers.some(d => d.active && d.physicalExpiration && d.physicalExpiration <= warnStr);
-    const anyDue = authDue || driverDue;
+    const ptiDefects = compPretripInspections.some(r => r.overallStatus === 'defects' && !r.resolved);
+    const anyDue = authDue || driverDue || ptiDefects;
     const tile = document.getElementById('tile-compliance');
     const badge = document.getElementById('complianceTileBadge');
     if(anyDue){
@@ -3302,12 +3620,95 @@
       sel.innerHTML = list.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
       compSelectedTruckId = sel.value;
     }
-    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows();
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows();
   }
   document.getElementById('comp_truckSelect').addEventListener('change', (e)=>{
     compSelectedTruckId = e.target.value;
-    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows();
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows();
   });
+
+  function renderCompPtiRows(){
+    const tbody = document.getElementById('comp_pti_rows');
+    const emptyNote = document.getElementById('comp_pti_emptyNote');
+    const rows = compPretripInspections.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.submittedAt||'').localeCompare(a.submittedAt||''));
+    emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
+    tbody.innerHTML = rows.map(r => {
+      const hasDefects = r.overallStatus === 'defects';
+      const isResolved = hasDefects && !!r.resolved;
+      let statusHtml;
+      if(!hasDefects) statusHtml = '<span style="color:#00612C;">OK</span>';
+      else if(isResolved) statusHtml = '<span style="color:#00612C;">Defects Noted \u2014 Resolved</span>';
+      else statusHtml = '<span style="color:#B3261E; font-weight:600;">Defects Noted</span>';
+      return `
+      <tr>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.driverName)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.odometer || '\u2014')}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${statusHtml}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="comp-pti-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>
+          ${hasDefects && !isResolved ? `<button type="button" class="comp-pti-resolve" data-id="${r.id}" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Mark Resolved</button>` : ''}
+          <button type="button" class="comp-pti-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.comp-pti-view').forEach(btn => btn.addEventListener('click', (e)=> viewPtiDetails(e.target.dataset.id)));
+    tbody.querySelectorAll('.comp-pti-resolve').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const rec = compPretripInspections.find(r => r.id === id);
+      if(!rec) return;
+      rec.resolved = true;
+      rec.resolvedAt = new Date().toISOString();
+      try{ await window.dashboardApi.set(COMP_PTI_KEY, compPretripInspections); }catch(err){ console.error(err); }
+      renderCompPtiRows();
+      updateComplianceTileBadge();
+    }));
+    tbody.querySelectorAll('.comp-pti-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this pre-trip inspection record?')) return;
+      compPretripInspections = compPretripInspections.filter(r => r.id !== id);
+      try{ await window.dashboardApi.set(COMP_PTI_KEY, compPretripInspections); }catch(err){ console.error(err); }
+      renderCompPtiRows();
+      updateComplianceTileBadge();
+    }));
+  }
+
+  function viewPtiDetails(id){
+    const rec = compPretripInspections.find(r => r.id === id);
+    if(!rec) return;
+    const statusLabels = {ok:'OK', defect:'DEFECT', na:'N/A'};
+    const statusColors = {ok:'#00612C', defect:'#B3261E', na:'#666'};
+    const rows = (rec.checklist || []).map(c => `
+      <tr>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(c.item)}</td>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd; font-weight:600; color:${statusColors[c.status]||'#333'};">${statusLabels[c.status]||fleetEsc(c.status)}</td>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(c.note || '')}</td>
+      </tr>`).join('');
+    const win = window.open();
+    if(!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Pre-Trip Inspection \u2014 ${fleetEsc(rec.truckNickname)} \u2014 ${fleetEsc(rec.date)}</title></head>
+      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
+        <h2 style="margin-bottom:4px;">Pre-Trip Inspection</h2>
+        <p style="margin-top:0; line-height:1.6;">
+          <strong>Truck:</strong> ${fleetEsc(rec.truckNickname)}<br>
+          <strong>Date:</strong> ${fleetEsc(rec.date)}<br>
+          <strong>Driver:</strong> ${fleetEsc(rec.driverName)}<br>
+          <strong>Odometer:</strong> ${fleetEsc(rec.odometer || '\u2014')}<br>
+          <strong>Overall:</strong> ${rec.overallStatus === 'defects' ? '<span style="color:#B3261E;">Defects Noted</span>' : '<span style="color:#00612C;">OK</span>'}
+        </p>
+        <table style="border-collapse:collapse; width:100%;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Item</th>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Status</th>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Note</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${rec.additionalNotes ? `<p style="margin-top:18px;"><strong>Additional Notes:</strong><br>${fleetEsc(rec.additionalNotes)}</p>` : ''}
+      </body></html>`);
+    win.document.close();
+  }
 
   function renderCompDotRows(){
     const tbody = document.getElementById('comp_dot_rows');
@@ -3760,12 +4161,14 @@
   // Check compliance status on initial page load so the home tile reflects it immediately.
   (async ()=>{
     try{
-      const [auths, drv] = await Promise.all([
+      const [auths, drv, pti] = await Promise.all([
         window.dashboardApi.get(COMP_AUTH_KEY, []),
-        window.dashboardApi.get(COMP_DRIVERS_KEY, [])
+        window.dashboardApi.get(COMP_DRIVERS_KEY, []),
+        window.dashboardApi.get(COMP_PTI_KEY, [])
       ]);
       compAuthorizations = auths || [];
       compDrivers = drv || [];
+      compPretripInspections = pti || [];
       updateComplianceTileBadge();
     }catch(err){ console.error('Initial compliance status check failed:', err); }
   })();
@@ -5299,6 +5702,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     showSetSection('users');
     await renderUserList();
     setupAddUserGate();
+    await loadDriverCode();
     await renderConfigFilesList();
     await loadHandoffGuide();
   }
@@ -5316,7 +5720,57 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const isAdmin = isCurrentUserAdmin();
     document.getElementById('set_addUserForm').style.display = isAdmin ? 'block' : 'none';
     document.getElementById('set_notAdminNote').style.display = isAdmin ? 'none' : 'block';
+    document.getElementById('set_driverCodePanel').style.display = isAdmin ? 'block' : 'none';
   }
+
+  async function loadDriverCode(){
+    if(!isCurrentUserAdmin()) return;
+    const displayEl = document.getElementById('set_driverCodeDisplay');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/driver-code`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      displayEl.textContent = data.code;
+    }catch(err){
+      console.error('Load driver code failed:', err);
+      displayEl.textContent = 'Could not load \u2014 check your connection.';
+    }
+  }
+
+  document.getElementById('set_saveDriverCodeBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('set_driverCodeStatus');
+    const newCode = document.getElementById('set_newDriverCode').value.trim();
+    if(newCode.length < 6){
+      statusEl.textContent = 'Access code must be at least 6 characters.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/driver-code`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({code: newCode})
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save access code.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      document.getElementById('set_driverCodeDisplay').textContent = data.code;
+      document.getElementById('set_newDriverCode').value = '';
+      statusEl.textContent = 'Access code updated. Anyone with the old code will need the new one to log in.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save driver code failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   async function renderUserList(){
     const tbody = document.getElementById('set_userRows');
