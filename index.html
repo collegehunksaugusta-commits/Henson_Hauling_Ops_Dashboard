@@ -3522,6 +3522,41 @@
     });
   }
 
+  // Downscales and re-encodes an image before upload -- full-resolution
+  // screenshots (especially PNGs) can be several MB each, and a batch of
+  // several can be large enough to get rejected before the request even
+  // reaches the backend. A listing screenshot only needs to be legible for
+  // Claude to read the text off it, so this caps the longest side at 1600px
+  // and re-encodes as JPEG, which is typically 80-95% smaller with no
+  // meaningful loss of readability.
+  function compressImageForUpload(file, maxDimension, quality){
+    return new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+        if(width > maxDimension || height > maxDimension){
+          if(width >= height){
+            height = Math.round(height * (maxDimension / width));
+            width = maxDimension;
+          } else {
+            width = Math.round(width * (maxDimension / height));
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Could not read that image.')); };
+      img.src = objectUrl;
+    });
+  }
+
   document.getElementById('saveMaintenanceBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('maintenanceStatus');
     const truckId = document.getElementById('m_truck').value;
@@ -4942,9 +4977,16 @@
   }
 
   function addPastedBlob(blob){
-    return readFileAsDataUri(blob).then(dataUri => {
-      mailPastedImages.push({ id: 'paste_' + Date.now() + '_' + Math.floor(Math.random()*1000), dataUri, sizeBytes: blob.size });
+    return compressImageForUpload(blob, 1600, 0.85).then(dataUri => {
+      // Estimate decoded byte size from the base64 payload length for the size-limit check below.
+      const approxBytes = Math.round((dataUri.length - dataUri.indexOf(',') - 1) * 0.75);
+      mailPastedImages.push({ id: 'paste_' + Date.now() + '_' + Math.floor(Math.random()*1000), dataUri, sizeBytes: approxBytes });
       renderPastedThumbnails();
+    }).catch(err => {
+      console.error('Image compression failed:', err);
+      const statusEl = document.getElementById('mail_extractStatus');
+      statusEl.textContent = 'Could not process that image \u2014 try a different screenshot.';
+      statusEl.className = 'status-msg err';
     });
   }
 
