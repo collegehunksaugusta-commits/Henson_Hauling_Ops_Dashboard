@@ -4,6 +4,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 
 <style>
   :root{
@@ -1117,6 +1119,17 @@
 
   <!-- ============ HOME ============ -->
   <div id="home">
+    <div class="panel" id="truckMapPanel" style="margin-bottom:20px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <h3 style="margin:0;">Truck Locations</h3>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="status-msg" id="truckMapStatus"></span>
+          <button type="button" id="truckMapRefreshBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:6px 12px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:12px; cursor:pointer;">Refresh</button>
+        </div>
+      </div>
+      <div id="truckMapContainer" style="height:320px; border-radius:6px; background:var(--offwhite);"></div>
+      <p class="form-note" id="truckMapEmptyNote" style="display:none; margin-top:8px;">No truck locations available right now.</p>
+    </div>
     <p class="section-eyebrow">Dispatch / Automations</p>
     <div class="tiles">
       <a class="tile" href="https://support.chhj.com" target="_blank" rel="noopener noreferrer" aria-label="Open HunkWare (opens in a new tab)">
@@ -5424,6 +5437,111 @@
   // Load app settings on initial page load so Marketing and Paperwork have
   // the current values ready as soon as those tiles open.
   ensureAppSettingsLoaded();
+
+  // ---------- Truck Locations Map ----------
+  let truckMapInstance = null;
+
+  function truckMapEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  function truckMapTimeAgo(isoString){
+    if(!isoString) return 'unknown time';
+    const diffMin = Math.round((Date.now() - new Date(isoString).getTime()) / 60000);
+    if(diffMin < 1) return 'just now';
+    if(diffMin < 60) return `${diffMin} min ago`;
+    const diffHr = Math.round(diffMin / 60);
+    if(diffHr < 24) return `${diffHr} hr ago`;
+    const diffDay = Math.round(diffHr / 24);
+    return `${diffDay} day${diffDay===1?'':'s'} ago`;
+  }
+
+  async function loadTruckMap(){
+    const statusEl = document.getElementById('truckMapStatus');
+    const containerEl = document.getElementById('truckMapContainer');
+    const emptyNote = document.getElementById('truckMapEmptyNote');
+
+    if(typeof L === 'undefined'){
+      statusEl.textContent = '';
+      containerEl.style.display = 'none';
+      emptyNote.style.display = 'block';
+      emptyNote.textContent = 'Map library failed to load \u2014 check your connection and refresh the page.';
+      return;
+    }
+
+    statusEl.textContent = 'Loading\u2026';
+    statusEl.className = 'status-msg';
+
+    try{
+      const res = await fetch(`${API_BASE}/api/motive-locations`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = '';
+        emptyNote.style.display = 'block';
+        emptyNote.textContent = data.error || 'Could not reach Motive.';
+        containerEl.style.display = 'none';
+        if(truckMapInstance){ truckMapInstance.remove(); truckMapInstance = null; }
+        return;
+      }
+      const trucks = data.trucks || [];
+
+      if(trucks.length === 0){
+        statusEl.textContent = '';
+        containerEl.style.display = 'none';
+        emptyNote.style.display = 'block';
+        emptyNote.textContent = 'No truck locations available right now.';
+        if(truckMapInstance){ truckMapInstance.remove(); truckMapInstance = null; }
+        return;
+      }
+
+      emptyNote.style.display = 'none';
+      containerEl.style.display = 'block';
+      statusEl.textContent = `${trucks.length} truck${trucks.length===1?'':'s'} \u2014 updated ${new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}`;
+      statusEl.className = 'status-msg ok';
+
+      // Rebuild the map fresh each refresh -- simpler and more robust than diffing markers.
+      if(truckMapInstance){ truckMapInstance.remove(); truckMapInstance = null; }
+      truckMapInstance = L.map('truckMapContainer');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19
+      }).addTo(truckMapInstance);
+
+      const bounds = [];
+      trucks.forEach(t => {
+        const marker = L.marker([t.lat, t.lon]).addTo(truckMapInstance);
+        const onOff = t.vehicleState === 'on' ? 'Moving' : (t.vehicleState === 'off' ? 'Parked' : '');
+        marker.bindPopup(`
+          <strong>${truckMapEsc(t.number)}</strong>${(t.make || t.model) ? `<br>${truckMapEsc([t.make, t.model].filter(Boolean).join(' '))}` : ''}
+          ${t.address ? `<br>${truckMapEsc(t.address)}` : ''}
+          ${onOff ? `<br>${onOff}` : ''}
+          <br><span style="color:#888; font-size:11px;">Updated ${truckMapTimeAgo(t.locatedAt)}</span>
+        `);
+        bounds.push([t.lat, t.lon]);
+      });
+
+      if(bounds.length === 1){
+        truckMapInstance.setView(bounds[0], 12);
+      } else {
+        truckMapInstance.fitBounds(bounds, { padding: [30, 30] });
+      }
+    }catch(err){
+      console.error('Truck map load failed:', err);
+      statusEl.textContent = '';
+      emptyNote.style.display = 'block';
+      emptyNote.textContent = 'Could not reach the server \u2014 check your connection.';
+      containerEl.style.display = 'none';
+      if(truckMapInstance){ truckMapInstance.remove(); truckMapInstance = null; }
+    }
+  }
+  document.getElementById('truckMapRefreshBtn').addEventListener('click', loadTruckMap);
+  loadTruckMap();
+  setInterval(()=>{
+    if(document.getElementById('home').style.display !== 'none') loadTruckMap();
+  }, 2 * 60 * 1000); // keep it "live" while the home screen is actually visible
 
   // ---------- Mail Marketing List ----------
   async function applyMarketingLinkSettings(){
