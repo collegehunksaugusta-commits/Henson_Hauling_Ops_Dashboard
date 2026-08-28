@@ -355,8 +355,8 @@ app.get('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) =>
 app.post('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
   const { code } = req.body || {};
   const cleanCode = (code || '').trim();
-  if (cleanCode.length < 6) {
-    return res.status(400).json({ error: 'Access code must be at least 6 characters.' });
+  if (cleanCode.length < 5) {
+    return res.status(400).json({ error: 'Access code must be at least 5 characters.' });
   }
   try {
     await redis.set(DRIVER_CODE_KEY, cleanCode);
