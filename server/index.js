@@ -55,6 +55,7 @@ const ALLOWED_KEYS = new Set([
   'compliance-truck-safety-incidents',
   'compliance-truck-violations',
   'compliance-drivers',
+  'compliance-pretrip-inspections',
   'settings-config-files',
   'settings-handoff-guide',
   'mail-marketing-list',
@@ -78,6 +79,22 @@ const SEED_USERS = [
   { email: 'administrative.assistantaug@chhj.com', role: 'user' }
 ];
 const TEMP_PASSWORD = 'Password123!';
+
+// ============ Auth: shared driver access code for Pre-Trip Inspections ============
+// A completely separate, narrowly-scoped credential path -- deliberately NOT
+// part of the regular auth:users system. A driver session token only ever
+// satisfies requireDriverAuth (below), never the regular requireAuth used by
+// every other endpoint, so this shared code can never reach payroll, fleet
+// financials, or anything else even if it's passed around loosely.
+const DRIVER_CODE_KEY = 'auth:driver-code';
+const DRIVER_SESSION_PREFIX = 'auth:driver-session:';
+const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 16; // 16 hours -- a work shift
+const DEFAULT_DRIVER_CODE = 'TruckCheck2026';
+
+async function getDriverCode() {
+  const raw = await redis.get(DRIVER_CODE_KEY);
+  return raw || DEFAULT_DRIVER_CODE;
+}
 
 async function ensureUsersSeeded() {
   try {
@@ -217,6 +234,120 @@ async function requireAdmin(req, res, next) {
     res.status(500).json({ error: 'Admin check failed.' });
   }
 }
+
+// ============ Driver access: shared-code login, deliberately isolated ============
+app.post('/api/driver-login', async (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  if (isRateLimited(ip)) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  }
+  const { code } = req.body || {};
+  if (!code) return res.status(400).json({ error: 'Access code is required.' });
+  try {
+    recordLoginAttempt(ip);
+    const validCode = await getDriverCode();
+    if (code !== validCode) {
+      return res.status(401).json({ error: 'Incorrect access code.' });
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    await redis.set(DRIVER_SESSION_PREFIX + token, '1', 'EX', DRIVER_SESSION_TTL_SECONDS);
+    res.json({ token });
+  } catch (err) {
+    console.error('Driver login failed:', err.message);
+    res.status(500).json({ error: 'Login failed.' });
+  }
+});
+
+app.post('/api/driver-logout', async (req, res) => {
+  const { token } = req.body || {};
+  if (token) {
+    try { await redis.del(DRIVER_SESSION_PREFIX + token); } catch (err) { console.error('Driver logout failed:', err.message); }
+  }
+  res.json({ ok: true });
+});
+
+// Only ever satisfied by a driver-session token -- a driver token never
+// satisfies requireAuth above (different Redis key namespace entirely), so
+// it cannot be used against any other endpoint in this file.
+async function requireDriverAuth(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Not logged in.' });
+  try {
+    const valid = await redis.get(DRIVER_SESSION_PREFIX + token);
+    if (!valid) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    next();
+  } catch (err) {
+    console.error('Driver auth check failed:', err.message);
+    res.status(500).json({ error: 'Auth check failed.' });
+  }
+}
+
+// Minimal truck list for the driver-facing form -- name only, nothing else
+// from the fleet record (no VIN, purchase price, etc.).
+app.get('/api/driver/trucks', requireDriverAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('fleet-trucks');
+    const trucks = raw ? JSON.parse(raw) : [];
+    res.json({ trucks: trucks.map(t => ({ id: t.id, nickname: t.nickname })) });
+  } catch (err) {
+    console.error('Driver truck list failed:', err.message);
+    res.status(500).json({ error: 'Could not load trucks.' });
+  }
+});
+
+app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
+  const { truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes } = req.body || {};
+  if (!truckId || !driverName || !Array.isArray(checklist) || checklist.length === 0) {
+    return res.status(400).json({ error: 'Truck, driver name, and checklist are required.' });
+  }
+  try {
+    const raw = await redis.get('compliance-pretrip-inspections');
+    const records = raw ? JSON.parse(raw) : [];
+    const hasDefect = checklist.some(c => c.status === 'defect');
+    records.push({
+      id: 'pti_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      truckId, truckNickname: truckNickname || '',
+      driverName: String(driverName).slice(0, 100),
+      date: date || new Date().toISOString().slice(0, 10),
+      odometer: odometer || '',
+      checklist,
+      overallStatus: hasDefect ? 'defects' : 'ok',
+      additionalNotes: (additionalNotes || '').slice(0, 2000),
+      submittedAt: new Date().toISOString()
+    });
+    await redis.set('compliance-pretrip-inspections', JSON.stringify(records));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Pre-trip submission failed:', err.message);
+    res.status(500).json({ error: 'Could not submit inspection.' });
+  }
+});
+
+// Admin-only viewing/management of the shared driver access code.
+app.get('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    res.json({ code: await getDriverCode() });
+  } catch (err) {
+    console.error('Get driver code failed:', err.message);
+    res.status(500).json({ error: 'Could not load access code.' });
+  }
+});
+
+app.post('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
+  const { code } = req.body || {};
+  const cleanCode = (code || '').trim();
+  if (cleanCode.length < 6) {
+    return res.status(400).json({ error: 'Access code must be at least 6 characters.' });
+  }
+  try {
+    await redis.set(DRIVER_CODE_KEY, cleanCode);
+    res.json({ ok: true, code: cleanCode });
+  } catch (err) {
+    console.error('Set driver code failed:', err.message);
+    res.status(500).json({ error: 'Could not save access code.' });
+  }
+});
 
 // Employee names (not the financial payroll details) are needed by
 // Attendance Tracking and Regulatory Compliance's Drivers section, which
