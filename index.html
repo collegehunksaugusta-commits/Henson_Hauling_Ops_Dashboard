@@ -3974,6 +3974,7 @@
       const saved = await window.dashboardApi.get(TIPS_ALLOCATIONS_KEY, {allocations:{}, overrides:{}});
       tipsAllocations = (saved && saved.allocations) || {};
       tipsJobOverrides = (saved && saved.overrides) || {};
+      if(tipsMigrateAllocationKeys()) await tipsSaveAllocations();
     }catch(err){ console.error('Tip allocations load failed:', err); }
 
     try{ tipsRoster = await getCurrentEmployeeRoster(); }
@@ -3984,6 +3985,31 @@
     } else {
       renderTipsAll();
     }
+  }
+
+  // Allocations used to be keyed by individual Square payment ID. Now
+  // they're keyed by job number, so multiple payments funding the same job
+  // combine into one row instead of needing separate allocation. This
+  // migrates any allocations still saved under the old scheme the first
+  // time they're loaded -- merging by summing tips if more than one old
+  // entry happens to share a job number.
+  function tipsMigrateAllocationKeys(){
+    const JOB_NUMBER_RE = /^\d{8}$/;
+    const needsMigration = Object.keys(tipsAllocations).some(key => !JOB_NUMBER_RE.test(key));
+    if(!needsMigration) return false;
+    const migrated = {};
+    Object.entries(tipsAllocations).forEach(([key, a]) => {
+      const jobNumber = a.jobNumber || (JOB_NUMBER_RE.test(key) ? key : null);
+      if(!jobNumber) return; // no way to migrate this one -- drop rather than keep an unusable entry
+      if(migrated[jobNumber]){
+        migrated[jobNumber].tipAmount += a.tipAmount;
+        migrated[jobNumber].paymentIds = [...new Set([...(migrated[jobNumber].paymentIds || []), ...(a.paymentIds || [key])])];
+      } else {
+        migrated[jobNumber] = { ...a, jobNumber, paymentIds: a.paymentIds || [key] };
+      }
+    });
+    tipsAllocations = migrated;
+    return true;
   }
 
   async function tipsSaveAllocations(){
@@ -4083,6 +4109,26 @@
     }));
   }
 
+  // Combines payments that share a job number into one entry with tips
+  // summed, so a job paid across two Square transactions (a deposit and
+  // final payment, a split card, etc.) shows up once instead of twice.
+  // Payments without a job number yet aren't grouped -- they can't be
+  // matched to anything until one is assigned.
+  function tipsGroupPaymentsByJob(payments){
+    const byJob = new Map();
+    payments.forEach(p => {
+      if(!p.jobNumber) return;
+      if(!byJob.has(p.jobNumber)){
+        byJob.set(p.jobNumber, { jobNumber: p.jobNumber, tipAmount: 0, date: p.date, paymentIds: [] });
+      }
+      const entry = byJob.get(p.jobNumber);
+      entry.tipAmount += p.tipAmount;
+      entry.paymentIds.push(p.id);
+      if(p.date < entry.date) entry.date = p.date; // keep the earliest date of the group
+    });
+    return Array.from(byJob.values());
+  }
+
   function tipsEmployeeCheckboxesHtml(selected){
     if(tipsRoster.length === 0){
       return '<span class="form-note">No roster available.</span>';
@@ -4100,29 +4146,31 @@
   function renderTipsAllocate(){
     const tbody = document.getElementById('tips_allocateRows');
     const emptyNote = document.getElementById('tips_allocateEmptyNote');
-    const rows = tipsPayments.filter(p => p.jobNumber && !tipsAllocations[p.id]);
+    const withJobNumbers = tipsPayments.filter(p => p.jobNumber);
+    const grouped = tipsGroupPaymentsByJob(withJobNumbers);
+    const rows = grouped.filter(g => !tipsAllocations[g.jobNumber]);
     emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
-    tbody.innerHTML = rows.map(p => `
-      <tr data-id="${p.id}">
-        <td>${tipsEsc(p.date)}</td>
-        <td style="font-weight:600;">${tipsEsc(p.jobNumber)}</td>
-        <td>${tipsMoney(p.tipAmount)}</td>
+    tbody.innerHTML = rows.map(g => `
+      <tr data-job="${g.jobNumber}">
+        <td>${tipsEsc(g.date)}</td>
+        <td style="font-weight:600;">${tipsEsc(g.jobNumber)}${g.paymentIds.length > 1 ? ` <span class="form-note">(${g.paymentIds.length} payments combined)</span>` : ''}</td>
+        <td>${tipsMoney(g.tipAmount)}</td>
         <td>${tipsEmployeeCheckboxesHtml([])}</td>
-        <td><button type="button" class="tips-save-alloc" data-id="${p.id}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:3px; font-size:12px; cursor:pointer;">Split &amp; Save</button></td>
+        <td><button type="button" class="tips-save-alloc" data-job="${g.jobNumber}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:3px; font-size:12px; cursor:pointer;">Split &amp; Save</button></td>
       </tr>`).join('');
 
     tbody.querySelectorAll('.tips-save-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
-      const id = e.target.dataset.id;
-      const row = tbody.querySelector(`tr[data-id="${id}"]`);
+      const jobNumber = e.target.dataset.job;
+      const row = tbody.querySelector(`tr[data-job="${jobNumber}"]`);
       const checked = Array.from(row.querySelectorAll('.tips-emp-check:checked')).map(cb => cb.value);
       if(checked.length === 0){
         alert('Select at least one employee to split this tip.');
         return;
       }
-      const payment = tipsPayments.find(p => p.id === id);
-      if(!payment) return;
-      tipsAllocations[id] = {
-        jobNumber: payment.jobNumber, tipAmount: payment.tipAmount, date: payment.date,
+      const group = grouped.find(g => g.jobNumber === jobNumber);
+      if(!group) return;
+      tipsAllocations[jobNumber] = {
+        jobNumber, tipAmount: group.tipAmount, date: group.date, paymentIds: group.paymentIds,
         employees: checked, allocatedAt: new Date().toISOString()
       };
       const ok = await tipsSaveAllocations();
@@ -4136,21 +4184,22 @@
     const emptyNote = document.getElementById('tips_allocatedEmptyNote');
     const entries = Object.entries(tipsAllocations).sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
     emptyNote.style.display = entries.length === 0 ? 'block' : 'none';
-    tbody.innerHTML = entries.map(([id, a]) => {
+    tbody.innerHTML = entries.map(([jobNumber, a]) => {
       const perPerson = a.tipAmount / a.employees.length;
+      const paymentCount = (a.paymentIds || []).length;
       return `
-      <tr data-id="${id}">
+      <tr data-job="${jobNumber}">
         <td>${tipsEsc(a.date)}</td>
-        <td style="font-weight:600;">${tipsEsc(a.jobNumber)}</td>
+        <td style="font-weight:600;">${tipsEsc(a.jobNumber)}${paymentCount > 1 ? ` <span class="form-note">(${paymentCount} payments combined)</span>` : ''}</td>
         <td>${tipsMoney(a.tipAmount)}</td>
         <td>${a.employees.map(n => tipsEsc(n)).join(', ')} <span class="form-note">(${tipsMoney(perPerson)} each)</span></td>
-        <td><button type="button" class="tips-undo-alloc" data-id="${id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
+        <td><button type="button" class="tips-undo-alloc" data-job="${jobNumber}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
       </tr>`;
     }).join('');
 
     tbody.querySelectorAll('.tips-undo-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
-      const id = e.target.dataset.id;
-      delete tipsAllocations[id];
+      const jobNumber = e.target.dataset.job;
+      delete tipsAllocations[jobNumber];
       await tipsSaveAllocations();
       renderTipsAll();
     }));
