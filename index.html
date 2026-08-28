@@ -3949,7 +3949,7 @@
   let tipsAllocations = {};    // paymentId -> { jobNumber, tipAmount, date, employees: [names], allocatedAt }
   let tipsJobOverrides = {};   // paymentId -> manually-entered job number, for notes Square's regex couldn't cleanly match
   let tipsRoster = [];         // employee names
-  let tipsWeeks = [];          // [{weekStart, weekEnd}] pay period boundaries, sourced from labor-weeks
+  let tipsWeeks = [];          // [{weekStart, weekEnd}] Monday-Sunday pay weeks that have at least one allocation
   let tipsCurrentSection = 'allocate';
 
   function tipsEsc(s){
@@ -3962,6 +3962,22 @@
     return '$' + (Number(n)||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
   }
 
+  // Given a 'YYYY-MM-DD' date, returns the Monday-Sunday pay week it falls
+  // in, as {weekStart, weekEnd}. Independent of Labor Cost's manually-entered
+  // week records -- tips group by a fixed calendar rule regardless of
+  // whether a matching payroll week has been entered yet.
+  function tipsGetWeekBounds(dateStr){
+    const d = new Date(dateStr + 'T00:00:00');
+    const dayOfWeek = d.getDay(); // 0=Sunday .. 6=Saturday
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const toStr = (dt) => dt.toISOString().slice(0,10);
+    return { weekStart: toStr(monday), weekEnd: toStr(sunday) };
+  }
+
   async function loadTipsData(){
     try{
       const saved = await window.dashboardApi.get(TIPS_ALLOCATIONS_KEY, {allocations:{}, overrides:{}});
@@ -3971,14 +3987,6 @@
 
     try{ tipsRoster = await getCurrentEmployeeRoster(); }
     catch(err){ console.error('Roster load failed for tips:', err); tipsRoster = []; }
-
-    try{
-      const rawWeeks = await window.dashboardApi.get('labor-weeks', []);
-      tipsWeeks = (rawWeeks || [])
-        .map(w => ({ weekStart: w.weekStart, weekEnd: w.weekEnd }))
-        .filter(w => w.weekStart && w.weekEnd)
-        .sort((a,b) => b.weekStart.localeCompare(a.weekStart));
-    }catch(err){ console.error('Pay period load failed for tips:', err); tipsWeeks = []; }
 
     if(tipsPayments.length === 0){
       await tipsRefreshFromSquare();
@@ -4147,6 +4155,12 @@
   function renderTipsSummaryWeekOptions(){
     const sel = document.getElementById('tips_summaryWeek');
     const prevValue = sel.value;
+    const byWeekStart = new Map();
+    Object.values(tipsAllocations).forEach(a => {
+      const bounds = tipsGetWeekBounds(a.date);
+      if(!byWeekStart.has(bounds.weekStart)) byWeekStart.set(bounds.weekStart, bounds);
+    });
+    tipsWeeks = Array.from(byWeekStart.values()).sort((a,b) => b.weekStart.localeCompare(a.weekStart));
     sel.innerHTML = tipsWeeks.map(w => `<option value="${w.weekStart}">${tipsWeekLabel(w)}</option>`).join('');
     if(prevValue && tipsWeeks.some(w => w.weekStart === prevValue)) sel.value = prevValue;
   }
