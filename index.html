@@ -2906,6 +2906,27 @@
   function laborCost(w){ return (w.fieldGross - w.tips) + w.erTax; }
   function laborPct(w){ return w.revenue>0 ? laborCost(w)/w.revenue : 0; }
 
+  // For a week spanning weekStart..weekEnd (inclusive), returns how many of
+  // its calendar days fall into each monthly/yearly period it touches. A
+  // week starting mid-month (e.g. the 5th) straddles two months -- this
+  // lets that week's totals be split proportionally by day count instead of
+  // being dumped entirely into whichever month it happens to start in,
+  // which otherwise skews both months' numbers at every period boundary.
+  function splitWeekDaysByPeriod(weekStart, weekEnd, mode){
+    const start = new Date(weekStart + 'T00:00:00');
+    const end = new Date(weekEnd + 'T00:00:00');
+    const dayCounts = new Map();
+    const cur = new Date(start);
+    while(cur <= end){
+      const key = mode === 'yearly'
+        ? String(cur.getFullYear())
+        : `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+      dayCounts.set(key, (dayCounts.get(key)||0) + 1);
+      cur.setDate(cur.getDate()+1);
+    }
+    return dayCounts;
+  }
+
   function periodKeyOf(weekStart, mode){
     if(mode === 'monthly') return weekStart.slice(0,7); // YYYY-MM
     if(mode === 'yearly') return weekStart.slice(0,4);  // YYYY
@@ -2935,16 +2956,20 @@
     }
     const map = new Map();
     sw.forEach(w => {
-      const key = periodKeyOf(w.weekStart, mode);
-      if(!map.has(key)) map.set(key, {key, revenue:0, fieldGross:0, adminGross:0, tips:0, erTax:0, otHours:0, otPremium:0, employees:[]});
-      const agg = map.get(key);
-      agg.revenue += w.revenue||0;
-      agg.fieldGross += w.fieldGross||0;
-      agg.adminGross += w.adminGross||0;
-      agg.tips += w.tips||0;
-      agg.erTax += w.erTax||0;
-      agg.otHours += w.otHours||0;
-      agg.otPremium += w.otPremium||0;
+      const dayCounts = splitWeekDaysByPeriod(w.weekStart, w.weekEnd, mode);
+      const totalDays = Array.from(dayCounts.values()).reduce((a,b)=>a+b, 0) || 1;
+      dayCounts.forEach((days, key) => {
+        const share = days / totalDays;
+        if(!map.has(key)) map.set(key, {key, revenue:0, fieldGross:0, adminGross:0, tips:0, erTax:0, otHours:0, otPremium:0, employees:[]});
+        const agg = map.get(key);
+        agg.revenue += (w.revenue||0) * share;
+        agg.fieldGross += (w.fieldGross||0) * share;
+        agg.adminGross += (w.adminGross||0) * share;
+        agg.tips += (w.tips||0) * share;
+        agg.erTax += (w.erTax||0) * share;
+        agg.otHours += (w.otHours||0) * share;
+        agg.otPremium += (w.otPremium||0) * share;
+      });
     });
     return Array.from(map.values()).sort((a,b)=> a.key.localeCompare(b.key))
       .map(agg => ({ ...agg, label: periodLabelOf(agg.key, mode) }));
