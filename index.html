@@ -337,9 +337,15 @@
         <label>Date <input type="date" id="pti_date"></label>
       </div>
       <div class="form-grid">
-        <label>Your Name <input type="text" id="pti_driverName" placeholder="First and last name"></label>
+        <label>Your Name
+          <select id="pti_driverNameSelect">
+            <option value="">Select your name...</option>
+            <option value="__other__">Not on the list (type your name)</option>
+          </select>
+        </label>
         <label>Odometer (optional) <input type="text" id="pti_odometer" inputmode="numeric" placeholder="e.g. 84213"></label>
       </div>
+      <label id="pti_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="pti_driverNameOther" placeholder="First and last name"></label>
       <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet \u2014 ask your administrator to add one on the Fleet Maintenance tile.</p>
     </div>
 
@@ -459,6 +465,7 @@
     document.getElementById('driverInspectionView').style.display = 'block';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
     loadDriverTrucks();
+    loadDriverRoster();
     renderPtiChecklist();
   }
 
@@ -555,6 +562,31 @@
     }
   }
 
+  async function loadDriverRoster(){
+    const sel = document.getElementById('pti_driverNameSelect');
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/roster', {
+        headers: {'Authorization': 'Bearer ' + driverToken}
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      const names = data.names || [];
+      const otherOption = '<option value="__other__">Not on the list (type your name)</option>';
+      sel.innerHTML = '<option value="">Select your name...</option>'
+        + names.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('')
+        + otherOption;
+    }catch(err){
+      console.error('Load roster failed:', err);
+      // Roster failing to load shouldn't block the form -- fall back to just the manual-entry option.
+      sel.innerHTML = '<option value="">Select your name...</option><option value="__other__">Not on the list (type your name)</option>';
+    }
+  }
+  document.getElementById('pti_driverNameSelect').addEventListener('change', (e)=>{
+    const otherWrap = document.getElementById('pti_driverNameOtherWrap');
+    otherWrap.style.display = e.target.value === '__other__' ? 'block' : 'none';
+    if(e.target.value !== '__other__') document.getElementById('pti_driverNameOther').value = '';
+  });
+
   function renderPtiChecklist(){
     const container = document.getElementById('pti_checklist');
     container.innerHTML = PTI_CHECKLIST_ITEMS.map((item, i) => `
@@ -586,7 +618,10 @@
     const truckSel = document.getElementById('pti_truck');
     const truckId = truckSel.value;
     const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
-    const driverName = document.getElementById('pti_driverName').value.trim();
+    const nameSel = document.getElementById('pti_driverNameSelect');
+    const driverName = nameSel.value === '__other__'
+      ? document.getElementById('pti_driverNameOther').value.trim()
+      : nameSel.value.trim();
     const date = document.getElementById('pti_date').value;
     const odometer = document.getElementById('pti_odometer').value.trim();
     const additionalNotes = document.getElementById('pti_additionalNotes').value.trim();
@@ -597,7 +632,7 @@
       return;
     }
     if(!driverName){
-      statusEl.textContent = 'Enter your name.';
+      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
       statusEl.className = 'status-msg err';
       return;
     }
@@ -635,7 +670,9 @@
       }
       statusEl.textContent = 'Inspection submitted. Thank you!';
       statusEl.className = 'status-msg ok';
-      document.getElementById('pti_driverName').value = '';
+      document.getElementById('pti_driverNameSelect').value = '';
+      document.getElementById('pti_driverNameOther').value = '';
+      document.getElementById('pti_driverNameOtherWrap').style.display = 'none';
       document.getElementById('pti_odometer').value = '';
       document.getElementById('pti_additionalNotes').value = '';
       document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
