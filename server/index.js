@@ -2,11 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const Redis = require('ioredis');
 const crypto = require('crypto');
-
+ 
 const app = express();
 app.use(express.json({ limit: '15mb' }));
 app.use(cors());
-
+ 
 function hashPassword(password) {
   return new Promise((resolve, reject) => {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -29,7 +29,7 @@ function verifyPassword(password, storedHash) {
     });
   });
 }
-
+ 
 const REDIS_URL = process.env.REDIS_URL || process.env.RENDER_KEY_VALUE_URL;
 if (!REDIS_URL) {
   console.error('FATAL: No REDIS_URL / RENDER_KEY_VALUE_URL environment variable set.');
@@ -37,7 +37,7 @@ if (!REDIS_URL) {
 }
 const redis = new Redis(REDIS_URL);
 redis.on('error', (err) => { console.error('Redis connection error:', err.message); });
-
+ 
 // ============ Data key whitelist (existing dashboard data) ============
 const ALLOWED_KEYS = new Set([
   'labor-weeks',
@@ -62,26 +62,27 @@ const ALLOWED_KEYS = new Set([
   'mail-apartment-outreach',
   'mail-storage-outreach',
   'mail-neighborhoods',
-  'mail-neighborhood-visits'
+  'mail-neighborhood-visits',
+  'mail-marketing-materials'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-'];
-
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-'];
+ 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
   return ALLOWED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
 }
-
+ 
 // ============ Auth: user accounts (stored separately, never exposed via /api/data) ============
 const USERS_KEY = 'auth:users';
 const SESSION_PREFIX = 'auth:session:';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
-
+ 
 const SEED_USERS = [
   { email: 'aaron.henson@chhj.com', role: 'admin' },
   { email: 'administrative.assistantaug@chhj.com', role: 'user' }
 ];
 const TEMP_PASSWORD = 'Password123!';
-
+ 
 // ============ Auth: shared driver access code for Pre-Trip Inspections ============
 // A completely separate, narrowly-scoped credential path -- deliberately NOT
 // part of the regular auth:users system. A driver session token only ever
@@ -92,12 +93,12 @@ const DRIVER_CODE_KEY = 'auth:driver-code';
 const DRIVER_SESSION_PREFIX = 'auth:driver-session:';
 const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 16; // 16 hours -- a work shift
 const DEFAULT_DRIVER_CODE = 'TruckCheck2026';
-
+ 
 async function getDriverCode() {
   const raw = await redis.get(DRIVER_CODE_KEY);
   return raw || DEFAULT_DRIVER_CODE;
 }
-
+ 
 async function ensureUsersSeeded() {
   try {
     const raw = await redis.get(USERS_KEY);
@@ -122,7 +123,7 @@ async function ensureUsersSeeded() {
     console.error('User seeding failed:', err.message);
   }
 }
-
+ 
 async function getUsers() {
   const raw = await redis.get(USERS_KEY);
   return raw ? JSON.parse(raw) : {};
@@ -130,7 +131,7 @@ async function getUsers() {
 async function saveUsers(users) {
   await redis.set(USERS_KEY, JSON.stringify(users));
 }
-
+ 
 // Simple in-memory rate limiting for login attempts (per IP).
 const loginAttempts = new Map(); // ip -> [timestamps]
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -146,7 +147,7 @@ function recordLoginAttempt(ip) {
   attempts.push(Date.now());
   loginAttempts.set(ip, attempts);
 }
-
+ 
 app.post('/api/login', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (isRateLimited(ip)) {
@@ -175,7 +176,7 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ error: 'Login failed.' });
   }
 });
-
+ 
 app.post('/api/change-password', async (req, res) => {
   const { token, newPassword } = req.body || {};
   if (!token || !newPassword) {
@@ -198,7 +199,7 @@ app.post('/api/change-password', async (req, res) => {
     res.status(500).json({ error: 'Password change failed.' });
   }
 });
-
+ 
 app.post('/api/logout', async (req, res) => {
   const { token } = req.body || {};
   if (token) {
@@ -206,7 +207,7 @@ app.post('/api/logout', async (req, res) => {
   }
   res.json({ ok: true });
 });
-
+ 
 // ============ Auth middleware: require a valid session for all data routes ============
 async function requireAuth(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
@@ -222,7 +223,7 @@ async function requireAuth(req, res, next) {
     res.status(500).json({ error: 'Auth check failed.' });
   }
 }
-
+ 
 async function requireAdmin(req, res, next) {
   try {
     const users = await getUsers();
@@ -236,7 +237,7 @@ async function requireAdmin(req, res, next) {
     res.status(500).json({ error: 'Admin check failed.' });
   }
 }
-
+ 
 // ============ Driver access: shared-code login, deliberately isolated ============
 app.post('/api/driver-login', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
@@ -259,7 +260,7 @@ app.post('/api/driver-login', async (req, res) => {
     res.status(500).json({ error: 'Login failed.' });
   }
 });
-
+ 
 app.post('/api/driver-logout', async (req, res) => {
   const { token } = req.body || {};
   if (token) {
@@ -267,7 +268,7 @@ app.post('/api/driver-logout', async (req, res) => {
   }
   res.json({ ok: true });
 });
-
+ 
 // Only ever satisfied by a driver-session token -- a driver token never
 // satisfies requireAuth above (different Redis key namespace entirely), so
 // it cannot be used against any other endpoint in this file.
@@ -284,7 +285,7 @@ async function requireDriverAuth(req, res, next) {
     res.status(500).json({ error: 'Auth check failed.' });
   }
 }
-
+ 
 // Minimal truck list for the driver-facing form -- name only, nothing else
 // from the fleet record (no VIN, purchase price, etc.).
 app.get('/api/driver/trucks', requireDriverAuth, async (req, res) => {
@@ -297,7 +298,7 @@ app.get('/api/driver/trucks', requireDriverAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load trucks.' });
   }
 });
-
+ 
 // Same name list as the staff /api/roster endpoint (most recent ADP payroll
 // week), just reachable via the driver-scoped session instead of a regular
 // staff login. Names only -- no pay, hours, or other payroll detail.
@@ -315,7 +316,7 @@ app.get('/api/driver/roster', requireDriverAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load roster.' });
   }
 });
-
+ 
 // Full neighborhood catalog for the door-hanger route tool -- name, general
 // area, and coordinates only (no addresses), nothing sensitive here so the
 // full record is fine to expose.
@@ -329,7 +330,7 @@ app.get('/api/driver/neighborhoods', requireDriverAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load neighborhoods.' });
   }
 });
-
+ 
 // Logs a door-hanger visit as a new entry in a growing history (mirrors the
 // pre-trip inspection log pattern) rather than overwriting a single
 // "last visited" field, so admins can see full coverage over time.
@@ -355,7 +356,7 @@ app.post('/api/driver/neighborhood-visit', requireDriverAuth, async (req, res) =
     res.status(500).json({ error: 'Could not log visit.' });
   }
 });
-
+ 
 app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
   const { truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes } = req.body || {};
   if (!truckId || !driverName || !Array.isArray(checklist) || checklist.length === 0) {
@@ -383,7 +384,7 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not submit inspection.' });
   }
 });
-
+ 
 // Admin-only viewing/management of the shared driver access code.
 app.get('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -393,7 +394,7 @@ app.get('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) =>
     res.status(500).json({ error: 'Could not load access code.' });
   }
 });
-
+ 
 app.post('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
   const { code } = req.body || {};
   const cleanCode = (code || '').trim();
@@ -408,7 +409,7 @@ app.post('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) =
     res.status(500).json({ error: 'Could not save access code.' });
   }
 });
-
+ 
 // Employee names (not the financial payroll details) are needed by
 // Attendance Tracking and Regulatory Compliance's Drivers section, which
 // aren't restricted to admins -- so this computes just the name list from
@@ -427,7 +428,7 @@ app.get('/api/roster', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load roster.' });
   }
 });
-
+ 
 // List users -- any logged-in user can see the roster (matches the existing
 // "Manage Documents" style visibility elsewhere in the app), but only admins
 // can add new ones.
@@ -445,7 +446,7 @@ app.get('/api/admin/users', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load users.' });
   }
 });
-
+ 
 app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   const { email, role } = req.body || {};
   const cleanEmail = (email || '').toLowerCase().trim();
@@ -469,7 +470,7 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Could not add user.' });
   }
 });
-
+ 
 // Generates a one-off temporary password for an admin-initiated reset. Random
 // per use (unlike the fixed TEMP_PASSWORD used for brand-new accounts), and
 // avoids ambiguous characters (0/O, 1/l/I) since an admin may read or text
@@ -481,7 +482,7 @@ function generateTempPassword() {
   for (let i = 0; i < bytes.length; i++) pw += chars[bytes[i] % chars.length];
   return pw + '!';
 }
-
+ 
 // Lets an admin force-reset another user's password (e.g. they're locked out
 // and can't receive a self-service reset email). Sets a fresh random
 // temporary password and flags the account so the user is required to set
@@ -504,7 +505,7 @@ app.post('/api/admin/users/:email/reset-password', requireAuth, requireAdmin, as
     res.status(500).json({ error: 'Could not reset password.' });
   }
 });
-
+ 
 app.get('/health', async (req, res) => {
   try {
     await redis.ping();
@@ -513,7 +514,7 @@ app.get('/health', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-
+ 
 // Payroll data is sensitive. The two vestigial rate/gross keys are fully
 // admin-only (nothing currently reads or writes them, but they're locked
 // down if that changes). labor-weeks is different: any logged-in user can
@@ -523,13 +524,13 @@ app.get('/health', async (req, res) => {
 // response goes out, not just hidden in the UI.
 const ADMIN_ONLY_KEYS = new Set(['labor-employee-rates', 'labor-last-admin-gross']);
 const ADMIN_WRITE_ONLY_KEYS = new Set(['labor-weeks']);
-
+ 
 async function isRequestingUserAdmin(req) {
   const users = await getUsers();
   const user = users[req.userEmail];
   return !!(user && user.role === 'admin');
 }
-
+ 
 async function checkAdminOnlyKey(req, res, key) {
   if (!ADMIN_ONLY_KEYS.has(key)) return true;
   try {
@@ -544,7 +545,7 @@ async function checkAdminOnlyKey(req, res, key) {
     return false;
   }
 }
-
+ 
 async function checkAdminWriteOnlyKey(req, res, key) {
   if (!ADMIN_WRITE_ONLY_KEYS.has(key)) return true;
   try {
@@ -559,18 +560,18 @@ async function checkAdminWriteOnlyKey(req, res, key) {
     return false;
   }
 }
-
+ 
 // Local market cities to try, in addition to whatever city is already
 // stored, when looking up a zip. Lob's US Verification API requires either
 // a zip_code or both city AND state -- state alone isn't enough -- so a
 // wrong or missing stored city means we have to guess and check rather than
 // ask Lob to resolve the city from the address alone.
 const MAIL_CANDIDATE_CITIES = ['Augusta', 'Evans', 'Grovetown', 'Martinez'];
-
+ 
 function mailTitleCase(str){
   return str ? str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()) : '';
 }
-
+ 
 // Looks up the correct city, state, and zip code for a given street address
 // using Lob's US Address Verification API (CASS-certified), so the Mail
 // Marketing List tile can fill in zips automatically -- and correct a wrong
@@ -590,13 +591,13 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     console.error('Zip lookup requested but LOB_API_KEY is not set on this service.');
     return res.status(500).json({ error: 'Zip lookup is not configured on the server yet (LOB_API_KEY is missing).' });
   }
-
+ 
   const candidates = [];
   if (city) candidates.push(city);
   for (const c of MAIL_CANDIDATE_CITIES) {
     if (!candidates.some(existing => existing.toLowerCase() === c.toLowerCase())) candidates.push(c);
   }
-
+ 
   let anySuccessfulCall = false;
   let lastHttpError = null;
   try {
@@ -643,7 +644,7 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Zip lookup failed: ' + err.message });
   }
 });
-
+ 
 app.get('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -663,7 +664,7 @@ app.get('/api/data/:key', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Storage read failed.' });
   }
 });
-
+ 
 app.put('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -677,7 +678,7 @@ app.put('/api/data/:key', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Storage write failed.' });
   }
 });
-
+ 
 app.delete('/api/data/:key', requireAuth, async (req, res) => {
   const { key } = req.params;
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
@@ -691,7 +692,7 @@ app.delete('/api/data/:key', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Storage delete failed.' });
   }
 });
-
+ 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Henson dashboard backend listening on port ${PORT}`);
@@ -700,3 +701,4 @@ app.listen(PORT, async () => {
     : 'LOB_API_KEY is NOT set \u2014 zip lookup will not work until it is added.');
   await ensureUsersSeeded();
 });
+ 
