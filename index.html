@@ -2194,14 +2194,12 @@
         <div class="form-actions" style="margin-bottom:14px;">
           <button type="button" id="mail_lookupZipsBtn" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Look Up Missing Zips</button>
           <button type="button" id="mail_dedupBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Remove Duplicates</button>
-          <button type="button" id="mail_markMailedBtn" style="background:var(--charcoal); color:#fff; border:none; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Mark Selected as Mailed</button>
           <button type="button" id="mail_exportBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer;">Export &amp; Mark as Mailed (.xlsx)</button>
           <button type="button" id="mail_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
           <span class="status-msg" id="mail_bulkStatus"></span>
         </div>
         <table>
           <thead><tr>
-            <th style="width:26px;"><input type="checkbox" id="mail_selectAll"></th>
             <th>Name</th>
             <th>Address</th>
             <th>City</th>
@@ -5010,7 +5008,6 @@
 
     tbody.innerHTML = filtered.map(r => `
       <tr data-id="${r.id}">
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="checkbox" class="mail-select" data-id="${r.id}"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${mailEsc(r.firstName)} ${mailEsc(r.lastName)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${mailEsc(r.address)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mail-edit-city" data-id="${r.id}" value="${mailEsc(r.city)}" style="width:100px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
@@ -5052,6 +5049,7 @@
       rec.mailed = e.target.checked;
       rec.dateMailed = e.target.checked ? new Date().toISOString().slice(0,10) : null;
       await saveMailListRecords();
+      if(e.target.checked) await mailRecordToHistory([rec]);
       renderMailListTable();
       renderMailListKpis();
     }));
@@ -5064,7 +5062,6 @@
       renderMailListKpis();
     }));
 
-    document.getElementById('mail_selectAll').checked = false;
   }
 
   const MAIL_STREET_SUFFIXES = new Set([
@@ -5411,32 +5408,6 @@
 
   document.getElementById('mail_filter').addEventListener('input', renderMailListTable);
   document.getElementById('mail_statusFilter').addEventListener('change', renderMailListTable);
-
-  document.getElementById('mail_selectAll').addEventListener('change', (e)=>{
-    document.querySelectorAll('.mail-select').forEach(cb => cb.checked = e.target.checked);
-  });
-
-  document.getElementById('mail_markMailedBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('mail_bulkStatus');
-    const selectedIds = Array.from(document.querySelectorAll('.mail-select:checked')).map(cb => cb.dataset.id);
-    if(selectedIds.length === 0){
-      statusEl.textContent = 'Select at least one address first.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    const today = new Date().toISOString().slice(0,10);
-    const newlyMailed = [];
-    selectedIds.forEach(id => {
-      const rec = mailListRecords.find(r => r.id === id);
-      if(rec){ rec.mailed = true; rec.dateMailed = today; newlyMailed.push(rec); }
-    });
-    const ok = await saveMailListRecords();
-    await mailRecordToHistory(newlyMailed);
-    renderMailListTable();
-    renderMailListKpis();
-    statusEl.textContent = ok ? `Marked ${selectedIds.length} address${selectedIds.length===1?'':'es'} as mailed.` : 'Save failed \u2014 check your connection.';
-    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-  });
 
   function mailExportToExcel(records, filenameSuffix){
     const statusEl = document.getElementById('mail_bulkStatus');
