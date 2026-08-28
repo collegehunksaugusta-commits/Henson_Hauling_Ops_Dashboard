@@ -2560,6 +2560,20 @@
             </table>
             <p class="form-note" id="tips_allocatedEmptyNote" style="display:none;">Nothing allocated yet.</p>
           </div>
+
+          <div class="panel" id="tipsPrevWeekPanel">
+            <h3>Previous Pay Week Totals</h3>
+            <p class="form-note" id="tips_prevWeekLabel"></p>
+            <table>
+              <thead><tr>
+                <th>Employee</th>
+                <th style="text-align:right;">Jobs</th>
+                <th style="text-align:right;">Total Tips</th>
+              </tr></thead>
+              <tbody id="tips_prevWeekRows"></tbody>
+            </table>
+            <p class="form-note" id="tips_prevWeekEmptyNote" style="display:none;">No allocated tips for the previous pay week yet.</p>
+          </div>
         </div>
 
         <div id="tips_section_summary" class="mail-section" style="display:none;">
@@ -4073,6 +4087,7 @@
     renderTipsNeedsAttention();
     renderTipsAllocate();
     renderTipsAllocated();
+    renderTipsPrevWeekTotals();
     renderTipsSummaryWeekOptions();
     renderTipsSummary();
     updateTipsTileBadge();
@@ -4230,6 +4245,33 @@
     }
   }
 
+  // Shared by both the selectable Pay Period Summary tab and the fixed
+  // Previous Pay Week panel -- computes each employee's total tips and job
+  // count for a given Monday-Sunday week's worth of allocations.
+  function tipsComputeWeekTotals(weekStart, weekEnd){
+    const totals = {};
+    Object.values(tipsAllocations).forEach(a => {
+      if(a.date < weekStart || a.date > weekEnd) return;
+      const share = a.tipAmount / a.employees.length;
+      a.employees.forEach(name => {
+        if(!totals[name]) totals[name] = { total: 0, jobs: new Set() };
+        totals[name].total += share;
+        totals[name].jobs.add(a.jobNumber);
+      });
+    });
+    return totals;
+  }
+
+  function tipsRenderTotalsRows(totals){
+    const names = Object.keys(totals).sort();
+    return names.map(name => `
+      <tr>
+        <td>${tipsEsc(name)}</td>
+        <td style="text-align:right;">${totals[name].jobs.size}</td>
+        <td style="text-align:right; font-weight:600;">${tipsMoney(totals[name].total)}</td>
+      </tr>`).join('');
+  }
+
   function renderTipsSummary(){
     const tbody = document.getElementById('tips_summaryRows');
     const emptyNote = document.getElementById('tips_summaryEmptyNote');
@@ -4240,26 +4282,25 @@
       emptyNote.style.display = 'block';
       return;
     }
-    const totals = {};
-    Object.values(tipsAllocations).forEach(a => {
-      if(a.date < week.weekStart || a.date > week.weekEnd) return;
-      const share = a.tipAmount / a.employees.length;
-      a.employees.forEach(name => {
-        if(!totals[name]) totals[name] = { total: 0, jobs: new Set() };
-        totals[name].total += share;
-        totals[name].jobs.add(a.jobNumber);
-      });
-    });
-    const names = Object.keys(totals).sort();
-    emptyNote.style.display = names.length === 0 ? 'block' : 'none';
-    tbody.innerHTML = names.map(name => `
-      <tr>
-        <td>${tipsEsc(name)}</td>
-        <td style="text-align:right;">${totals[name].jobs.size}</td>
-        <td style="text-align:right; font-weight:600;">${tipsMoney(totals[name].total)}</td>
-      </tr>`).join('');
+    const totals = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
+    const hasAny = Object.keys(totals).length > 0;
+    emptyNote.style.display = hasAny ? 'none' : 'block';
+    tbody.innerHTML = tipsRenderTotalsRows(totals);
   }
   document.getElementById('tips_summaryWeek').addEventListener('change', renderTipsSummary);
+
+  function renderTipsPrevWeekTotals(){
+    const tbody = document.getElementById('tips_prevWeekRows');
+    const emptyNote = document.getElementById('tips_prevWeekEmptyNote');
+    const labelEl = document.getElementById('tips_prevWeekLabel');
+    const weekStart = tipsGetMostRecentCompleteWeekStart();
+    const week = tipsGetWeekBounds(weekStart);
+    labelEl.textContent = tipsWeekLabel(week);
+    const totals = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
+    const hasAny = Object.keys(totals).length > 0;
+    emptyNote.style.display = hasAny ? 'none' : 'block';
+    tbody.innerHTML = tipsRenderTotalsRows(totals);
+  }
 
   function showTipsSection(section){
     tipsCurrentSection = section;
