@@ -2119,8 +2119,13 @@
 
       <div class="panel" id="mailScreenshotPanel">
         <h3>Upload Listing Screenshots</h3>
-        <p class="form-note">Upload screenshots of listings (Redfin, Zillow, or any source) and Claude will read the addresses directly from the images &mdash; no pasting or retyping needed. Review the results below before anything is added to the list.</p>
-        <input type="file" id="mail_screenshotFiles" accept=".jpg,.jpeg,.png" multiple style="font-family:'Inter',sans-serif; font-size:13px;">
+        <p class="form-note">Screenshot a listing (Redfin, Zillow, or any source), then click below and paste (Ctrl+V or Cmd+V) &mdash; grab as many as you like before extracting. Claude reads the addresses directly from the images. Review the results below before anything is added to the list.</p>
+        <div id="mail_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:text; background:#fafafa; outline:none;">
+          <p style="margin:0; color:var(--muted); font-size:14px;">Click here, then paste screenshots as you grab them</p>
+          <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="mail_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
+          <input type="file" id="mail_screenshotFiles" accept=".jpg,.jpeg,.png" multiple style="display:none;">
+        </div>
+        <div id="mail_pastedThumbnails" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;"></div>
         <div class="form-actions">
           <button class="btn-primary" id="mail_extractBtn" type="button">Extract Addresses</button>
           <span class="status-msg" id="mail_extractStatus"></span>
@@ -4937,34 +4942,82 @@
   });
 
   let mailExtractReview = [];
+  let mailPastedImages = [];
+
+  function renderPastedThumbnails(){
+    const wrap = document.getElementById('mail_pastedThumbnails');
+    wrap.innerHTML = mailPastedImages.map(img => `
+      <div style="position:relative; width:80px; height:80px;">
+        <img src="${img.dataUri}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        <button type="button" class="mail-remove-paste" data-id="${img.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
+      </div>`).join('');
+    wrap.querySelectorAll('.mail-remove-paste').forEach(btn => btn.addEventListener('click', (e)=>{
+      mailPastedImages = mailPastedImages.filter(img => img.id !== e.target.dataset.id);
+      renderPastedThumbnails();
+    }));
+  }
+
+  function addPastedBlob(blob){
+    return readFileAsDataUri(blob).then(dataUri => {
+      mailPastedImages.push({ id: 'paste_' + Date.now() + '_' + Math.floor(Math.random()*1000), dataUri, sizeBytes: blob.size });
+      renderPastedThumbnails();
+    });
+  }
+
+  const mailPasteZone = document.getElementById('mail_pasteZone');
+  mailPasteZone.addEventListener('click', ()=> mailPasteZone.focus());
+  mailPasteZone.addEventListener('focus', ()=>{ mailPasteZone.style.borderColor = 'var(--brand-orange)'; mailPasteZone.style.background = '#fff'; });
+  mailPasteZone.addEventListener('blur', ()=>{ mailPasteZone.style.borderColor = 'var(--line)'; mailPasteZone.style.background = '#fafafa'; });
+  mailPasteZone.addEventListener('paste', async (e)=>{
+    e.preventDefault();
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && item.type.startsWith('image/'));
+    if(items.length === 0){
+      const statusEl = document.getElementById('mail_extractStatus');
+      statusEl.textContent = 'That paste didn\u2019t contain an image \u2014 take a screenshot first, then paste.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const item of items){
+      const blob = item.getAsFile();
+      if(blob) await addPastedBlob(blob);
+    }
+  });
+
+  document.getElementById('mail_chooseFilesBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('mail_screenshotFiles').click();
+  });
+  document.getElementById('mail_screenshotFiles').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files || []);
+    for(const file of files){
+      await addPastedBlob(file);
+    }
+    e.target.value = '';
+  });
 
   document.getElementById('mail_extractBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('mail_extractStatus');
-    const fileInput = document.getElementById('mail_screenshotFiles');
-    const files = Array.from(fileInput.files || []);
-    if(files.length === 0){
-      statusEl.textContent = 'Choose at least one screenshot first.';
+    if(mailPastedImages.length === 0){
+      statusEl.textContent = 'Paste or choose at least one screenshot first.';
       statusEl.className = 'status-msg err';
       return;
     }
-    if(files.length > 20){
-      statusEl.textContent = 'Please upload 20 screenshots or fewer at a time.';
+    if(mailPastedImages.length > 20){
+      statusEl.textContent = 'Please use 20 screenshots or fewer at a time.';
       statusEl.className = 'status-msg err';
       return;
     }
-    const oversized = files.find(f => f.size > 10*1024*1024);
+    const oversized = mailPastedImages.find(img => img.sizeBytes > 10*1024*1024);
     if(oversized){
-      statusEl.textContent = `"${oversized.name}" is over 10MB \u2014 please use a smaller image.`;
+      statusEl.textContent = 'One of those screenshots is over 10MB \u2014 please use a smaller image.';
       statusEl.className = 'status-msg err';
       return;
     }
 
-    statusEl.textContent = `Reading ${files.length} screenshot${files.length===1?'':'s'}...`;
+    statusEl.textContent = 'Extracting addresses \u2014 this may take a moment...';
     statusEl.className = 'status-msg';
     try{
-      const images = await Promise.all(files.map(f => readFileAsDataUri(f)));
-
-      statusEl.textContent = 'Extracting addresses \u2014 this may take a moment...';
+      const images = mailPastedImages.map(img => img.dataUri);
       const res = await fetch(`${API_BASE}/api/admin/extract-listings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
@@ -4990,7 +5043,8 @@
       renderExtractReview();
       statusEl.textContent = `Found ${listings.length} address${listings.length===1?'':'es'} \u2014 review below before adding.`;
       statusEl.className = 'status-msg ok';
-      fileInput.value = '';
+      mailPastedImages = [];
+      renderPastedThumbnails();
     }catch(err){
       console.error('Screenshot extraction failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
