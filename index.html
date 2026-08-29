@@ -404,6 +404,10 @@
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Find a Neighborhood</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Find a nearby spot for door hangers on the way to your next job</div>
       </button>
+      <button type="button" id="driverGoToTruckDocsBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
+        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Truck Documents</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">View a truck's registration and insurance card</div>
+      </button>
       <a href="https://fuelsites.corpay.com/fuelman" target="_blank" rel="noopener" id="driverFuelStationsLink" style="display:block; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit; text-decoration:none;">
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Find Fuel Stations &#8599;</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Opens Fuelman's official site locator to find nearby stations that accept our fuel card</div>
@@ -514,6 +518,20 @@
       </div>
     </div>
   </div>
+
+  <div id="driverTruckDocsView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="driverTruckDocsBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
+      <h2 class="display" style="margin:0; font-size:20px;">Truck Documents</h2>
+      <button type="button" id="driverTruckDocsLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px;">
+      <label>Truck <select id="tdocs_truck"></select></label>
+      <p class="form-note" id="tdocs_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
+      <div id="tdocs_docList" style="margin-top:14px;"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -607,6 +625,7 @@
     document.getElementById('driverMenuView').style.display = 'none';
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
+    document.getElementById('driverTruckDocsView').style.display = 'none';
   }
 
   function showDriverMenu(){
@@ -616,6 +635,7 @@
     document.getElementById('driverMenuView').style.display = 'block';
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
+    document.getElementById('driverTruckDocsView').style.display = 'none';
     loadDriverLeaderboard();
   }
 
@@ -626,6 +646,7 @@
     document.getElementById('driverMenuView').style.display = 'none';
     document.getElementById('driverInspectionView').style.display = 'block';
     document.getElementById('driverNbhdView').style.display = 'none';
+    document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
     loadDriverTrucks();
     loadDriverRoster();
@@ -639,11 +660,99 @@
     document.getElementById('driverMenuView').style.display = 'none';
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'block';
+    document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
     document.getElementById('nbhd_visitPanel').style.display = 'none';
     document.getElementById('nbhd_manualAreaWrap').style.display = 'none';
     document.getElementById('nbhd_findStatus').textContent = '';
     loadDriverRosterForNbhd();
+  }
+
+  function showDriverTruckDocs(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverMenuView').style.display = 'none';
+    document.getElementById('driverInspectionView').style.display = 'none';
+    document.getElementById('driverNbhdView').style.display = 'none';
+    document.getElementById('driverTruckDocsView').style.display = 'block';
+    loadDriverTruckDocsTrucks();
+  }
+
+  // Local copy of the admin dashboard's data-URI-to-blob-URL conversion --
+  // the driver portal runs in a separate script block by design, so this
+  // stays self-contained rather than reaching across that boundary.
+  function tdocsDataUriToBlobUrl(dataUri){
+    const [header, base64] = dataUri.split(',');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i++){ bytes[i] = binary.charCodeAt(i); }
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  }
+
+  async function loadDriverTruckDocsTrucks(){
+    const sel = document.getElementById('tdocs_truck');
+    const noTrucksNote = document.getElementById('tdocs_noTrucksNote');
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/trucks', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      const trucksList = data.trucks || [];
+      if(trucksList.length === 0){
+        sel.innerHTML = '';
+        noTrucksNote.textContent = 'No trucks are set up yet \u2014 ask your administrator to add one on the Fleet Maintenance tile.';
+        noTrucksNote.style.display = 'block';
+        document.getElementById('tdocs_docList').innerHTML = '';
+      } else {
+        noTrucksNote.style.display = 'none';
+        sel.innerHTML = trucksList.map(t => `<option value="${t.id}">${t.nickname}</option>`).join('');
+        loadDriverTruckDocs(sel.value);
+      }
+    }catch(err){
+      console.error('Load trucks failed:', err);
+      noTrucksNote.textContent = 'Could not load trucks \u2014 check your connection.';
+      noTrucksNote.style.display = 'block';
+    }
+  }
+  document.getElementById('tdocs_truck').addEventListener('change', (e)=> loadDriverTruckDocs(e.target.value));
+
+  async function loadDriverTruckDocs(truckId){
+    const container = document.getElementById('tdocs_docList');
+    container.innerHTML = '<p class="form-note">Loading...</p>';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/truck-docs/' + encodeURIComponent(truckId), { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      if(!res.ok){ container.innerHTML = '<p class="form-note">Could not load documents \u2014 check your connection.</p>'; return; }
+      const data = await res.json();
+      const docs = [
+        { key: 'registration', label: 'Registration', rec: data.registration },
+        { key: 'insuranceCard', label: 'Insurance Card', rec: data.insuranceCard }
+      ];
+      container.innerHTML = docs.map(d => `
+        <div style="border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px;">
+          <div style="font-weight:700; margin-bottom:8px;">${d.label}</div>
+          ${d.rec
+            ? `<button type="button" class="tdocs-view-btn" data-key="${d.key}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; width:100%; font-size:14px;">View ${d.label}</button>`
+            : `<span style="color:var(--muted); font-size:13.5px;">Not on file yet \u2014 ask your administrator to upload it.</span>`}
+        </div>`).join('');
+
+      container.querySelectorAll('.tdocs-view-btn').forEach(btn => btn.addEventListener('click', (e)=>{
+        const key = e.currentTarget.dataset.key;
+        const rec = key === 'registration' ? data.registration : data.insuranceCard;
+        if(!rec) return;
+        const isPdf = rec.dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(tdocsDataUriToBlobUrl(rec.dataUri), '_blank'); }
+        else {
+          const win = window.open();
+          if(win) win.document.write(`<title>${rec.fileName}</title><body style="margin:0;"><img src="${rec.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`);
+        }
+      }));
+    }catch(err){
+      console.error('Load truck docs failed:', err);
+      container.innerHTML = '<p class="form-note">Could not load documents \u2014 check your connection.</p>';
+    }
   }
 
   if(driverToken){
@@ -657,8 +766,10 @@
   });
   document.getElementById('driverGoToInspectionBtn').addEventListener('click', showDriverInspection);
   document.getElementById('driverGoToNbhdBtn').addEventListener('click', showDriverNbhd);
+  document.getElementById('driverGoToTruckDocsBtn').addEventListener('click', showDriverTruckDocs);
   document.getElementById('driverInspectionBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverNbhdBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverTruckDocsBackBtn').addEventListener('click', showDriverMenu);
 
   async function attemptDriverLogin(){
     const statusEl = document.getElementById('driver_loginStatus');
@@ -711,6 +822,7 @@
   document.getElementById('driverMenuLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('driverLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('driverNbhdLogoutBtn').addEventListener('click', driverLogout);
+  document.getElementById('driverTruckDocsLogoutBtn').addEventListener('click', driverLogout);
 
   function driverSessionExpired(){
     localStorage.removeItem('henson_driver_token');
