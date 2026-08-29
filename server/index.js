@@ -869,6 +869,169 @@ app.post('/api/admin/extract-listings', requireAuth, async (req, res) => {
   }
 });
 
+// ============ Labor Cost: Revenue Extraction ============
+// ADP Payroll Detail wages/taxes/OT/employee data are already parsed
+// directly from the .xlsx export -- structured spreadsheet parsing is more
+// reliable than AI extraction for that. Revenue comes from HunkWare
+// instead, which has no equivalent structured export, so this fills that
+// one remaining gap from a screenshot of the HunkWare revenue report.
+const EXTRACT_REVENUE_TOOL = {
+  name: 'extract_revenue',
+  description: 'Extract the total weekly revenue figure from a HunkWare revenue report screenshot.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      totalRevenue: { type: 'number', description: 'The total revenue figure for the period shown, in dollars, as a plain number (no currency symbol or commas). Sum multiple line items if the screenshot shows a list rather than a single total.' },
+      periodLabel: { type: 'string', description: 'Any date range or period label visible in the screenshot, e.g. "Aug 17 - Aug 23, 2026". Empty string if none is visible.' },
+      confident: { type: 'boolean', description: 'True if a single, clear revenue total was found. False if the screenshot was ambiguous, cut off, showed multiple unrelated periods, or no clear total was visible.' }
+    },
+    required: ['totalRevenue', 'confident']
+  }
+};
+
+app.post('/api/admin/extract-revenue', requireAuth, async (req, res) => {
+  const { images } = req.body || {};
+  if (!Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'At least one image is required.' });
+  }
+  if (images.length > 5) {
+    return res.status(400).json({ error: 'Please upload 5 images or fewer.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Revenue extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Screenshot extraction is not configured on the server yet.' });
+  }
+
+  try {
+    const imageBlocks = images.map(dataUri => {
+      const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+      if (!match) return null;
+      return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+    }).filter(Boolean);
+    if (imageBlocks.length === 0) {
+      return res.status(400).json({ error: 'No valid images were provided.' });
+    }
+
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [EXTRACT_REVENUE_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_revenue' },
+        messages: [{
+          role: 'user',
+          content: [
+            ...imageBlocks,
+            { type: 'text', text: `This is a screenshot (or a few screenshots) of a HunkWare weekly revenue report for a moving/junk removal company. Find the total revenue figure for the period shown. If the screenshot shows a list of individual jobs rather than one combined total, sum them yourself. If it clearly is not a revenue report, or no total can be determined, set confident to false.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Revenue extraction request failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_revenue');
+    if (!toolUseBlock) {
+      console.error('Revenue extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('Revenue extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
+// ============ Fleet Maintenance: Invoice Extraction ============
+// Reads a maintenance invoice (photo or first page of a PDF, already
+// rendered client-side to an image) and pulls out the service date,
+// odometer reading, and a short description, so the admin isn't
+// retyping what's already sitting right there on the receipt.
+const EXTRACT_INVOICE_TOOL = {
+  name: 'extract_invoice',
+  description: 'Extract structured maintenance details from a vehicle service invoice or receipt.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'Date of service in YYYY-MM-DD format, or empty string if not legible.' },
+      description: { type: 'string', description: 'A brief (one sentence) summary of the service or repair work described on the invoice, e.g. "Oil change and tire rotation" or "Replaced rear brake pads".' },
+      mileage: { type: 'number', description: 'Odometer reading in miles if printed on the invoice. Omit this field entirely if no mileage is visible -- do not guess.' },
+      confident: { type: 'boolean', description: 'True if this clearly looks like a vehicle service invoice/receipt with at least a date and description found. False if the image is unreadable or does not look like a service invoice.' }
+    },
+    required: ['description', 'confident']
+  }
+};
+
+app.post('/api/admin/extract-invoice', requireAuth, async (req, res) => {
+  const { image } = req.body || {};
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Invoice extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Invoice extraction is not configured on the server yet.' });
+  }
+  const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(image || '');
+  if (!match) {
+    return res.status(400).json({ error: 'A valid image is required.' });
+  }
+
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [EXTRACT_INVOICE_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_invoice' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+            { type: 'text', text: `This is a photo or scan of a vehicle maintenance/repair invoice or receipt. Extract the service date, a brief description of the work performed, and the odometer/mileage reading if printed on it. Do not extract cost or price figures.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Invoice extraction request failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_invoice');
+    if (!toolUseBlock) {
+      console.error('Invoice extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('Invoice extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
 // ============ Square: Tip Allocation ============
 // Pulls recent Square payments, filters to ones with a tip, and extracts the
 // 8-digit job number the crew enters in the payment note at checkout. This
