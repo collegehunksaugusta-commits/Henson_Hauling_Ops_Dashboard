@@ -398,6 +398,28 @@ app.get('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) =>
   }
 });
 
+// Storage usage for the admin warning banner. Queries Redis directly (INFO
+// memory) for the real, current figure rather than tracking an approximate
+// running total in application code. maxBytes reflects the actual Key Value
+// plan limit -- set STORAGE_LIMIT_BYTES if the plan is ever upgraded, since
+// Redis's own maxmemory setting isn't reliably populated on managed
+// instances and can't be trusted as the source of truth here.
+const STORAGE_LIMIT_BYTES = parseInt(process.env.STORAGE_LIMIT_BYTES, 10) || (256 * 1024 * 1024); // 256MB Starter plan default
+app.get('/api/admin/storage-stats', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const infoText = await redis.info('memory');
+    const match = /used_memory:(\d+)/.exec(infoText);
+    const usedBytes = match ? parseInt(match[1], 10) : null;
+    if (usedBytes === null) {
+      return res.status(502).json({ error: 'Could not read memory usage from the data store.' });
+    }
+    res.json({ usedBytes, maxBytes: STORAGE_LIMIT_BYTES, percentUsed: usedBytes / STORAGE_LIMIT_BYTES });
+  } catch (err) {
+    console.error('Storage stats fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not check storage usage.' });
+  }
+});
+
 app.post('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
   const { code } = req.body || {};
   const cleanCode = (code || '').trim();
