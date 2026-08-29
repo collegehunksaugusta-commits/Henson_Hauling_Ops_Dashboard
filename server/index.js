@@ -970,6 +970,7 @@ const EXTRACT_INVOICE_TOOL = {
       date: { type: 'string', description: 'Date of service in YYYY-MM-DD format, or empty string if not legible.' },
       description: { type: 'string', description: 'A brief (one sentence) summary of the service or repair work described on the invoice, e.g. "Oil change and tire rotation" or "Replaced rear brake pads".' },
       mileage: { type: 'number', description: 'Odometer reading in miles if printed on the invoice. Omit this field entirely if no mileage is visible -- do not guess.' },
+      vin: { type: 'string', description: 'The 17-character Vehicle Identification Number if printed on the invoice, exactly as shown. Omit this field entirely if no VIN is visible -- do not guess.' },
       confident: { type: 'boolean', description: 'True if this clearly looks like a vehicle service invoice/receipt with at least a date and description found. False if the image is unreadable or does not look like a service invoice.' }
     },
     required: ['description', 'confident']
@@ -1005,7 +1006,7 @@ app.post('/api/admin/extract-invoice', requireAuth, async (req, res) => {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
-            { type: 'text', text: `This is a photo or scan of a vehicle maintenance/repair invoice or receipt. Extract the service date, a brief description of the work performed, and the odometer/mileage reading if printed on it. Do not extract cost or price figures.` }
+            { type: 'text', text: `This is a photo or scan of a vehicle maintenance/repair invoice or receipt. Extract the service date, a brief description of the work performed, the odometer/mileage reading if printed on it, and the vehicle's VIN if printed on it (often labeled "VIN" near the vehicle description). Do not extract cost or price figures.` }
           ]
         }]
       })
