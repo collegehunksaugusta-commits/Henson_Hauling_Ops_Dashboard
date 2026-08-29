@@ -303,6 +303,29 @@ app.get('/api/driver/trucks', requireDriverAuth, async (req, res) => {
   }
 });
 
+// Read-only view of a truck's Registration and Insurance Card, for drivers
+// who need to show proof in the field. Uses the exact same storage keys the
+// admin-side Insurance section writes to (compliance-doc-truck-<id>-<type>)
+// -- there's only ever one copy of each document, drivers just get a
+// read-only window into it. No write access from this endpoint.
+app.get('/api/driver/truck-docs/:truckId', requireDriverAuth, async (req, res) => {
+  const truckId = req.params.truckId;
+  if (!truckId) return res.status(400).json({ error: 'Truck ID is required.' });
+  try {
+    const [regRaw, insRaw] = await Promise.all([
+      redis.get(`compliance-doc-truck-${truckId}-registration`),
+      redis.get(`compliance-doc-truck-${truckId}-insuranceCard`)
+    ]);
+    res.json({
+      registration: regRaw ? JSON.parse(regRaw) : null,
+      insuranceCard: insRaw ? JSON.parse(insRaw) : null
+    });
+  } catch (err) {
+    console.error('Driver truck-docs fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load truck documents.' });
+  }
+});
+
 // Same name list as the staff /api/roster endpoint (most recent ADP payroll
 // week), just reachable via the driver-scoped session instead of a regular
 // staff login. Names only -- no pay, hours, or other payroll detail.
