@@ -1055,6 +1055,100 @@ app.post('/api/admin/extract-invoice', requireAuth, async (req, res) => {
   }
 });
 
+// ============ Captain Metrics: Paperwork Completeness ============
+// Estimates what share of a completed-paperwork upload's blank
+// signature/initial/written-response fields appear filled in by hand. This
+// is a fuzzier visual task than the other extraction endpoints (detecting
+// handwriting presence, not reading printed text), so it uses Sonnet rather
+// than Haiku for better visual judgment. Explicitly an estimate, not a
+// precise audit -- the response includes a confidence flag and a list of
+// which fields looked blank so a human can spot-check.
+const ASSESS_COMPLETENESS_TOOL = {
+  name: 'assess_completeness',
+  description: 'Assess how many of the blank signature, initials, or written-response fields on this moving-company paperwork document appear to have been filled in by hand.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      totalFieldsFound: { type: 'number', description: 'Total count of blank-line fields across the document meant for a signature, initials, date written by hand, or other short handwritten response. Do not count printed/pre-filled text or checkboxes.' },
+      fieldsCompleted: { type: 'number', description: 'Of those, how many appear to actually have handwriting, a signature, initials, or a mark present -- as opposed to being visibly blank.' },
+      incompleteFields: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Brief plain-language description of each field that appears blank, e.g. "Client signature on page 2", "Captain initials next to Item 4". Empty array if everything appears complete.'
+      },
+      confident: { type: 'boolean', description: 'True if the document was legible enough to make this assessment. False if too blurry, cut off, poorly lit, or doesn\u2019t look like a moving/paperwork document.' }
+    },
+    required: ['totalFieldsFound', 'fieldsCompleted', 'confident']
+  }
+};
+
+app.post('/api/admin/assess-completeness', requireAuth, async (req, res) => {
+  const { images } = req.body || {};
+  if (!Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'At least one image is required.' });
+  }
+  if (images.length > 10) {
+    return res.status(400).json({ error: 'Please limit to 10 pages per assessment.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Completeness assessment requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Completeness assessment is not configured on the server yet.' });
+  }
+
+  try {
+    const imageBlocks = images.map(dataUri => {
+      const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+      if (!match) return null;
+      return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+    }).filter(Boolean);
+    if (imageBlocks.length === 0) {
+      return res.status(400).json({ error: 'No valid images were provided.' });
+    }
+
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 1536,
+        tools: [ASSESS_COMPLETENESS_TOOL],
+        tool_choice: { type: 'tool', name: 'assess_completeness' },
+        messages: [{
+          role: 'user',
+          content: [
+            ...imageBlocks,
+            { type: 'text', text: `This is completed paperwork (Bill of Lading, Liability Waiver, Declaration of Value, or similar) for a moving/junk-removal job -- possibly multiple pages. Find every blank-line field meant for a signature, initials, or other short handwritten response (not printed text, not checkboxes), and assess whether each one appears to actually have handwriting present or still looks blank. Look carefully -- pen marks can be faint, and photos may have shadows or glare.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Completeness assessment request failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Assessment failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'assess_completeness');
+    if (!toolUseBlock) {
+      console.error('Completeness assessment: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the assessment service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('Completeness assessment failed:', err.message);
+    res.status(500).json({ error: 'Assessment failed: ' + err.message });
+  }
+});
+
 // ============ Square: Tip Allocation ============
 // Pulls recent Square payments, filters to ones with a tip, and extracts the
 // 8-digit job number the crew enters in the payment note at checkout. This
