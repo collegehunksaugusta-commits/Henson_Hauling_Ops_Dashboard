@@ -1214,6 +1214,11 @@
         <h3>Captain Metrics</h3>
         <p>Pre-trip inspection compliance and completed paperwork quality, by Captain.</p>
       </div>
+      <div class="tile" id="tile-opsmetrics" tabindex="0" role="button" aria-label="Open Ops Manager Metrics">
+        <span class="icon">📊</span>
+        <h3>Ops Manager Metrics</h3>
+        <p>Paperwork close-out tracking, with more operational metrics planned.</p>
+      </div>
       <div class="tile" id="tile-fleet" tabindex="0" role="button" aria-label="Open Fleet Maintenance">
         <span class="badge" id="fleetTileBadge" style="display:none;">Service Due</span>
         <span class="icon">🚚</span>
@@ -1858,6 +1863,23 @@
       <p class="form-note">Estimated from uploaded paperwork -- Claude scans each upload for blank signature, initial, and written-response fields and estimates what share appear filled in. This is an estimate for spotting patterns, not a precise audit.</p>
       <div id="cm_completenessRows"></div>
       <p class="form-note" id="cm_completenessEmptyNote" style="display:none;">No completeness data yet -- this fills in as paperwork gets uploaded.</p>
+    </div>
+  </div>
+
+  <!-- ============ OPS MANAGER METRICS DETAIL ============ -->
+  <div id="opsMetricsDetail" style="display:none;">
+    <button class="backlink" id="opsMetricsBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Ops Manager Metrics</h2>
+    </div>
+    <p class="form-note">More operational metrics will be added here over time.</p>
+
+    <div class="panel" id="omPaperworkCloseoutPanel">
+      <h3>Paperwork Close-Out</h3>
+      <p class="form-note">Compares jobs that had paperwork created on Job Data Entry against completed paperwork that was actually uploaded and emailed to the client. Can only look back 90 days, since job-creation records aren't kept longer than that. Jobs not yet at their scheduled date are excluded.</p>
+      <p class="form-note" id="om_closeoutSummary" style="font-weight:600;"></p>
+      <div id="om_closeoutRows"></div>
+      <p class="form-note" id="om_closeoutEmptyNote" style="display:none;">No job-paperwork records found in the last 90 days.</p>
     </div>
   </div>
 
@@ -2988,6 +3010,7 @@
   const mailRouteDetail = document.getElementById('mailRouteDetail');
   const tipsDetail = document.getElementById('tipsDetail');
   const captainDetail = document.getElementById('captainDetail');
+  const opsMetricsDetail = document.getElementById('opsMetricsDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -3002,6 +3025,7 @@
     mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
     tipsDetail.style.display = view === 'tips' ? 'block' : 'none';
     captainDetail.style.display = view === 'captain' ? 'block' : 'none';
+    opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -3035,6 +3059,9 @@
     }
     if(view === 'captain'){
       window.loadCaptainMetricsData();
+    }
+    if(view === 'opsmetrics'){
+      window.loadOpsMetricsData();
     }
   }
 
@@ -3091,6 +3118,10 @@
   document.getElementById('tile-captain').addEventListener('click', ()=> navigateTo('captain'));
   document.getElementById('tile-captain').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('captain'); }});
   document.getElementById('captainBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-opsmetrics').addEventListener('click', ()=> navigateTo('opsmetrics'));
+  document.getElementById('tile-opsmetrics').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('opsmetrics'); }});
+  document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
 
@@ -10534,7 +10565,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
-          <button type="button" class="pu-email" data-id="${u.id}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Send Email</button>
+          <button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Email Sent' : 'Send Email'}</button>
           <button type="button" class="pu-delete" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
         </td>
       </tr>`).join('');
@@ -10600,6 +10631,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
         const mailto = `mailto:${encodeURIComponent(upload.clientEmail || '')}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subject)}`;
         window.location.href = mailto;
+
+        upload.emailSentAt = new Date().toISOString();
+        await savePaperworkUploadsList();
+        renderPaperworkUploadsList();
 
         const statusEl = document.getElementById('pu_status');
         statusEl.textContent = clipboardOk
@@ -11022,6 +11057,82 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
 
     rowsEl.innerHTML = html;
+  }
+
+  // ---------- Ops Manager Metrics ----------
+  async function loadOpsMetricsData(){
+    try{
+      const [archive, uploads] = await Promise.all([
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, [])
+      ]);
+      renderPaperworkCloseout(archive || [], uploads || []);
+    }catch(err){
+      console.error('Ops Metrics load failed:', err);
+    }
+  }
+  window.loadOpsMetricsData = loadOpsMetricsData;
+
+  function renderPaperworkCloseout(archive, uploads){
+    const summaryEl = document.getElementById('om_closeoutSummary');
+    const rowsEl = document.getElementById('om_closeoutRows');
+    const emptyNote = document.getElementById('om_closeoutEmptyNote');
+
+    const todayStr = new Date().toISOString().slice(0,10);
+    // A job is "due" for close-out once its scheduled date has passed. Jobs
+    // with no assignment date on file fall back to 3+ days since paperwork was
+    // created, so there's a reasonable buffer before anything gets flagged.
+    const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const dueJobs = archive.filter(j => {
+      if(!j.jobNumber) return false;
+      if(j.assignmentDate) return j.assignmentDate < todayStr;
+      return j.savedAt && new Date(j.savedAt) < threeDaysAgo;
+    });
+
+    if(dueJobs.length === 0){
+      summaryEl.textContent = '';
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const uploadsByJob = {};
+    uploads.forEach(u => { if(u.jobNumber) uploadsByJob[u.jobNumber] = u; });
+
+    const statused = dueJobs.map(j => {
+      const upload = uploadsByJob[j.jobNumber];
+      let status;
+      if(!upload) status = 'not-uploaded';
+      else if(!upload.emailSentAt) status = 'uploaded-no-email';
+      else status = 'complete';
+      return { job: j, status };
+    });
+
+    const completeCount = statused.filter(s => s.status === 'complete').length;
+    summaryEl.textContent = `${completeCount} of ${statused.length} jobs fully closed out (uploaded and emailed) in the last 90 days.`;
+
+    const incomplete = statused.filter(s => s.status !== 'complete')
+      .sort((a,b) => (a.job.assignmentDate || a.job.savedAt || '').localeCompare(b.job.assignmentDate || b.job.savedAt || ''));
+
+    if(incomplete.length === 0){
+      rowsEl.innerHTML = '<p class="form-note" style="margin:0;">Everything\u2019s closed out \u2014 nothing needs follow-up right now.</p>';
+      return;
+    }
+
+    rowsEl.innerHTML = '<table><thead><tr><th>Job #</th><th>Client</th><th>Captain</th><th>Job Date</th><th style="text-align:right;">Status</th></tr></thead><tbody>' +
+      incomplete.map(({job, status}) => {
+        const label = status === 'not-uploaded' ? 'Not Uploaded' : 'Uploaded, Email Not Sent';
+        const color = status === 'not-uploaded' ? '#b3261e' : '#8a6d00';
+        const bg = status === 'not-uploaded' ? '#fdecea' : '#fdf6e3';
+        return `<tr>
+          <td>${cmEsc(job.jobNumber)}</td>
+          <td>${cmEsc(job.clientName)}</td>
+          <td>${cmEsc(job.captainName || '\u2014')}</td>
+          <td>${job.assignmentDate ? window.fmtDate(job.assignmentDate) : '\u2014'}</td>
+          <td style="text-align:right;"><span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${bg}; color:${color};">${label}</span></td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
   }
 
   document.getElementById('pu_jobNumber').addEventListener('blur', async ()=>{
