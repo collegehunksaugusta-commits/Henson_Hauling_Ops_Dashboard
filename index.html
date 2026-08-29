@@ -375,6 +375,26 @@
       <h2 class="display" style="margin:0; font-size:18px;">Driver Tools</h2>
       <button type="button" id="driverMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
+        <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Captain Leaderboard</h3>
+        <button type="button" id="driverLbWhoAmIBtn" style="display:none; background:none; border:none; color:var(--muted); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;"></button>
+      </div>
+      <div id="driverLbWhoAmIPrompt" style="display:none; margin-bottom:8px;">
+        <label style="font-size:12.5px; display:block;">Who are you? (so we can show where you stand)
+          <div style="display:flex; gap:6px; margin-top:4px;">
+            <select id="driverLbNameSelect" style="flex:1;">
+              <option value="">Select your name...</option>
+            </select>
+            <button type="button" id="driverLbConfirmBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:0 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">Confirm</button>
+          </div>
+        </label>
+      </div>
+      <div id="driverLbCategories"></div>
+      <p class="form-note" id="driverLbEmptyNote" style="display:none; margin:0;">No leaderboard data yet.</p>
+    </div>
+
     <div style="display:flex; flex-direction:column; gap:12px;">
       <button type="button" id="driverGoToInspectionBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Pre-Trip Inspection</div>
@@ -592,6 +612,7 @@
     document.getElementById('driverMenuView').style.display = 'block';
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
+    loadDriverLeaderboard();
   }
 
   function showDriverInspection(){
@@ -742,6 +763,120 @@
   }
   function loadDriverRoster(){ return fetchDriverRosterInto('pti_driverNameSelect'); }
   function loadDriverRosterForNbhd(){ return fetchDriverRosterInto('nbhd_driverNameSelect'); }
+
+  // ---------- Captain Leaderboard (driver portal) ----------
+  // The driver portal has no individual login -- one shared access code for
+  // everyone, and the session token itself is remembered across page loads,
+  // so a shared/handed-off device can land a *different* person straight on
+  // this screen without them typing anything. That means identity can never
+  // be silently trusted from a previous visit: confirmedThisPageLoad resets
+  // on every fresh load and is the only thing the UI gates on. localStorage
+  // still remembers the last name picked on this device, but only to
+  // pre-fill the dropdown as a convenience -- never to skip confirmation.
+  const DRIVER_LAST_NAME_KEY = 'henson_driver_last_name';
+  let driverLbCategories = [];
+  let driverLbConfirmedThisPageLoad = false;
+  let driverLbConfirmedName = '';
+
+  function driverLbEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  async function loadDriverLeaderboard(){
+    await populateDriverLbNameSelect();
+    updateDriverLbWhoAmIUI();
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/leaderboard', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      if(!res.ok) return;
+      const data = await res.json();
+      driverLbCategories = data.categories || [];
+      renderDriverLeaderboard();
+    }catch(err){
+      console.error('Leaderboard load failed:', err);
+    }
+  }
+
+  async function populateDriverLbNameSelect(){
+    const sel = document.getElementById('driverLbNameSelect');
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/roster', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      const names = data.names || [];
+      sel.innerHTML = '<option value="">Select your name...</option>' + names.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
+      // Pre-fill with the last name picked on this device, purely as a
+      // convenience default -- still requires an active tap to confirm.
+      const lastName = localStorage.getItem(DRIVER_LAST_NAME_KEY);
+      if(lastName && names.includes(lastName)) sel.value = lastName;
+    }catch(err){
+      console.error('Leaderboard roster load failed:', err);
+    }
+  }
+
+  function updateDriverLbWhoAmIUI(){
+    const promptEl = document.getElementById('driverLbWhoAmIPrompt');
+    const btnEl = document.getElementById('driverLbWhoAmIBtn');
+    if(driverLbConfirmedThisPageLoad){
+      promptEl.style.display = 'none';
+      btnEl.style.display = 'inline';
+      btnEl.textContent = `You: ${driverLbConfirmedName} (not you?)`;
+    } else {
+      promptEl.style.display = 'block';
+      btnEl.style.display = 'none';
+    }
+  }
+
+  function confirmDriverLbIdentity(name){
+    if(!name) return;
+    driverLbConfirmedThisPageLoad = true;
+    driverLbConfirmedName = name;
+    localStorage.setItem(DRIVER_LAST_NAME_KEY, name); // convenience pre-fill for next time only
+    updateDriverLbWhoAmIUI();
+    renderDriverLeaderboard();
+  }
+
+  document.getElementById('driverLbConfirmBtn').addEventListener('click', ()=>{
+    confirmDriverLbIdentity(document.getElementById('driverLbNameSelect').value);
+  });
+
+  document.getElementById('driverLbWhoAmIBtn').addEventListener('click', ()=>{
+    driverLbConfirmedThisPageLoad = false;
+    document.getElementById('driverLbWhoAmIPrompt').style.display = 'block';
+    document.getElementById('driverLbWhoAmIBtn').style.display = 'none';
+  });
+
+  // Generic renderer -- iterates whatever categories the backend returns, so
+  // adding a new metric later (e.g. door-hanger routes logged) means only a
+  // backend change, not a frontend one.
+  function renderDriverLeaderboard(){
+    const container = document.getElementById('driverLbCategories');
+    const emptyNote = document.getElementById('driverLbEmptyNote');
+    const identity = driverLbConfirmedThisPageLoad ? driverLbConfirmedName : '';
+
+    if(driverLbCategories.length === 0){
+      container.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    container.innerHTML = driverLbCategories.map(cat => {
+      const rows = cat.entries.map((entry, i) => {
+        const isMe = identity && entry.name === identity;
+        return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-radius:6px; ${isMe ? 'background:#e8f5e9; font-weight:700;' : ''} font-size:13px;">
+          <span>${i+1}. ${driverLbEsc(entry.name)}${isMe ? ' (you)' : ''}</span>
+          <span>${entry.value}% <span style="color:var(--muted); font-weight:400; font-size:11.5px;">(${driverLbEsc(entry.detail)})</span></span>
+        </div>`;
+      }).join('');
+      return `<div style="margin-bottom:14px;">
+        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:4px; font-family:'Barlow Condensed',sans-serif;">${driverLbEsc(cat.title)}</div>
+        ${rows}
+      </div>`;
+    }).join('');
+  }
 
   function wireOtherNameToggle(selectId, wrapId, otherInputId){
     document.getElementById(selectId).addEventListener('change', (e)=>{
