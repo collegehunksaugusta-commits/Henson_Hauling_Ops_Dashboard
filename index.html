@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.7/Sortable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <style>
   :root{
@@ -1146,6 +1148,15 @@
 
   <!-- ============ HOME ============ -->
   <div id="home">
+    <div class="panel" id="storageWarningBanner" style="display:none; margin-bottom:20px; border-width:2px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+        <div>
+          <strong id="storageWarningTitle" style="display:block; margin-bottom:2px;"></strong>
+          <span class="form-note" id="storageWarningDetail" style="margin:0;"></span>
+        </div>
+        <button type="button" id="storageWarningLinkBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:8px 14px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:12px; cursor:pointer; white-space:nowrap;">Manage Paperwork Storage</button>
+      </div>
+    </div>
     <div class="panel" id="truckMapPanel" style="margin-bottom:20px;">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
         <h3 style="margin:0;">Truck Locations</h3>
@@ -1767,6 +1778,29 @@
             </tr></thead>
             <tbody id="pu_listRows"></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="panel" id="paperworkArchivePanel">
+        <h3>Archive Old Paperwork</h3>
+        <p class="form-note">Records older than 7 months (Georgia's 6-month minimum retention plus a 1-month safety buffer) can be bundled, downloaded to your computer, and removed from the dashboard to free up storage.</p>
+        <p class="form-note" id="pa_eligibleCount" style="font-weight:600;"></p>
+        <div class="form-actions">
+          <button class="btn-primary" id="pa_prepareBtn" type="button">Prepare Archive Bundle</button>
+          <span class="status-msg" id="pa_status"></span>
+        </div>
+
+        <div id="pa_confirmWrap" style="display:none; margin-top:16px; padding:16px; background:var(--offwhite); border:1px solid var(--line); border-radius:6px;">
+          <p style="margin:0 0 10px; font-weight:600;">Bundle downloaded: <span id="pa_bundleSummary"></span></p>
+          <p class="form-note">Open the downloaded ZIP file and confirm it contains the files before continuing. Removing these from the dashboard cannot be undone.</p>
+          <label style="display:flex; align-items:flex-start; gap:8px; margin:12px 0; font-size:13px;">
+            <input type="checkbox" id="pa_confirmCheckbox" style="margin-top:2px;">
+            <span>I have verified the downloaded file was saved and is accessible on my computer.</span>
+          </label>
+          <div class="form-actions">
+            <button type="button" id="pa_confirmDeleteBtn" disabled style="opacity:.5; background:#b3261e; color:#fff; border:none; padding:10px 18px; border-radius:6px; cursor:not-allowed; font-weight:600; font-size:13px;">Confirm &amp; Remove from Dashboard</button>
+            <button type="button" id="pa_cancelBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel</button>
+          </div>
         </div>
       </div>
     </div>
@@ -4010,6 +4044,107 @@
     });
   }
 
+  // Decoded byte size of a base64 data URI -- data URIs run ~33% larger than
+  // the bytes they represent, so a raw string-length comparison against
+  // file.size would be misleading.
+  function dataUriByteSize(dataUri){
+    const base64 = (dataUri.split(',')[1] || '');
+    const padding = (base64.match(/=+$/) || [''])[0].length;
+    return Math.floor(base64.length * 3 / 4) - padding;
+  }
+
+  function fmtBytes(bytes){
+    if(bytes < 1024) return bytes + ' B';
+    if(bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+  window.fmtBytes = fmtBytes;
+
+  // Rebuilds a PDF page-by-page at document-legible resolution (not
+  // print-fidelity) -- most of the size in a scanned/photographed multi-page
+  // PDF comes from each page being a full camera-resolution photo, which is
+  // far higher than needed to read text. Returns null on any failure so the
+  // caller can fall back to the original file untouched.
+  async function compressPdfFile(file){
+    try{
+      const typedArray = new Uint8Array(await file.arrayBuffer());
+      const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+      const { jsPDF } = window.jspdf;
+      let doc = null;
+      for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+        const page = await pdf.getPage(pageNum);
+        // baseViewport at scale=1 is already in PDF points (the PDF's native unit) --
+        // using it directly for the output page size preserves the original physical
+        // page dimensions exactly, with no unit-conversion ambiguity.
+        const baseViewport = page.getViewport({ scale: 1 });
+        const targetWidth = 1600;
+        const renderScale = Math.min(targetWidth / baseViewport.width, 2); // never upscale beyond 2x native resolution
+        const renderViewport = page.getViewport({ scale: renderScale });
+        const canvas = document.createElement('canvas');
+        canvas.width = renderViewport.width;
+        canvas.height = renderViewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+        const jpegDataUri = canvas.toDataURL('image/jpeg', 0.75);
+
+        // Page format and addImage both use the original point dimensions, so the
+        // physical page size matches the source PDF exactly. The image itself is
+        // higher pixel resolution (renderScale), which is normal -- readers scale
+        // pixel data to fit the point-sized page automatically.
+        if(!doc){
+          doc = new jsPDF({ unit: 'pt', format: [baseViewport.width, baseViewport.height] });
+        } else {
+          doc.addPage([baseViewport.width, baseViewport.height]);
+        }
+        doc.addImage(jpegDataUri, 'JPEG', 0, 0, baseViewport.width, baseViewport.height);
+      }
+      if(!doc) return null;
+      const blob = doc.output('blob');
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result); // clean "data:application/pdf;base64,..." -- no extra params
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    }catch(err){
+      console.error('PDF compression failed:', err);
+      return null;
+    }
+  }
+
+  // Single entry point for compressing an upload before it's stored --
+  // used wherever legibility (not print/visual fidelity) is the goal:
+  // Completed Paperwork Storage, Fleet Maintenance invoices. Never returns
+  // something larger than the original; if compression doesn't actually
+  // help (or the library isn't loaded, or the file type isn't PDF/image),
+  // the original file is used untouched. Returns
+  // {dataUri, wasCompressed, originalSize, finalSize}.
+  async function compressUploadedFile(file){
+    const originalSize = file.size;
+    try{
+      if(file.type === 'application/pdf' && window.pdfjsLib && window.jspdf){
+        const compressedDataUri = await compressPdfFile(file);
+        if(compressedDataUri){
+          const finalSize = dataUriByteSize(compressedDataUri);
+          if(finalSize < originalSize){
+            return { dataUri: compressedDataUri, wasCompressed: true, originalSize, finalSize };
+          }
+        }
+      } else if(file.type.startsWith('image/')){
+        const compressedDataUri = await compressImageForUpload(file, 1600, 0.8);
+        const finalSize = dataUriByteSize(compressedDataUri);
+        if(finalSize < originalSize){
+          return { dataUri: compressedDataUri, wasCompressed: true, originalSize, finalSize };
+        }
+      }
+    }catch(err){
+      console.error('Upload compression failed, using original file:', err);
+    }
+    const dataUri = await readFileAsDataUri(file);
+    return { dataUri, wasCompressed: false, originalSize, finalSize: originalSize };
+  }
+  window.compressUploadedFile = compressUploadedFile;
+
   // ---------- Invoice Extraction (Fleet Maintenance) ----------
   document.getElementById('m_invoice').addEventListener('change', async (e)=>{
     const file = e.target.files[0];
@@ -4084,8 +4219,8 @@
     if(!truckId){ statusEl.textContent = 'Add a truck to the inventory first.'; statusEl.className = 'status-msg err'; return; }
     if(!date){ statusEl.textContent = 'Pick the date of maintenance.'; statusEl.className = 'status-msg err'; return; }
     if(!description){ statusEl.textContent = 'Enter a description of the maintenance.'; statusEl.className = 'status-msg err'; return; }
-    if(invoiceFile && invoiceFile.size > 10 * 1024 * 1024){
-      statusEl.textContent = 'That invoice file is over 10MB \u2014 please use a smaller file or photo.';
+    if(invoiceFile && invoiceFile.size > 30 * 1024 * 1024){
+      statusEl.textContent = 'That invoice file is over 30MB \u2014 please use a smaller file or photo.';
       statusEl.className = 'status-msg err';
       return;
     }
@@ -4101,11 +4236,16 @@
 
     let invoiceOk = true;
     if(invoiceFile){
-      statusEl.textContent = 'Uploading invoice...';
+      statusEl.textContent = 'Compressing and uploading invoice...';
       statusEl.className = 'status-msg';
       try{
-        const dataUri = await readFileAsDataUri(invoiceFile);
-        invoiceOk = await window.dashboardApi.set('fleet-invoice-' + logId, dataUri);
+        const compressed = await compressUploadedFile(invoiceFile);
+        if(compressed.finalSize > 10 * 1024 * 1024){
+          statusEl.textContent = 'That invoice is still over 10MB after compression \u2014 please use a smaller file.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+        invoiceOk = await window.dashboardApi.set('fleet-invoice-' + logId, compressed.dataUri);
       }catch(err){
         console.error('Invoice read/upload failed:', err);
         invoiceOk = false;
@@ -4194,6 +4334,50 @@
       updateFleetTileBadge();
     }catch(err){ console.error('Initial fleet status check failed:', err); }
   })();
+
+  // ---------- Storage Monitoring ----------
+  // Admin-only awareness banner for overall data-store usage. The 256MB
+  // Redis plan fills up fast under heavy Completed Paperwork Storage
+  // volume, so this checks on every load rather than waiting for someone
+  // to notice a slowdown or a failed save.
+  const STORAGE_WARNING_THRESHOLD = 0.70;
+  const STORAGE_CRITICAL_THRESHOLD = 0.90;
+  window.STORAGE_CRITICAL_THRESHOLD = STORAGE_CRITICAL_THRESHOLD;
+
+  async function checkStorageUsage(){
+    if(localStorage.getItem('henson_auth_role') !== 'admin') return;
+    const banner = document.getElementById('storageWarningBanner');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/storage-stats`, { headers: authHeaders() });
+      if(!res.ok) return; // quietly skip -- this is an awareness feature, not critical path
+      const data = await res.json();
+      const pct = data.percentUsed;
+      window.__lastKnownStoragePercent = pct; // cached so the Archive panel can reference it without a redundant fetch
+      if(pct < STORAGE_WARNING_THRESHOLD){
+        banner.style.display = 'none';
+        return;
+      }
+      const pctLabel = (pct * 100).toFixed(0) + '%';
+      const usedLabel = window.fmtBytes(data.usedBytes);
+      const maxLabel = window.fmtBytes(data.maxBytes);
+      const critical = pct >= STORAGE_CRITICAL_THRESHOLD;
+      document.getElementById('storageWarningTitle').textContent = critical
+        ? `\u26a0 Storage critical \u2014 ${pctLabel} used`
+        : `Storage approaching its limit \u2014 ${pctLabel} used`;
+      document.getElementById('storageWarningDetail').textContent = `${usedLabel} of ${maxLabel} used. `
+        + (critical
+          ? 'New uploads may start failing soon. Open Completed Paperwork Storage to see what\u2019s eligible to archive.'
+          : 'Consider reviewing Completed Paperwork Storage for older records that can be archived.');
+      banner.style.borderColor = critical ? '#b3261e' : 'var(--amber)';
+      banner.style.background = critical ? '#fdecea' : '#fdf6e3';
+      banner.style.display = 'block';
+    }catch(err){ console.error('Storage usage check failed:', err); }
+  }
+  checkStorageUsage();
+
+  document.getElementById('storageWarningLinkBtn').addEventListener('click', ()=>{
+    document.getElementById('tile-paperwork').click();
+  });
 
   // ---------- Tip Allocation ----------
   const TIPS_ALLOCATIONS_KEY = 'square-tip-allocations';
@@ -10162,6 +10346,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   function renderPaperworkUploadsList(){
+    renderArchiveEligibleCount();
     const term = (document.getElementById('pu_search').value || '').trim().toLowerCase();
     let filtered = paperworkUploads.filter(u =>
       !term || (u.clientName||'').toLowerCase().includes(term) || (u.jobNumber||'').toLowerCase().includes(term)
@@ -10320,6 +10505,175 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }));
   }
 
+  // ---------- Archive Old Paperwork ----------
+  const PA_RETENTION_MONTHS = 7; // GA's 6-month minimum + 1-month safety buffer
+  let paPendingArchiveSet = null; // frozen set of entries actually bundled, until confirmed or cancelled
+
+  function paCutoffDate(){
+    const d = new Date();
+    d.setMonth(d.getMonth() - PA_RETENTION_MONTHS);
+    return d;
+  }
+
+  function paEligibleEntries(){
+    const cutoff = paCutoffDate();
+    return paperworkUploads.filter(u => u.uploadedAt && new Date(u.uploadedAt) <= cutoff);
+  }
+
+  function renderArchiveEligibleCount(){
+    const el = document.getElementById('pa_eligibleCount');
+    const btn = document.getElementById('pa_prepareBtn');
+    const eligible = paEligibleEntries();
+    if(eligible.length === 0){
+      const isCritical = typeof window.__lastKnownStoragePercent === 'number'
+        && window.STORAGE_CRITICAL_THRESHOLD
+        && window.__lastKnownStoragePercent >= window.STORAGE_CRITICAL_THRESHOLD;
+      if(isCritical){
+        el.innerHTML = paperworkUploads.length === 0
+          ? 'Storage is critical, but there\u2019s no paperwork on file to archive \u2014 the storage plan likely needs to be upgraded.'
+          : `Storage is critical, but nothing is old enough to archive yet (oldest becomes eligible ${PA_RETENTION_MONTHS} months after upload) \u2014 the storage plan likely needs to be upgraded.`;
+        el.style.color = '#b3261e';
+      } else {
+        el.textContent = paperworkUploads.length === 0
+          ? 'No paperwork on file yet.'
+          : `No records are old enough to archive yet (oldest becomes eligible ${PA_RETENTION_MONTHS} months after upload).`;
+        el.style.color = '';
+      }
+      btn.disabled = true;
+      btn.style.opacity = '.5';
+    } else {
+      el.textContent = `${eligible.length} record${eligible.length === 1 ? '' : 's'} eligible for archiving.`;
+      el.style.color = '';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  }
+
+  function paCsvField(v){
+    const s = (v == null ? '' : String(v));
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  document.getElementById('pa_prepareBtn').addEventListener('click', async (e)=>{
+    const statusEl = document.getElementById('pa_status');
+    const btn = e.currentTarget;
+    if(btn.disabled) return;
+    if(!window.JSZip){
+      statusEl.textContent = 'Archive bundling isn\u2019t available right now \u2014 check your connection and try again.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const eligible = paEligibleEntries(); // frozen the moment the bundle is built
+    if(eligible.length === 0) return;
+
+    const origText = btn.textContent;
+    btn.textContent = 'Preparing bundle\u2026';
+    btn.disabled = true;
+    statusEl.textContent = `Fetching ${eligible.length} file${eligible.length === 1 ? '' : 's'}\u2026`;
+    statusEl.className = 'status-msg';
+
+    try{
+      const zip = new JSZip();
+      const usedNames = new Set();
+      let manifest = 'Job Number,Client Name,File Name,Uploaded Date\n';
+      let fetchFailures = 0;
+
+      for(const entry of eligible){
+        let dataUri = null;
+        try{ dataUri = await window.dashboardApi.get('paperwork-upload-' + entry.id, null); }
+        catch(err){ console.error('Archive fetch failed for', entry.id, err); }
+        if(!dataUri){ fetchFailures++; continue; }
+
+        let zipName = `${entry.jobNumber || 'unknown'}_${entry.fileName || (entry.id + '.pdf')}`;
+        let suffix = 1;
+        while(usedNames.has(zipName)){ zipName = `${entry.jobNumber || 'unknown'}_${suffix}_${entry.fileName || (entry.id + '.pdf')}`; suffix++; }
+        usedNames.add(zipName);
+
+        const base64 = (dataUri.split(',')[1] || '');
+        zip.file(zipName, base64, { base64: true });
+        manifest += [entry.jobNumber, entry.clientName, entry.fileName, entry.uploadedAt ? entry.uploadedAt.slice(0,10) : '']
+          .map(paCsvField).join(',') + '\n';
+      }
+
+      if(fetchFailures === eligible.length){
+        throw new Error('Could not retrieve any of the files \u2014 check your connection and try again.');
+      }
+
+      zip.file('manifest.csv', manifest);
+      statusEl.textContent = 'Building download\u2026';
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      const dateLabel = new Date().toISOString().slice(0,10);
+      a.href = url;
+      a.download = `paperwork-archive-${dateLabel}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+      paPendingArchiveSet = eligible;
+      const includedCount = eligible.length - fetchFailures;
+      document.getElementById('pa_bundleSummary').textContent =
+        `${includedCount} file${includedCount === 1 ? '' : 's'}${fetchFailures > 0 ? ` (${fetchFailures} could not be retrieved and were skipped)` : ''}, downloaded as paperwork-archive-${dateLabel}.zip`;
+      document.getElementById('pa_confirmWrap').style.display = 'block';
+      document.getElementById('pa_confirmCheckbox').checked = false;
+      const confirmBtn = document.getElementById('pa_confirmDeleteBtn');
+      confirmBtn.disabled = true;
+      confirmBtn.style.opacity = '.5';
+      confirmBtn.style.cursor = 'not-allowed';
+      statusEl.textContent = '';
+    }catch(err){
+      console.error('Archive bundle failed:', err);
+      statusEl.textContent = 'Could not prepare the archive: ' + (err && err.message ? err.message : String(err));
+      statusEl.className = 'status-msg err';
+    } finally {
+      btn.textContent = origText;
+      renderArchiveEligibleCount();
+    }
+  });
+
+  document.getElementById('pa_confirmCheckbox').addEventListener('change', (e)=>{
+    const confirmBtn = document.getElementById('pa_confirmDeleteBtn');
+    confirmBtn.disabled = !e.target.checked;
+    confirmBtn.style.opacity = e.target.checked ? '1' : '.5';
+    confirmBtn.style.cursor = e.target.checked ? 'pointer' : 'not-allowed';
+  });
+
+  document.getElementById('pa_confirmDeleteBtn').addEventListener('click', async (e)=>{
+    if(e.currentTarget.disabled || !paPendingArchiveSet) return;
+    const statusEl = document.getElementById('pa_status');
+    e.currentTarget.disabled = true;
+    statusEl.textContent = 'Removing archived records\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const idsToRemove = new Set(paPendingArchiveSet.map(u => u.id));
+      for(const id of idsToRemove){
+        try{ await window.dashboardApi.delete('paperwork-upload-' + id); }
+        catch(err){ console.error('Archive blob delete failed for', id, err); }
+      }
+      paperworkUploads = paperworkUploads.filter(u => !idsToRemove.has(u.id));
+      await savePaperworkUploadsList();
+      statusEl.textContent = `${idsToRemove.size} record${idsToRemove.size === 1 ? '' : 's'} archived and removed from the dashboard.`;
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Archive removal failed:', err);
+      statusEl.textContent = 'Some records may not have been removed \u2014 check your connection and try again.';
+      statusEl.className = 'status-msg err';
+    } finally {
+      paPendingArchiveSet = null;
+      document.getElementById('pa_confirmWrap').style.display = 'none';
+      renderPaperworkUploadsList();
+    }
+  });
+
+  document.getElementById('pa_cancelBtn').addEventListener('click', ()=>{
+    paPendingArchiveSet = null;
+    document.getElementById('pa_confirmWrap').style.display = 'none';
+    document.getElementById('pa_status').textContent = '';
+  });
+
   document.querySelectorAll('.pu-sort-header').forEach(th => th.addEventListener('click', ()=>{
     const field = th.dataset.field;
     if(puSort.field === field){ puSort.dir = puSort.dir === 'asc' ? 'desc' : 'asc'; }
@@ -10384,22 +10738,30 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
       return;
     }
-    if(file.size > 10 * 1024 * 1024){
-      statusEl.textContent = 'That file is over 10MB \u2014 please use a smaller file.';
+    if(file.size > 30 * 1024 * 1024){
+      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
       statusEl.className = 'status-msg err';
       return;
     }
-    statusEl.textContent = 'Uploading...';
+    statusEl.textContent = 'Compressing and uploading...';
     statusEl.className = 'status-msg';
     const uploadId = 'upload_' + Date.now() + '_' + Math.floor(Math.random()*1000);
     try{
-      const dataUri = await puReadFileAsDataUri(file);
-      const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, dataUri);
+      const compressed = await window.compressUploadedFile(file);
+      if(compressed.finalSize > 10 * 1024 * 1024){
+        statusEl.textContent = 'That file is still over 10MB after compression \u2014 please use a smaller file.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, compressed.dataUri);
       if(!blobOk) throw new Error('Blob save failed');
       paperworkUploads.push({ id: uploadId, clientName, jobNumber, clientEmail, fileName: file.name, uploadedAt: new Date().toISOString() });
       const listOk = await savePaperworkUploadsList();
       if(listOk){
-        statusEl.textContent = `Uploaded "${file.name}" for ${clientName}.`;
+        const savedNote = compressed.wasCompressed
+          ? ` (compressed ${window.fmtBytes(compressed.originalSize)} \u2192 ${window.fmtBytes(compressed.finalSize)})`
+          : '';
+        statusEl.textContent = `Uploaded "${file.name}" for ${clientName}.${savedNote}`;
         statusEl.className = 'status-msg ok';
         document.getElementById('pu_clientName').value = '';
         document.getElementById('pu_jobNumber').value = '';
