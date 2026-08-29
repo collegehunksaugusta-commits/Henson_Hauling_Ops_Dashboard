@@ -1209,6 +1209,11 @@
         <h3>Job Paperwork</h3>
         <p>Pre-filled job paperwork &mdash; Bill of Lading, Liability Waiver, Declaration of Value, and more.</p>
       </div>
+      <div class="tile" id="tile-captain" tabindex="0" role="button" aria-label="Open Captain Metrics">
+        <span class="icon">&#9875;</span>
+        <h3>Captain Metrics</h3>
+        <p>Pre-trip inspection compliance and completed paperwork quality, by Captain.</p>
+      </div>
       <div class="tile" id="tile-fleet" tabindex="0" role="button" aria-label="Open Fleet Maintenance">
         <span class="badge" id="fleetTileBadge" style="display:none;">Service Due</span>
         <span class="icon">🚚</span>
@@ -1710,6 +1715,13 @@
             </select>
           </label>
           <label>Hunkware Job # <input type="text" id="pw_jobNumber"></label>
+          <label>Captain
+            <select id="pw_captainSelect">
+              <option value="">Select Captain...</option>
+              <option value="__other__">Not on the list (type name)</option>
+            </select>
+          </label>
+          <label id="pw_captainOtherWrap" style="display:none;">Captain Name <input type="text" id="pw_captainOther" placeholder="First and last name"></label>
           <label>Client Name <input type="text" id="pw_clientName"></label>
           <label>Client Phone # <input type="text" id="pw_clientPhone"></label>
           <label>Client Email Address <input type="email" id="pw_clientEmail"></label>
@@ -1774,6 +1786,7 @@
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
               <th class="pu-sort-header" data-field="uploadedAt" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Uploaded <span class="pu-sort-arrow" data-field="uploadedAt"></span></th>
               <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Satisfied?</th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Estimated share of signature/initial fields that appear filled in">Completeness</th>
               <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="pu_listRows"></tbody>
@@ -1822,6 +1835,29 @@
           <button id="sign_nextBtn" type="button" class="btn-primary" style="padding:12px 24px; font-size:14px;">Next &rarr;</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ============ CAPTAIN METRICS DETAIL ============ -->
+  <div id="captainDetail" style="display:none;">
+    <button class="backlink" id="captainBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Captain Metrics</h2>
+    </div>
+    <p class="form-note">Requires a Captain to be selected on Job Data Entry for each job -- days and jobs without a Captain assigned aren't reflected here.</p>
+
+    <div class="panel" id="cmPtiPanel">
+      <h3>Pre-Trip Inspection Compliance</h3>
+      <p class="form-note">Any Captain with at least one job on a given day must log one pre-trip inspection that day, regardless of how many jobs or which truck.</p>
+      <div id="cm_ptiDayList"></div>
+      <p class="form-note" id="cm_ptiEmptyNote" style="display:none;">No Captain-assigned jobs found yet.</p>
+    </div>
+
+    <div class="panel" id="cmCompletenessPanel">
+      <h3>Completed Paperwork Quality</h3>
+      <p class="form-note">Estimated from uploaded paperwork -- Claude scans each upload for blank signature, initial, and written-response fields and estimates what share appear filled in. This is an estimate for spotting patterns, not a precise audit.</p>
+      <div id="cm_completenessRows"></div>
+      <p class="form-note" id="cm_completenessEmptyNote" style="display:none;">No completeness data yet -- this fills in as paperwork gets uploaded.</p>
     </div>
   </div>
 
@@ -2826,6 +2862,7 @@
 (function(){
   // ---------- Shared backend storage (replaces localStorage for cross-device data) ----------
   const API_BASE = 'https://henson-dashboard-backend.onrender.com';
+  window.API_BASE = API_BASE;
 
   function authToken(){ return localStorage.getItem('henson_auth_token'); }
   function authHeaders(extra){
@@ -2850,6 +2887,8 @@
     }
     return false;
   }
+  window.authHeaders = authHeaders;
+  window.handleAuthFailure = handleAuthFailure;
 
   window.dashboardApi = {
     async get(key, fallback){
@@ -2948,6 +2987,7 @@
   const mailListDetail = document.getElementById('mailListDetail');
   const mailRouteDetail = document.getElementById('mailRouteDetail');
   const tipsDetail = document.getElementById('tipsDetail');
+  const captainDetail = document.getElementById('captainDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -2961,6 +3001,7 @@
     mailListDetail.style.display = view === 'maillist' ? 'block' : 'none';
     mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
     tipsDetail.style.display = view === 'tips' ? 'block' : 'none';
+    captainDetail.style.display = view === 'captain' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -2991,6 +3032,9 @@
     if(view === 'tips'){
       loadTipsData();
       showTipsSection(tipsCurrentSection);
+    }
+    if(view === 'captain'){
+      window.loadCaptainMetricsData();
     }
   }
 
@@ -3043,6 +3087,10 @@
   document.getElementById('tile-tips').addEventListener('click', ()=> navigateTo('tips'));
   document.getElementById('tile-tips').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('tips'); }});
   document.getElementById('tipsBackBtn').addEventListener('click', ()=> history.back());
+
+  document.getElementById('tile-captain').addEventListener('click', ()=> navigateTo('captain'));
+  document.getElementById('tile-captain').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('captain'); }});
+  document.getElementById('captainBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
 
@@ -3124,6 +3172,7 @@
     const d = new Date(s+'T00:00:00');
     return d.toLocaleDateString(undefined,{month:'short', day:'numeric'});
   }
+  window.fmtDate = fmtDate;
 
   function laborCost(w){ return (w.fieldGross - w.tips) + w.erTax; }
   function laborPct(w){ return w.revenue>0 ? laborCost(w)/w.revenue : 0; }
@@ -4065,6 +4114,29 @@
   // PDF comes from each page being a full camera-resolution photo, which is
   // far higher than needed to read text. Returns null on any failure so the
   // caller can fall back to the original file untouched.
+  // Renders every page of a PDF to a JPEG data URI, for callers that need to
+  // actually see each page's content (unlike compressPdfFile, which only
+  // exposes the rebuilt PDF, not the individual page images).
+  async function renderAllPdfPagesToImages(file, targetWidth){
+    targetWidth = targetWidth || 1400;
+    const typedArray = new Uint8Array(await file.arrayBuffer());
+    const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+    const images = [];
+    for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+      const page = await pdf.getPage(pageNum);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = Math.min(targetWidth / baseViewport.width, 2);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      images.push(canvas.toDataURL('image/jpeg', 0.85));
+    }
+    return images;
+  }
+
   async function compressPdfFile(file){
     try{
       const typedArray = new Uint8Array(await file.arrayBuffer());
@@ -4144,6 +4216,21 @@
     return { dataUri, wasCompressed: false, originalSize, finalSize: originalSize };
   }
   window.compressUploadedFile = compressUploadedFile;
+
+  // For Captain Metrics' completeness assessment -- unlike compressUploadedFile
+  // (which optimizes for smallest storage size), this renders at a resolution
+  // good enough to actually spot handwriting, and returns every page as a
+  // separate image rather than one rebuilt file.
+  async function getImagesForAssessment(file){
+    if(file.type === 'application/pdf' && window.pdfjsLib){
+      return await renderAllPdfPagesToImages(file, 1400);
+    }
+    if(file.type.startsWith('image/')){
+      return [await compressImageForUpload(file, 1600, 0.85)];
+    }
+    return [];
+  }
+  window.getImagesForAssessment = getImagesForAssessment;
 
   // ---------- Invoice Extraction (Fleet Maintenance) ----------
   document.getElementById('m_invoice').addEventListener('change', async (e)=>{
@@ -4938,6 +5025,7 @@
       return [];
     }
   }
+  window.getCurrentEmployeeRoster = getCurrentEmployeeRoster;
 
   function setAttManualMode(isManual){
     const sel = document.getElementById('att_employee');
@@ -6101,7 +6189,14 @@
       const order = data.order || [];
       if(order.length === 0) return; // nothing saved yet -- keep the default markup order
       const container = document.getElementById('tilesContainer');
-      order.forEach(id => {
+      // Tiles from the saved order move into that sequence first. Any tile that
+      // exists in the DOM but wasn't part of the saved order (e.g. a newly added
+      // tile, saved before it existed) is appended after them, in its original
+      // document position -- never left stranded at the front as a side effect
+      // of every known tile being pulled out from around it.
+      const allTileIds = Array.from(container.querySelectorAll('.tile')).map(t => t.id);
+      const newTileIds = allTileIds.filter(id => !order.includes(id));
+      [...order, ...newTileIds].forEach(id => {
         const el = document.getElementById(id);
         if(el) container.appendChild(el); // moves the existing node into sequence rather than duplicating it
       });
@@ -9930,6 +10025,39 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('pw_jobType').addEventListener('change', updatePWJobTypeUI);
   updatePWJobTypeUI();
 
+  // ---------- Captain field (Job Data Entry) ----------
+  // Same roster source as Pre-Trip Inspection's driver dropdown and Tip
+  // Allocation's employee list, so names match exactly for Captain Metrics'
+  // day-by-day comparison later -- no free-text drift between "Captain
+  // assigned" and "pre-trip driver name".
+  async function loadCaptainRoster(){
+    const sel = document.getElementById('pw_captainSelect');
+    try{
+      const names = await window.getCurrentEmployeeRoster();
+      const otherOption = '<option value="__other__">Not on the list (type name)</option>';
+      sel.innerHTML = '<option value="">Select Captain...</option>'
+        + names.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('')
+        + otherOption;
+    }catch(err){
+      console.error('Captain roster load failed:', err);
+      sel.innerHTML = '<option value="">Select Captain...</option><option value="__other__">Not on the list (type name)</option>';
+    }
+  }
+  loadCaptainRoster();
+
+  document.getElementById('pw_captainSelect').addEventListener('change', (e)=>{
+    const otherWrap = document.getElementById('pw_captainOtherWrap');
+    otherWrap.style.display = e.target.value === '__other__' ? 'block' : 'none';
+    if(e.target.value !== '__other__') document.getElementById('pw_captainOther').value = '';
+  });
+
+  function pwCaptainName(){
+    const sel = document.getElementById('pw_captainSelect');
+    return sel.value === '__other__'
+      ? document.getElementById('pw_captainOther').value.trim()
+      : sel.value.trim();
+  }
+
   document.getElementById('pw_printBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pw_status');
     archiveJobData();
@@ -9987,6 +10115,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const fieldIds = ['pw_jobNumber','pw_clientName','pw_clientPhone','pw_clientEmail','pw_originAddress','pw_destAddress',
       'pw_stop1','pw_stop2','pw_stop3','pw_estimateSummary','pw_estDate','pw_packingDate','pw_loadingDate','pw_deliveryDate','pw_unpackingDate','pw_otherServiceDate'];
     fieldIds.forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('pw_captainSelect').value = '';
+    document.getElementById('pw_captainOther').value = '';
+    document.getElementById('pw_captainOtherWrap').style.display = 'none';
     document.getElementById('pw_jobType').value = 'move';
     updatePWJobTypeUI();
     statusEl.textContent = 'All fields cleared.';
@@ -10345,6 +10476,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     catch(err){ console.error('Paperwork uploads save failed:', err); return false; }
   }
 
+  function puCompletenessCell(u){
+    if(u.completenessAssessing){
+      return '<span class="form-note" style="margin:0;">Assessing\u2026</span>';
+    }
+    if(typeof u.completenessPercent !== 'number'){
+      return '<span class="form-note" style="margin:0;">\u2014</span>';
+    }
+    const pct = Math.round(u.completenessPercent);
+    let color;
+    if(pct >= 90) color = '#00612C';
+    else if(pct >= 70) color = '#8a6d00';
+    else color = '#b3261e';
+    const lowConfidenceNote = u.completenessConfident === false ? ' <span class="form-note" style="margin:0;">(low confidence)</span>' : '';
+    return `<span style="font-weight:600; color:${color};">${pct}%</span>${lowConfidenceNote}`;
+  }
+
   function renderPaperworkUploadsList(){
     renderArchiveEligibleCount();
     const term = (document.getElementById('pu_search').value || '').trim().toLowerCase();
@@ -10365,7 +10512,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     const tbody = document.getElementById('pu_listRows');
     if(filtered.length === 0){
-      tbody.innerHTML = `<tr><td colspan="6" style="padding:10px 4px; color:var(--muted);">${paperworkUploads.length === 0 ? 'No paperwork uploaded yet.' : 'No matches.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:10px 4px; color:var(--muted);">${paperworkUploads.length === 0 ? 'No paperwork uploaded yet.' : 'No matches.'}</td></tr>`;
       return;
     }
     tbody.innerHTML = filtered.map(u => `
@@ -10381,6 +10528,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <button type="button" class="pu-face" data-id="${u.id}" data-value="sad" title="Not satisfied" style="background:#fff; border:2px solid ${u.satisfaction === 'sad' ? '#b3261e' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
             <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#b3261e"/><line x1="8" y1="10" x2="8" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="10" x2="16" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M7 17 Q12 12.5 17 17" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
           </button>
+        </td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap;" title="${(u.incompleteFields||[]).map(esc).join('; ')}">
+          ${puCompletenessCell(u)}
         </td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
@@ -10687,9 +10837,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // The Job Data Entry form gets cleared between jobs, often well before the completed
   // paperwork is scanned and uploaded. This keeps a lightweight, invisible record of each
   // job's contact info -- keyed by Job Number -- for 3 months, so that email address is
-  // still available whenever the upload actually happens.
+  // still available whenever the upload actually happens. Also the source of truth for
+  // Captain Metrics: which Captain was assigned to a job, and on what single day.
   const JOB_ARCHIVE_KEY = 'paperwork-job-archive';
   const JOB_ARCHIVE_RETENTION_DAYS = 90;
+
+  // A job can have several date fields (packing/loading/delivery/unpacking/other-service).
+  // Captain Metrics tracks one assignment-day per job, not one per date field -- Loading
+  // Date is used first since that's the day the crew is physically working with the truck,
+  // falling back to the next-most-relevant filled-in date if Loading Date is blank.
+  function pwAssignmentDate(){
+    const priority = ['pw_loadingDate', 'pw_otherServiceDate', 'pw_deliveryDate', 'pw_packingDate', 'pw_unpackingDate', 'pw_estDate'];
+    for(const id of priority){
+      const v = pwVal(id);
+      if(v) return v;
+    }
+    return '';
+  }
 
   async function archiveJobData(){
     const jobNumber = pwVal('pw_jobNumber');
@@ -10697,11 +10861,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const clientName = pwVal('pw_clientName');
     const clientEmail = pwVal('pw_clientEmail');
     const clientPhone = pwVal('pw_clientPhone');
+    const captainName = pwCaptainName();
+    const assignmentDate = pwAssignmentDate();
     try{
       let archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
       const cutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
       archive = archive.filter(j => j.savedAt >= cutoff && j.jobNumber !== jobNumber);
-      archive.push({ jobNumber, clientName, clientEmail, clientPhone, savedAt: new Date().toISOString() });
+      archive.push({ jobNumber, clientName, clientEmail, clientPhone, captainName, assignmentDate, savedAt: new Date().toISOString() });
       await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
     }catch(err){ console.error('Job archive save failed:', err); }
   }
@@ -10716,6 +10882,148 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Job archive lookup failed:', err); return null; }
   }
 
+  // ---------- Captain Metrics ----------
+  function cmEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  async function loadCaptainMetricsData(){
+    let archive = [];
+    try{
+      const [archiveResult, ptiRecords] = await Promise.all([
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.dashboardApi.get('compliance-pretrip-inspections', [])
+      ]);
+      archive = archiveResult || [];
+      renderCaptainPtiCompliance(archive, ptiRecords || []);
+    }catch(err){
+      console.error('Captain Metrics load failed:', err);
+    }
+    try{
+      const uploads = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []);
+      renderCaptainCompleteness(archive, uploads || []);
+    }catch(err){
+      console.error('Captain Metrics completeness load failed:', err);
+    }
+  }
+  window.loadCaptainMetricsData = loadCaptainMetricsData;
+
+  function renderCaptainPtiCompliance(archive, ptiRecords){
+    const listEl = document.getElementById('cm_ptiDayList');
+    const emptyNote = document.getElementById('cm_ptiEmptyNote');
+
+    // Only jobs with both a Captain and an assignment date matter here, and only
+    // days strictly before today -- today isn't finished yet, so marking anyone
+    // "incomplete" while the day is still in progress would be misleading.
+    const todayStr = new Date().toISOString().slice(0,10);
+    const relevant = archive.filter(j => j.captainName && j.assignmentDate && j.assignmentDate < todayStr);
+
+    if(relevant.length === 0){
+      listEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const byDay = {};
+    relevant.forEach(j => {
+      if(!byDay[j.assignmentDate]) byDay[j.assignmentDate] = new Set();
+      byDay[j.assignmentDate].add(j.captainName);
+    });
+
+    const days = Object.keys(byDay).sort((a,b) => b.localeCompare(a));
+
+    let html = '';
+    days.forEach(day => {
+      const captains = [...byDay[day]].sort();
+      let completeCount = 0;
+      const rows = captains.map(captain => {
+        const hasInspection = ptiRecords.some(p => p.driverName === captain && p.date === day);
+        if(hasInspection) completeCount++;
+        return `<tr>
+          <td>${cmEsc(captain)}</td>
+          <td style="text-align:right;">
+            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${hasInspection ? 'background:#e8f5e9; color:#00612C;' : 'background:#fdecea; color:#b3261e;'}">
+              ${hasInspection ? 'Complete' : 'Incomplete'}
+            </span>
+          </td>
+        </tr>`;
+      }).join('');
+
+      html += `
+      <div style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong>${window.fmtDate(day)}</strong>
+          <span class="form-note" style="margin:0;">${completeCount} of ${captains.length} complete</span>
+        </div>
+        <table>
+          <thead><tr><th>Captain</th><th style="text-align:right;">Pre-Trip Status</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    });
+
+    listEl.innerHTML = html;
+  }
+
+  function renderCaptainCompleteness(archive, uploads){
+    const rowsEl = document.getElementById('cm_completenessRows');
+    const emptyNote = document.getElementById('cm_completenessEmptyNote');
+
+    // Completed Paperwork Storage tracks jobNumber, not Captain directly --
+    // cross-reference through the same job archive Metric 1 uses.
+    const captainByJob = {};
+    archive.forEach(j => { if(j.jobNumber && j.captainName) captainByJob[j.jobNumber] = j.captainName; });
+
+    const assessed = uploads.filter(u => typeof u.completenessPercent === 'number');
+    if(assessed.length === 0){
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const byCaptain = {};
+    assessed.forEach(u => {
+      const captain = captainByJob[u.jobNumber] || 'Unknown (no Captain on file for this job)';
+      if(!byCaptain[captain]) byCaptain[captain] = [];
+      byCaptain[captain].push(u);
+    });
+
+    const captains = Object.keys(byCaptain).sort((a,b) => {
+      const avgA = byCaptain[a].reduce((s,u) => s+u.completenessPercent, 0) / byCaptain[a].length;
+      const avgB = byCaptain[b].reduce((s,u) => s+u.completenessPercent, 0) / byCaptain[b].length;
+      return avgA - avgB; // lowest average first, so gaps surface at the top
+    });
+
+    let html = '<table><thead><tr><th>Captain</th><th style="text-align:right;">Jobs Assessed</th><th style="text-align:right;">Avg. Completeness</th></tr></thead><tbody>';
+    captains.forEach(captain => {
+      const jobs = byCaptain[captain];
+      const avg = jobs.reduce((s,u) => s+u.completenessPercent, 0) / jobs.length;
+      const pct = Math.round(avg);
+      const color = pct >= 90 ? '#00612C' : (pct >= 70 ? '#8a6d00' : '#b3261e');
+      html += `<tr><td>${cmEsc(captain)}</td><td style="text-align:right;">${jobs.length}</td><td style="text-align:right; font-weight:600; color:${color};">${pct}%</td></tr>`;
+    });
+    html += '</tbody></table>';
+
+    const flagged = assessed.filter(u => u.completenessPercent < 90 && (u.incompleteFields || []).length > 0)
+      .sort((a,b) => a.completenessPercent - b.completenessPercent);
+    if(flagged.length > 0){
+      html += '<h4 style="margin:18px 0 8px; font-family:\'Barlow Condensed\',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:13px; color:var(--muted);">Jobs to Follow Up On</h4>';
+      html += flagged.map(u => {
+        const captain = captainByJob[u.jobNumber] || 'Unknown';
+        return `<div style="border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-bottom:8px; font-size:12.5px;">
+          <strong>${cmEsc(u.clientName)}</strong> (Job ${cmEsc(u.jobNumber)}, Captain: ${cmEsc(captain)}) \u2014 ${Math.round(u.completenessPercent)}% complete
+          <div class="form-note" style="margin:4px 0 0;">Missing: ${(u.incompleteFields || []).map(cmEsc).join('; ')}</div>
+        </div>`;
+      }).join('');
+    }
+
+    rowsEl.innerHTML = html;
+  }
+
   document.getElementById('pu_jobNumber').addEventListener('blur', async ()=>{
     const jobNumber = document.getElementById('pu_jobNumber').value.trim();
     if(!jobNumber) return;
@@ -10727,6 +11035,47 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
     }
   });
+
+  async function assessPaperworkCompleteness(uploadRecord, file){
+    const markAssessing = (val) => {
+      const idx = paperworkUploads.findIndex(u => u.id === uploadRecord.id);
+      if(idx === -1) return false; // record was deleted before/during assessment
+      if(val) paperworkUploads[idx].completenessAssessing = true;
+      else delete paperworkUploads[idx].completenessAssessing;
+      renderPaperworkUploadsList();
+      return true;
+    };
+
+    if(!markAssessing(true)) return;
+
+    try{
+      const images = await window.getImagesForAssessment(file);
+      if(images.length === 0){ markAssessing(false); return; }
+
+      const res = await fetch(`${window.API_BASE}/api/admin/assess-completeness`, {
+        method: 'POST',
+        headers: window.authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ images })
+      });
+      if(window.handleAuthFailure(res)) return;
+      const data = await res.json();
+
+      const idx = paperworkUploads.findIndex(u => u.id === uploadRecord.id);
+      if(idx === -1) return; // deleted while the assessment was running
+      delete paperworkUploads[idx].completenessAssessing;
+
+      if(res.ok && typeof data.totalFieldsFound === 'number' && typeof data.fieldsCompleted === 'number' && data.totalFieldsFound > 0){
+        paperworkUploads[idx].completenessPercent = (data.fieldsCompleted / data.totalFieldsFound) * 100;
+        paperworkUploads[idx].completenessConfident = !!data.confident;
+        paperworkUploads[idx].incompleteFields = data.incompleteFields || [];
+        await savePaperworkUploadsList();
+      }
+      renderPaperworkUploadsList();
+    }catch(err){
+      console.error('Completeness assessment failed:', err);
+      markAssessing(false);
+    }
+  }
 
   async function handlePaperworkFileUpload(file){
     const statusEl = document.getElementById('pu_status');
@@ -10755,7 +11104,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, compressed.dataUri);
       if(!blobOk) throw new Error('Blob save failed');
-      paperworkUploads.push({ id: uploadId, clientName, jobNumber, clientEmail, fileName: file.name, uploadedAt: new Date().toISOString() });
+      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, fileName: file.name, uploadedAt: new Date().toISOString() };
+      paperworkUploads.push(uploadRecord);
       const listOk = await savePaperworkUploadsList();
       if(listOk){
         const savedNote = compressed.wasCompressed
@@ -10766,6 +11116,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         document.getElementById('pu_clientName').value = '';
         document.getElementById('pu_jobNumber').value = '';
         document.getElementById('pu_clientEmail').value = '';
+
+        // Completeness assessment is a secondary, best-effort metric -- runs
+        // after the upload has already succeeded, and never blocks or
+        // undoes it if the assessment itself fails.
+        assessPaperworkCompleteness(uploadRecord, file);
       } else {
         statusEl.textContent = 'File uploaded, but the list failed to save \u2014 check your connection.';
         statusEl.className = 'status-msg err';
