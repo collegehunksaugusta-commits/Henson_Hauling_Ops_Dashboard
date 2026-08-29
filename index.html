@@ -1326,6 +1326,23 @@
         </div>
         <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:4px; padding:14px 16px; margin:16px 0;">
           <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+            Or paste/upload a HunkWare revenue screenshot (fills Revenue above)
+          </label>
+          <div id="revenue_pasteZone" tabindex="0" style="border:1px dashed var(--line); border-radius:4px; padding:12px; text-align:center; cursor:text; background:#fff; outline:none; margin-top:6px;">
+            <p style="margin:0; color:var(--muted); font-size:12.5px;">Click here, then paste (Ctrl/Cmd+V), or <button type="button" id="revenue_chooseFileBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12.5px;">choose a file</button></p>
+            <input type="file" id="revenue_fileInput" accept=".jpg,.jpeg,.png" style="display:none;">
+          </div>
+          <div id="revenue_thumbWrap" style="margin-top:8px; display:none;">
+            <img id="revenue_thumb" style="max-height:80px; border-radius:4px; border:1px solid var(--line);">
+            <button type="button" id="revenue_clearBtn" style="margin-left:8px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:3px; cursor:pointer;">Clear</button>
+          </div>
+          <div class="form-actions" style="margin-top:10px;">
+            <button class="btn-primary" id="revenue_extractBtn" type="button" disabled style="opacity:.5;">Extract Revenue</button>
+            <span class="status-msg" id="revenue_extractStatus"></span>
+          </div>
+        </div>
+        <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:4px; padding:14px 16px; margin:16px 0;">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
             Upload ADP Payroll Detail (.xlsx) (auto-fills wages/taxes/OT below)
             <input type="file" id="payrollXlsxUpload" accept=".xlsx" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
           </label>
@@ -3505,6 +3522,110 @@
     }
   });
 
+  // ---------- Revenue Screenshot Extraction ----------
+  let revenueImageDataUri = null;
+
+  function revenueSetImage(dataUri){
+    revenueImageDataUri = dataUri;
+    document.getElementById('revenue_thumb').src = dataUri;
+    document.getElementById('revenue_thumbWrap').style.display = 'block';
+    const btn = document.getElementById('revenue_extractBtn');
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    document.getElementById('revenue_extractStatus').textContent = '';
+  }
+
+  function revenueClearImage(){
+    revenueImageDataUri = null;
+    document.getElementById('revenue_thumbWrap').style.display = 'none';
+    document.getElementById('revenue_thumb').src = '';
+    const btn = document.getElementById('revenue_extractBtn');
+    btn.disabled = true;
+    btn.style.opacity = '.5';
+    document.getElementById('revenue_extractStatus').textContent = '';
+  }
+
+  const revenuePasteZone = document.getElementById('revenue_pasteZone');
+  revenuePasteZone.addEventListener('click', ()=> revenuePasteZone.focus());
+  revenuePasteZone.addEventListener('focus', ()=>{ revenuePasteZone.style.borderColor = 'var(--brand-orange)'; });
+  revenuePasteZone.addEventListener('blur', ()=>{ revenuePasteZone.style.borderColor = 'var(--line)'; });
+  revenuePasteZone.addEventListener('paste', async (e)=>{
+    e.preventDefault();
+    const statusEl = document.getElementById('revenue_extractStatus');
+    const item = Array.from(e.clipboardData ? e.clipboardData.items : []).find(i => i.type && i.type.startsWith('image/'));
+    if(!item){
+      statusEl.textContent = 'That paste didn\u2019t contain an image \u2014 take a screenshot first, then paste.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const blob = item.getAsFile();
+    if(!blob) return;
+    try{
+      const compressed = await compressImageForUpload(blob, 1600, 0.85);
+      revenueSetImage(compressed);
+    }catch(err){
+      statusEl.textContent = 'Could not read that image.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('revenue_chooseFileBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('revenue_fileInput').click();
+  });
+  document.getElementById('revenue_fileInput').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+      const compressed = await compressImageForUpload(file, 1600, 0.85);
+      revenueSetImage(compressed);
+    }catch(err){
+      document.getElementById('revenue_extractStatus').textContent = 'Could not read that image.';
+      document.getElementById('revenue_extractStatus').className = 'status-msg err';
+    }
+    e.target.value = '';
+  });
+
+  document.getElementById('revenue_clearBtn').addEventListener('click', revenueClearImage);
+
+  document.getElementById('revenue_extractBtn').addEventListener('click', async (e)=>{
+    const statusEl = document.getElementById('revenue_extractStatus');
+    if(!revenueImageDataUri) return;
+    const origText = e.target.textContent;
+    e.target.textContent = 'Reading\u2026';
+    e.target.disabled = true;
+    statusEl.textContent = '';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/extract-revenue`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ images: [revenueImageDataUri] })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not extract revenue from that image.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      document.getElementById('f_revenue').value = Number(data.totalRevenue || 0).toFixed(2);
+      if(data.confident){
+        statusEl.textContent = `Filled in ${money(data.totalRevenue)}${data.periodLabel ? ' for ' + data.periodLabel : ''} \u2014 double-check it matches the week you're entering.`;
+        statusEl.className = 'status-msg ok';
+      } else {
+        statusEl.textContent = `Filled in ${money(data.totalRevenue)}, but this screenshot was unclear \u2014 please verify this number carefully before saving.`;
+        statusEl.className = 'status-msg err';
+      }
+    }catch(err){
+      console.error('Revenue extraction failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    } finally {
+      e.target.textContent = origText;
+      e.target.disabled = false;
+    }
+  });
+
   document.getElementById('saveWeekBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('saveStatus');
     const start = document.getElementById('f_start').value;
@@ -3879,6 +4000,55 @@
       img.src = objectUrl;
     });
   }
+
+  // ---------- Invoice Extraction (Fleet Maintenance) ----------
+  document.getElementById('m_invoice').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const statusEl = document.getElementById('maintenanceStatus');
+
+    let imageDataUri = null;
+    try{
+      if(file.type === 'application/pdf'){
+        imageDataUri = await generatePdfThumbnail(file, 1400);
+      } else if(file.type.startsWith('image/')){
+        imageDataUri = await compressImageForUpload(file, 1600, 0.85);
+      } else {
+        return; // e.g. HEIC in browsers that can't render it client-side -- skip extraction, upload still works normally
+      }
+    }catch(err){
+      console.error('Could not prepare invoice for extraction:', err);
+      return; // don't block the normal upload flow over a failed extraction attempt
+    }
+
+    statusEl.textContent = 'Reading invoice\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/extract-invoice`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ image: imageDataUri })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok || !data.confident){
+        statusEl.textContent = '';
+        return; // quietly skip -- the admin can still fill the form in by hand
+      }
+      const dateEl = document.getElementById('m_date');
+      const descEl = document.getElementById('m_description');
+      const mileageEl = document.getElementById('m_mileage');
+      let filledAny = false;
+      if(data.date && !dateEl.value){ dateEl.value = data.date; filledAny = true; }
+      if(data.description && !descEl.value){ descEl.value = data.description; filledAny = true; }
+      if(typeof data.mileage === 'number' && !mileageEl.value){ mileageEl.value = data.mileage; filledAny = true; }
+      statusEl.textContent = filledAny ? 'Filled in from the invoice \u2014 double-check before saving.' : '';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Invoice extraction failed:', err);
+      statusEl.textContent = '';
+    }
+  });
 
   document.getElementById('saveMaintenanceBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('maintenanceStatus');
@@ -7798,7 +7968,8 @@
 
   // Renders a PDF's first page to a small JPEG thumbnail. Requires the
   // PDF.js worker to be configured (done once, below) before use.
-  function generatePdfThumbnail(file){
+  function generatePdfThumbnail(file, targetWidth){
+    targetWidth = targetWidth || 220;
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = async () => {
@@ -7807,7 +7978,6 @@
           const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
           const page = await pdf.getPage(1);
           const baseViewport = page.getViewport({ scale: 1 });
-          const targetWidth = 220;
           const scale = targetWidth / baseViewport.width;
           const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
