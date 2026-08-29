@@ -2510,11 +2510,11 @@
       <div id="comp_insurance" class="comp-section" style="display:none;">
         <div class="panel" id="comp_batchDocsPanel">
           <h3>Batch Upload</h3>
-          <p class="form-note">Photograph or screenshot registration and insurance cards, then paste (Ctrl+V or Cmd+V) &mdash; grab as many as you like. Claude reads the VIN off each one and matches it to the right truck. Review before anything is saved.</p>
+          <p class="form-note">Photograph, scan, or screenshot registration and insurance cards (images or PDFs both work), then drop them below or paste (Ctrl+V or Cmd+V) &mdash; grab as many as you like. Claude reads the VIN off each one and matches it to the right truck. Review before anything is saved.</p>
           <div id="batchDocs_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
             <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop documents here, or click to paste (Ctrl+V or Cmd+V)</p>
             <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="batchDocs_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
-            <input type="file" id="batchDocs_files" accept=".jpg,.jpeg,.png" multiple style="display:none;">
+            <input type="file" id="batchDocs_files" accept=".jpg,.jpeg,.png,.pdf" multiple style="display:none;">
           </div>
           <div id="batchDocs_thumbnails" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;"></div>
           <div class="form-actions">
@@ -6416,7 +6416,8 @@
     const wrap = document.getElementById('batchDocs_thumbnails');
     wrap.innerHTML = batchDocsPastedImages.map(img => `
       <div style="position:relative; width:80px; height:80px;">
-        <img src="${img.dataUri}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        <img src="${img.previewDataUri}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        ${img.isPdf ? '<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">PDF</span>' : ''}
         <button type="button" class="batchDocs-remove-paste" data-id="${img.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
       </div>`).join('');
     wrap.querySelectorAll('.batchDocs-remove-paste').forEach(btn => btn.addEventListener('click', (e)=>{
@@ -6425,16 +6426,37 @@
     }));
   }
 
-  function addBatchDocsBlob(blob){
-    return compressImageForUpload(blob, 2000, 0.92).then(dataUri => {
-      batchDocsPastedImages.push({ id: 'batchdoc_' + Date.now() + '_' + Math.floor(Math.random()*1000), dataUri });
-      renderBatchDocsThumbnails();
-    }).catch(err => {
-      console.error('Image compression failed:', err);
-      const statusEl = document.getElementById('batchDocs_extractStatus');
-      statusEl.textContent = 'Could not process that image \u2014 try a different photo.';
+  // Accepts either an image or a PDF. The preview (used for the thumbnail
+  // and sent to Claude for VIN/type reading) is always a plain image --
+  // for a PDF that means rendering just its first page. The original file
+  // is kept too, so Save All can run it through the normal compression
+  // pipeline later and store it in its real format (a PDF stays a PDF).
+  async function addBatchDocsFile(file){
+    const statusEl = document.getElementById('batchDocs_extractStatus');
+    if(file.size > 30*1024*1024){
+      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
       statusEl.className = 'status-msg err';
-    });
+      return;
+    }
+    try{
+      let previewDataUri, isPdf = false;
+      if(file.type === 'application/pdf'){
+        const images = await window.getImagesForAssessment(file); // renders every page; only page 1 is needed for a preview/VIN read
+        if(images.length === 0) throw new Error('Could not read that PDF.');
+        previewDataUri = images[0];
+        isPdf = true;
+      } else if(file.type.startsWith('image/')){
+        previewDataUri = await compressImageForUpload(file, 2000, 0.92);
+      } else {
+        throw new Error('Unsupported file type.');
+      }
+      batchDocsPastedImages.push({ id: 'batchdoc_' + Date.now() + '_' + Math.floor(Math.random()*1000), previewDataUri, originalFile: file, isPdf });
+      renderBatchDocsThumbnails();
+    }catch(err){
+      console.error('Document processing failed:', err);
+      statusEl.textContent = 'Could not process that file \u2014 try a different document.';
+      statusEl.className = 'status-msg err';
+    }
   }
 
   const batchDocsPasteZone = document.getElementById('batchDocs_pasteZone');
@@ -6443,16 +6465,16 @@
   batchDocsPasteZone.addEventListener('blur', ()=>{ batchDocsPasteZone.style.borderColor = 'var(--line)'; batchDocsPasteZone.style.background = '#fafafa'; });
   batchDocsPasteZone.addEventListener('paste', async (e)=>{
     e.preventDefault();
-    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && item.type.startsWith('image/'));
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && (item.type.startsWith('image/') || item.type === 'application/pdf'));
     if(items.length === 0){
       const statusEl = document.getElementById('batchDocs_extractStatus');
-      statusEl.textContent = 'That paste didn\u2019t contain an image \u2014 take a photo or screenshot first, then paste.';
+      statusEl.textContent = 'That paste didn\u2019t contain an image or PDF \u2014 take a photo, screenshot, or scan first, then paste.';
       statusEl.className = 'status-msg err';
       return;
     }
     for(const item of items){
       const blob = item.getAsFile();
-      if(blob) await addBatchDocsBlob(blob);
+      if(blob) await addBatchDocsFile(blob);
     }
   });
   batchDocsPasteZone.addEventListener('dragover', (e)=>{
@@ -6468,14 +6490,14 @@
     e.preventDefault();
     batchDocsPasteZone.style.borderColor = 'var(--line)';
     batchDocsPasteZone.style.background = '#fafafa';
-    const files = Array.from(e.dataTransfer ? e.dataTransfer.files : []).filter(f => f.type && f.type.startsWith('image/'));
+    const files = Array.from(e.dataTransfer ? e.dataTransfer.files : []).filter(f => f.type && (f.type.startsWith('image/') || f.type === 'application/pdf'));
     if(files.length === 0){
       const statusEl = document.getElementById('batchDocs_extractStatus');
-      statusEl.textContent = 'That didn\u2019t contain an image \u2014 drop a photo or screenshot of the document.';
+      statusEl.textContent = 'That didn\u2019t contain an image or PDF \u2014 drop a photo, screenshot, or scan of the document.';
       statusEl.className = 'status-msg err';
       return;
     }
-    for(const file of files){ await addBatchDocsBlob(file); }
+    for(const file of files){ await addBatchDocsFile(file); }
   });
 
   document.getElementById('batchDocs_chooseFilesBtn').addEventListener('click', (e)=>{
@@ -6484,7 +6506,7 @@
   });
   document.getElementById('batchDocs_files').addEventListener('change', async (e)=>{
     const files = Array.from(e.target.files || []);
-    for(const file of files){ await addBatchDocsBlob(file); }
+    for(const file of files){ await addBatchDocsFile(file); }
     e.target.value = '';
   });
 
@@ -6507,7 +6529,7 @@
       if(!truckList || truckList.length === 0){
         try{ truckList = await window.dashboardApi.get(FLEET_TRUCKS_KEY, []); }catch(err){ truckList = []; }
       }
-      const images = batchDocsPastedImages.map(img => img.dataUri);
+      const images = batchDocsPastedImages.map(img => img.previewDataUri);
       const res = await fetch(`${API_BASE}/api/admin/extract-truck-docs`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
@@ -6551,13 +6573,15 @@
         const detectedType = ['registration', 'insuranceCard'].includes(d.documentType) ? d.documentType : '';
         return {
           reviewId: 'batchrev_' + i,
-          dataUri: img ? img.dataUri : null,
+          previewDataUri: img ? img.previewDataUri : null,
+          originalFile: img ? img.originalFile : null,
+          isPdf: img ? img.isPdf : false,
           vin: d.vin || '',
           confident: !!d.confident,
           selectedTruckId: matchedTruckId,
           selectedDocType: detectedType
         };
-      }).filter(r => r.dataUri); // drop anything whose image index didn't map cleanly
+      }).filter(r => r.previewDataUri); // drop anything whose image index didn't map cleanly
 
       renderBatchDocsReview(existingByTruck, truckList);
       const matchedCount = batchDocsReview.filter(r => r.selectedTruckId && r.selectedDocType).length;
@@ -6605,7 +6629,10 @@
 
       return `
       <div data-review-id="${r.reviewId}" style="display:flex; gap:12px; align-items:flex-start; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:8px;">
-        <img src="${r.dataUri}" style="width:70px; height:70px; object-fit:cover; border-radius:4px; flex-shrink:0;">
+        <div style="position:relative; width:70px; height:70px; flex-shrink:0;">
+          <img src="${r.previewDataUri}" style="width:100%; height:100%; object-fit:cover; border-radius:4px; display:block;">
+          ${r.isPdf ? '<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">PDF</span>' : ''}
+        </div>
         <div style="flex:1; min-width:0;">
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
             <select class="batchDocs-truck-select" data-review-id="${r.reviewId}" style="font-size:12.5px;">${truckOptions}</select>
@@ -6670,7 +6697,10 @@
     let savedCount = 0;
     for(const r of ready){
       try{
-        const ok = await window.dashboardApi.set(truckDocKey(r.selectedTruckId, r.selectedDocType), { dataUri: r.dataUri, fileName: (r.selectedDocType === 'registration' ? 'registration' : 'insurance-card') + '.jpg', uploadedAt: new Date().toISOString() });
+        const compressed = await window.compressUploadedFile(r.originalFile);
+        const ext = compressed.dataUri.startsWith('data:application/pdf') ? '.pdf' : '.jpg';
+        const fileName = (r.selectedDocType === 'registration' ? 'registration' : 'insurance-card') + ext;
+        const ok = await window.dashboardApi.set(truckDocKey(r.selectedTruckId, r.selectedDocType), { dataUri: compressed.dataUri, fileName, uploadedAt: new Date().toISOString() });
         if(ok) savedCount++;
       }catch(err){ console.error('Batch doc save failed:', err); }
     }
