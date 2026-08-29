@@ -388,6 +388,87 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
   }
 });
 
+// Captain leaderboard for the driver portal. Computes rankings server-side
+// from the same admin-side records Captain Metrics uses, and returns only
+// the aggregated results -- drivers never get raw access to
+// compliance-pretrip-inspections, paperwork-job-archive, or paperwork-uploads
+// directly (those stay behind requireAuth, not requireDriverAuth).
+//
+// Response shape is a generic list of categories so new metrics can be added
+// here later without the driver-portal frontend needing any changes -- it
+// just renders whatever categories come back.
+app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
+  try {
+    const [archiveRaw, ptiRaw, uploadsRaw] = await Promise.all([
+      redis.get('paperwork-job-archive'),
+      redis.get('compliance-pretrip-inspections'),
+      redis.get('paperwork-uploads')
+    ]);
+    const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+    const ptiRecords = ptiRaw ? JSON.parse(ptiRaw) : [];
+    const uploads = uploadsRaw ? JSON.parse(uploadsRaw) : [];
+
+    const categories = [];
+
+    // ---- Pre-Trip Inspection Compliance, last 30 complete days ----
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const windowStart = new Date(today);
+    windowStart.setDate(windowStart.getDate() - 30);
+    const windowStartStr = windowStart.toISOString().slice(0, 10);
+
+    const relevantJobs = archive.filter(j =>
+      j.captainName && j.assignmentDate &&
+      j.assignmentDate < todayStr && j.assignmentDate >= windowStartStr
+    );
+    const assignedDaysByCaptain = {}; // captain -> Set of days assigned
+    relevantJobs.forEach(j => {
+      if (!assignedDaysByCaptain[j.captainName]) assignedDaysByCaptain[j.captainName] = new Set();
+      assignedDaysByCaptain[j.captainName].add(j.assignmentDate);
+    });
+    const ptiEntries = Object.keys(assignedDaysByCaptain).map(captain => {
+      const days = [...assignedDaysByCaptain[captain]];
+      const compliantDays = days.filter(day => ptiRecords.some(p => p.driverName === captain && p.date === day)).length;
+      return {
+        name: captain,
+        value: days.length > 0 ? Math.round((compliantDays / days.length) * 100) : 0,
+        detail: `${compliantDays} of ${days.length} day${days.length === 1 ? '' : 's'}`
+      };
+    }).sort((a, b) => b.value - a.value);
+    if (ptiEntries.length > 0) {
+      categories.push({ key: 'pretrip', title: 'Pre-Trip Inspection Compliance', entries: ptiEntries });
+    }
+
+    // ---- Completed Paperwork Quality, uploads from the last 30 days ----
+    const captainByJob = {};
+    archive.forEach(j => { if (j.jobNumber && j.captainName) captainByJob[j.jobNumber] = j.captainName; });
+    const windowStartIso = windowStart.toISOString();
+    const recentAssessed = uploads.filter(u =>
+      typeof u.completenessPercent === 'number' && u.uploadedAt && u.uploadedAt >= windowStartIso
+    );
+    const byCaptainCompleteness = {};
+    recentAssessed.forEach(u => {
+      const captain = captainByJob[u.jobNumber];
+      if (!captain) return; // no Captain on file for this job -- excluded from the leaderboard, not attributable
+      if (!byCaptainCompleteness[captain]) byCaptainCompleteness[captain] = [];
+      byCaptainCompleteness[captain].push(u.completenessPercent);
+    });
+    const qualityEntries = Object.keys(byCaptainCompleteness).map(captain => {
+      const scores = byCaptainCompleteness[captain];
+      const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
+      return { name: captain, value: Math.round(avg), detail: `${scores.length} job${scores.length === 1 ? '' : 's'}` };
+    }).sort((a, b) => b.value - a.value);
+    if (qualityEntries.length > 0) {
+      categories.push({ key: 'completeness', title: 'Completed Paperwork Quality', entries: qualityEntries });
+    }
+
+    res.json({ categories });
+  } catch (err) {
+    console.error('Driver leaderboard fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load leaderboard.' });
+  }
+});
+
 // Admin-only viewing/management of the shared driver access code.
 app.get('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
   try {
