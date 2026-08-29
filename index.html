@@ -2511,8 +2511,8 @@
         <div class="panel" id="comp_batchDocsPanel">
           <h3>Batch Upload</h3>
           <p class="form-note">Photograph or screenshot registration and insurance cards, then paste (Ctrl+V or Cmd+V) &mdash; grab as many as you like. Claude reads the VIN off each one and matches it to the right truck. Review before anything is saved.</p>
-          <div id="batchDocs_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:text; background:#fafafa; outline:none;">
-            <p style="margin:0; color:var(--muted); font-size:14px;">Click here, then paste documents as you grab them</p>
+          <div id="batchDocs_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
+            <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop documents here, or click to paste (Ctrl+V or Cmd+V)</p>
             <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="batchDocs_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
             <input type="file" id="batchDocs_files" accept=".jpg,.jpeg,.png" multiple style="display:none;">
           </div>
@@ -6454,6 +6454,28 @@
       const blob = item.getAsFile();
       if(blob) await addBatchDocsBlob(blob);
     }
+  });
+  batchDocsPasteZone.addEventListener('dragover', (e)=>{
+    e.preventDefault(); // required to allow a drop -- browsers block it by default
+    batchDocsPasteZone.style.borderColor = 'var(--brand-orange)';
+    batchDocsPasteZone.style.background = '#fff';
+  });
+  batchDocsPasteZone.addEventListener('dragleave', ()=>{
+    batchDocsPasteZone.style.borderColor = 'var(--line)';
+    batchDocsPasteZone.style.background = '#fafafa';
+  });
+  batchDocsPasteZone.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    batchDocsPasteZone.style.borderColor = 'var(--line)';
+    batchDocsPasteZone.style.background = '#fafafa';
+    const files = Array.from(e.dataTransfer ? e.dataTransfer.files : []).filter(f => f.type && f.type.startsWith('image/'));
+    if(files.length === 0){
+      const statusEl = document.getElementById('batchDocs_extractStatus');
+      statusEl.textContent = 'That didn\u2019t contain an image \u2014 drop a photo or screenshot of the document.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const file of files){ await addBatchDocsBlob(file); }
   });
 
   document.getElementById('batchDocs_chooseFilesBtn').addEventListener('click', (e)=>{
