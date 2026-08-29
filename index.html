@@ -1743,6 +1743,7 @@
               <th class="pu-sort-header" data-field="jobNumber" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Job # <span class="pu-sort-arrow" data-field="jobNumber"></span></th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
               <th class="pu-sort-header" data-field="uploadedAt" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Uploaded <span class="pu-sort-arrow" data-field="uploadedAt"></span></th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Satisfied?</th>
               <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="pu_listRows"></tbody>
@@ -9844,7 +9845,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     const tbody = document.getElementById('pu_listRows');
     if(filtered.length === 0){
-      tbody.innerHTML = `<tr><td colspan="5" style="padding:10px 4px; color:var(--muted);">${paperworkUploads.length === 0 ? 'No paperwork uploaded yet.' : 'No matches.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="padding:10px 4px; color:var(--muted);">${paperworkUploads.length === 0 ? 'No paperwork uploaded yet.' : 'No matches.'}</td></tr>`;
       return;
     }
     tbody.innerHTML = filtered.map(u => `
@@ -9853,6 +9854,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(u.jobNumber)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(u.fileName)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(new Date(u.uploadedAt).toLocaleDateString())}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap;">
+          <button type="button" class="pu-face" data-id="${u.id}" data-value="happy" title="Satisfied" style="background:#fff; border:2px solid ${u.satisfaction === 'happy' ? '#00612C' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#00843D"/><line x1="8" y1="10" x2="8" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="10" x2="16" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M7 14.5 Q12 19 17 14.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+          </button>
+          <button type="button" class="pu-face" data-id="${u.id}" data-value="sad" title="Not satisfied" style="background:#fff; border:2px solid ${u.satisfaction === 'sad' ? '#b3261e' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#b3261e"/><line x1="8" y1="10" x2="8" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="10" x2="16" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M7 17 Q12 12.5 17 17" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+          </button>
+        </td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
           <button type="button" class="pu-email" data-id="${u.id}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Send Email</button>
@@ -9860,10 +9869,24 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </td>
       </tr>`).join('');
 
+    tbody.querySelectorAll('.pu-face').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const value = e.currentTarget.dataset.value;
+      const upload = paperworkUploads.find(u => u.id === id);
+      if(!upload) return;
+      upload.satisfaction = upload.satisfaction === value ? null : value; // click again to clear
+      await savePaperworkUploadsList();
+      renderPaperworkUploadsList();
+    }));
+
     tbody.querySelectorAll('.pu-email').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.target.dataset.id;
       const upload = paperworkUploads.find(u => u.id === id);
       if(!upload) return;
+      if(!upload.satisfaction){
+        alert('Select \u{1F60A} or \u{1F61E} for this client before sending the email.');
+        return;
+      }
       const origText = e.target.textContent;
       e.target.textContent = 'Preparing...';
       e.target.disabled = true;
@@ -9890,7 +9913,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const reviewLink = pw.googleReviewLink || 'https://g.page/r/CTsnaSA6YbvlEBM/review';
         const firstName = (upload.clientName || '').split(' ')[0] || 'there';
         const subject = 'Thank You for Choosing College Hunks';
-        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\nIf you were happy with our service, we'd really appreciate a 5-star review on Google: ${reviewLink}\n\nIf anything about your experience wasn't up to standard, please give us a call so we can make it right.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
+        const reviewSentence = upload.satisfaction === 'happy'
+          ? `If you were happy with our service, we'd really appreciate a 5-star review on Google: ${reviewLink}\n\n`
+          : '';
+        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\n${reviewSentence}If anything about your experience wasn't up to standard, please give us a call so we can make it right.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
         const cc = pw.completedPaperworkCc || 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com';
 
         let clipboardOk = false;
