@@ -2205,6 +2205,7 @@
           <button type="button" class="comp-section-btn" data-section="business" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Business</button>
           <button type="button" class="comp-section-btn" data-section="trucks" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Trucks</button>
           <button type="button" class="comp-section-btn" data-section="drivers" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Drivers</button>
+          <button type="button" class="comp-section-btn" data-section="insurance" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Insurance</button>
         </div>
       </div>
 
@@ -2390,6 +2391,52 @@
           <h3 id="comp_driverDocsHeading">Driver Documents</h3>
           <label style="max-width:260px;">DOT Physical Expiration Date <input type="date" id="comp_driverPhysicalExp"></label>
           <div id="comp_driverDocUploads" style="margin-top:14px;"></div>
+        </div>
+      </div>
+
+      <!-- ---- INSURANCE ---- -->
+      <div id="comp_insurance" class="comp-section" style="display:none;">
+        <div class="panel" id="comp_insTruckSelectPanel">
+          <h3>Vehicle Registration &amp; Insurance Cards</h3>
+          <label>Truck <select id="comp_insTruckSelect"></select></label>
+          <p class="form-note" id="comp_insNoTrucksNote" style="display:none;">No trucks found &mdash; add one on the Fleet Maintenance tile first.</p>
+          <div id="comp_insTruckDocUploads" style="margin-top:14px;"></div>
+        </div>
+
+        <div class="panel" id="comp_coiPanel">
+          <h3>Certificates of Insurance</h3>
+          <p class="form-note">Upload current COI documents here to keep them on hand. Use the label to note the policy type (e.g. General Liability, Auto, Umbrella) so they're easy to tell apart.</p>
+          <div class="form-grid">
+            <label>Label <input type="text" id="comp_coi_label" placeholder="e.g. General Liability"></label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
+              File
+              <input type="file" id="comp_coi_file" accept=".pdf,.jpg,.jpeg,.png" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+            </label>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="comp_coi_uploadBtn" type="button">Upload COI</button>
+            <span class="status-msg" id="comp_coi_uploadStatus"></span>
+          </div>
+
+          <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:16px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Label</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Uploaded</th>
+              <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="comp_coi_rows"></tbody>
+          </table>
+          <p class="form-note" id="comp_coi_emptyNote" style="display:none;">No COI documents on file yet.</p>
+
+          <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:6px; padding:14px 16px; margin-top:18px;">
+            <h4 style="margin:0 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Email All Current COIs</h4>
+            <label>Recipient Email <input type="email" id="comp_coi_emailTo" placeholder="requester@example.com"></label>
+            <div class="form-actions">
+              <button class="btn-primary" id="comp_coi_emailBtn" type="button">Send COIs</button>
+              <span class="status-msg" id="comp_coi_emailStatus"></span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -5507,6 +5554,8 @@
     document.getElementById('comp_business').style.display = section === 'business' ? 'block' : 'none';
     document.getElementById('comp_trucks').style.display = section === 'trucks' ? 'block' : 'none';
     document.getElementById('comp_drivers').style.display = section === 'drivers' ? 'block' : 'none';
+    document.getElementById('comp_insurance').style.display = section === 'insurance' ? 'block' : 'none';
+    if(section === 'insurance') loadCompInsuranceData();
     document.querySelectorAll('.comp-section-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.section === section);
     });
@@ -6217,6 +6266,229 @@
       await window.dashboardApi.set(COMP_DRIVERS_KEY, compDrivers);
       renderCompDriverList();
       updateComplianceTileBadge();
+    }
+  });
+
+  // ---------- Insurance (per-truck docs + COI list/email) ----------
+  const TRUCK_DOC_TYPES = [
+    { key: 'registration', label: 'Registration' },
+    { key: 'insuranceCard', label: 'Insurance Card' }
+  ];
+  const COI_LIST_KEY = 'compliance-coi-list';
+  let compInsSelectedTruckId = null;
+  let compCoiList = [];
+
+  function truckDocKey(truckId, docKey){
+    return 'compliance-doc-truck-' + truckId + '-' + docKey;
+  }
+
+  async function loadCompInsuranceData(){
+    await loadCompInsTruckSelect();
+    try{ compCoiList = await window.dashboardApi.get(COI_LIST_KEY, []) || []; }
+    catch(err){ console.error('COI list load failed:', err); compCoiList = []; }
+    renderCompCoiList();
+  }
+
+  async function loadCompInsTruckSelect(){
+    let list = trucks;
+    if(!list || list.length === 0){
+      try{ list = await window.dashboardApi.get(FLEET_TRUCKS_KEY, []); }catch(err){ list = []; }
+    }
+    const sel = document.getElementById('comp_insTruckSelect');
+    const noTrucksNote = document.getElementById('comp_insNoTrucksNote');
+    if(!list || list.length === 0){
+      sel.innerHTML = '';
+      noTrucksNote.style.display = 'block';
+      compInsSelectedTruckId = null;
+      document.getElementById('comp_insTruckDocUploads').innerHTML = '';
+      return;
+    }
+    noTrucksNote.style.display = 'none';
+    sel.innerHTML = list.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
+    compInsSelectedTruckId = sel.value;
+    await renderTruckDocUploads(compInsSelectedTruckId);
+  }
+  document.getElementById('comp_insTruckSelect').addEventListener('change', (e)=>{
+    compInsSelectedTruckId = e.target.value;
+    renderTruckDocUploads(compInsSelectedTruckId);
+  });
+
+  async function renderTruckDocUploads(truckId){
+    const container = document.getElementById('comp_insTruckDocUploads');
+    container.innerHTML = TRUCK_DOC_TYPES.map(dt => `
+      <div class="sig-pad-wrap" style="margin-bottom:12px;">
+        <div class="sig-pad-label">${dt.label}</div>
+        <div id="truckDocStatus_${dt.key}" style="font-size:13px; margin-bottom:6px;">Loading...</div>
+        <input type="file" class="truck-doc-input" data-key="${dt.key}" accept=".pdf,.jpg,.jpeg,.png">
+      </div>`).join('');
+
+    for(const dt of TRUCK_DOC_TYPES){
+      try{
+        const rec = await window.dashboardApi.get(truckDocKey(truckId, dt.key), null);
+        const el = document.getElementById('truckDocStatus_' + dt.key);
+        if(!el) continue; // truck selection may have changed mid-load
+        if(rec){
+          el.innerHTML = `On file: <b>${fleetEsc(rec.fileName)}</b> (${new Date(rec.uploadedAt).toLocaleDateString()}) <button type="button" class="truck-doc-view" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer;">View</button>`;
+        } else {
+          el.innerHTML = '<span style="color:var(--muted);">Not uploaded yet.</span>';
+        }
+      }catch(err){ console.error('Truck doc status load failed:', err); }
+    }
+
+    container.querySelectorAll('.truck-doc-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const key = e.target.dataset.key;
+      try{
+        const rec = await window.dashboardApi.get(truckDocKey(truckId, key), null);
+        if(!rec) return;
+        const isPdf = rec.dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(rec.dataUri), '_blank'); }
+        else { const win = window.open(); if(win) win.document.write(`<title>${fleetEsc(rec.fileName)}</title><body style="margin:0;"><img src="${rec.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+      }catch(err){ console.error('Truck doc view failed:', err); }
+    }));
+
+    container.querySelectorAll('.truck-doc-input').forEach(input => input.addEventListener('change', async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const key = e.target.dataset.key;
+      if(file.size > 30*1024*1024){ alert('That file is over 30MB.'); e.target.value = ''; return; }
+      try{
+        const compressed = await window.compressUploadedFile(file);
+        if(compressed.finalSize > 10*1024*1024){ alert('That file is still over 10MB after compression.'); e.target.value = ''; return; }
+        const ok = await window.dashboardApi.set(truckDocKey(truckId, key), { dataUri: compressed.dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
+        if(ok){ renderTruckDocUploads(truckId); }
+        else { alert('Save failed \u2014 check your connection.'); }
+      }catch(err){ console.error('Truck doc upload failed:', err); alert('Upload failed \u2014 check your connection.'); }
+    }));
+  }
+
+  function renderCompCoiList(){
+    const tbody = document.getElementById('comp_coi_rows');
+    const emptyNote = document.getElementById('comp_coi_emptyNote');
+    if(compCoiList.length === 0){
+      tbody.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    tbody.innerHTML = compCoiList.map(c => `
+      <tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(c.label)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(c.fileName)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${new Date(c.uploadedAt).toLocaleDateString()}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="comp-coi-view" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
+          <button type="button" class="comp-coi-delete" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.comp-coi-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      try{
+        const dataUri = await window.dashboardApi.get('compliance-doc-coi-' + id, null);
+        if(!dataUri) return;
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
+        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+      }catch(err){ console.error('COI view failed:', err); }
+    }));
+
+    tbody.querySelectorAll('.comp-coi-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const rec = compCoiList.find(c => c.id === id);
+      if(!rec) return;
+      if(!confirm(`Delete "${rec.label}" (${rec.fileName})? This cannot be undone.`)) return;
+      compCoiList = compCoiList.filter(c => c.id !== id);
+      await window.dashboardApi.set(COI_LIST_KEY, compCoiList);
+      try{ await window.dashboardApi.delete('compliance-doc-coi-' + id); }catch(err){ console.error('COI blob delete failed:', err); }
+      renderCompCoiList();
+    }));
+  }
+
+  document.getElementById('comp_coi_uploadBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('comp_coi_uploadStatus');
+    const label = document.getElementById('comp_coi_label').value.trim();
+    const fileInput = document.getElementById('comp_coi_file');
+    const file = fileInput.files[0];
+    if(!label){ statusEl.textContent = 'Enter a label first.'; statusEl.className = 'status-msg err'; return; }
+    if(!file){ statusEl.textContent = 'Choose a file first.'; statusEl.className = 'status-msg err'; return; }
+    if(file.size > 30*1024*1024){ statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.'; statusEl.className = 'status-msg err'; return; }
+    statusEl.textContent = 'Compressing and uploading...';
+    statusEl.className = 'status-msg';
+    const id = 'coi_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    try{
+      const compressed = await window.compressUploadedFile(file);
+      if(compressed.finalSize > 10*1024*1024){ statusEl.textContent = 'That file is still over 10MB after compression \u2014 please use a smaller file.'; statusEl.className = 'status-msg err'; return; }
+      const ok = await window.dashboardApi.set('compliance-doc-coi-' + id, compressed.dataUri);
+      if(!ok) throw new Error('Blob save failed');
+      compCoiList.push({ id, label, fileName: file.name, uploadedAt: new Date().toISOString() });
+      const listOk = await window.dashboardApi.set(COI_LIST_KEY, compCoiList);
+      if(listOk){
+        statusEl.textContent = `Uploaded "${label}".`;
+        statusEl.className = 'status-msg ok';
+        document.getElementById('comp_coi_label').value = '';
+        fileInput.value = '';
+        renderCompCoiList();
+      } else {
+        compCoiList.pop();
+        statusEl.textContent = 'File uploaded, but the list failed to save \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+      }
+    }catch(err){
+      console.error('COI upload failed:', err);
+      statusEl.textContent = 'Upload failed \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('comp_coi_emailBtn').addEventListener('click', async (e)=>{
+    const statusEl = document.getElementById('comp_coi_emailStatus');
+    const to = document.getElementById('comp_coi_emailTo').value.trim();
+    if(!to){ statusEl.textContent = 'Enter a recipient email address.'; statusEl.className = 'status-msg err'; return; }
+    if(compCoiList.length === 0){ statusEl.textContent = 'No COI documents on file to send.'; statusEl.className = 'status-msg err'; return; }
+    const btn = e.currentTarget;
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Preparing...';
+    statusEl.textContent = `Downloading ${compCoiList.length} file${compCoiList.length === 1 ? '' : 's'}...`;
+    statusEl.className = 'status-msg';
+    try{
+      let downloadedCount = 0;
+      for(const coi of compCoiList){
+        const dataUri = await window.dashboardApi.get('compliance-doc-coi-' + coi.id, null);
+        if(!dataUri) continue;
+        const extMatch = coi.fileName.match(/\.[a-zA-Z0-9]+$/);
+        const ext = extMatch ? extMatch[0] : '';
+        const safeName = `COI_${coi.label}${ext}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const a = document.createElement('a');
+        a.href = dataUri;
+        a.download = safeName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        downloadedCount++;
+        await new Promise(r => setTimeout(r, 300)); // stagger downloads so the browser doesn't block them as a popup flood
+      }
+
+      const subject = 'Certificates of Insurance';
+      const body = `Hello,\n\nPlease find our current Certificates of Insurance attached.\n\nLet us know if you need anything else.\n\nThanks,\nHenson Hauling LLC`;
+      let clipboardOk = false;
+      try{ await navigator.clipboard.writeText(body); clipboardOk = true; }
+      catch(clipErr){ console.error('Clipboard copy failed:', clipErr); prompt('Could not auto-copy \u2014 copy this message manually, then paste it into the email body:', body); }
+
+      const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}`;
+      window.location.href = mailto;
+
+      statusEl.textContent = clipboardOk
+        ? `${downloadedCount} file${downloadedCount === 1 ? '' : 's'} downloaded, message copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body, then attach the downloaded file${downloadedCount === 1 ? '' : 's'}.`
+        : `${downloadedCount} file${downloadedCount === 1 ? '' : 's'} downloaded and your email is open \u2014 paste the message from the popup, then attach the downloaded file${downloadedCount === 1 ? '' : 's'}.`;
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('COI email prep failed:', err);
+      statusEl.textContent = 'Could not prepare the email \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
     }
   });
 
