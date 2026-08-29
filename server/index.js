@@ -996,6 +996,129 @@ app.post('/api/admin/extract-listings', requireAuth, async (req, res) => {
   }
 });
 
+// ============ Insurance: Batch Truck Document Extraction ============
+// For a batch of registration/insurance card photos, identifies each
+// document's type and VIN so the frontend can match it to the correct
+// truck (matching against each truck's VIN, same as Fleet Maintenance
+// invoice extraction already does) and route it to the right upload slot.
+const EXTRACT_TRUCK_DOCS_TOOL = {
+  name: 'extract_truck_docs',
+  description: 'For each vehicle registration or insurance card image provided, identify its document type and the vehicle\'s VIN.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      documents: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            imageIndex: { type: 'number', description: 'The 0-based index of this image within the batch, in the order the images were provided.' },
+            documentType: { type: 'string', enum: ['registration', 'insuranceCard', 'unclear'], description: '"registration" for a vehicle registration document, "insuranceCard" for a proof-of-insurance card, or "unclear" if it does not clearly look like either.' },
+            vin: { type: 'string', description: 'The 17-character Vehicle Identification Number as printed on the document, exactly as shown. Empty string if no VIN is visible or legible.' },
+            confident: { type: 'boolean', description: 'True if the document type and VIN (if present) were both read clearly. False if the image was blurry, cut off, or ambiguous.' }
+          },
+          required: ['imageIndex', 'documentType', 'confident']
+        }
+      }
+    },
+    required: ['documents']
+  }
+};
+
+app.post('/api/admin/extract-truck-docs', requireAuth, async (req, res) => {
+  const { images } = req.body || {};
+  if (!Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'At least one image is required.' });
+  }
+  if (images.length > 20) {
+    return res.status(400).json({ error: 'Please upload 20 images or fewer at a time.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Truck doc extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Batch extraction is not configured on the server yet.' });
+  }
+
+  try {
+    const imageBlocks = images.map(dataUri => {
+      const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+      if (!match) return null;
+      return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+    }).filter(Boolean);
+    if (imageBlocks.length === 0) {
+      return res.status(400).json({ error: 'No valid images were provided.' });
+    }
+
+    // Same 5-image batch size as listing extraction -- larger batches were
+    // found to make per-image extraction noticeably less reliable.
+    const BATCH_SIZE = 5;
+    const batches = [];
+    for (let i = 0; i < imageBlocks.length; i += BATCH_SIZE) {
+      batches.push({ images: imageBlocks.slice(i, i + BATCH_SIZE), offset: i });
+    }
+
+    async function runBatch(batch, batchIndex){
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 2048,
+          tools: [EXTRACT_TRUCK_DOCS_TOOL],
+          tool_choice: { type: 'tool', name: 'extract_truck_docs' },
+          messages: [{
+            role: 'user',
+            content: [
+              ...batch.images,
+              { type: 'text', text: `These are ${batch.images.length} photo(s) of vehicle registration and/or insurance card documents, one document per image, in order. For each image (using its 0-based position in this batch, starting at 0), identify whether it's a registration or an insurance card, and read the VIN printed on it.` }
+            ]
+          }]
+        })
+      });
+
+      if (!anthropicRes.ok) {
+        const errBody = await anthropicRes.text().catch(() => '');
+        console.error(`Truck doc extraction batch ${batchIndex} failed:`, anthropicRes.status, errBody);
+        let detail = '';
+        try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        return { error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
+      }
+
+      const data = await anthropicRes.json();
+      const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_truck_docs');
+      if (!toolUseBlock) {
+        console.error(`Truck doc extraction batch ${batchIndex}: no tool_use block. stop_reason=`, data.stop_reason);
+        return { error: 'Could not read a structured response from the extraction service.' };
+      }
+      const documents = Array.isArray(toolUseBlock.input.documents) ? toolUseBlock.input.documents : [];
+      // Re-offset each result's imageIndex from batch-local to global, so the
+      // frontend can map results straight back to its original images array.
+      const rebased = documents.map(d => ({ ...d, imageIndex: (d.imageIndex || 0) + batch.offset }));
+      return { documents: rebased };
+    }
+
+    const batchResults = await Promise.all(batches.map((b, i) => runBatch(b, i)));
+    const allDocuments = [];
+    const batchErrors = [];
+    batchResults.forEach(r => {
+      if (r.error) batchErrors.push(r.error);
+      else allDocuments.push(...r.documents);
+    });
+
+    if (allDocuments.length === 0 && batchErrors.length > 0) {
+      return res.status(502).json({ error: batchErrors[0] });
+    }
+    res.json({ documents: allDocuments, partialFailures: batchErrors.length });
+  } catch (err) {
+    console.error('Truck doc extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
 // ============ Labor Cost: Revenue Extraction ============
 // ADP Payroll Detail wages/taxes/OT/employee data are already parsed
 // directly from the .xlsx export -- structured spreadsheet parsing is more
