@@ -2598,18 +2598,10 @@
           </div>
 
           <div class="panel" id="tipsPrevWeekPanel">
-            <h3>Previous Pay Week Totals</h3>
-            <p class="form-note" id="tips_prevWeekLabel"></p>
-            <table>
-              <thead><tr>
-                <th>Employee</th>
-                <th style="text-align:right;">Jobs</th>
-                <th style="text-align:right;">Total Tips</th>
-              </tr></thead>
-              <tbody id="tips_prevWeekRows"></tbody>
-            </table>
+            <h3>Pay Week History</h3>
+            <p class="form-note">The most recent complete week, plus a rolling 3-month log of weeks already marked paid.</p>
+            <div id="tips_prevWeekList"></div>
             <p class="form-note" id="tips_prevWeekEmptyNote" style="display:none;">No allocated tips for the previous pay week yet.</p>
-            <div id="tips_prevWeekUnassignedNote"></div>
           </div>
         </div>
 
@@ -3989,11 +3981,15 @@
 
   // ---------- Tip Allocation ----------
   const TIPS_ALLOCATIONS_KEY = 'square-tip-allocations';
+  const TIPS_PAID_WEEKS_KEY = 'square-tip-paid-weeks';
+  const TIPS_PAID_WEEKS_RETENTION_DAYS = 92; // ~3 months
   let tipsPayments = [];       // raw fetched Square payments with a tip
   let tipsAllocations = {};    // paymentId -> { jobNumber, tipAmount, date, employees: [names], allocatedAt }
   let tipsJobOverrides = {};   // paymentId -> manually-entered job number, for notes Square's regex couldn't cleanly match
   let tipsRoster = [];         // employee names
   let tipsWeeks = [];          // [{weekStart, weekEnd}] Monday-Sunday pay weeks that have at least one allocation
+  let tipsPaidWeeks = [];      // frozen snapshots: [{weekStart, weekEnd, paidAt, totalAmount, employees: [{name, jobs, total}]}]
+  let tipsExpandedPaidWeeks = new Set(); // which paid weeks are currently expanded in the UI (local, not persisted)
   let tipsCurrentSection = 'allocate';
 
   function tipsEsc(s){
@@ -4030,6 +4026,12 @@
       if(tipsMigrateAllocationKeys()) await tipsSaveAllocations();
     }catch(err){ console.error('Tip allocations load failed:', err); }
 
+    try{
+      const savedPaidWeeks = await window.dashboardApi.get(TIPS_PAID_WEEKS_KEY, []);
+      tipsPaidWeeks = savedPaidWeeks || [];
+      if(tipsPruneOldPaidWeeks()) await tipsSavePaidWeeks();
+    }catch(err){ console.error('Tip paid-weeks log load failed:', err); tipsPaidWeeks = []; }
+
     try{ tipsRoster = await getCurrentEmployeeRoster(); }
     catch(err){ console.error('Roster load failed for tips:', err); tipsRoster = []; }
 
@@ -4038,6 +4040,23 @@
     } else {
       renderTipsAll();
     }
+  }
+
+  // Drops any paid-week snapshot older than the retention window. Returns
+  // true if anything was actually removed, so the caller knows whether a
+  // save is needed.
+  function tipsPruneOldPaidWeeks(){
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - TIPS_PAID_WEEKS_RETENTION_DAYS);
+    const cutoffStr = cutoff.toISOString().slice(0,10);
+    const before = tipsPaidWeeks.length;
+    tipsPaidWeeks = tipsPaidWeeks.filter(w => w.weekEnd >= cutoffStr);
+    return tipsPaidWeeks.length !== before;
+  }
+
+  async function tipsSavePaidWeeks(){
+    try{ return await window.dashboardApi.set(TIPS_PAID_WEEKS_KEY, tipsPaidWeeks); }
+    catch(err){ console.error('Tip paid-weeks log save failed:', err); return false; }
   }
 
   // Allocations used to be keyed by individual Square payment ID. Now
@@ -4363,18 +4382,105 @@
   document.getElementById('tips_summaryWeek').addEventListener('change', renderTipsSummary);
 
   function renderTipsPrevWeekTotals(){
-    const tbody = document.getElementById('tips_prevWeekRows');
+    const listEl = document.getElementById('tips_prevWeekList');
     const emptyNote = document.getElementById('tips_prevWeekEmptyNote');
-    const unassignedNoteEl = document.getElementById('tips_prevWeekUnassignedNote');
-    const labelEl = document.getElementById('tips_prevWeekLabel');
-    const weekStart = tipsGetMostRecentCompleteWeekStart();
-    const week = tipsGetWeekBounds(weekStart);
-    labelEl.textContent = tipsWeekLabel(week);
-    const { totals, unassignedTotal } = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
-    const hasAny = Object.keys(totals).length > 0;
-    emptyNote.style.display = (hasAny || unassignedTotal > 0) ? 'none' : 'block';
-    tbody.innerHTML = tipsRenderTotalsRows(totals);
-    unassignedNoteEl.innerHTML = tipsUnassignedNoteHtml(unassignedTotal);
+
+    const currentWeekStart = tipsGetMostRecentCompleteWeekStart();
+    const currentWeek = tipsGetWeekBounds(currentWeekStart);
+    const currentIsPaid = tipsPaidWeeks.some(w => w.weekStart === currentWeekStart);
+
+    let html = '';
+    let anythingToShow = false;
+
+    if(!currentIsPaid){
+      const { totals, unassignedTotal } = tipsComputeWeekTotals(currentWeek.weekStart, currentWeek.weekEnd);
+      const hasAny = Object.keys(totals).length > 0 || unassignedTotal > 0;
+      if(hasAny) anythingToShow = true;
+      html += `
+      <div class="tips-week-entry" style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+          <strong>${tipsWeekLabel(currentWeek)}</strong>
+          <button type="button" class="tips-mark-paid-btn" data-week="${currentWeekStart}" ${hasAny ? '' : 'disabled'} style="background:${hasAny ? 'var(--brand-green)' : '#ccc'}; color:#fff; border:none; padding:6px 14px; border-radius:4px; font-size:12px; cursor:${hasAny ? 'pointer' : 'not-allowed'};">Mark Paid</button>
+        </div>
+        ${hasAny ? `
+        <table>
+          <thead><tr><th>Employee</th><th style="text-align:right;">Jobs</th><th style="text-align:right;">Total Tips</th></tr></thead>
+          <tbody>${tipsRenderTotalsRows(totals)}</tbody>
+        </table>
+        ${tipsUnassignedNoteHtml(unassignedTotal)}
+        ` : `<p class="form-note" style="margin:0;">No allocated tips for this week yet.</p>`}
+      </div>`;
+    }
+
+    const sortedPaid = [...tipsPaidWeeks].sort((a,b) => b.weekStart.localeCompare(a.weekStart));
+    sortedPaid.forEach(record => {
+      anythingToShow = true;
+      const isExpanded = tipsExpandedPaidWeeks.has(record.weekStart);
+      const weekBounds = { weekStart: record.weekStart, weekEnd: record.weekEnd };
+      const paidDate = record.paidAt ? fmtDate(record.paidAt.slice(0,10)) : '';
+      html += `
+      <div class="tips-week-entry" style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
+        <button type="button" class="tips-week-toggle" data-week="${record.weekStart}" style="width:100%; text-align:left; background:none; border:none; padding:0; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; font-family:inherit;">
+          <span><strong>${tipsWeekLabel(weekBounds)}</strong> <span class="form-note">(Paid ${paidDate})</span></span>
+          <span style="font-weight:600;">${tipsMoney(record.totalAmount)} ${isExpanded ? '\u25B2' : '\u25BC'}</span>
+        </button>
+        ${isExpanded ? `
+        <div style="margin-top:10px;">
+          <table>
+            <thead><tr><th>Employee</th><th style="text-align:right;">Jobs</th><th style="text-align:right;">Total Tips</th></tr></thead>
+            <tbody>${(record.employees||[]).map(emp => `<tr><td>${tipsEsc(emp.name)}</td><td style="text-align:right;">${emp.jobs}</td><td style="text-align:right; font-weight:600;">${tipsMoney(emp.total)}</td></tr>`).join('')}</tbody>
+          </table>
+          ${tipsUnassignedNoteHtml(record.unassignedTotal || 0)}
+          <button type="button" class="tips-unmark-paid-btn" data-week="${record.weekStart}" style="margin-top:8px; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:4px; font-size:11px; cursor:pointer;">Undo Mark Paid</button>
+        </div>` : ''}
+      </div>`;
+    });
+
+    emptyNote.style.display = anythingToShow ? 'none' : 'block';
+    listEl.innerHTML = html;
+
+    listEl.querySelectorAll('.tips-mark-paid-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      if(e.currentTarget.disabled) return;
+      const weekStart = e.currentTarget.dataset.week;
+      const week = tipsGetWeekBounds(weekStart);
+      const { totals, unassignedTotal } = tipsComputeWeekTotals(week.weekStart, week.weekEnd);
+      const employees = Object.keys(totals).sort().map(name => ({ name, jobs: totals[name].jobs.size, total: totals[name].total }));
+      const totalAmount = employees.reduce((sum, emp) => sum + emp.total, 0) + unassignedTotal;
+      tipsPaidWeeks.push({
+        weekStart: week.weekStart, weekEnd: week.weekEnd,
+        paidAt: new Date().toISOString(), totalAmount, unassignedTotal, employees
+      });
+      tipsPruneOldPaidWeeks();
+      const ok = await tipsSavePaidWeeks();
+      if(!ok){
+        alert('Could not save \u2014 check your connection and try again.');
+        tipsPaidWeeks = tipsPaidWeeks.filter(w => w.weekStart !== weekStart);
+        return;
+      }
+      renderTipsPrevWeekTotals();
+    }));
+
+    listEl.querySelectorAll('.tips-week-toggle').forEach(btn => btn.addEventListener('click', (e)=>{
+      const weekStart = e.currentTarget.dataset.week;
+      if(tipsExpandedPaidWeeks.has(weekStart)) tipsExpandedPaidWeeks.delete(weekStart);
+      else tipsExpandedPaidWeeks.add(weekStart);
+      renderTipsPrevWeekTotals();
+    }));
+
+    listEl.querySelectorAll('.tips-unmark-paid-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const weekStart = e.currentTarget.dataset.week;
+      if(!confirm('Undo marking this week as paid? It will go back to showing live totals if it\u2019s still the most recent complete week.')) return;
+      const removed = tipsPaidWeeks.find(w => w.weekStart === weekStart);
+      tipsPaidWeeks = tipsPaidWeeks.filter(w => w.weekStart !== weekStart);
+      tipsExpandedPaidWeeks.delete(weekStart);
+      const ok = await tipsSavePaidWeeks();
+      if(!ok){
+        alert('Could not save \u2014 check your connection and try again.');
+        if(removed) tipsPaidWeeks.push(removed);
+        return;
+      }
+      renderTipsPrevWeekTotals();
+    }));
   }
 
   function showTipsSection(section){
