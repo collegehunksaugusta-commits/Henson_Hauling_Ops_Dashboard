@@ -4274,8 +4274,14 @@
   function renderTipsAllocated(){
     const tbody = document.getElementById('tips_allocatedRows');
     const emptyNote = document.getElementById('tips_allocatedEmptyNote');
-    const entries = Object.entries(tipsAllocations).sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
+    const entries = Object.entries(tipsAllocations)
+      .filter(([, a]) => !tipsIsDateInPaidWeek(a.date))
+      .sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
+    const hasAnyAtAll = Object.keys(tipsAllocations).length > 0;
     emptyNote.style.display = entries.length === 0 ? 'block' : 'none';
+    emptyNote.textContent = (entries.length === 0 && hasAnyAtAll)
+      ? 'Nothing pending \u2014 everything allocated so far has been marked paid (see Pay Week History below).'
+      : 'Nothing allocated yet.';
     tbody.innerHTML = entries.map(([jobNumber, a]) => {
       const paymentCount = (a.paymentIds || []).length;
       const employeesCell = a.employees.length === 0
@@ -4322,6 +4328,13 @@
       const mostRecentComplete = tipsGetMostRecentCompleteWeekStart();
       if(tipsWeeks.some(w => w.weekStart === mostRecentComplete)) sel.value = mostRecentComplete;
     }
+  }
+
+  // True if the given date falls within a week that's already been marked
+  // paid -- used to hide fully-resolved allocations from the working
+  // "Already Allocated" list, since they now live in Pay Week History.
+  function tipsIsDateInPaidWeek(date){
+    return tipsPaidWeeks.some(w => date >= w.weekStart && date <= w.weekEnd);
   }
 
   // Shared by both the selectable Pay Period Summary tab and the fixed
@@ -4457,7 +4470,7 @@
         tipsPaidWeeks = tipsPaidWeeks.filter(w => w.weekStart !== weekStart);
         return;
       }
-      renderTipsPrevWeekTotals();
+      renderTipsAll();
     }));
 
     listEl.querySelectorAll('.tips-week-toggle').forEach(btn => btn.addEventListener('click', (e)=>{
@@ -4479,7 +4492,7 @@
         if(removed) tipsPaidWeeks.push(removed);
         return;
       }
-      renderTipsPrevWeekTotals();
+      renderTipsAll();
     }));
   }
 
