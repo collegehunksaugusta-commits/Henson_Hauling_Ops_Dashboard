@@ -56,6 +56,7 @@ const ALLOWED_KEYS = new Set([
   'compliance-truck-violations',
   'compliance-drivers',
   'compliance-pretrip-inspections',
+  'compliance-coi-list',
   'settings-config-files',
   'settings-handoff-guide',
   'mail-marketing-list',
