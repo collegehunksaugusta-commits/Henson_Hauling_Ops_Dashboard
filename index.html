@@ -1859,7 +1859,14 @@
           Invoice (optional, PDF or photo, up to 10MB)
           <input type="file" id="m_invoice" accept=".pdf,.jpg,.jpeg,.png,.heic" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
         </label>
-        <p class="form-note" id="m_invoiceNote" style="display:none;">This entry already has an invoice attached. Leave the field above blank to keep it, or choose a new file to replace it.</p>
+        <p class="form-note" id="m_invoiceNote" style="display:none;">
+          This entry already has an invoice attached. Leave the field above blank to keep it, choose a new file to replace it, or
+          <button type="button" id="m_removeInvoiceBtn" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; padding:0; font-size:inherit; font-family:inherit;">remove it</button>.
+        </p>
+        <p class="form-note" id="m_invoiceRemovePendingNote" style="display:none; color:#b3261e;">
+          Invoice will be removed when you save.
+          <button type="button" id="m_undoRemoveInvoiceBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:inherit; font-family:inherit;">Undo</button>
+        </p>
         <div class="form-actions">
           <button class="btn-primary" id="saveMaintenanceBtn" type="button">Save Maintenance Entry</button>
           <button id="cancelEditBtn" type="button" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel Edit</button>
@@ -3875,6 +3882,8 @@
       document.getElementById('m_mileage').value = entry.mileage || '';
       document.getElementById('m_description').value = entry.description || '';
       document.getElementById('m_invoice').value = '';
+      window.__removeInvoicePending = false;
+      document.getElementById('m_invoiceRemovePendingNote').style.display = 'none';
       document.getElementById('m_invoiceNote').style.display = entry.hasInvoice ? 'block' : 'none';
       window.__editingLogId = id;
       document.getElementById('maintenanceLogHeading').textContent = 'Edit Maintenance Entry';
@@ -4038,11 +4047,25 @@
       const dateEl = document.getElementById('m_date');
       const descEl = document.getElementById('m_description');
       const mileageEl = document.getElementById('m_mileage');
+      const truckEl = document.getElementById('m_truck');
       let filledAny = false;
+      let truckMatchName = null;
+      if(data.vin){
+        const normalize = s => (s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const extractedVin = normalize(data.vin);
+        const matchedTruck = trucks.find(t => t.vin && normalize(t.vin) === extractedVin);
+        if(matchedTruck){
+          truckEl.value = matchedTruck.id;
+          truckMatchName = matchedTruck.nickname;
+          filledAny = true;
+        }
+      }
       if(data.date && !dateEl.value){ dateEl.value = data.date; filledAny = true; }
       if(data.description && !descEl.value){ descEl.value = data.description; filledAny = true; }
       if(typeof data.mileage === 'number' && !mileageEl.value){ mileageEl.value = data.mileage; filledAny = true; }
-      statusEl.textContent = filledAny ? 'Filled in from the invoice \u2014 double-check before saving.' : '';
+      statusEl.textContent = filledAny
+        ? `Filled in from the invoice${truckMatchName ? ` \u2014 matched to ${truckMatchName} by VIN` : ''} \u2014 double-check before saving.`
+        : '';
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Invoice extraction failed:', err);
@@ -4070,9 +4093,10 @@
     const editingId = window.__editingLogId || null;
     const existingEntry = editingId ? maintenanceLogs.find(l => l.id === editingId) : null;
     const logId = editingId || ('log_' + Date.now() + '_' + Math.floor(Math.random()*1000));
+    const removingInvoice = !invoiceFile && !!window.__removeInvoicePending;
     const entry = {
       id: logId, truckId, date, description, nextDue, mileage,
-      hasInvoice: invoiceFile ? true : !!(existingEntry && existingEntry.hasInvoice)
+      hasInvoice: invoiceFile ? true : (removingInvoice ? false : !!(existingEntry && existingEntry.hasInvoice))
     };
 
     let invoiceOk = true;
@@ -4087,6 +4111,9 @@
         invoiceOk = false;
       }
       if(!invoiceOk) entry.hasInvoice = !!(existingEntry && existingEntry.hasInvoice);
+    } else if(removingInvoice){
+      try{ await window.dashboardApi.delete('fleet-invoice-' + logId); }
+      catch(err){ console.error('Invoice removal failed:', err); }
     }
 
     if(editingId){
@@ -4103,7 +4130,9 @@
     document.getElementById('m_mileage').value = '';
     document.getElementById('m_invoice').value = '';
     document.getElementById('m_invoiceNote').style.display = 'none';
+    document.getElementById('m_invoiceRemovePendingNote').style.display = 'none';
     window.__editingLogId = null;
+    window.__removeInvoicePending = false;
     document.getElementById('maintenanceLogHeading').textContent = 'Log Maintenance';
     document.getElementById('saveMaintenanceBtn').textContent = 'Save Maintenance Entry';
     document.getElementById('cancelEditBtn').style.display = 'none';
@@ -4125,17 +4154,32 @@
 
   document.getElementById('cancelEditBtn').addEventListener('click', ()=>{
     window.__editingLogId = null;
+    window.__removeInvoicePending = false;
     document.getElementById('m_date').value = '';
     document.getElementById('m_description').value = '';
     document.getElementById('m_nextDue').value = '';
     document.getElementById('m_mileage').value = '';
     document.getElementById('m_invoice').value = '';
     document.getElementById('m_invoiceNote').style.display = 'none';
+    document.getElementById('m_invoiceRemovePendingNote').style.display = 'none';
     document.getElementById('maintenanceLogHeading').textContent = 'Log Maintenance';
     document.getElementById('saveMaintenanceBtn').textContent = 'Save Maintenance Entry';
     document.getElementById('cancelEditBtn').style.display = 'none';
     document.getElementById('maintenanceStatus').textContent = '';
     document.getElementById('maintenanceStatus').className = 'status-msg';
+  });
+
+  document.getElementById('m_removeInvoiceBtn').addEventListener('click', ()=>{
+    if(!confirm('Remove the attached invoice from this entry? This takes effect when you save.')) return;
+    window.__removeInvoicePending = true;
+    document.getElementById('m_invoiceNote').style.display = 'none';
+    document.getElementById('m_invoiceRemovePendingNote').style.display = 'block';
+  });
+
+  document.getElementById('m_undoRemoveInvoiceBtn').addEventListener('click', ()=>{
+    window.__removeInvoicePending = false;
+    document.getElementById('m_invoiceRemovePendingNote').style.display = 'none';
+    document.getElementById('m_invoiceNote').style.display = 'block';
   });
 
   // Check fleet status on initial page load so the home tile reflects it immediately,
