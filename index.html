@@ -1959,6 +1959,42 @@
         <p>Enter job details once, then print the full paperwork packet for the job type.</p>
       </div>
 
+      <div class="panel" id="pwBatchPanel">
+        <h3>Batch Upload &mdash; Work Orders</h3>
+        <p class="form-note">Drop in a day's worth of work orders (images or PDFs) and Claude will read each one, estimate whether it crosses 50 miles (switching to Long Distance Move if so), and build a ready-to-print paperwork packet for every job. Captain isn't on the work order, so that's always a manual pick per job. Review everything before generating.</p>
+        <div id="pwBatch_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
+          <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop work orders here, or click to paste (Ctrl+V or Cmd+V)</p>
+          <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="pwBatch_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
+          <input type="file" id="pwBatch_files" accept=".jpg,.jpeg,.png,.pdf" multiple style="display:none;">
+        </div>
+        <div id="pwBatch_thumbnails" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;"></div>
+        <div class="form-actions">
+          <button class="btn-primary" id="pwBatch_extractBtn" type="button">Read Work Orders</button>
+          <span class="status-msg" id="pwBatch_extractStatus"></span>
+        </div>
+
+        <div id="pwBatch_reviewWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Review Before Generating</h4>
+          <p class="form-note">Distance is an estimate (straight-line with a road-distance buffer, not an exact route) &mdash; double-check anything close to the 50-mile line. Fix any field that looks off before generating.</p>
+          <div id="pwBatch_reviewRows"></div>
+          <div class="form-actions">
+            <button class="btn-primary" id="pwBatch_generateBtn" type="button">Generate Work Packages</button>
+            <span class="status-msg" id="pwBatch_generateStatus"></span>
+          </div>
+        </div>
+
+        <div id="pwBatch_excludedWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Excluded &mdash; Junk Removal (no paperwork needed)</h4>
+          <p class="form-note">These were found in the uploaded files but skipped, since junk removal jobs don't get a work package.</p>
+          <div id="pwBatch_excludedRows"></div>
+        </div>
+
+        <div id="pwBatch_packagesWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Work Packages Ready to Print</h4>
+          <div id="pwBatch_packagesRows"></div>
+        </div>
+      </div>
+
       <div class="panel">
         <h3>Job Data Entry</h3>
         <div class="form-grid">
@@ -4445,6 +4481,7 @@
       img.src = objectUrl;
     });
   }
+  window.compressImageForUpload = compressImageForUpload;
 
   // Decoded byte size of a base64 data URI -- data URIs run ~33% larger than
   // the bytes they represent, so a raw string-length comparison against
@@ -10941,44 +10978,500 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       : sel.value.trim();
   }
 
+  // Builds the full paperwork packet HTML for whatever job type is
+  // currently in the pw_jobType field, reading all other fields via pwVal().
+  // Shared by the single-job Print Paperwork button and the batch work
+  // order flow, so both always stay in sync with the same generation logic.
+  async function buildWorkPackageHtml(jobType){
+    let html = '';
+    let extraNote = '';
+    if(jobType === 'move'){
+      html += buildPWBillOfLading(1);
+      html += buildPWLiabilityWaiver(2, true);
+      html += buildPWShipperDeclaration(3);
+      html += buildPWGAGuide(4);
+      html += buildPWAddendum(5);
+      html += buildPWPreExistingDamages(6);
+    } else if(jobType === 'longdistance'){
+      const clientName = pwVal('pw_clientName');
+      const bolHtml = await pullLongDistanceBOL(clientName);
+      if(bolHtml){
+        html += bolHtml;
+        html += buildPWLiabilityWaiver(4, true);
+        html += buildPWGAGuide(5);
+        html += buildPWAddendum(6);
+        html += buildPWPreExistingDamages(7);
+        extraNote = ` Included the matching Long Distance Bill of Lading for "${clientName}".`;
+      } else {
+        html += buildPWLiabilityWaiver(1, true);
+        html += buildPWGAGuide(2);
+        html += buildPWAddendum(3);
+        html += buildPWPreExistingDamages(4);
+        extraNote = clientName
+          ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name) first if you need it included.`
+          : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
+      }
+    } else {
+      html += buildPWLiabilityWaiver(1, true);
+      html += buildPWPreExistingDamages(2);
+      html += buildPWShipperDeclaration(3);
+    }
+    return { html, extraNote };
+  }
+
+  // ---------- Job Paperwork: Batch Work Order Upload ----------
+  let pwBatchPastedImages = []; // {id, previewDataUri, originalFile, isPdf}
+  let pwBatchReview = [];       // review rows before generation
+  let pwBatchPackages = [];     // generated work packages {jobNumber, clientName, jobType, html, extraNote}
+  let pwBatchExcluded = [];     // junk removal jobs found but excluded (no paperwork needed)
+  let pwBatchRosterCache = null;
+
+  function pwBatchEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function renderPwBatchThumbnails(){
+    const wrap = document.getElementById('pwBatch_thumbnails');
+    wrap.innerHTML = pwBatchPastedImages.map(img => `
+      <div style="position:relative; width:80px; height:80px;">
+        <img src="${img.allPageDataUris[0]}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        ${img.allPageDataUris.length > 1 ? `<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">${img.allPageDataUris.length} pages</span>` : (img.isPdf ? '<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">PDF</span>' : '')}
+        <button type="button" class="pwBatch-remove-paste" data-id="${img.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
+      </div>`).join('');
+    wrap.querySelectorAll('.pwBatch-remove-paste').forEach(btn => btn.addEventListener('click', (e)=>{
+      pwBatchPastedImages = pwBatchPastedImages.filter(img => img.id !== e.target.dataset.id);
+      renderPwBatchThumbnails();
+    }));
+  }
+
+  async function addPwBatchFile(file){
+    const statusEl = document.getElementById('pwBatch_extractStatus');
+    if(file.size > 30*1024*1024){
+      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    try{
+      let allPageDataUris, isPdf = false;
+      if(file.type === 'application/pdf'){
+        // Every page is kept -- a single uploaded PDF might contain more than
+        // one work order back to back, and telling them apart requires
+        // seeing all the pages together, not just the first one.
+        allPageDataUris = await window.getImagesForAssessment(file);
+        if(allPageDataUris.length === 0) throw new Error('Could not read that PDF.');
+        isPdf = true;
+      } else if(file.type.startsWith('image/')){
+        allPageDataUris = [await window.compressImageForUpload(file, 2000, 0.92)];
+      } else {
+        throw new Error('Unsupported file type.');
+      }
+      if(allPageDataUris.length > 24){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      pwBatchPastedImages.push({ id: 'pwbatch_' + Date.now() + '_' + Math.floor(Math.random()*1000), allPageDataUris, originalFile: file, isPdf });
+      renderPwBatchThumbnails();
+    }catch(err){
+      console.error('Work order processing failed:', err);
+      statusEl.textContent = 'Could not process that file \u2014 try a different document.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+
+  const pwBatchPasteZone = document.getElementById('pwBatch_pasteZone');
+  pwBatchPasteZone.addEventListener('click', ()=> pwBatchPasteZone.focus());
+  pwBatchPasteZone.addEventListener('focus', ()=>{ pwBatchPasteZone.style.borderColor = 'var(--brand-orange)'; pwBatchPasteZone.style.background = '#fff'; });
+  pwBatchPasteZone.addEventListener('blur', ()=>{ pwBatchPasteZone.style.borderColor = 'var(--line)'; pwBatchPasteZone.style.background = '#fafafa'; });
+  pwBatchPasteZone.addEventListener('paste', async (e)=>{
+    e.preventDefault();
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && (item.type.startsWith('image/') || item.type === 'application/pdf'));
+    if(items.length === 0){
+      const statusEl = document.getElementById('pwBatch_extractStatus');
+      statusEl.textContent = 'That paste didn\u2019t contain an image or PDF.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const item of items){
+      const blob = item.getAsFile();
+      if(blob) await addPwBatchFile(blob);
+    }
+  });
+  pwBatchPasteZone.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    pwBatchPasteZone.style.borderColor = 'var(--brand-orange)';
+    pwBatchPasteZone.style.background = '#fff';
+  });
+  pwBatchPasteZone.addEventListener('dragleave', ()=>{
+    pwBatchPasteZone.style.borderColor = 'var(--line)';
+    pwBatchPasteZone.style.background = '#fafafa';
+  });
+  pwBatchPasteZone.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    pwBatchPasteZone.style.borderColor = 'var(--line)';
+    pwBatchPasteZone.style.background = '#fafafa';
+    const files = Array.from(e.dataTransfer ? e.dataTransfer.files : []).filter(f => f.type && (f.type.startsWith('image/') || f.type === 'application/pdf'));
+    if(files.length === 0){
+      const statusEl = document.getElementById('pwBatch_extractStatus');
+      statusEl.textContent = 'That didn\u2019t contain an image or PDF.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const file of files){ await addPwBatchFile(file); }
+  });
+
+  document.getElementById('pwBatch_chooseFilesBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('pwBatch_files').click();
+  });
+  document.getElementById('pwBatch_files').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files || []);
+    for(const file of files){ await addPwBatchFile(file); }
+    e.target.value = '';
+  });
+
+  document.getElementById('pwBatch_extractBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('pwBatch_extractStatus');
+    if(pwBatchPastedImages.length === 0){
+      statusEl.textContent = 'Add at least one work order file first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(pwBatchPastedImages.length > 10){
+      statusEl.textContent = 'Please use 10 files or fewer at a time.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Reading work orders \u2014 this may take a moment...';
+    statusEl.className = 'status-msg';
+    try{
+      const files = pwBatchPastedImages.map(img => ({ images: img.allPageDataUris }));
+      const res = await fetch(`${API_BASE}/api/admin/extract-work-orders`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ files })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Extraction failed.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      const allDocuments = data.documents || [];
+      if(allDocuments.length === 0){
+        statusEl.textContent = 'Could not read any work orders from those files.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+
+      // Junk removal work orders never get paperwork packets -- pull them
+      // out into their own excluded list up front, visibly, rather than
+      // silently dropping them from the review list with no explanation.
+      const junkDocs = allDocuments.filter(d => d.serviceType === 'junkremoval');
+      const documents = allDocuments.filter(d => d.serviceType !== 'junkremoval');
+      pwBatchExcluded = junkDocs.map(d => ({
+        jobNumber: d.jobNumber || '(no job # read)',
+        clientName: d.clientName || '(no client name read)',
+        thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null
+      }));
+
+      if(documents.length === 0){
+        renderPwBatchExcluded();
+        statusEl.textContent = junkDocs.length > 0
+          ? `Found ${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'} \u2014 none need paperwork, so nothing to review.`
+          : 'Could not read any work orders from those files.';
+        statusEl.className = junkDocs.length > 0 ? 'status-msg ok' : 'status-msg err';
+        pwBatchPastedImages = [];
+        renderPwBatchThumbnails();
+        return;
+      }
+
+      statusEl.textContent = `${documents.length} job${documents.length===1?'':'s'} read \u2014 estimating distances...`;
+
+      const distancePromises = documents.map(async d => {
+        if(!d.originAddress || !d.destAddress) return null;
+        try{
+          const distRes = await fetch(`${API_BASE}/api/estimate-move-distance`, {
+            method: 'POST',
+            headers: authHeaders({'Content-Type': 'application/json'}),
+            body: JSON.stringify({ originAddress: d.originAddress, destAddress: d.destAddress })
+          });
+          if(!distRes.ok) return null;
+          return await distRes.json();
+        }catch(err){ return null; }
+      });
+      const distances = await Promise.all(distancePromises);
+
+      pwBatchReview = documents.map((d, i) => {
+        const dist = distances[i];
+        const isLongDistance = !!(dist && dist.ok && dist.estimatedDrivingMiles > 50);
+        let jobType = '';
+        if(isLongDistance) jobType = 'longdistance';
+        else if(d.serviceType === 'move' || d.serviceType === 'movelabor') jobType = d.serviceType;
+        const thumbnail = (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null;
+        return {
+          reviewId: 'pwrev_' + i,
+          jobNumber: d.jobNumber || '',
+          clientName: d.clientName || '',
+          clientPhone: d.clientPhone || '',
+          clientEmail: d.clientEmail || '',
+          originAddress: d.originAddress || '',
+          destAddress: d.destAddress || '',
+          jobDate: d.jobDate || '',
+          estimateSummary: d.estimateSummary || '',
+          confident: !!d.confident,
+          distanceInfo: dist && dist.ok ? dist : null,
+          jobType,
+          captainName: '',
+          thumbnail
+        };
+      });
+
+      await renderPwBatchReview();
+      renderPwBatchExcluded();
+      const junkNote = junkDocs.length > 0 ? ` (${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'} excluded, shown below)` : '';
+      statusEl.textContent = `${pwBatchReview.length} job${pwBatchReview.length===1?'':'s'} read and ready to review.${junkNote}`;
+      statusEl.className = 'status-msg ok';
+      pwBatchPastedImages = [];
+      renderPwBatchThumbnails();
+    }catch(err){
+      console.error('Work order extraction failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  function pwBatchDataUriToBlobUrl(dataUri){
+    const [header, base64] = dataUri.split(',');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i++){ bytes[i] = binary.charCodeAt(i); }
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  }
+
+  function renderPwBatchExcluded(){
+    const wrap = document.getElementById('pwBatch_excludedWrap');
+    const container = document.getElementById('pwBatch_excludedRows');
+    if(pwBatchExcluded.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    container.innerHTML = pwBatchExcluded.map((x, i) => `
+      <div style="display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+        ${x.thumbnail ? `<img class="pwBatch-excluded-thumb" data-index="${i}" src="${x.thumbnail}" style="width:44px; height:44px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;">` : ''}
+        <div><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)} <span class="form-note" style="margin:0;">Junk Removal</span></div>
+      </div>`).join('');
+    container.querySelectorAll('.pwBatch-excluded-thumb').forEach(img => img.addEventListener('click', (e)=>{
+      const x = pwBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
+      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+    }));
+  }
+
+  async function renderPwBatchReview(){
+    const wrap = document.getElementById('pwBatch_reviewWrap');
+    const container = document.getElementById('pwBatch_reviewRows');
+    if(pwBatchReview.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+
+    if(!pwBatchRosterCache){
+      try{ pwBatchRosterCache = await window.getCurrentEmployeeRoster(); }
+      catch(err){ console.error('Roster load failed:', err); pwBatchRosterCache = []; }
+    }
+    const captainOptions = '<option value="">Select Captain...</option>' + pwBatchRosterCache.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
+
+    container.innerHTML = pwBatchReview.map(r => {
+      const missingKeyField = !r.jobNumber || !r.clientName || !r.originAddress || !r.destAddress;
+      const dist = r.distanceInfo;
+      let distNote = '';
+      if(dist){
+        const nearOrOver = dist.estimatedDrivingMiles > 40;
+        distNote = `<span style="${nearOrOver ? 'color:#b3261e; font-weight:600;' : 'color:var(--muted);'}">~${dist.estimatedDrivingMiles} mi (est. driving)</span>`;
+      } else if(r.originAddress && r.destAddress){
+        distNote = '<span style="color:var(--muted);">Could not estimate distance</span>';
+      }
+      return `
+      <div data-review-id="${r.reviewId}" style="display:flex; gap:12px; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; ${missingKeyField ? 'background:#fdf6e3;' : ''}">
+        ${r.thumbnail ? `<img class="pwrev-thumb" data-review-id="${r.reviewId}" src="${r.thumbnail}" style="width:56px; height:56px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;" title="Click to view the source page">` : ''}
+        <div style="flex:1; min-width:0;">
+        <div class="form-grid" style="margin-bottom:8px;">
+          <label style="font-size:11px;">Job # <input type="text" class="pwrev-field" data-field="jobNumber" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.jobNumber)}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Client Name <input type="text" class="pwrev-field" data-field="clientName" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.clientName)}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Client Phone <input type="text" class="pwrev-field" data-field="clientPhone" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.clientPhone)}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Client Email <input type="email" class="pwrev-field" data-field="clientEmail" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.clientEmail)}" style="font-size:13px;"></label>
+        </div>
+        <div class="form-grid" style="margin-bottom:8px;">
+          <label style="font-size:11px;">Origin Address <input type="text" class="pwrev-field" data-field="originAddress" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.originAddress)}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Destination Address <input type="text" class="pwrev-field" data-field="destAddress" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.destAddress)}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Job Date <input type="date" class="pwrev-field" data-field="jobDate" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.jobDate)}" style="font-size:13px;"></label>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
+          <select class="pwrev-jobtype" data-review-id="${r.reviewId}" style="font-size:12.5px;">
+            <option value="">Select job type...</option>
+            <option value="move">Move</option>
+            <option value="movelabor">Move Labor</option>
+            <option value="longdistance">Long Distance Move</option>
+          </select>
+          ${distNote}
+          <select class="pwrev-captain" data-review-id="${r.reviewId}" style="font-size:12.5px;">${captainOptions}</select>
+          <button type="button" class="pwrev-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:auto;">Remove</button>
+        </div>
+        ${missingKeyField ? '<div style="font-size:11.5px; color:#8a6d00;">\u26a0 Missing job #, client name, or an address \u2014 fill in before generating.</div>' : ''}
+        ${!r.confident ? '<div style="font-size:11.5px; color:var(--muted);">Low confidence read \u2014 please double-check the fields above.</div>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    container.querySelectorAll('.pwrev-thumb').forEach(thumb => thumb.addEventListener('click', (e)=>{
+      const r = pwBatchReview.find(x => x.reviewId === e.currentTarget.dataset.reviewId);
+      if(r && r.thumbnail) window.open(pwBatchDataUriToBlobUrl(r.thumbnail), '_blank');
+    }));
+    container.querySelectorAll('.pwrev-field').forEach(input => {
+      input.addEventListener('input', (e)=>{
+        const r = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+        if(r) r[e.target.dataset.field] = e.target.value;
+      });
+    });
+    container.querySelectorAll('.pwrev-jobtype').forEach(sel => {
+      const r = pwBatchReview.find(x => x.reviewId === sel.dataset.reviewId);
+      if(r) sel.value = r.jobType;
+      sel.addEventListener('change', (e)=>{
+        const rev = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+        if(rev) rev.jobType = e.target.value;
+      });
+    });
+    container.querySelectorAll('.pwrev-captain').forEach(sel => {
+      const r = pwBatchReview.find(x => x.reviewId === sel.dataset.reviewId);
+      if(r) sel.value = r.captainName;
+      sel.addEventListener('change', (e)=>{
+        const rev = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+        if(rev) rev.captainName = e.target.value;
+      });
+    });
+    container.querySelectorAll('.pwrev-remove').forEach(btn => btn.addEventListener('click', (e)=>{
+      pwBatchReview = pwBatchReview.filter(x => x.reviewId !== e.target.dataset.reviewId);
+      renderPwBatchReview();
+    }));
+  }
+
+  // Shared by the manual Clear All Fields button and the batch flow (which
+  // needs to reset the form after driving it programmatically for each job).
+  function pwClearFormFields(){
+    const fieldIds = ['pw_jobNumber','pw_clientName','pw_clientPhone','pw_clientEmail','pw_originAddress','pw_destAddress',
+      'pw_stop1','pw_stop2','pw_stop3','pw_estimateSummary','pw_estDate','pw_packingDate','pw_loadingDate','pw_deliveryDate','pw_unpackingDate','pw_otherServiceDate'];
+    fieldIds.forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('pw_captainSelect').value = '';
+    document.getElementById('pw_captainOther').value = '';
+    document.getElementById('pw_captainOtherWrap').style.display = 'none';
+    document.getElementById('pw_jobType').value = 'move';
+    updatePWJobTypeUI();
+  }
+
+  document.getElementById('pwBatch_generateBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('pwBatch_generateStatus');
+    const ready = pwBatchReview.filter(r => r.jobNumber && r.clientName && r.originAddress && r.destAddress && r.jobType);
+    if(ready.length === 0){
+      statusEl.textContent = 'Fill in job #, client name, both addresses, and a job type for at least one job first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = `Generating ${ready.length} work package${ready.length===1?'':'s'}...`;
+    statusEl.className = 'status-msg';
+    const generated = [];
+    try{
+      for(const r of ready){
+        document.getElementById('pw_jobNumber').value = r.jobNumber;
+        document.getElementById('pw_clientName').value = r.clientName;
+        document.getElementById('pw_clientPhone').value = r.clientPhone;
+        document.getElementById('pw_clientEmail').value = r.clientEmail;
+        document.getElementById('pw_originAddress').value = r.originAddress;
+        document.getElementById('pw_destAddress').value = r.destAddress;
+        document.getElementById('pw_stop1').value = '';
+        document.getElementById('pw_stop2').value = '';
+        document.getElementById('pw_stop3').value = '';
+        document.getElementById('pw_estDate').value = '';
+        document.getElementById('pw_packingDate').value = '';
+        document.getElementById('pw_loadingDate').value = r.jobDate || ''; // the one date on a work order maps to Loading Date
+        document.getElementById('pw_deliveryDate').value = '';
+        document.getElementById('pw_unpackingDate').value = '';
+        document.getElementById('pw_otherServiceDate').value = '';
+        document.getElementById('pw_estimateSummary').value = r.estimateSummary || '';
+        document.getElementById('pw_jobType').value = r.jobType;
+        document.getElementById('pw_captainSelect').value = r.captainName || '';
+        document.getElementById('pw_captainOther').value = '';
+        document.getElementById('pw_captainOtherWrap').style.display = 'none';
+        updatePWJobTypeUI();
+
+        await archiveJobData();
+        const { html, extraNote } = await buildWorkPackageHtml(r.jobType);
+        generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote });
+      }
+
+      pwClearFormFields();
+      pwBatchPackages = pwBatchPackages.concat(generated);
+      pwBatchReview = pwBatchReview.filter(r => !ready.includes(r));
+      renderPwBatchReview();
+      renderPwBatchPackages();
+      statusEl.textContent = `${generated.length} work package${generated.length===1?'':'s'} generated \u2014 print each below.`;
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Batch work package generation failed:', err);
+      statusEl.textContent = 'Could not generate one or more packages: ' + (err && err.message ? err.message : String(err));
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  const PW_JOB_TYPE_LABELS = { move: 'Move', movelabor: 'Move Labor', longdistance: 'Long Distance Move' };
+
+  function renderPwBatchPackages(){
+    const wrap = document.getElementById('pwBatch_packagesWrap');
+    const container = document.getElementById('pwBatch_packagesRows');
+    if(pwBatchPackages.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    container.innerHTML = pwBatchPackages.map((pkg, i) => `
+      <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+        <div>
+          <strong>${pwBatchEsc(pkg.jobNumber)}</strong> \u2014 ${pwBatchEsc(pkg.clientName)}
+          <span class="form-note" style="margin-left:6px;">${PW_JOB_TYPE_LABELS[pkg.jobType] || pkg.jobType}${pkg.captainName ? ' \u00b7 Captain: ' + pwBatchEsc(pkg.captainName) : ' \u00b7 No Captain assigned yet'}</span>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button type="button" class="pwpkg-print" data-index="${i}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Print</button>
+          <button type="button" class="pwpkg-remove" data-index="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:8px 10px; border-radius:4px; cursor:pointer;">Remove</button>
+        </div>
+      </div>`).join('');
+
+    container.querySelectorAll('.pwpkg-print').forEach(btn => btn.addEventListener('click', (e)=>{
+      const pkg = pwBatchPackages[parseInt(e.currentTarget.dataset.index, 10)];
+      if(!pkg) return;
+      document.getElementById('printPaperwork').innerHTML = pkg.html;
+      document.getElementById('printBOL').innerHTML = '';
+      document.getElementById('printEstimate').innerHTML = '';
+      window.print();
+    }));
+    container.querySelectorAll('.pwpkg-remove').forEach(btn => btn.addEventListener('click', (e)=>{
+      const idx = parseInt(e.currentTarget.dataset.index, 10);
+      pwBatchPackages = pwBatchPackages.filter((p, i) => i !== idx);
+      renderPwBatchPackages();
+    }));
+  }
+
   document.getElementById('pw_printBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pw_status');
     archiveJobData();
     try{
       const jobType = document.getElementById('pw_jobType').value;
-      let html = '';
-      let extraNote = '';
-      if(jobType === 'move'){
-        html += buildPWBillOfLading(1);
-        html += buildPWLiabilityWaiver(2, true);
-        html += buildPWShipperDeclaration(3);
-        html += buildPWGAGuide(4);
-        html += buildPWAddendum(5);
-        html += buildPWPreExistingDamages(6);
-      } else if(jobType === 'longdistance'){
-        const clientName = pwVal('pw_clientName');
-        const bolHtml = await pullLongDistanceBOL(clientName);
-        if(bolHtml){
-          html += bolHtml;
-          html += buildPWLiabilityWaiver(4, true);
-          html += buildPWGAGuide(5);
-          html += buildPWAddendum(6);
-          html += buildPWPreExistingDamages(7);
-          extraNote = ` Included the matching Long Distance Bill of Lading for "${clientName}".`;
-        } else {
-          html += buildPWLiabilityWaiver(1, true);
-          html += buildPWGAGuide(2);
-          html += buildPWAddendum(3);
-          html += buildPWPreExistingDamages(4);
-          extraNote = clientName
-            ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name) first if you need it included.`
-            : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
-        }
-      } else {
-        html += buildPWLiabilityWaiver(1, true);
-        html += buildPWPreExistingDamages(2);
-        html += buildPWShipperDeclaration(3);
-      }
+      const { html, extraNote } = await buildWorkPackageHtml(jobType);
       document.getElementById('printPaperwork').innerHTML = html;
       document.getElementById('printBOL').innerHTML = '';
       document.getElementById('printEstimate').innerHTML = '';
@@ -10995,14 +11488,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('pw_clearBtn').addEventListener('click', ()=>{
     if(!confirm('Clear all entered fields?')) return;
     const statusEl = document.getElementById('pw_status');
-    const fieldIds = ['pw_jobNumber','pw_clientName','pw_clientPhone','pw_clientEmail','pw_originAddress','pw_destAddress',
-      'pw_stop1','pw_stop2','pw_stop3','pw_estimateSummary','pw_estDate','pw_packingDate','pw_loadingDate','pw_deliveryDate','pw_unpackingDate','pw_otherServiceDate'];
-    fieldIds.forEach(id => { document.getElementById(id).value = ''; });
-    document.getElementById('pw_captainSelect').value = '';
-    document.getElementById('pw_captainOther').value = '';
-    document.getElementById('pw_captainOtherWrap').style.display = 'none';
-    document.getElementById('pw_jobType').value = 'move';
-    updatePWJobTypeUI();
+    pwClearFormFields();
     statusEl.textContent = 'All fields cleared.';
     statusEl.className = 'status-msg ok';
   });
