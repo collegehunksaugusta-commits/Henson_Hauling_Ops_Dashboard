@@ -1,3 +1,4 @@
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -158,18 +159,28 @@
   /* ---------- Collapsible dashboard categories ---------- */
   .dashSection{margin-bottom:14px;}
   .dashSectionHeader{
-    width:100%; display:flex; align-items:center; gap:10px;
+    width:100%; display:flex; align-items:flex-start; gap:10px;
     background:var(--paper); border:1px solid var(--line); border-radius:4px;
-    padding:14px 18px; cursor:pointer; font-family:'Barlow Condensed',sans-serif;
-    text-transform:uppercase; letter-spacing:.03em; font-size:18px; font-weight:700;
-    color:var(--charcoal); text-align:left;
+    padding:14px 18px; cursor:pointer; text-align:left;
   }
   .dashSectionHeader:hover{background:var(--offwhite);}
   .dashSectionHeader:focus-visible{outline:3px solid var(--steel); outline-offset:2px;}
   .dashSectionChevron{
     display:inline-block; transition:transform .15s ease; font-size:14px; color:var(--muted);
+    margin-top:5px;
   }
   .dashSection.expanded .dashSectionChevron{transform:rotate(90deg);}
+  .dashSectionHeaderText{flex:1; min-width:0; display:flex; flex-direction:column; gap:5px;}
+  .dashSectionTitleRow{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;
+    font-size:18px; font-weight:700; color:var(--charcoal);
+  }
+  .dashSectionEmoji{font-size:19px; line-height:1;}
+  .dashSectionTileList{
+    font-family:'Inter',sans-serif; font-size:12.5px; font-weight:500;
+    text-transform:none; letter-spacing:normal; color:var(--muted); line-height:1.4;
+  }
   .dashSectionCount{
     font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.05em;
     color:var(--muted); font-weight:600; text-transform:none;
@@ -1458,9 +1469,15 @@
     <div class="dashSection" id="dashSection-operations" data-category="operations">
       <button type="button" class="dashSectionHeader" id="dashSectionHeader-operations" aria-expanded="false" aria-controls="tilesContainer-operations">
         <span class="dashSectionChevron">&#9656;</span>
-        <span>Operations</span>
-        <span class="dashSectionCount">(5)</span>
-        <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
+        <div class="dashSectionHeaderText">
+          <div class="dashSectionTitleRow">
+            <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
+            <span>Operations</span>
+            <span class="dashSectionCount">(5)</span>
+            <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
+          </div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics</div>
+        </div>
       </button>
       <div class="dashSectionBody">
         <div class="tiles tilesCategory" id="tilesContainer-operations">
@@ -1495,9 +1512,15 @@
     <div class="dashSection" id="dashSection-people" data-category="people">
       <button type="button" class="dashSectionHeader" id="dashSectionHeader-people" aria-expanded="false" aria-controls="tilesContainer-people">
         <span class="dashSectionChevron">&#9656;</span>
-        <span>People</span>
-        <span class="dashSectionCount">(2)</span>
-        <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
+        <div class="dashSectionHeaderText">
+          <div class="dashSectionTitleRow">
+            <span class="dashSectionEmoji" aria-hidden="true">👥</span>
+            <span>People</span>
+            <span class="dashSectionCount">(2)</span>
+            <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
+          </div>
+          <div class="dashSectionTileList">Captain Metrics, Attendance Tracking</div>
+        </div>
       </button>
       <div class="dashSectionBody">
         <div class="tiles tilesCategory" id="tilesContainer-people">
@@ -1517,9 +1540,15 @@
     <div class="dashSection" id="dashSection-pay" data-category="pay">
       <button type="button" class="dashSectionHeader" id="dashSectionHeader-pay" aria-expanded="false" aria-controls="tilesContainer-pay">
         <span class="dashSectionChevron">&#9656;</span>
-        <span>Pay</span>
-        <span class="dashSectionCount">(3)</span>
-        <span class="dashSectionAttention" id="dashSectionAttention-pay">Attention Needed</span>
+        <div class="dashSectionHeaderText">
+          <div class="dashSectionTitleRow">
+            <span class="dashSectionEmoji" aria-hidden="true">💰</span>
+            <span>Pay</span>
+            <span class="dashSectionCount">(3)</span>
+            <span class="dashSectionAttention" id="dashSectionAttention-pay">Attention Needed</span>
+          </div>
+          <div class="dashSectionTileList">ADP, Labor Cost, Tip Allocation</div>
+        </div>
       </button>
       <div class="dashSectionBody">
         <div class="tiles tilesCategory" id="tilesContainer-pay">
@@ -1545,9 +1574,15 @@
     <div class="dashSection" id="dashSection-trucks" data-category="trucks">
       <button type="button" class="dashSectionHeader" id="dashSectionHeader-trucks" aria-expanded="false" aria-controls="tilesContainer-trucks">
         <span class="dashSectionChevron">&#9656;</span>
-        <span>Trucks</span>
-        <span class="dashSectionCount">(3)</span>
-        <span class="dashSectionAttention" id="dashSectionAttention-trucks">Attention Needed</span>
+        <div class="dashSectionHeaderText">
+          <div class="dashSectionTitleRow">
+            <span class="dashSectionEmoji" aria-hidden="true">🚚</span>
+            <span>Trucks</span>
+            <span class="dashSectionCount">(3)</span>
+            <span class="dashSectionAttention" id="dashSectionAttention-trucks">Attention Needed</span>
+          </div>
+          <div class="dashSectionTileList">Motive, Fleet Maintenance, Regulatory Compliance</div>
+        </div>
       </button>
       <div class="dashSectionBody">
         <div class="tiles tilesCategory" id="tilesContainer-trucks">
@@ -1574,9 +1609,15 @@
     <div class="dashSection" id="dashSection-marketing" data-category="marketing">
       <button type="button" class="dashSectionHeader" id="dashSectionHeader-marketing" aria-expanded="false" aria-controls="tilesContainer-marketing">
         <span class="dashSectionChevron">&#9656;</span>
-        <span>Marketing</span>
-        <span class="dashSectionCount">(1)</span>
-        <span class="dashSectionAttention" id="dashSectionAttention-marketing">Attention Needed</span>
+        <div class="dashSectionHeaderText">
+          <div class="dashSectionTitleRow">
+            <span class="dashSectionEmoji" aria-hidden="true">📣</span>
+            <span>Marketing</span>
+            <span class="dashSectionCount">(1)</span>
+            <span class="dashSectionAttention" id="dashSectionAttention-marketing">Attention Needed</span>
+          </div>
+          <div class="dashSectionTileList">Marketing</div>
+        </div>
       </button>
       <div class="dashSectionBody">
         <div class="tiles tilesCategory" id="tilesContainer-marketing">
