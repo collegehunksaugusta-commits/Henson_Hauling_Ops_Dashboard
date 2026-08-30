@@ -11160,7 +11160,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // everything else -- same .print-page convention the rest of this packet
     // already uses, so it paginates identically when printed.
     let html = woPages.map(dataUri => `
-      <div class="print-page" style="display:flex; align-items:center; justify-content:center; padding:0.15in;">
+      <div class="print-page" style="display:flex; align-items:center; justify-content:center; padding:0.15in; height:11in; overflow:hidden;">
         <img src="${dataUri}" style="max-width:100%; max-height:100%; object-fit:contain;">
       </div>`).join('');
     const woOffset = woPages.length; // shifts every "Page N" label so the whole printed packet numbers consistently
