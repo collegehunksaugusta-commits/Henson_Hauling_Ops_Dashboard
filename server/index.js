@@ -1727,17 +1727,18 @@ app.post('/api/admin/extract-invoice', requireAuth, async (req, res) => {
 // which fields looked blank so a human can spot-check.
 const ASSESS_COMPLETENESS_TOOL = {
   name: 'assess_completeness',
-  description: 'Assess how many of the blank signature, initials, or written-response fields on this moving-company paperwork document appear to have been filled in by hand.',
+  description: 'Assess how many of the REQUIRED blank signature, initials, or written-response fields on this moving-company paperwork document appear to have been filled in by hand.',
   input_schema: {
     type: 'object',
     properties: {
-      totalFieldsFound: { type: 'number', description: 'Total count of blank-line fields across the document meant for a signature, initials, date written by hand, or other short handwritten response. Do not count printed/pre-filled text or checkboxes.' },
-      fieldsCompleted: { type: 'number', description: 'Of those, how many appear to actually have handwriting, a signature, initials, or a mark present -- as opposed to being visibly blank.' },
+      totalFieldsFound: { type: 'number', description: 'Total count of REQUIRED blank-line fields across the document meant for a signature, initials, date written by hand, or other short handwritten response. Do not count printed/pre-filled text or checkboxes. Do not count anything from an Addendum to Cost Estimate or Pre-existing Damages page, and do not count the signature/initial lines under valuation options on the Shipper Declaration of Value that were NOT the one selected -- see the exclusion rules.' },
+      fieldsCompleted: { type: 'number', description: 'Of those REQUIRED fields only, how many appear to actually have handwriting, a signature, initials, or a mark present -- as opposed to being visibly blank.' },
       incompleteFields: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Brief plain-language description of each field that appears blank, e.g. "Client signature on page 2", "Captain initials next to Item 4". Empty array if everything appears complete.'
+        description: 'Brief plain-language description of each REQUIRED field that appears blank, e.g. "Client signature on page 2", "Captain initials next to Item 4". Never include a field excluded by the exclusion rules. Empty array if everything required appears complete.'
       },
+      excludedNote: { type: 'string', description: 'Brief note on what was excluded and why, if anything (e.g. "Skipped Pre-existing Damages page (not required this job); only Option 2(a) counted on Declaration of Value"). Empty string if nothing was excluded.' },
       confident: { type: 'boolean', description: 'True if the document was legible enough to make this assessment. False if too blurry, cut off, poorly lit, or doesn\u2019t look like a moving/paperwork document.' }
     },
     required: ['totalFieldsFound', 'fieldsCompleted', 'confident']
@@ -1784,7 +1785,11 @@ app.post('/api/admin/assess-completeness', requireAuth, async (req, res) => {
           role: 'user',
           content: [
             ...imageBlocks,
-            { type: 'text', text: `This is completed paperwork (Bill of Lading, Liability Waiver, Declaration of Value, or similar) for a moving/junk-removal job -- possibly multiple pages. Find every blank-line field meant for a signature, initials, or other short handwritten response (not printed text, not checkboxes), and assess whether each one appears to actually have handwriting present or still looks blank. Look carefully -- pen marks can be faint, and photos may have shadows or glare.` }
+            { type: 'text', text: `This is completed paperwork (Bill of Lading, Liability Waiver, Declaration of Value, Addendum to Cost Estimate, Pre-existing Damages, or similar) for a moving/junk-removal job -- possibly multiple pages. Find every blank-line field meant for a signature, initials, or other short handwritten response (not printed text, not checkboxes), and assess whether each one appears to actually have handwriting present or still looks blank. Look carefully -- pen marks can be faint, and photos may have shadows or glare.
+
+Two exceptions -- exclude these from totalFieldsFound entirely (not counted as blank OR complete):
+1. The Addendum to Cost Estimate and Pre-existing Damages pages are not required on every job. If either page type appears in this set, skip it completely -- don't count any of its fields either way.
+2. The Shipper Declaration of Value offers three mutually-exclusive valuation options (Option 1, Option 2(a), Option 2(b)). Only the signature/initial line under whichever option was actually selected (marked, circled, or checked) counts as required -- the other two options' lines are supposed to stay blank and must never be counted as incomplete.` }
           ]
         }]
       })
