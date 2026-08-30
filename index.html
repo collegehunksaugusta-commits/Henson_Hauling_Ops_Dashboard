@@ -2061,6 +2061,11 @@
           <label>Job Number <input type="text" id="pu_jobNumber"></label>
         </div>
         <label>Client Email (auto-fills once you enter the Job Number above, if that job's paperwork was generated in the last 3 months) <input type="email" id="pu_clientEmail"></label>
+        <label>Captain (auto-fills from the job's original assignment &mdash; change it here if the job was reassigned during the day)
+          <select id="pu_captainSelect">
+            <option value="">Select Captain...</option>
+          </select>
+        </label>
         <div id="pu_dropzone" style="border:2px dashed var(--line); border-radius:8px; padding:28px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer; transition:background .15s, border-color .15s;">
           <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
           <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB</div>
@@ -11439,11 +11444,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return;
     }
     wrap.style.display = 'block';
+    const captainOptions = '<option value="">Select Captain...</option>' + (pwBatchRosterCache || []).map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
     container.innerHTML = pwBatchPackages.map((pkg, i) => `
-      <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:8px; flex-wrap:wrap; gap:8px; ${!pkg.captainName ? 'background:#fdf6e3;' : ''}">
         <div>
           <strong>${pwBatchEsc(pkg.jobNumber)}</strong> \u2014 ${pwBatchEsc(pkg.clientName)}
-          <span class="form-note" style="margin-left:6px;">${PW_JOB_TYPE_LABELS[pkg.jobType] || pkg.jobType}${pkg.captainName ? ' \u00b7 Captain: ' + pwBatchEsc(pkg.captainName) : ' \u00b7 No Captain assigned yet'}</span>
+          <span class="form-note" style="margin-left:6px;">${PW_JOB_TYPE_LABELS[pkg.jobType] || pkg.jobType}</span>
+          <div style="margin-top:4px; display:flex; align-items:center; gap:6px;">
+            <select class="pwpkg-captain" data-index="${i}" style="font-size:12.5px;">${captainOptions}</select>
+            <span class="status-msg" id="pwpkg_status_${i}"></span>
+          </div>
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
           <button type="button" class="pwpkg-print" data-index="${i}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Print</button>
@@ -11451,9 +11461,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </div>
       </div>`).join('');
 
+    container.querySelectorAll('.pwpkg-captain').forEach(sel => {
+      const idx = parseInt(sel.dataset.index, 10);
+      sel.value = pwBatchPackages[idx] ? pwBatchPackages[idx].captainName || '' : '';
+      sel.addEventListener('change', async (e)=>{
+        const i = parseInt(e.currentTarget.dataset.index, 10);
+        const pkg = pwBatchPackages[i];
+        if(!pkg) return;
+        pkg.captainName = e.currentTarget.value;
+        // Keep the job-archive record (which Captain Metrics/Ops Manager
+        // Metrics read from) in sync -- it was first written during
+        // generation, possibly with no Captain yet, so this is the moment
+        // that gets corrected if the assignment happens here instead.
+        try{
+          const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
+          const rec = archive.find(a => a.jobNumber === pkg.jobNumber);
+          if(rec){
+            rec.captainName = pkg.captainName;
+            await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
+          }
+        }catch(err){ console.error('Job archive Captain update failed:', err); }
+        const statusEl = document.getElementById('pwpkg_status_' + i);
+        if(statusEl){ statusEl.textContent = ''; statusEl.className = 'status-msg'; }
+        // Re-render so the missing-Captain highlight clears immediately.
+        renderPwBatchPackages();
+      });
+    });
+
     container.querySelectorAll('.pwpkg-print').forEach(btn => btn.addEventListener('click', (e)=>{
-      const pkg = pwBatchPackages[parseInt(e.currentTarget.dataset.index, 10)];
+      const idx = parseInt(e.currentTarget.dataset.index, 10);
+      const pkg = pwBatchPackages[idx];
       if(!pkg) return;
+      if(!pkg.captainName){
+        const statusEl = document.getElementById('pwpkg_status_' + idx);
+        if(statusEl){ statusEl.textContent = 'Select a Captain before printing.'; statusEl.className = 'status-msg err'; }
+        return;
+      }
       document.getElementById('printPaperwork').innerHTML = pkg.html;
       document.getElementById('printBOL').innerHTML = '';
       document.getElementById('printEstimate').innerHTML = '';
@@ -11839,6 +11882,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderPaperworkUploadsList();
   }
   loadPaperworkUploads();
+
+  async function loadPuCaptainRoster(){
+    const sel = document.getElementById('pu_captainSelect');
+    try{
+      const names = await window.getCurrentEmployeeRoster();
+      sel.innerHTML = '<option value="">Select Captain...</option>' + names.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
+    }catch(err){ console.error('Captain roster load failed:', err); }
+  }
+  loadPuCaptainRoster();
 
   async function savePaperworkUploadsList(){
     try{ return await window.dashboardApi.set(PAPERWORK_UPLOADS_KEY, paperworkUploads); }
@@ -12482,6 +12534,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(match.clientName && !document.getElementById('pu_clientName').value.trim()){
         document.getElementById('pu_clientName').value = match.clientName;
       }
+      if(match.captainName){
+        const captainSel = document.getElementById('pu_captainSelect');
+        if([...captainSel.options].some(o => o.value === match.captainName)){
+          captainSel.value = match.captainName;
+        }
+      }
     }
   });
 
@@ -12531,6 +12589,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const clientName = document.getElementById('pu_clientName').value.trim();
     const jobNumber = document.getElementById('pu_jobNumber').value.trim();
     const clientEmail = document.getElementById('pu_clientEmail').value.trim();
+    const captainName = document.getElementById('pu_captainSelect').value;
     if(!clientName || !jobNumber){
       statusEl.textContent = 'Enter both Client Name and Job Number before uploading.';
       statusEl.className = 'status-msg err';
@@ -12553,7 +12612,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, compressed.dataUri);
       if(!blobOk) throw new Error('Blob save failed');
-      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, fileName: file.name, uploadedAt: new Date().toISOString() };
+      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, captainName, fileName: file.name, uploadedAt: new Date().toISOString() };
       paperworkUploads.push(uploadRecord);
       const listOk = await savePaperworkUploadsList();
       if(listOk){
@@ -12565,6 +12624,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         document.getElementById('pu_clientName').value = '';
         document.getElementById('pu_jobNumber').value = '';
         document.getElementById('pu_clientEmail').value = '';
+        document.getElementById('pu_captainSelect').value = '';
+
+        // If the Captain was corrected here (job reassigned mid-day, etc.),
+        // write that correction back to the job-archive record -- Captain
+        // Metrics reads Captain from there, so this is what actually keeps
+        // a reassignment from being misattributed once metrics pick it up.
+        if(captainName){
+          try{
+            const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
+            const rec = archive.find(a => a.jobNumber === jobNumber);
+            if(rec && rec.captainName !== captainName){
+              rec.captainName = captainName;
+              await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
+            }
+          }catch(err){ console.error('Job archive Captain sync failed:', err); }
+        }
 
         // Completeness assessment is a secondary, best-effort metric -- runs
         // after the upload has already succeeded, and never blocks or
