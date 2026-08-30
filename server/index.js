@@ -67,7 +67,8 @@ const ALLOWED_KEYS = new Set([
   'mail-marketing-materials',
   'mail-mailed-history',
   'square-tip-allocations',
-  'square-tip-paid-weeks'
+  'square-tip-paid-weeks',
+  'roster-manual-additions'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-'];
 
@@ -331,12 +332,13 @@ app.get('/api/driver/truck-docs/:truckId', requireDriverAuth, async (req, res) =
 // staff login. Names only -- no pay, hours, or other payroll detail.
 app.get('/api/driver/roster', requireDriverAuth, async (req, res) => {
   try {
-    const raw = await redis.get('labor-weeks');
-    const weeks = raw ? JSON.parse(raw) : [];
-    if (!weeks.length) return res.json({ names: [] });
-    const sorted = [...weeks].sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
-    const mostRecent = sorted[0];
-    const names = (mostRecent.employees || []).map(e => e.name).filter(Boolean);
+    const [weeksRaw, manualRaw] = await Promise.all([
+      redis.get('labor-weeks'),
+      redis.get('roster-manual-additions')
+    ]);
+    const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
+    const manualAdditions = manualRaw ? JSON.parse(manualRaw) : [];
+    const names = computeRosterNames(weeks, manualAdditions);
     res.json({ names });
   } catch (err) {
     console.error('Driver roster fetch failed:', err.message);
@@ -638,14 +640,38 @@ app.post('/api/admin/tile-order', requireAuth, requireAdmin, async (req, res) =>
 // Attendance Tracking and Regulatory Compliance's Drivers section, which
 // aren't restricted to admins -- so this computes just the name list from
 // the most recent payroll week, without exposing gross pay, taxes, or hours.
+// Shared by /api/roster and /api/driver/roster. Looks back across the two
+// most recent payroll weeks (not just the latest one) and takes the union
+// of everyone who appears in either -- an employee who happened to be off
+// the most recent week (and so wasn't paid, and so wasn't in that week's
+// export) still shows up as a selectable option everywhere the roster is
+// used. Manually-added names (for someone new enough that no payroll run
+// has included them yet) are merged in on top of that.
+function computeRosterNames(weeks, manualAdditions){
+  const sorted = [...(weeks || [])].sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
+  const recentTwo = sorted.slice(0, 2);
+  const fromPayroll = recentTwo.flatMap(w => (w.employees || []).map(e => e.name)).filter(Boolean);
+  const combined = [...fromPayroll, ...(manualAdditions || [])];
+  const seen = new Set();
+  const deduped = [];
+  combined.forEach(name => {
+    const key = name.trim().toLowerCase();
+    if(!key || seen.has(key)) return;
+    seen.add(key);
+    deduped.push(name.trim());
+  });
+  return deduped.sort((a, b) => a.localeCompare(b));
+}
+
 app.get('/api/roster', requireAuth, async (req, res) => {
   try {
-    const raw = await redis.get('labor-weeks');
-    const weeks = raw ? JSON.parse(raw) : [];
-    if (!weeks.length) return res.json({ names: [] });
-    const sorted = [...weeks].sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
-    const mostRecent = sorted[0];
-    const names = (mostRecent.employees || []).map(e => e.name).filter(Boolean);
+    const [weeksRaw, manualRaw] = await Promise.all([
+      redis.get('labor-weeks'),
+      redis.get('roster-manual-additions')
+    ]);
+    const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
+    const manualAdditions = manualRaw ? JSON.parse(manualRaw) : [];
+    const names = computeRosterNames(weeks, manualAdditions);
     res.json({ names });
   } catch (err) {
     console.error('Roster fetch failed:', err.message);
