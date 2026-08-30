@@ -356,6 +356,7 @@
   #printBOL{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
   #printEstimate{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
   #printPaperwork{display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0;}
+  @page{margin:0;}
   #printBOL .print-page, #printEstimate .print-page, #printPaperwork .print-page{page-break-after:always; padding:0.5in; font-family:Georgia,'Times New Roman',serif; color:#000; box-sizing:border-box; width:8.5in; min-height:11in;}
   #printPaperwork .print-page{padding:0.32in;}
   #printBOL .print-page:last-child, #printEstimate .print-page:last-child, #printPaperwork .print-page:last-child{page-break-after:auto;}
@@ -11673,19 +11674,27 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
     });
 
-    container.querySelectorAll('.pwpkg-print').forEach(btn => btn.addEventListener('click', (e)=>{
+    container.querySelectorAll('.pwpkg-print').forEach(btn => btn.addEventListener('click', async (e)=>{
       const idx = parseInt(e.currentTarget.dataset.index, 10);
       const pkg = pwBatchPackages[idx];
       if(!pkg) return;
+      const statusEl = document.getElementById('pwpkg_status_' + idx);
       if(!pkg.captainName){
-        const statusEl = document.getElementById('pwpkg_status_' + idx);
         if(statusEl){ statusEl.textContent = 'Select a Captain before printing.'; statusEl.className = 'status-msg err'; }
         return;
       }
       document.getElementById('printPaperwork').innerHTML = pkg.html;
       document.getElementById('printBOL').innerHTML = '';
       document.getElementById('printEstimate').innerHTML = '';
-      window.print();
+      // Set before printing, not after -- window.print() blocks script
+      // execution until the browser's print dialog closes, so anything
+      // shown only afterward (like why the Long Distance BOL was or wasn't
+      // included) could otherwise go unseen.
+      if(statusEl && pkg.extraNote){
+        statusEl.textContent = pkg.extraNote.trim();
+        statusEl.className = 'status-msg ok';
+      }
+      await waitForPrintImagesAndPrint();
     }));
     container.querySelectorAll('.pwpkg-remove').forEach(btn => btn.addEventListener('click', (e)=>{
       const idx = parseInt(e.currentTarget.dataset.index, 10);
@@ -11693,6 +11702,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderPwBatchPackages();
     }));
   }
+
+  // Waits for every image inside #printPaperwork to finish decoding, then
+  // gives the browser one more paint cycle, before calling window.print().
+  // Without this, window.print() can fire before large embedded work-order
+  // images have actually finished laying out, which can result in missing
+  // or blank-looking pages in the print output.
+  async function waitForPrintImagesAndPrint(){
+    const container = document.getElementById('printPaperwork');
+    const imgs = Array.from(container.querySelectorAll('img'));
+    await Promise.all(imgs.map(img => {
+      if(img.complete) return Promise.resolve();
+      return new Promise(resolve => {
+        img.addEventListener('load', resolve, { once: true });
+        img.addEventListener('error', resolve, { once: true }); // never hang on a broken image
+      });
+    }));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    window.print();
+  }
+  window.waitForPrintImagesAndPrint = waitForPrintImagesAndPrint;
 
   document.getElementById('pw_printBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pw_status');
@@ -11703,9 +11732,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('printPaperwork').innerHTML = html;
       document.getElementById('printBOL').innerHTML = '';
       document.getElementById('printEstimate').innerHTML = '';
-      window.print();
-      statusEl.textContent = 'Print dialog opened \u2014 choose "Save as PDF" as the destination to get a PDF file.' + extraNote;
+      // Set before printing, not after -- window.print() blocks script
+      // execution until the browser's print dialog closes, so anything
+      // shown only afterward (like why the Long Distance BOL was or wasn't
+      // included) could otherwise go unseen.
+      statusEl.textContent = 'Opening print dialog \u2014 choose "Save as PDF" as the destination to get a PDF file.' + extraNote;
       statusEl.className = 'status-msg ok';
+      await waitForPrintImagesAndPrint();
     }catch(err){
       console.error('Paperwork print error:', err);
       statusEl.textContent = 'Could not generate paperwork: ' + (err && err.message ? err.message : String(err));
