@@ -869,6 +869,87 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
   }
 });
 
+// Splits a full address string into the primary_line/city/state Lob's
+// verification endpoint wants. Finds state+zip from the end via regex
+// (robust to "City, ST ZIP" vs "City, ST, ZIP" formatting differences),
+// then treats whatever's left as "street, city".
+function parseAddressForLob(fullAddress){
+  const stateZipMatch = fullAddress.match(/,?\s*([A-Za-z]{2})\s*,?\s*(\d{5})(?:-\d{4})?\s*$/);
+  if (!stateZipMatch) return null;
+  const state = stateZipMatch[1].toUpperCase();
+  const remainder = fullAddress.slice(0, stateZipMatch.index).trim().replace(/,\s*$/, '');
+  const lastCommaIdx = remainder.lastIndexOf(',');
+  if (lastCommaIdx === -1) return null;
+  const primaryLine = remainder.slice(0, lastCommaIdx).trim();
+  const city = remainder.slice(lastCommaIdx + 1).trim();
+  if (!primaryLine || !city) return null;
+  return { primaryLine, city, state };
+}
+
+function haversineMiles(a, b){
+  const R = 3958.8; // Earth's radius in miles
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(h));
+}
+
+// Geocodes two addresses via the same Lob US Verification API already used
+// for zip lookup (no new service/key needed), then estimates the distance
+// between them. Straight-line distance always underestimates real driving
+// distance, so a conservative multiplier is applied -- this is meant to
+// flag likely long-distance moves for a human to confirm, never to silently
+// decide job type on its own.
+app.post('/api/estimate-move-distance', requireAuth, async (req, res) => {
+  const { originAddress, destAddress } = req.body || {};
+  if (!originAddress || !destAddress) {
+    return res.status(400).json({ error: 'originAddress and destAddress are required.' });
+  }
+  const apiKey = process.env.LOB_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Distance estimate is not configured on the server yet (LOB_API_KEY is missing).' });
+  }
+
+  async function geocode(fullAddress){
+    const parsed = parseAddressForLob(fullAddress);
+    if (!parsed) return null;
+    const params = new URLSearchParams({ primary_line: parsed.primaryLine, city: parsed.city, state: parsed.state });
+    const lobRes = await fetch('https://api.lob.com/v1/us_verifications', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(apiKey + ':').toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
+    if (!lobRes.ok) return null;
+    const data = await lobRes.json();
+    const lat = data.components ? data.components.latitude : null;
+    const lng = data.components ? data.components.longitude : null;
+    if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+    return { lat, lng };
+  }
+
+  try {
+    const [originGeo, destGeo] = await Promise.all([geocode(originAddress), geocode(destAddress)]);
+    if (!originGeo || !destGeo) {
+      return res.json({ ok: false, reason: 'Could not geocode one or both addresses.' });
+    }
+    const straightLineMiles = haversineMiles(originGeo, destGeo);
+    const estimatedDrivingMiles = straightLineMiles * 1.3; // conservative -- errs toward catching genuinely long moves, not missing them
+    res.json({
+      ok: true,
+      straightLineMiles: Math.round(straightLineMiles * 10) / 10,
+      estimatedDrivingMiles: Math.round(estimatedDrivingMiles * 10) / 10
+    });
+  } catch (err) {
+    console.error('Move distance estimate failed:', err.message);
+    res.status(500).json({ error: 'Distance estimate failed: ' + err.message });
+  }
+});
+
 // Reads one or more uploaded real-estate listing screenshots and extracts a
 // structured address/city/state/zip for every listing visible, using Claude's
 // vision + tool-use (forcing structured output rather than parsing free
@@ -1115,6 +1196,269 @@ app.post('/api/admin/extract-truck-docs', requireAuth, async (req, res) => {
     res.json({ documents: allDocuments, partialFailures: batchErrors.length });
   } catch (err) {
     console.error('Truck doc extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
+// ============ Job Paperwork: Batch Work Order Extraction ============
+// Reads a batch of HunkWare work order documents (one image per document --
+// callers send just the first page, since that's where all the structured
+// fields live) and extracts the job details needed to populate Job Data
+// Entry and generate the paperwork packet.
+//
+// Each uploaded file is sent as ONE Claude call with ALL of its pages
+// together (not split into fixed-size batches like the other extraction
+// endpoints) -- a single uploaded PDF may contain more than one work order
+// back to back (e.g. a scanner combining a whole stack into one file), and
+// correctly telling where one job ends and the next begins requires seeing
+// all of a file's pages at once. Different files are still processed in
+// parallel for throughput.
+const EXTRACT_WORK_ORDER_TOOL = {
+  name: 'extract_work_orders',
+  description: 'Extract job details for every distinct work order found across the provided pages.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      documents: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            firstPageIndex: { type: 'number', description: 'The 0-based index, among the pages provided in this call, of this work order\u2019s first/primary page (the one with the main job details table) -- used to show a representative thumbnail. If a work order spans multiple pages, this is the first one.' },
+            jobNumber: { type: 'string', description: 'The Job ID / Job Number as printed on the work order. Empty string if not found.' },
+            clientName: { type: 'string', description: 'The client\u2019s full name. Empty string if not found.' },
+            clientPhone: { type: 'string', description: 'The client\u2019s phone number as printed. Empty string if not found.' },
+            clientEmail: { type: 'string', description: 'The client\u2019s email address. Empty string if not found.' },
+            originAddress: { type: 'string', description: 'The full pick-up/origin address as one line (street, city, state, zip). Empty string if not found.' },
+            destAddress: { type: 'string', description: 'The full destination address as one line (street, city, state, zip). Empty string if not found.' },
+            jobDate: { type: 'string', description: 'The scheduled job date in YYYY-MM-DD format. Empty string if not found or not legible.' },
+            serviceType: {
+              type: 'string',
+              enum: ['move', 'movelabor', 'junkremoval', 'unclear'],
+              description: '"move" if this is a full moving service (packing/loading/transporting/unloading household goods). "movelabor" if it\u2019s a labor-only service (e.g. just loading/unloading help, no long-haul transport of goods). "junkremoval" if this is a junk/hauling-away job rather than a household move (this company does both moving and junk removal work orders). "unclear" only if the service type genuinely can\u2019t be determined -- do not guess between the other three if it isn\u2019t reasonably clear.'
+            },
+            estimateSummary: { type: 'string', description: 'If a "Move Factors" or auto-generated quote/estimate narrative section is present (often starting with something like "This is an inventory quote..." and including sentences like "We have estimated the move to last X hours", "$X per hour for Y HUNKS", "The cost for labor... is estimated at $X", "The estimated total cost of this move is $X"), transcribe that narrative text as close to verbatim as possible -- do not summarize or paraphrase it, since exact phrasing and numbers matter. Empty string if no such section is present.' },
+            confident: { type: 'boolean', description: 'True if the job number, client info, and addresses were all read clearly. False if the image was blurry, cut off, or key fields were ambiguous.' }
+          },
+          required: ['firstPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident']
+        }
+      }
+    },
+    required: ['documents']
+  }
+};
+
+app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
+  const { files } = req.body || {};
+  if (!Array.isArray(files) || files.length === 0) {
+    return res.status(400).json({ error: 'At least one file is required.' });
+  }
+  if (files.length > 10) {
+    return res.status(400).json({ error: 'Please upload 10 files or fewer at a time.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Work order extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Batch extraction is not configured on the server yet.' });
+  }
+
+  try {
+    const parsedFiles = files.map(f => {
+      const images = Array.isArray(f && f.images) ? f.images : [];
+      const blocks = images.map(dataUri => {
+        const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+        if (!match) return null;
+        return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+      }).filter(Boolean);
+      return blocks;
+    });
+    if (parsedFiles.every(blocks => blocks.length === 0)) {
+      return res.status(400).json({ error: 'No valid pages were provided.' });
+    }
+    const MAX_PAGES_PER_FILE = 24; // roomy enough for ~8 combined work orders at ~3 pages each
+    for (const blocks of parsedFiles) {
+      if (blocks.length > MAX_PAGES_PER_FILE) {
+        return res.status(400).json({ error: `One of the files has more than ${MAX_PAGES_PER_FILE} pages -- please split it into smaller files.` });
+      }
+    }
+
+    async function runFile(pageBlocks, fileIndex){
+      if (pageBlocks.length === 0) return { fileIndex, documents: [] };
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 4096,
+          tools: [EXTRACT_WORK_ORDER_TOOL],
+          tool_choice: { type: 'tool', name: 'extract_work_orders' },
+          messages: [{
+            role: 'user',
+            content: [
+              ...pageBlocks,
+              { type: 'text', text: `These are ${pageBlocks.length} page(s) from a single uploaded file, in order (0-based index 0 through ${pageBlocks.length - 1}). This file may contain just ONE work order, or it may contain SEVERAL distinct work orders placed back to back (e.g. a stack of documents scanned into one file) -- each work order typically runs a few pages and often shows a repeated "Page X/Y" footer and reference number that resets or changes at the start of the next one, plus its own Job ID. Find every distinct work order present and extract each one separately -- do not merge different jobs together, and do not split one job into more than one entry.` }
+            ]
+          }]
+        })
+      });
+
+      if (!anthropicRes.ok) {
+        const errBody = await anthropicRes.text().catch(() => '');
+        console.error(`Work order extraction file ${fileIndex} failed:`, anthropicRes.status, errBody);
+        let detail = '';
+        try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        return { fileIndex, error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
+      }
+
+      const data = await anthropicRes.json();
+      const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_work_orders');
+      if (!toolUseBlock) {
+        console.error(`Work order extraction file ${fileIndex}: no tool_use block. stop_reason=`, data.stop_reason);
+        return { fileIndex, error: 'Could not read a structured response from the extraction service.' };
+      }
+      const documents = Array.isArray(toolUseBlock.input.documents) ? toolUseBlock.input.documents : [];
+      return { fileIndex, documents };
+    }
+
+    const fileResults = await Promise.all(parsedFiles.map((blocks, i) => runFile(blocks, i)));
+    const allDocuments = [];
+    const fileErrors = [];
+    fileResults.forEach(r => {
+      if (r.error) fileErrors.push(r.error);
+      else r.documents.forEach(d => allDocuments.push({ ...d, fileIndex: r.fileIndex }));
+    });
+
+    if (allDocuments.length === 0 && fileErrors.length > 0) {
+      return res.status(502).json({ error: fileErrors[0] });
+    }
+    res.json({ documents: allDocuments, partialFailures: fileErrors.length });
+  } catch (err) {
+    console.error('Work order extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+
+  }
+});
+
+// ============ Completed Paperwork: Batch Job Number Extraction ============
+// Reads a batch of scanned completed-paperwork documents and pulls just the
+// job number off each one, so the frontend can look it up against the
+// existing paperwork-job-archive bridge (same lookup Job Paperwork's manual
+// upload already uses) and auto-fill client name/email instead of typing
+// them in per scan. Same 5-image batch pattern as the other extraction
+// endpoints.
+const EXTRACT_JOB_NUMBERS_TOOL = {
+  name: 'extract_job_numbers',
+  description: 'Extract the job number from a batch of completed moving-job paperwork scans.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      documents: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            imageIndex: { type: 'number', description: 'The 0-based index of this image within the batch, in the order the images were provided.' },
+            jobNumber: { type: 'string', description: 'The job number printed on this document (often an 8-digit HunkWare job number, commonly found on the Bill of Lading or estimate summary page). Empty string if not found or not legible.' },
+            confident: { type: 'boolean', description: 'True if the job number was read clearly. False if the image was blurry, cut off, or no job number was visible.' }
+          },
+          required: ['imageIndex', 'jobNumber', 'confident']
+        }
+      }
+    },
+    required: ['documents']
+  }
+};
+
+app.post('/api/admin/extract-job-numbers', requireAuth, async (req, res) => {
+  const { images } = req.body || {};
+  if (!Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'At least one image is required.' });
+  }
+  if (images.length > 20) {
+    return res.status(400).json({ error: 'Please upload 20 documents or fewer at a time.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Job number extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Batch extraction is not configured on the server yet.' });
+  }
+
+  try {
+    const imageBlocks = images.map(dataUri => {
+      const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+      if (!match) return null;
+      return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+    }).filter(Boolean);
+    if (imageBlocks.length === 0) {
+      return res.status(400).json({ error: 'No valid images were provided.' });
+    }
+
+    const BATCH_SIZE = 5;
+    const batches = [];
+    for (let i = 0; i < imageBlocks.length; i += BATCH_SIZE) {
+      batches.push({ images: imageBlocks.slice(i, i + BATCH_SIZE), offset: i });
+    }
+
+    async function runBatch(batch, batchIndex){
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1536,
+          tools: [EXTRACT_JOB_NUMBERS_TOOL],
+          tool_choice: { type: 'tool', name: 'extract_job_numbers' },
+          messages: [{
+            role: 'user',
+            content: [
+              ...batch.images,
+              { type: 'text', text: `These are ${batch.images.length} scanned completed-paperwork document(s) from a moving company, one per image, in order. For each image (using its 0-based position in this batch, starting at 0), find and read the job number printed on it.` }
+            ]
+          }]
+        })
+      });
+
+      if (!anthropicRes.ok) {
+        const errBody = await anthropicRes.text().catch(() => '');
+        console.error(`Job number extraction batch ${batchIndex} failed:`, anthropicRes.status, errBody);
+        let detail = '';
+        try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        return { error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
+      }
+
+      const data = await anthropicRes.json();
+      const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_job_numbers');
+      if (!toolUseBlock) {
+        console.error(`Job number extraction batch ${batchIndex}: no tool_use block. stop_reason=`, data.stop_reason);
+        return { error: 'Could not read a structured response from the extraction service.' };
+      }
+      const documents = Array.isArray(toolUseBlock.input.documents) ? toolUseBlock.input.documents : [];
+      const rebased = documents.map(d => ({ ...d, imageIndex: (d.imageIndex || 0) + batch.offset }));
+      return { documents: rebased };
+    }
+
+    const batchResults = await Promise.all(batches.map((b, i) => runBatch(b, i)));
+    const allDocuments = [];
+    const batchErrors = [];
+    batchResults.forEach(r => {
+      if (r.error) batchErrors.push(r.error);
+      else allDocuments.push(...r.documents);
+    });
+
+    if (allDocuments.length === 0 && batchErrors.length > 0) {
+      return res.status(502).json({ error: batchErrors[0] });
+    }
+    res.json({ documents: allDocuments, partialFailures: batchErrors.length });
+  } catch (err) {
+    console.error('Job number extraction failed:', err.message);
     res.status(500).json({ error: 'Extraction failed: ' + err.message });
   }
 });
