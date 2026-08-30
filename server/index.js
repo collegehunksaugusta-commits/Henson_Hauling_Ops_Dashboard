@@ -1233,6 +1233,11 @@ const EXTRACT_WORK_ORDER_TOOL = {
             originAddress: { type: 'string', description: 'The full pick-up/origin address as one line (street, city, state, zip). Empty string if not found.' },
             destAddress: { type: 'string', description: 'The full destination address as one line (street, city, state, zip). Empty string if not found.' },
             jobDate: { type: 'string', description: 'The scheduled job date in YYYY-MM-DD format. Empty string if not found or not legible.' },
+            scheduledHours: { type: 'number', description: 'The scheduled job duration in decimal hours, computed from a "Job Time: START - END" field if present (e.g. "8:00 AM - 3:15 PM" is 7.25). 0 if no job time range is found.' },
+            quotedHours: { type: 'number', description: 'The number of hours the move is estimated to last, as stated in the quote/estimate narrative (look for phrasing like "estimated the move to last X hours"). 0 if no such quote narrative is present.' },
+            quotedHourlyRate: { type: 'number', description: 'The dollar rate per hour stated in the quote narrative (look for phrasing like "$X per hour for Y HUNKS"). 0 if not present.' },
+            quotedCrewSize: { type: 'number', description: 'The number of HUNKS/crew stated alongside the hourly rate in the quote narrative. 0 if not present.' },
+            quotedOtherFees: { type: 'number', description: 'Any fixed dollar charge in the quote narrative beyond straight hourly labor (e.g. a "Truck and Travel Fee"). 0 if not present.' },
             serviceType: {
               type: 'string',
               enum: ['move', 'movelabor', 'junkremoval', 'unclear'],
@@ -1241,7 +1246,7 @@ const EXTRACT_WORK_ORDER_TOOL = {
             estimateSummary: { type: 'string', description: 'If a "Move Factors" or auto-generated quote/estimate narrative section is present (often starting with something like "This is an inventory quote..." and including sentences like "We have estimated the move to last X hours", "$X per hour for Y HUNKS", "The cost for labor... is estimated at $X", "The estimated total cost of this move is $X"), transcribe that narrative text as close to verbatim as possible -- do not summarize or paraphrase it, since exact phrasing and numbers matter. Empty string if no such section is present.' },
             confident: { type: 'boolean', description: 'True if the job number, client info, and addresses were all read clearly. False if the image was blurry, cut off, or key fields were ambiguous.' }
           },
-          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident']
+          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident', 'scheduledHours', 'quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees']
         }
       }
     },
@@ -1301,7 +1306,7 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
             role: 'user',
             content: [
               ...pageBlocks,
-              { type: 'text', text: `These are ${pageBlocks.length} page(s) from a single uploaded file, in order (0-based index 0 through ${pageBlocks.length - 1}). This file may contain just ONE work order, or it may contain SEVERAL distinct work orders placed back to back (e.g. a stack of documents scanned into one file) -- each work order typically runs a few pages and often shows a repeated "Page X/Y" footer and reference number that resets or changes at the start of the next one, plus its own Job ID. Find every distinct work order present, extract each one separately, and report the exact page range (first and last page index) each one occupies -- do not merge different jobs together, and do not split one job into more than one entry.` }
+              { type: 'text', text: `These are ${pageBlocks.length} page(s) from a single uploaded file, in order (0-based index 0 through ${pageBlocks.length - 1}). This file may contain just ONE work order, or it may contain SEVERAL distinct work orders placed back to back (e.g. a stack of documents scanned into one file) -- each work order typically runs a few pages and often shows a repeated "Page X/Y" footer and reference number that resets or changes at the start of the next one, plus its own Job ID. Find every distinct work order present, extract each one separately, and report the exact page range (first and last page index) each one occupies -- do not merge different jobs together, and do not split one job into more than one entry. Also read the scheduled "Job Time" range (e.g. "8:00 AM - 3:15 PM") and convert it to decimal hours, and separately read the quote/estimate narrative's stated hours, hourly rate, crew size, and any other flat fee -- these two hour figures sometimes disagree (the job may be scheduled for a very different duration than the attached quote assumed), which is exactly what needs to be reported, not reconciled.` }
             ]
           }]
         })
@@ -1460,6 +1465,90 @@ app.post('/api/admin/extract-job-numbers', requireAuth, async (req, res) => {
     res.json({ documents: allDocuments, partialFailures: batchErrors.length });
   } catch (err) {
     console.error('Job number extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
+// ============ Job Paperwork: Corrected Quote Extraction ============
+// A single-document read for a replacement/corrected quote the admin
+// uploads when a work order's attached quote didn't actually match the
+// scheduled job duration. Same numeric fields as the work-order extraction
+// (kept as raw numbers so the actual cost math stays deterministic, not
+// left to model arithmetic), plus a verbatim narrative transcription when
+// the document already reads like a normal HunkWare quote block, since
+// that flows straight into the existing estimate-summary parser unchanged.
+const EXTRACT_QUOTE_TOOL = {
+  name: 'extract_quote',
+  description: 'Extract the hours, rate, crew size, and fees from a moving-job quote/estimate document.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      quotedHours: { type: 'number', description: 'The number of hours the move is estimated to last, as stated in the document. 0 if not found.' },
+      quotedHourlyRate: { type: 'number', description: 'The dollar rate per hour stated in the document. 0 if not found.' },
+      quotedCrewSize: { type: 'number', description: 'The number of HUNKS/crew the rate is based on. 0 if not found.' },
+      quotedOtherFees: { type: 'number', description: 'Any fixed dollar charge beyond straight hourly labor (e.g. a truck/travel fee). 0 if not found.' },
+      narrativeText: { type: 'string', description: 'If the document already contains a HunkWare-style quote narrative (sentences like "We have estimated the move to last X hours", "$X per hour for Y HUNKS", "The cost for labor... is estimated at $X", "The estimated total cost of this move is $X"), transcribe that narrative as close to verbatim as possible. Empty string if the document doesn\u2019t read that way (e.g. it\u2019s a different format entirely).' },
+      confident: { type: 'boolean', description: 'True if the key figures (hours, rate) were read clearly.' }
+    },
+    required: ['quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees', 'narrativeText', 'confident']
+  }
+};
+
+app.post('/api/admin/extract-quote', requireAuth, async (req, res) => {
+  const { image } = req.body || {};
+  if (!image) {
+    return res.status(400).json({ error: 'An image is required.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Quote extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Extraction is not configured on the server yet.' });
+  }
+
+  try {
+    const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(image);
+    if (!match) {
+      return res.status(400).json({ error: 'That doesn\u2019t look like a valid image.' });
+    }
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1536,
+        tools: [EXTRACT_QUOTE_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_quote' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+            { type: 'text', text: 'This is a corrected/replacement quote for a moving job. Read the estimated hours, hourly rate, crew size, and any flat fees.' }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Quote extraction failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_quote');
+    if (!toolUseBlock) {
+      console.error('Quote extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('Quote extraction failed:', err.message);
     res.status(500).json({ error: 'Extraction failed: ' + err.message });
   }
 });
