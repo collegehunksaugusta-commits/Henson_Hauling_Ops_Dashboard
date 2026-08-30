@@ -11213,6 +11213,41 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return d.innerHTML;
   }
 
+  function pwBatchMoney(n){ return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  // A work order's scheduled duration ("Job Time: 8:00 AM - 3:15 PM") and
+  // its attached quote's stated duration ("estimated to last 2 hours")
+  // sometimes disagree -- the quote may be stale, or missing entirely.
+  // Anything a half hour or more apart is treated as a real gap worth
+  // flagging rather than extraction noise.
+  const QUOTE_GAP_THRESHOLD_HOURS = 0.5;
+  function classifyQuoteGap(scheduledHours, quotedHours){
+    const hasSchedule = scheduledHours > 0;
+    const hasQuote = quotedHours > 0;
+    if(!hasSchedule) return 'unknown'; // nothing to compare the quote against
+    if(!hasQuote) return 'missing';
+    return Math.abs(scheduledHours - quotedHours) >= QUOTE_GAP_THRESHOLD_HOURS ? 'mismatch' : 'ok';
+  }
+
+  // The actual cost math is always done here, in plain arithmetic, never by
+  // asking the model to compute it -- only the raw inputs (rate, crew size,
+  // fees) come from extraction.
+  function computeExtrapolatedEstimate(scheduledHours, hourlyRate, crewSize, otherFees){
+    const laborCost = hourlyRate * crewSize * scheduledHours;
+    const totalCost = laborCost + (otherFees || 0);
+    return { laborCost, totalCost };
+  }
+
+  // Matches parseEstimateSummary's exact expected phrasing (see buildPWBillOfLading)
+  // so a corrected estimate flows into the printed BOL exactly like a normal one would.
+  function buildEstimateSummaryNarrative(hours, hourlyRate, crewSize, laborCost, totalCost, otherFees){
+    const feeClause = otherFees > 0 ? ` (including an estimated Truck and Travel Fee of ${pwBatchMoney(otherFees)})` : '';
+    return `We have estimated the move to last ${hours} hours given the factors provided by the client.\n`
+      + `The hourly rate for the franchise at the time of this booking is ${pwBatchMoney(hourlyRate)} per hour for ${crewSize} HUNKS\n`
+      + `The cost for labor for this move is estimated at ${pwBatchMoney(laborCost)}.\n`
+      + `The estimated total cost of this move is ${pwBatchMoney(totalCost)}${feeClause}.`;
+  }
+
   function renderPwBatchThumbnails(){
     const wrap = document.getElementById('pwBatch_thumbnails');
     wrap.innerHTML = pwBatchPastedImages.map(img => `
@@ -11402,6 +11437,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         // prepended to its printed packet.
         const workOrderPages = file ? file.allPageDataUris.slice(firstIdx, lastIdx + 1) : [];
         const thumbnail = file ? file.allPageDataUris[firstIdx] : null;
+
+        const scheduledHours = d.scheduledHours || 0;
+        const quotedHours = d.quotedHours || 0;
+        const quotedHourlyRate = d.quotedHourlyRate || 0;
+        const quotedCrewSize = d.quotedCrewSize || 0;
+        const quotedOtherFees = d.quotedOtherFees || 0;
+        const quoteGap = classifyQuoteGap(scheduledHours, quotedHours);
+        let estimateSummary = d.estimateSummary || '';
+        let quoteResolution = 'original';
+        let extrapolatedTotal = null;
+        // A mismatch with enough info to extrapolate gets a corrected estimate
+        // by default (never leaving the stale, wrong-duration quote in
+        // place) -- the admin can still swap in a real corrected quote instead.
+        if(quoteGap === 'mismatch' && quotedHourlyRate > 0 && quotedCrewSize > 0){
+          const { laborCost, totalCost } = computeExtrapolatedEstimate(scheduledHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees);
+          estimateSummary = buildEstimateSummaryNarrative(scheduledHours, quotedHourlyRate, quotedCrewSize, laborCost, totalCost, quotedOtherFees);
+          quoteResolution = 'extrapolated';
+          extrapolatedTotal = totalCost;
+        }
+
         return {
           reviewId: 'pwrev_' + i,
           jobNumber: d.jobNumber || '',
@@ -11411,13 +11466,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           originAddress: d.originAddress || '',
           destAddress: d.destAddress || '',
           jobDate: d.jobDate || '',
-          estimateSummary: d.estimateSummary || '',
+          estimateSummary,
           confident: !!d.confident,
           distanceInfo: dist && dist.ok ? dist : null,
           jobType,
           captainName: '',
           thumbnail,
-          workOrderPages
+          workOrderPages,
+          scheduledHours, quotedHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees,
+          quoteGap, quoteResolution, extrapolatedTotal
         };
       });
 
@@ -11489,6 +11546,28 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       } else if(r.originAddress && r.destAddress){
         distNote = '<span style="color:var(--muted);">Could not estimate distance</span>';
       }
+      let quoteGapHtml = '';
+      if(r.quoteGap === 'mismatch' || r.quoteGap === 'missing'){
+        const resolvedNote = r.quoteResolution === 'extrapolated'
+          ? `<div style="margin-top:4px;">Using an extrapolated estimate instead \u2014 ${pwBatchMoney(r.extrapolatedTotal)} total for ${r.scheduledHours} hrs.</div>`
+          : r.quoteResolution === 'uploaded'
+            ? `<div style="margin-top:4px; color:#00612C;">Using the uploaded corrected quote.</div>`
+            : '';
+        const headline = r.quoteGap === 'mismatch'
+          ? `\u26a0 Job is scheduled for ${r.scheduledHours} hrs, but the attached quote is based on ${r.quotedHours} hrs.`
+          : `\u26a0 No quote found on this work order for the scheduled ${r.scheduledHours} hrs.`;
+        quoteGapHtml = `
+          <div style="font-size:11.5px; color:#8a6d00; background:#FFF6E8; border:1px solid #F0D9A8; border-radius:6px; padding:8px 10px; margin-top:6px;">
+            ${headline}
+            ${resolvedNote}
+            <div style="margin-top:6px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <label style="font-size:11px; margin:0;">Upload ${r.quoteGap === 'mismatch' ? 'corrected' : 'a'} quote:
+                <input type="file" class="pwrev-quote-upload" data-review-id="${r.reviewId}" accept=".jpg,.jpeg,.png,.pdf" style="font-size:11px;">
+              </label>
+              <span class="status-msg" id="pwrev_quote_status_${r.reviewId}" style="margin:0;"></span>
+            </div>
+          </div>`;
+      }
       return `
       <div data-review-id="${r.reviewId}" style="display:flex; gap:12px; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; ${missingKeyField ? 'background:#fdf6e3;' : ''}">
         ${r.thumbnail ? `<img class="pwrev-thumb" data-review-id="${r.reviewId}" src="${r.thumbnail}" style="width:56px; height:56px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;" title="Click to view the source page">` : ''}
@@ -11517,6 +11596,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </div>
         ${missingKeyField ? '<div style="font-size:11.5px; color:#8a6d00;">\u26a0 Missing job #, client name, or an address \u2014 fill in before generating.</div>' : ''}
         ${!r.confident ? '<div style="font-size:11.5px; color:var(--muted);">Low confidence read \u2014 please double-check the fields above.</div>' : ''}
+        ${quoteGapHtml}
         </div>
       </div>`;
     }).join('');
@@ -11550,6 +11630,56 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     container.querySelectorAll('.pwrev-remove').forEach(btn => btn.addEventListener('click', (e)=>{
       pwBatchReview = pwBatchReview.filter(x => x.reviewId !== e.target.dataset.reviewId);
       renderPwBatchReview();
+    }));
+    container.querySelectorAll('.pwrev-quote-upload').forEach(input => input.addEventListener('change', async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const reviewId = e.target.dataset.reviewId;
+      const r = pwBatchReview.find(x => x.reviewId === reviewId);
+      const statusEl = document.getElementById('pwrev_quote_status_' + reviewId);
+      if(!r) return;
+      if(statusEl){ statusEl.textContent = 'Reading quote...'; statusEl.className = 'status-msg'; }
+      try{
+        let previewDataUri;
+        if(file.type === 'application/pdf'){
+          const images = await window.getImagesForAssessment(file);
+          if(images.length === 0) throw new Error('Could not read that PDF.');
+          previewDataUri = images[0];
+        } else if(file.type.startsWith('image/')){
+          previewDataUri = await window.compressImageForUpload(file, 2000, 0.92);
+        } else {
+          throw new Error('Unsupported file type.');
+        }
+        const res = await fetch(`${API_BASE}/api/admin/extract-quote`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({ image: previewDataUri })
+        });
+        if(handleAuthFailure(res)) return;
+        const data = await res.json();
+        if(!res.ok){
+          if(statusEl){ statusEl.textContent = data.error || 'Could not read that quote.'; statusEl.className = 'status-msg err'; }
+          return;
+        }
+        // Trust the uploaded quote's own stated hours directly -- that's the
+        // whole point of uploading a corrected one, rather than falling
+        // back to the work order's scheduled duration.
+        if(data.narrativeText){
+          r.estimateSummary = data.narrativeText;
+        } else if(data.quotedHourlyRate > 0 && data.quotedCrewSize > 0){
+          const hours = data.quotedHours > 0 ? data.quotedHours : r.scheduledHours;
+          const { laborCost, totalCost } = computeExtrapolatedEstimate(hours, data.quotedHourlyRate, data.quotedCrewSize, data.quotedOtherFees);
+          r.estimateSummary = buildEstimateSummaryNarrative(hours, data.quotedHourlyRate, data.quotedCrewSize, laborCost, totalCost, data.quotedOtherFees);
+        } else {
+          if(statusEl){ statusEl.textContent = 'Could not read enough detail from that quote to use it \u2014 try a clearer file.'; statusEl.className = 'status-msg err'; }
+          return;
+        }
+        r.quoteResolution = 'uploaded';
+        renderPwBatchReview();
+      }catch(err){
+        console.error('Quote upload failed:', err);
+        if(statusEl){ statusEl.textContent = 'Could not process that file \u2014 check your connection.'; statusEl.className = 'status-msg err'; }
+      }
     }));
   }
 
