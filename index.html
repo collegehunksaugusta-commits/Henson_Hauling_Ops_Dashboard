@@ -1646,20 +1646,26 @@
       </div>
 
       <div class="panel" id="employeePanel">
-        <h3>Employee Detail &mdash; Selected Week <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; background:var(--offwhite); padding:2px 8px; border-radius:10px; vertical-align:middle;">Admin Only</span></h3>
-        <table id="employeeDetailTable">
-          <thead>
-            <tr>
-              <th>Employee</th><th>Role</th>
-              <th style="text-align:right;">Reg Hrs</th>
-              <th style="text-align:right;">OT Hrs</th>
-              <th style="text-align:right;">Total Earnings</th>
-              <th style="text-align:right;">Employer Tax</th>
-            </tr>
-          </thead>
-          <tbody id="employeeRows"></tbody>
-        </table>
-        <p class="form-note" id="noEmployeeNote" style="display:none;">Per-employee detail wasn't entered for this week &mdash; only the weekly totals below.</p>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <h3 style="margin:0;">Employee Detail &mdash; Selected Week <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; background:var(--offwhite); padding:2px 8px; border-radius:10px; vertical-align:middle;">Admin Only</span></h3>
+          <button type="button" id="employeeDetailToggleBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:6px 12px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:12px; cursor:pointer;">Show Detail</button>
+        </div>
+        <p class="form-note" id="employeeDetailHiddenNote">Hidden by default so this tile is safe to have open while presenting to the team &mdash; individual pay detail only shows once you tap "Show Detail".</p>
+        <div id="employeeDetailContent" style="display:none;">
+          <table id="employeeDetailTable">
+            <thead>
+              <tr>
+                <th>Employee</th><th>Role</th>
+                <th style="text-align:right;">Reg Hrs</th>
+                <th style="text-align:right;">OT Hrs</th>
+                <th style="text-align:right;">Total Earnings</th>
+                <th style="text-align:right;">Employer Tax</th>
+              </tr>
+            </thead>
+            <tbody id="employeeRows"></tbody>
+          </table>
+          <p class="form-note" id="noEmployeeNote" style="display:none;">Per-employee detail wasn't entered for this week &mdash; only the weekly totals below.</p>
+        </div>
         <p class="form-note" id="employeeNonAdminNote" style="display:none;">This section only shows for administrators.</p>
       </div>
 
@@ -3535,8 +3541,18 @@
     history.replaceState({view:'home'}, '', location.pathname + location.search);
   }
 
-  document.getElementById('tile-labor').addEventListener('click', ()=> navigateTo('labor'));
-  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('labor'); }});
+  // Collapsed by default every time the Labor Cost tile is freshly opened,
+  // so it's always safe to have this tile up while presenting to the team --
+  // stays expanded while the admin keeps browsing weeks within that same
+  // viewing session, but resets once they leave and come back.
+  let laborEmployeeDetailExpanded = false;
+  document.getElementById('employeeDetailToggleBtn').addEventListener('click', ()=>{
+    laborEmployeeDetailExpanded = !laborEmployeeDetailExpanded;
+    renderWeek();
+  });
+
+  document.getElementById('tile-labor').addEventListener('click', ()=>{ laborEmployeeDetailExpanded = false; navigateTo('labor'); });
+  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); laborEmployeeDetailExpanded = false; navigateTo('labor'); }});
   document.getElementById('backBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('tile-calc').addEventListener('click', ()=> navigateTo('calc'));
@@ -3772,8 +3788,11 @@
     const employeePanel = document.getElementById('employeePanel');
     employeePanel.style.display = mode === 'weekly' ? 'block' : 'none';
     const isAdminUser = isCurrentUserAdmin();
-    document.getElementById('employeeDetailTable').style.display = isAdminUser ? '' : 'none';
+    document.getElementById('employeeDetailToggleBtn').style.display = isAdminUser ? 'inline-block' : 'none';
     document.getElementById('employeeNonAdminNote').style.display = isAdminUser ? 'none' : 'block';
+    document.getElementById('employeeDetailHiddenNote').style.display = (isAdminUser && !laborEmployeeDetailExpanded) ? 'block' : 'none';
+    document.getElementById('employeeDetailContent').style.display = (isAdminUser && laborEmployeeDetailExpanded) ? 'block' : 'none';
+    document.getElementById('employeeDetailToggleBtn').textContent = laborEmployeeDetailExpanded ? 'Hide Detail' : 'Show Detail';
     if(!isAdminUser) document.getElementById('noEmployeeNote').style.display = 'none';
 
     if(!p){
@@ -3796,7 +3815,7 @@
 
     drawGauge(pct);
 
-    if(mode === 'weekly' && isAdminUser){
+    if(mode === 'weekly' && isAdminUser && laborEmployeeDetailExpanded){
       const rows = document.getElementById('employeeRows');
       const noNote = document.getElementById('noEmployeeNote');
       if(p.employees && p.employees.length){
@@ -3817,6 +3836,11 @@
         rows.innerHTML = '';
         noNote.style.display='block';
       }
+    } else {
+      // Collapsed (or not admin, or not weekly view) -- clear the rows
+      // outright rather than just visually hiding the container, so
+      // previously-shown employee data never lingers in the DOM.
+      document.getElementById('employeeRows').innerHTML = '';
     }
   }
 
