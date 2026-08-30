@@ -2421,7 +2421,7 @@
       </div>
 
       <div class="panel" id="attendanceSummaryPanel">
-        <h3>Summary (last 6 months)</h3>
+        <h3>Summary (last month)</h3>
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
@@ -5771,9 +5771,9 @@
   }
 
   function renderAttendanceSummary(){
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    const cutoff = sixMonthsAgo.toISOString().slice(0,10);
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const cutoff = oneMonthAgo.toISOString().slice(0,10);
 
     const counts = {};
     attendanceRecords.filter(r => r.date >= cutoff).forEach(r => {
@@ -5785,7 +5785,7 @@
     const names = Object.keys(counts).sort();
     const tbody = document.getElementById('att_summaryRows');
     if(names.length === 0){
-      tbody.innerHTML = '<tr><td colspan="3" style="padding:8px 4px; color:var(--muted);">No occurrences logged in the last 6 months.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="3" style="padding:8px 4px; color:var(--muted);">No occurrences logged in the last month.</td></tr>';
       return;
     }
     tbody.innerHTML = names.map(name => `
