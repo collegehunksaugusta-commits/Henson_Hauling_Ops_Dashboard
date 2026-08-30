@@ -1224,7 +1224,8 @@ const EXTRACT_WORK_ORDER_TOOL = {
         items: {
           type: 'object',
           properties: {
-            firstPageIndex: { type: 'number', description: 'The 0-based index, among the pages provided in this call, of this work order\u2019s first/primary page (the one with the main job details table) -- used to show a representative thumbnail. If a work order spans multiple pages, this is the first one.' },
+            firstPageIndex: { type: 'number', description: 'The 0-based index, among the pages provided in this call, of this work order\u2019s first page.' },
+            lastPageIndex: { type: 'number', description: 'The 0-based index, among the pages provided in this call, of this work order\u2019s LAST page (inclusive). Equal to firstPageIndex if it\u2019s a single page. This defines the exact page range that belongs to this specific work order -- do not include pages that belong to a different work order or are blank/unrelated.' },
             jobNumber: { type: 'string', description: 'The Job ID / Job Number as printed on the work order. Empty string if not found.' },
             clientName: { type: 'string', description: 'The client\u2019s full name. Empty string if not found.' },
             clientPhone: { type: 'string', description: 'The client\u2019s phone number as printed. Empty string if not found.' },
@@ -1240,7 +1241,7 @@ const EXTRACT_WORK_ORDER_TOOL = {
             estimateSummary: { type: 'string', description: 'If a "Move Factors" or auto-generated quote/estimate narrative section is present (often starting with something like "This is an inventory quote..." and including sentences like "We have estimated the move to last X hours", "$X per hour for Y HUNKS", "The cost for labor... is estimated at $X", "The estimated total cost of this move is $X"), transcribe that narrative text as close to verbatim as possible -- do not summarize or paraphrase it, since exact phrasing and numbers matter. Empty string if no such section is present.' },
             confident: { type: 'boolean', description: 'True if the job number, client info, and addresses were all read clearly. False if the image was blurry, cut off, or key fields were ambiguous.' }
           },
-          required: ['firstPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident']
+          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident']
         }
       }
     },
@@ -1300,7 +1301,7 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
             role: 'user',
             content: [
               ...pageBlocks,
-              { type: 'text', text: `These are ${pageBlocks.length} page(s) from a single uploaded file, in order (0-based index 0 through ${pageBlocks.length - 1}). This file may contain just ONE work order, or it may contain SEVERAL distinct work orders placed back to back (e.g. a stack of documents scanned into one file) -- each work order typically runs a few pages and often shows a repeated "Page X/Y" footer and reference number that resets or changes at the start of the next one, plus its own Job ID. Find every distinct work order present and extract each one separately -- do not merge different jobs together, and do not split one job into more than one entry.` }
+              { type: 'text', text: `These are ${pageBlocks.length} page(s) from a single uploaded file, in order (0-based index 0 through ${pageBlocks.length - 1}). This file may contain just ONE work order, or it may contain SEVERAL distinct work orders placed back to back (e.g. a stack of documents scanned into one file) -- each work order typically runs a few pages and often shows a repeated "Page X/Y" footer and reference number that resets or changes at the start of the next one, plus its own Job ID. Find every distinct work order present, extract each one separately, and report the exact page range (first and last page index) each one occupies -- do not merge different jobs together, and do not split one job into more than one entry.` }
             ]
           }]
         })
