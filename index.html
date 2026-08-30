@@ -1669,6 +1669,17 @@
         <p class="form-note" id="employeeNonAdminNote" style="display:none;">This section only shows for administrators.</p>
       </div>
 
+      <div class="panel" id="rosterManualPanel" style="display:none;">
+        <h3>Roster Additions <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; background:var(--offwhite); padding:2px 8px; border-radius:10px; vertical-align:middle;">Admin Only</span></h3>
+        <p class="form-note">Captain, driver, and employee dropdowns across the app pull from the last two payroll weeks, so someone who happened to be off one week still shows up. If someone hasn't appeared in payroll at all yet (a brand-new hire, for example), add them here as a last resort so they're still selectable everywhere.</p>
+        <div class="form-actions">
+          <input type="text" id="rosterManualNameInput" placeholder="Full name">
+          <button class="btn-primary" id="rosterManualAddBtn" type="button">Add</button>
+          <span class="status-msg" id="rosterManualStatus"></span>
+        </div>
+        <div id="rosterManualList" style="margin-top:10px;"></div>
+      </div>
+
       <div class="panel" id="summaryPanel">
         <h3>Summary</h3>
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
@@ -3551,9 +3562,81 @@
     renderWeek();
   });
 
-  document.getElementById('tile-labor').addEventListener('click', ()=>{ laborEmployeeDetailExpanded = false; navigateTo('labor'); });
-  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); laborEmployeeDetailExpanded = false; navigateTo('labor'); }});
+  document.getElementById('tile-labor').addEventListener('click', ()=>{ laborEmployeeDetailExpanded = false; navigateTo('labor'); loadAndRenderRosterManualList(); });
+  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); laborEmployeeDetailExpanded = false; navigateTo('labor'); loadAndRenderRosterManualList(); }});
   document.getElementById('backBtn').addEventListener('click', ()=> history.back());
+
+  // ---------- Roster Additions (manual employee list, admin only) ----------
+  // A last-resort way to get someone onto every Captain/driver/employee
+  // dropdown across the app when even the two-week payroll lookback
+  // (above) hasn't picked them up yet -- typically a brand-new hire with
+  // no payroll run yet.
+  const ROSTER_MANUAL_KEY = 'roster-manual-additions';
+  let rosterManualAdditions = [];
+
+  function rosterManualEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  async function loadAndRenderRosterManualList(){
+    try{ rosterManualAdditions = await window.dashboardApi.get(ROSTER_MANUAL_KEY, []) || []; }
+    catch(err){ console.error('Could not load manually-added roster names:', err); rosterManualAdditions = []; }
+    renderRosterManualList();
+  }
+
+  function renderRosterManualList(){
+    const container = document.getElementById('rosterManualList');
+    if(rosterManualAdditions.length === 0){
+      container.innerHTML = '<p class="form-note" style="margin:0;">No manually-added names yet.</p>';
+      return;
+    }
+    container.innerHTML = rosterManualAdditions.map((name, i) => `
+      <span style="display:inline-flex; align-items:center; gap:6px; background:var(--offwhite); border:1px solid var(--line); border-radius:20px; padding:4px 6px 4px 12px; margin:0 6px 6px 0; font-size:13px;">
+        ${rosterManualEsc(name)}
+        <button type="button" class="rosterManual-remove" data-index="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; width:18px; height:18px; border-radius:50%; cursor:pointer; font-size:11px; line-height:1; padding:0;">&times;</button>
+      </span>`).join('');
+    container.querySelectorAll('.rosterManual-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const idx = parseInt(e.currentTarget.dataset.index, 10);
+      const removed = rosterManualAdditions[idx];
+      const prevList = [...rosterManualAdditions];
+      rosterManualAdditions = rosterManualAdditions.filter((n, i) => i !== idx);
+      const ok = await window.dashboardApi.set(ROSTER_MANUAL_KEY, rosterManualAdditions);
+      const statusEl = document.getElementById('rosterManualStatus');
+      if(ok){ statusEl.textContent = `Removed "${removed}".`; statusEl.className = 'status-msg ok'; }
+      else{ statusEl.textContent = 'Could not save \u2014 check your connection.'; statusEl.className = 'status-msg err'; rosterManualAdditions = prevList; }
+      renderRosterManualList();
+    }));
+  }
+
+  document.getElementById('rosterManualAddBtn').addEventListener('click', async ()=>{
+    const input = document.getElementById('rosterManualNameInput');
+    const statusEl = document.getElementById('rosterManualStatus');
+    const name = input.value.trim();
+    if(!name){
+      statusEl.textContent = 'Enter a name first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(rosterManualAdditions.some(n => n.trim().toLowerCase() === name.toLowerCase())){
+      statusEl.textContent = `"${name}" is already on the list.`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    rosterManualAdditions.push(name);
+    const ok = await window.dashboardApi.set(ROSTER_MANUAL_KEY, rosterManualAdditions);
+    if(ok){
+      statusEl.textContent = `Added "${name}".`;
+      statusEl.className = 'status-msg ok';
+      input.value = '';
+    } else {
+      rosterManualAdditions.pop();
+      statusEl.textContent = 'Could not save \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+    renderRosterManualList();
+  });
 
   document.getElementById('tile-calc').addEventListener('click', ()=> navigateTo('calc'));
   document.getElementById('tile-calc').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('calc'); }});
@@ -3793,6 +3876,7 @@
     document.getElementById('employeeDetailHiddenNote').style.display = (isAdminUser && !laborEmployeeDetailExpanded) ? 'block' : 'none';
     document.getElementById('employeeDetailContent').style.display = (isAdminUser && laborEmployeeDetailExpanded) ? 'block' : 'none';
     document.getElementById('employeeDetailToggleBtn').textContent = laborEmployeeDetailExpanded ? 'Hide Detail' : 'Show Detail';
+    document.getElementById('rosterManualPanel').style.display = (mode === 'weekly' && isAdminUser) ? 'block' : 'none';
     if(!isAdminUser) document.getElementById('noEmployeeNote').style.display = 'none';
 
     if(!p){
@@ -5512,17 +5596,39 @@
     return d.innerHTML;
   }
 
+  function dedupeAndSortNames(names){
+    const seen = new Set();
+    const out = [];
+    names.forEach(name => {
+      const trimmed = (name || '').trim();
+      const key = trimmed.toLowerCase();
+      if(!trimmed || seen.has(key)) return;
+      seen.add(key);
+      out.push(trimmed);
+    });
+    return out.sort((a, b) => a.localeCompare(b));
+  }
+
   async function getCurrentEmployeeRoster(){
-    // Admins who've already loaded Labor Cost can use that in-memory data directly.
+    let manualAdditions = [];
+    try{ manualAdditions = await window.dashboardApi.get('roster-manual-additions', []) || []; }
+    catch(err){ console.error('Could not load manually-added roster names:', err); }
+
+    // Admins who've already loaded Labor Cost can use that in-memory data
+    // directly -- look back across the two most recent payroll weeks (not
+    // just the latest one), so someone who happened to be off the most
+    // recent week still shows up everywhere the roster is used.
     if(weeks && weeks.length > 0){
       const sorted = [...weeks].sort((a,b) => b.weekStart.localeCompare(a.weekStart));
-      const mostRecent = sorted[0];
-      if(mostRecent.employees && mostRecent.employees.length > 0){
-        return mostRecent.employees.map(e => e.name).filter(Boolean);
+      const recentTwo = sorted.slice(0, 2);
+      const fromPayroll = recentTwo.flatMap(w => (w.employees || []).map(e => e.name)).filter(Boolean);
+      if(fromPayroll.length > 0 || manualAdditions.length > 0){
+        return dedupeAndSortNames([...fromPayroll, ...manualAdditions]);
       }
     }
     // Otherwise (and for non-admins, who can't read labor-weeks directly), use the
-    // dedicated roster endpoint, which exposes only names, not payroll financials.
+    // dedicated roster endpoint, which exposes only names, not payroll financials --
+    // it already applies the same two-week lookback and manual additions.
     try{
       const res = await fetch(`${API_BASE}/api/roster`, { headers: authHeaders() });
       if(handleAuthFailure(res)) return [];
