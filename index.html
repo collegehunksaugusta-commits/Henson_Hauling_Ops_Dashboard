@@ -11154,39 +11154,47 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // currently in the pw_jobType field, reading all other fields via pwVal().
   // Shared by the single-job Print Paperwork button and the batch work
   // order flow, so both always stay in sync with the same generation logic.
-  async function buildWorkPackageHtml(jobType){
-    let html = '';
+  async function buildWorkPackageHtml(jobType, workOrderPages){
+    const woPages = workOrderPages || [];
+    // Each original work order page becomes its own full print page, ahead of
+    // everything else -- same .print-page convention the rest of this packet
+    // already uses, so it paginates identically when printed.
+    let html = woPages.map(dataUri => `
+      <div class="print-page" style="display:flex; align-items:center; justify-content:center; padding:0.15in;">
+        <img src="${dataUri}" style="max-width:100%; max-height:100%; object-fit:contain;">
+      </div>`).join('');
+    const woOffset = woPages.length; // shifts every "Page N" label so the whole printed packet numbers consistently
     let extraNote = '';
     if(jobType === 'move'){
-      html += buildPWBillOfLading(1);
-      html += buildPWLiabilityWaiver(2, true);
-      html += buildPWShipperDeclaration(3);
-      html += buildPWGAGuide(4);
-      html += buildPWAddendum(5);
-      html += buildPWPreExistingDamages(6);
+      html += buildPWBillOfLading(woOffset + 1);
+      html += buildPWLiabilityWaiver(woOffset + 2, true);
+      html += buildPWShipperDeclaration(woOffset + 3);
+      html += buildPWGAGuide(woOffset + 4);
+      html += buildPWAddendum(woOffset + 5);
+      html += buildPWPreExistingDamages(woOffset + 6);
     } else if(jobType === 'longdistance'){
       const clientName = pwVal('pw_clientName');
       const bolHtml = await pullLongDistanceBOL(clientName);
       if(bolHtml){
         html += bolHtml;
-        html += buildPWLiabilityWaiver(4, true);
-        html += buildPWGAGuide(5);
-        html += buildPWAddendum(6);
-        html += buildPWPreExistingDamages(7);
+        html += buildPWLiabilityWaiver(woOffset + 4, true);
+        html += buildPWGAGuide(woOffset + 5);
+        html += buildPWAddendum(woOffset + 6);
+        html += buildPWPreExistingDamages(woOffset + 7);
         extraNote = ` Included the matching Long Distance Bill of Lading for "${clientName}".`;
       } else {
-        html += buildPWLiabilityWaiver(1, true);
-        html += buildPWGAGuide(2);
-        html += buildPWAddendum(3);
-        html += buildPWPreExistingDamages(4);
+        html += buildPWLiabilityWaiver(woOffset + 1, true);
+        html += buildPWGAGuide(woOffset + 2);
+        html += buildPWAddendum(woOffset + 3);
+        html += buildPWPreExistingDamages(woOffset + 4);
         extraNote = clientName
           ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name) first if you need it included.`
           : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
       }
     } else {
-      html += buildPWLiabilityWaiver(1, true);
-      html += buildPWPreExistingDamages(2);
-      html += buildPWShipperDeclaration(3);
+      html += buildPWLiabilityWaiver(woOffset + 1, true);
+      html += buildPWPreExistingDamages(woOffset + 2);
+      html += buildPWShipperDeclaration(woOffset + 3);
     }
     return { html, extraNote };
   }
@@ -11383,7 +11391,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         let jobType = '';
         if(isLongDistance) jobType = 'longdistance';
         else if(d.serviceType === 'move' || d.serviceType === 'movelabor') jobType = d.serviceType;
-        const thumbnail = (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null;
+        const file = pwBatchPastedImages[d.fileIndex];
+        const totalPages = file ? file.allPageDataUris.length : 0;
+        const firstIdx = totalPages > 0 ? Math.max(0, Math.min(d.firstPageIndex || 0, totalPages - 1)) : 0;
+        const lastIdxRaw = typeof d.lastPageIndex === 'number' ? d.lastPageIndex : firstIdx;
+        const lastIdx = totalPages > 0 ? Math.max(firstIdx, Math.min(lastIdxRaw, totalPages - 1)) : 0;
+        // Captured now, before pwBatchPastedImages gets cleared below -- these
+        // are the exact original work order pages for this job, later
+        // prepended to its printed packet.
+        const workOrderPages = file ? file.allPageDataUris.slice(firstIdx, lastIdx + 1) : [];
+        const thumbnail = file ? file.allPageDataUris[firstIdx] : null;
         return {
           reviewId: 'pwrev_' + i,
           jobNumber: d.jobNumber || '',
@@ -11398,7 +11415,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           distanceInfo: dist && dist.ok ? dist : null,
           jobType,
           captainName: '',
-          thumbnail
+          thumbnail,
+          workOrderPages
         };
       });
 
@@ -11583,7 +11601,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         updatePWJobTypeUI();
 
         await archiveJobData();
-        const { html, extraNote } = await buildWorkPackageHtml(r.jobType);
+        const { html, extraNote } = await buildWorkPackageHtml(r.jobType, r.workOrderPages);
         generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote });
       }
 
