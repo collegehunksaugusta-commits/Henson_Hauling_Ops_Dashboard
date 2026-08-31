@@ -445,7 +445,7 @@ app.get('/api/driver/materials-items', requireDriverAuth, async (req, res) => {
   try {
     const raw = await redis.get('materials-items');
     const items = raw ? JSON.parse(raw) : [];
-    res.json({ items: items.map(i => ({ id: i.id, supplierItemNumber: i.supplierItemNumber, description: i.description })) });
+    res.json({ items: items.map(i => ({ id: i.id, supplierItemNumber: i.supplierItemNumber, description: i.description, nickname: i.nickname })) });
   } catch (err) {
     console.error('Driver materials list failed:', err.message);
     res.status(500).json({ error: 'Could not load materials.' });
