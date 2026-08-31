@@ -68,7 +68,9 @@ const ALLOWED_KEYS = new Set([
   'mail-mailed-history',
   'square-tip-allocations',
   'square-tip-paid-weeks',
-  'roster-manual-additions'
+  'roster-manual-additions',
+  'materials-items',
+  'materials-checkouts'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-'];
 
@@ -391,7 +393,19 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
   if (!truckId || !driverName || !Array.isArray(checklist) || checklist.length === 0) {
     return res.status(400).json({ error: 'Truck, driver name, and checklist are required.' });
   }
+  const inspectionDate = date || new Date().toISOString().slice(0, 10);
   try {
+    // A Materials Checkout must be on file for this driver, for this same
+    // date, before their Pre-Trip Inspection can be submitted. Enforced
+    // here (not just in the UI) so it can't be bypassed by calling this
+    // endpoint directly.
+    const checkoutsRaw = await redis.get('materials-checkouts');
+    const checkouts = checkoutsRaw ? JSON.parse(checkoutsRaw) : [];
+    const hasCheckoutToday = checkouts.some(c => c.driverName === driverName && c.date === inspectionDate);
+    if (!hasCheckoutToday) {
+      return res.status(400).json({ error: 'Please complete a Materials Checkout for today before submitting your Pre-Trip Inspection.', requiresMaterialsCheckout: true });
+    }
+
     const raw = await redis.get('compliance-pretrip-inspections');
     const records = raw ? JSON.parse(raw) : [];
     const hasDefect = checklist.some(c => c.status === 'defect');
@@ -399,7 +413,7 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
       id: 'pti_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       truckId, truckNickname: truckNickname || '',
       driverName: String(driverName).slice(0, 100),
-      date: date || new Date().toISOString().slice(0, 10),
+      date: inspectionDate,
       odometer: odometer || '',
       checklist,
       overallStatus: hasDefect ? 'defects' : 'ok',
@@ -411,6 +425,105 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
   } catch (err) {
     console.error('Pre-trip submission failed:', err.message);
     res.status(500).json({ error: 'Could not submit inspection.' });
+  }
+});
+
+// Materials list for the driver checkout form -- item identity only (number
+// and description), never price or minimum-quantity, which are internal
+// inventory-management fields with no reason to be driver-visible.
+app.get('/api/driver/materials-items', requireDriverAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('materials-items');
+    const items = raw ? JSON.parse(raw) : [];
+    res.json({ items: items.map(i => ({ id: i.id, supplierItemNumber: i.supplierItemNumber, description: i.description })) });
+  } catch (err) {
+    console.error('Driver materials list failed:', err.message);
+    res.status(500).json({ error: 'Could not load materials.' });
+  }
+});
+
+// Lets the driver portal check -- before a driver fills out the whole
+// Pre-Trip Inspection form -- whether today's Materials Checkout is already
+// on file, so it can redirect them proactively instead of only rejecting
+// the PTI submission afterward. The actual enforcement lives in
+// /api/driver/pretrip itself; this is just for a better prompt.
+app.get('/api/driver/materials-checkout-status', requireDriverAuth, async (req, res) => {
+  const driverName = (req.query.driverName || '').toString().trim();
+  const date = (req.query.date || new Date().toISOString().slice(0, 10)).toString();
+  if (!driverName) return res.status(400).json({ error: 'Driver name is required.' });
+  try {
+    const raw = await redis.get('materials-checkouts');
+    const checkouts = raw ? JSON.parse(raw) : [];
+    const hasCheckoutToday = checkouts.some(c => c.driverName === driverName && c.date === date);
+    res.json({ hasCheckoutToday });
+  } catch (err) {
+    console.error('Materials checkout status check failed:', err.message);
+    res.status(500).json({ error: 'Could not check checkout status.' });
+  }
+});
+
+app.post('/api/driver/materials-checkout', requireDriverAuth, async (req, res) => {
+  const { driverName, jobNumbers, items, date } = req.body || {};
+  if (!driverName || typeof driverName !== 'string') {
+    return res.status(400).json({ error: 'Driver name is required.' });
+  }
+  const cleanItems = Array.isArray(items)
+    ? items.filter(i => i && i.itemId && Number(i.quantity) > 0).map(i => ({ itemId: String(i.itemId), quantity: Math.floor(Number(i.quantity)) }))
+    : [];
+  const cleanJobNumbers = Array.isArray(jobNumbers) ? jobNumbers.map(j => String(j).trim()).filter(Boolean) : [];
+  const totalQuantity = cleanItems.reduce((sum, i) => sum + i.quantity, 0);
+  // A job number is only required when something was actually taken --
+  // reporting "nothing today" needs no job to attribute it to.
+  if (totalQuantity > 0 && cleanJobNumbers.length === 0) {
+    return res.status(400).json({ error: 'At least one Job Number is required when materials were taken.' });
+  }
+  const checkoutDate = date || new Date().toISOString().slice(0, 10);
+  try {
+    const [itemsRaw, checkoutsRaw] = await Promise.all([
+      redis.get('materials-items'),
+      redis.get('materials-checkouts')
+    ]);
+    const materialsItems = itemsRaw ? JSON.parse(itemsRaw) : [];
+    const checkouts = checkoutsRaw ? JSON.parse(checkoutsRaw) : [];
+
+    // Snapshot item number/description onto the checkout record itself, so
+    // this checkout's history stays accurate and readable even if an item
+    // is later renamed or deleted from the active list.
+    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
+    const checkoutItems = cleanItems.map(i => {
+      const item = itemsById.get(i.itemId);
+      return {
+        itemId: i.itemId,
+        supplierItemNumber: item ? item.supplierItemNumber : '',
+        description: item ? item.description : '(item no longer on file)',
+        quantity: i.quantity
+      };
+    });
+
+    checkouts.push({
+      id: 'checkout_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      driverName: String(driverName).slice(0, 100),
+      date: checkoutDate,
+      jobNumbers: cleanJobNumbers,
+      items: checkoutItems,
+      checkedOutAt: new Date().toISOString()
+    });
+
+    // Checking materials out of the racks decrements on-hand inventory --
+    // this is the one place quantityOnHand actually goes down.
+    cleanItems.forEach(i => {
+      const item = itemsById.get(i.itemId);
+      if (item) item.quantityOnHand = Math.max(0, (Number(item.quantityOnHand) || 0) - i.quantity);
+    });
+
+    await Promise.all([
+      redis.set('materials-items', JSON.stringify(materialsItems)),
+      redis.set('materials-checkouts', JSON.stringify(checkouts))
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Materials checkout submission failed:', err.message);
+    res.status(500).json({ error: 'Could not submit checkout.' });
   }
 });
 
@@ -1270,9 +1383,21 @@ const EXTRACT_WORK_ORDER_TOOL = {
               description: '"move" if this is a full moving service (packing/loading/transporting/unloading household goods). "movelabor" if it\u2019s a labor-only service (e.g. just loading/unloading help, no long-haul transport of goods). "junkremoval" if this is a junk/hauling-away job rather than a household move (this company does both moving and junk removal work orders). "unclear" only if the service type genuinely can\u2019t be determined -- do not guess between the other three if it isn\u2019t reasonably clear.'
             },
             estimateSummary: { type: 'string', description: 'If a "Move Factors" or auto-generated quote/estimate narrative section is present (often starting with something like "This is an inventory quote..." and including sentences like "We have estimated the move to last X hours", "$X per hour for Y HUNKS", "The cost for labor... is estimated at $X", "The estimated total cost of this move is $X"), transcribe that narrative text as close to verbatim as possible -- do not summarize or paraphrase it, since exact phrasing and numbers matter. Empty string if no such section is present.' },
+            packingMaterials: {
+              type: 'array',
+              description: 'Any packing materials mentioned in the quote/estimate\u2019s Packing Services section, e.g. a line reading "Pack 5 small boxes" becomes {description: "small boxes", quantity: 5}. This is the quoted/expected quantity, not necessarily what actually gets used on the job. Empty array if no Packing Services materials are mentioned anywhere in the quote.',
+              items: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string', description: 'The material name exactly as stated, e.g. "small boxes", "shrink wrap", "wardrobe boxes".' },
+                  quantity: { type: 'number', description: 'The quantity stated for this material.' }
+                },
+                required: ['description', 'quantity']
+              }
+            },
             confident: { type: 'boolean', description: 'True if the job number, client info, and addresses were all read clearly. False if the image was blurry, cut off, or key fields were ambiguous.' }
           },
-          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident', 'scheduledHours', 'quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees']
+          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident', 'scheduledHours', 'quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees', 'packingMaterials']
         }
       }
     },
@@ -1332,7 +1457,7 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
             role: 'user',
             content: [
               ...pageBlocks,
-              { type: 'text', text: `These are ${pageBlocks.length} page(s) from a single uploaded file, in order (0-based index 0 through ${pageBlocks.length - 1}). This file may contain just ONE work order, or it may contain SEVERAL distinct work orders placed back to back (e.g. a stack of documents scanned into one file) -- each work order typically runs a few pages and often shows a repeated "Page X/Y" footer and reference number that resets or changes at the start of the next one, plus its own Job ID. Find every distinct work order present, extract each one separately, and report the exact page range (first and last page index) each one occupies -- do not merge different jobs together, and do not split one job into more than one entry. Also read the scheduled "Job Time" range (e.g. "8:00 AM - 3:15 PM") and convert it to decimal hours, and separately read the quote/estimate narrative's stated hours, hourly rate, crew size, and any other flat fee -- these two hour figures sometimes disagree (the job may be scheduled for a very different duration than the attached quote assumed), which is exactly what needs to be reported, not reconciled.` }
+              { type: 'text', text: `These are ${pageBlocks.length} page(s) from a single uploaded file, in order (0-based index 0 through ${pageBlocks.length - 1}). This file may contain just ONE work order, or it may contain SEVERAL distinct work orders placed back to back (e.g. a stack of documents scanned into one file) -- each work order typically runs a few pages and often shows a repeated "Page X/Y" footer and reference number that resets or changes at the start of the next one, plus its own Job ID. Find every distinct work order present, extract each one separately, and report the exact page range (first and last page index) each one occupies -- do not merge different jobs together, and do not split one job into more than one entry. Also read the scheduled "Job Time" range (e.g. "8:00 AM - 3:15 PM") and convert it to decimal hours, and separately read the quote/estimate narrative's stated hours, hourly rate, crew size, and any other flat fee -- these two hour figures sometimes disagree (the job may be scheduled for a very different duration than the attached quote assumed), which is exactly what needs to be reported, not reconciled. Also check the quote for a Packing Services line item -- it lists packing materials with a quantity, e.g. "Pack 5 small boxes" -- and report each material and its quantity; leave this empty if the quote has no such line, since not every job includes packing materials.` }
             ]
           }]
         })
@@ -1565,6 +1690,104 @@ app.post('/api/admin/extract-quote', requireAuth, async (req, res) => {
     res.json(toolUseBlock.input);
   } catch (err) {
     console.error('Quote extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
+// ============ Materials: Invoice Line-Item Extraction ============
+// Reads a supplier invoice (possibly multiple pages) and pulls out each
+// line item, so establishing/restocking inventory doesn't mean typing in
+// every item and quantity by hand. Prices and quantities come back as raw
+// numbers -- if a total needs computing anywhere downstream, that stays
+// deterministic arithmetic on the frontend, not model output.
+const EXTRACT_INVOICE_ITEMS_TOOL = {
+  name: 'extract_invoice_items',
+  description: 'Extract each line item from a supplier invoice for moving/packing supplies.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            supplierItemNumber: { type: 'string', description: 'The supplier\u2019s item/SKU number for this line. Empty string if this invoice doesn\u2019t show one.' },
+            description: { type: 'string', description: 'The item description as printed on the invoice.' },
+            priceEach: { type: 'number', description: 'The unit price for one of this item. 0 if not shown (e.g. only a line total is given).' },
+            quantity: { type: 'number', description: 'The quantity of this item on this invoice.' }
+          },
+          required: ['supplierItemNumber', 'description', 'priceEach', 'quantity']
+        }
+      },
+      confident: { type: 'boolean', description: 'True if the line items were read clearly. False if the invoice was too blurry, cut off, or didn\u2019t look like an itemized invoice.' }
+    },
+    required: ['items', 'confident']
+  }
+};
+
+app.post('/api/admin/extract-invoice-items', requireAuth, async (req, res) => {
+  const { images } = req.body || {};
+  if (!Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'At least one image is required.' });
+  }
+  if (images.length > 24) {
+    return res.status(400).json({ error: 'Please split this into invoices of 24 pages or fewer.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Invoice extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Extraction is not configured on the server yet.' });
+  }
+
+  try {
+    const imageBlocks = images.map(dataUri => {
+      const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+      if (!match) return null;
+      return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+    }).filter(Boolean);
+    if (imageBlocks.length === 0) {
+      return res.status(400).json({ error: 'No valid images were provided.' });
+    }
+
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        tools: [EXTRACT_INVOICE_ITEMS_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_invoice_items' },
+        messages: [{
+          role: 'user',
+          content: [
+            ...imageBlocks,
+            { type: 'text', text: `These are ${imageBlocks.length} page(s) of a single supplier invoice for moving/packing supplies. Find every line item -- item number, description, unit price, and quantity -- across all pages.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Invoice extraction failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_invoice_items');
+    if (!toolUseBlock) {
+      console.error('Invoice extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('Invoice extraction failed:', err.message);
     res.status(500).json({ error: 'Extraction failed: ' + err.message });
   }
 });
