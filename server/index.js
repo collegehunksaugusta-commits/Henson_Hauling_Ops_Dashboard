@@ -70,9 +70,10 @@ const ALLOWED_KEYS = new Set([
   'square-tip-paid-weeks',
   'roster-manual-additions',
   'materials-items',
-  'materials-checkouts'
+  'materials-checkouts',
+  'compliance-eod-inspections'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-'];
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -389,9 +390,12 @@ app.post('/api/driver/neighborhood-visit', requireDriverAuth, async (req, res) =
 });
 
 app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
-  const { truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes } = req.body || {};
+  const { truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes, backPhoto } = req.body || {};
   if (!truckId || !driverName || !Array.isArray(checklist) || checklist.length === 0) {
     return res.status(400).json({ error: 'Truck, driver name, and checklist are required.' });
+  }
+  if (!backPhoto || typeof backPhoto !== 'string' || !backPhoto.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'A photo of the back of the truck is required.' });
   }
   const inspectionDate = date || new Date().toISOString().slice(0, 10);
   try {
@@ -409,8 +413,13 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
     const raw = await redis.get('compliance-pretrip-inspections');
     const records = raw ? JSON.parse(raw) : [];
     const hasDefect = checklist.some(c => c.status === 'defect');
+    const id = 'pti_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    // Stored as its own blob key (not inline on the record) so the main PTI
+    // list stays lean -- same pattern as Completed Paperwork uploads.
+    const backPhotoKey = 'compliance-pti-photo-' + id;
+    await redis.set(backPhotoKey, JSON.stringify(backPhoto));
     records.push({
-      id: 'pti_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      id,
       truckId, truckNickname: truckNickname || '',
       driverName: String(driverName).slice(0, 100),
       date: inspectionDate,
@@ -418,6 +427,7 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
       checklist,
       overallStatus: hasDefect ? 'defects' : 'ok',
       additionalNotes: (additionalNotes || '').slice(0, 2000),
+      backPhotoKey,
       submittedAt: new Date().toISOString()
     });
     await redis.set('compliance-pretrip-inspections', JSON.stringify(records));
@@ -527,6 +537,182 @@ app.post('/api/driver/materials-checkout', requireDriverAuth, async (req, res) =
   }
 });
 
+// ============ Driver: End of Day Inspection ============
+// Requires a photo of the truck's cargo area, plus quantities of any unused
+// packing materials being returned to the racks. Returned quantities credit
+// back to inventory (the mirror of Materials Checkout decrementing it), and
+// are also the basis for netting "actually used" against what was billed --
+// see the Materials tile's Underbilled Jobs comparison.
+const COMPARE_TRUCK_PHOTOS_TOOL = {
+  name: 'compare_truck_photos',
+  description: 'Compare a moving truck\u2019s cargo area photo from the start and end of the day, and flag any equipment issues.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      issues: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            issue: { type: 'string', description: 'A short, specific description, e.g. "Missing furniture dolly", "Moving blankets not folded", "Fewer blankets visible than this morning".' },
+            severity: { type: 'string', enum: ['minor', 'moderate'], description: 'How significant this looks.' }
+          },
+          required: ['issue', 'severity']
+        },
+        description: 'Equipment issues noticed between the two photos -- missing items (dollies, moving blankets, straps, hand trucks), blankets left unfolded or messy, or anything that looks damaged or different in a way that matters for equipment upkeep. Do not flag ordinary cargo/boxes changing, since that\u2019s expected as jobs get completed. Empty array if the truck looks properly equipped and organized in both photos.'
+      },
+      summary: { type: 'string', description: 'One sentence overall assessment.' }
+    },
+    required: ['issues', 'summary']
+  }
+};
+
+async function compareTruckPhotos(ptiPhotoDataUri, eodPhotoDataUri) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return { status: 'failed', issues: [], summary: '' };
+  const ptiMatch = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(ptiPhotoDataUri || '');
+  const eodMatch = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(eodPhotoDataUri || '');
+  if (!ptiMatch || !eodMatch) return { status: 'failed', issues: [], summary: '' };
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [COMPARE_TRUCK_PHOTOS_TOOL],
+        tool_choice: { type: 'tool', name: 'compare_truck_photos' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'This first photo is the back/cargo area of a moving truck, taken this morning during Pre-Trip Inspection:' },
+            { type: 'image', source: { type: 'base64', media_type: ptiMatch[1], data: ptiMatch[2] } },
+            { type: 'text', text: 'This second photo is the same truck, taken this evening during End of Day Inspection:' },
+            { type: 'image', source: { type: 'base64', media_type: eodMatch[1], data: eodMatch[2] } },
+            { type: 'text', text: 'Compare the two. Flag any equipment issues: missing items (dollies, moving blankets, straps, hand trucks), blankets left unfolded or not properly stored, or anything that looks damaged. Do not flag ordinary cargo/box changes, since that\u2019s expected as jobs get completed during the day.' }
+          ]
+        }]
+      })
+    });
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Truck photo comparison failed:', anthropicRes.status, errBody);
+      return { status: 'failed', issues: [], summary: '' };
+    }
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'compare_truck_photos');
+    if (!toolUseBlock) return { status: 'failed', issues: [], summary: '' };
+    const issues = Array.isArray(toolUseBlock.input.issues) ? toolUseBlock.input.issues : [];
+    return { status: issues.length > 0 ? 'issues_found' : 'ok', issues, summary: toolUseBlock.input.summary || '' };
+  } catch (err) {
+    console.error('Truck photo comparison failed:', err.message);
+    return { status: 'failed', issues: [], summary: '' };
+  }
+}
+
+app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
+  const { truckId, truckNickname, driverName, date, jobNumbers, returnedItems, backPhoto, additionalNotes } = req.body || {};
+  if (!truckId || !driverName) {
+    return res.status(400).json({ error: 'Truck and driver name are required.' });
+  }
+  if (!backPhoto || typeof backPhoto !== 'string' || !backPhoto.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'A photo of the back of the truck is required.' });
+  }
+  const cleanReturnedItems = Array.isArray(returnedItems)
+    ? returnedItems.filter(i => i && i.itemId && Number(i.quantity) > 0).map(i => ({ itemId: String(i.itemId), quantity: Math.floor(Number(i.quantity)) }))
+    : [];
+  const cleanJobNumbers = Array.isArray(jobNumbers) ? jobNumbers.map(j => String(j).trim()).filter(Boolean) : [];
+  const totalReturned = cleanReturnedItems.reduce((sum, i) => sum + i.quantity, 0);
+  // A job number is required when returning something, same reasoning as
+  // checkout -- it's what lets the return be credited to the right job.
+  if (totalReturned > 0 && cleanJobNumbers.length === 0) {
+    return res.status(400).json({ error: 'At least one Job Number is required when returning materials, so it can be credited to the right job.' });
+  }
+  const inspectionDate = date || new Date().toISOString().slice(0, 10);
+
+  try {
+    const [itemsRaw, eodRaw, ptiRaw] = await Promise.all([
+      redis.get('materials-items'),
+      redis.get('compliance-eod-inspections'),
+      redis.get('compliance-pretrip-inspections')
+    ]);
+    const materialsItems = itemsRaw ? JSON.parse(itemsRaw) : [];
+    const eodRecords = eodRaw ? JSON.parse(eodRaw) : [];
+    const ptiRecords = ptiRaw ? JSON.parse(ptiRaw) : [];
+
+    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
+    const returnedItemDetails = cleanReturnedItems.map(i => {
+      const item = itemsById.get(i.itemId);
+      return {
+        itemId: i.itemId,
+        supplierItemNumber: item ? item.supplierItemNumber : '',
+        description: item ? item.description : '(item no longer on file)',
+        quantity: i.quantity
+      };
+    });
+
+    // Returning materials to the racks credits inventory back -- the mirror
+    // of Materials Checkout decrementing it.
+    cleanReturnedItems.forEach(i => {
+      const item = itemsById.get(i.itemId);
+      if (item) item.quantityOnHand = (Number(item.quantityOnHand) || 0) + i.quantity;
+    });
+
+    const id = 'eod_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    const backPhotoKey = 'compliance-eod-photo-' + id;
+    await redis.set(backPhotoKey, JSON.stringify(backPhoto));
+
+    // Same truck, same date's PTI photo is the "before" picture -- if it's
+    // on file, compare now so the finding is ready as soon as the admin
+    // looks at Captain Metrics, rather than computed on demand later.
+    const matchingPti = ptiRecords.find(p => p.truckId === truckId && p.date === inspectionDate && p.backPhotoKey);
+    let visionStatus = 'no_pti_photo';
+    let visionIssues = [];
+    let visionSummary = '';
+    if (matchingPti) {
+      try {
+        const ptiPhotoRaw = await redis.get(matchingPti.backPhotoKey);
+        const ptiPhoto = ptiPhotoRaw ? JSON.parse(ptiPhotoRaw) : null;
+        if (ptiPhoto) {
+          const result = await compareTruckPhotos(ptiPhoto, backPhoto);
+          visionStatus = result.status;
+          visionIssues = result.issues;
+          visionSummary = result.summary;
+        }
+      } catch (err) {
+        console.error('Truck photo lookup/comparison failed:', err.message);
+        visionStatus = 'failed';
+      }
+    }
+
+    eodRecords.push({
+      id,
+      truckId, truckNickname: truckNickname || '',
+      driverName: String(driverName).slice(0, 100),
+      date: inspectionDate,
+      jobNumbers: cleanJobNumbers,
+      returnedItems: returnedItemDetails,
+      backPhotoKey,
+      additionalNotes: (additionalNotes || '').slice(0, 2000),
+      visionStatus, visionIssues, visionSummary,
+      submittedAt: new Date().toISOString()
+    });
+
+    await Promise.all([
+      redis.set('materials-items', JSON.stringify(materialsItems)),
+      redis.set('compliance-eod-inspections', JSON.stringify(eodRecords))
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('End of day inspection submission failed:', err.message);
+    res.status(500).json({ error: 'Could not submit inspection.' });
+  }
+});
+
 // Captain leaderboard for the driver portal. Computes rankings server-side
 // from the same admin-side records Captain Metrics uses, and returns only
 // the aggregated results -- drivers never get raw access to
@@ -538,14 +724,16 @@ app.post('/api/driver/materials-checkout', requireDriverAuth, async (req, res) =
 // just renders whatever categories come back.
 app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
   try {
-    const [archiveRaw, ptiRaw, uploadsRaw] = await Promise.all([
+    const [archiveRaw, ptiRaw, uploadsRaw, eodRaw] = await Promise.all([
       redis.get('paperwork-job-archive'),
       redis.get('compliance-pretrip-inspections'),
-      redis.get('paperwork-uploads')
+      redis.get('paperwork-uploads'),
+      redis.get('compliance-eod-inspections')
     ]);
     const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
     const ptiRecords = ptiRaw ? JSON.parse(ptiRaw) : [];
     const uploads = uploadsRaw ? JSON.parse(uploadsRaw) : [];
+    const eodRecords = eodRaw ? JSON.parse(eodRaw) : [];
 
     const categories = [];
 
@@ -576,6 +764,23 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
     }).sort((a, b) => b.value - a.value);
     if (ptiEntries.length > 0) {
       categories.push({ key: 'pretrip', title: 'Pre-Trip Inspection Compliance', entries: ptiEntries });
+    }
+
+    // ---- End of Day Inspection Compliance, same day-window as Pre-Trip ----
+    // Only counts days that already have a Pre-Trip Inspection on file --
+    // a day nobody started with a PTI has nothing to "end" for compliance
+    // purposes here.
+    const eodEntries = Object.keys(assignedDaysByCaptain).map(captain => {
+      const ptiDays = [...assignedDaysByCaptain[captain]].filter(day => ptiRecords.some(p => p.driverName === captain && p.date === day));
+      const compliantDays = ptiDays.filter(day => eodRecords.some(e => e.driverName === captain && e.date === day)).length;
+      return {
+        name: captain,
+        value: ptiDays.length > 0 ? Math.round((compliantDays / ptiDays.length) * 100) : 0,
+        detail: `${compliantDays} of ${ptiDays.length} day${ptiDays.length === 1 ? '' : 's'}`
+      };
+    }).filter(e => e.detail !== '0 of 0 days').sort((a, b) => b.value - a.value);
+    if (eodEntries.length > 0) {
+      categories.push({ key: 'eod', title: 'End of Day Inspection Compliance', entries: eodEntries });
     }
 
     // ---- Completed Paperwork Quality, uploads from the last 30 days ----
