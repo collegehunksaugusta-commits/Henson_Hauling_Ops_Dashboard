@@ -451,6 +451,10 @@
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Truck Documents</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">View a truck's registration and insurance card</div>
       </button>
+      <button type="button" id="driverGoToMaterialsBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
+        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Materials Checkout</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Report supplies you pulled from the racks &mdash; required before Pre-Trip Inspection</div>
+      </button>
       <a href="https://fuelsites.corpay.com/fuelman" target="_blank" rel="noopener" id="driverFuelStationsLink" style="display:block; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit; text-decoration:none;">
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Find Fuel Stations &#8599;</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Opens Fuelman's official site locator to find nearby stations that accept our fuel card</div>
@@ -481,6 +485,12 @@
       </div>
       <label id="pti_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="pti_driverNameOther" placeholder="First and last name"></label>
       <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
+    </div>
+
+    <div id="pti_materialsGateBanner" style="display:none; background:#FFF6E8; border:1px solid #F0D9A8; border-radius:10px; padding:16px 18px; margin-bottom:16px;">
+      <div style="font-weight:700; color:#8a6d00; margin-bottom:4px;">Materials Checkout needed first</div>
+      <div style="font-size:13.5px; color:#8a6d00; margin-bottom:10px;">You haven't logged today's Materials Checkout yet &mdash; that's required before this inspection can be submitted.</div>
+      <button type="button" id="pti_goToMaterialsBtn" style="background:var(--brand-orange); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Go to Materials Checkout</button>
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
@@ -573,6 +583,38 @@
       <label>Truck <select id="tdocs_truck"></select></label>
       <p class="form-note" id="tdocs_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
       <div id="tdocs_docList" style="margin-top:14px;"></div>
+    </div>
+  </div>
+
+  <div id="driverMaterialsView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="driverMaterialsBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
+      <h2 class="display" style="margin:0; font-size:20px;">Materials Checkout</h2>
+      <button type="button" id="driverMaterialsLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <p class="form-note">Report what you pulled from the racks today. If you didn't take anything, you can still submit this with everything left at 0 &mdash; that's what clears you for Pre-Trip Inspection.</p>
+      <label>Your Name
+        <select id="matco_driverNameSelect">
+          <option value="">Select your name...</option>
+          <option value="__other__">Not on the list (type your name)</option>
+        </select>
+      </label>
+      <label id="matco_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="matco_driverNameOther" placeholder="First and last name"></label>
+      <label>Job Number(s) <input type="text" id="matco_jobNumbers" placeholder="e.g. 11699257, 11700412" inputmode="numeric"></label>
+      <p class="form-note">Separate multiple job numbers with a comma. Only needed if you're taking something below.</p>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">What did you take?</h3>
+      <div id="matco_itemList"></div>
+      <p class="form-note" id="matco_noItemsNote" style="display:none;">No materials are set up yet &mdash; ask your administrator to add some on the Materials tile.</p>
+    </div>
+
+    <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+      <button class="btn-primary" id="matco_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Checkout</button>
+      <span class="status-msg" id="matco_submitStatus" style="text-align:center;"></span>
     </div>
   </div>
 </div>
@@ -668,6 +710,7 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
+    document.getElementById('driverMaterialsView').style.display = 'none';
   }
 
   function showDriverMenu(){
@@ -678,6 +721,7 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
+    document.getElementById('driverMaterialsView').style.display = 'none';
     loadDriverLeaderboard();
   }
 
@@ -689,10 +733,12 @@
     document.getElementById('driverInspectionView').style.display = 'block';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
+    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
     loadDriverTrucks();
     loadDriverRoster();
     renderPtiChecklist();
+    checkPtiMaterialsGate();
   }
 
   function showDriverNbhd(){
@@ -703,6 +749,7 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'block';
     document.getElementById('driverTruckDocsView').style.display = 'none';
+    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
     document.getElementById('nbhd_visitPanel').style.display = 'none';
     document.getElementById('nbhd_manualAreaWrap').style.display = 'none';
@@ -718,7 +765,22 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'block';
+    document.getElementById('driverMaterialsView').style.display = 'none';
     loadDriverTruckDocsTrucks();
+  }
+
+  function showDriverMaterials(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverMenuView').style.display = 'none';
+    document.getElementById('driverInspectionView').style.display = 'none';
+    document.getElementById('driverNbhdView').style.display = 'none';
+    document.getElementById('driverTruckDocsView').style.display = 'none';
+    document.getElementById('driverMaterialsView').style.display = 'block';
+    document.getElementById('matco_submitStatus').textContent = '';
+    fetchDriverRosterInto('matco_driverNameSelect');
+    loadDriverMaterialsItems();
   }
 
   // Local copy of the admin dashboard's data-URI-to-blob-URL conversion --
@@ -809,6 +871,10 @@
   document.getElementById('driverGoToInspectionBtn').addEventListener('click', showDriverInspection);
   document.getElementById('driverGoToNbhdBtn').addEventListener('click', showDriverNbhd);
   document.getElementById('driverGoToTruckDocsBtn').addEventListener('click', showDriverTruckDocs);
+  document.getElementById('driverGoToMaterialsBtn').addEventListener('click', showDriverMaterials);
+  document.getElementById('driverMaterialsBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverMaterialsLogoutBtn').addEventListener('click', driverLogout);
+  document.getElementById('pti_goToMaterialsBtn').addEventListener('click', showDriverMaterials);
   document.getElementById('driverInspectionBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverNbhdBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverTruckDocsBackBtn').addEventListener('click', showDriverMenu);
@@ -1045,6 +1111,7 @@
   }
   wireOtherNameToggle('pti_driverNameSelect', 'pti_driverNameOtherWrap', 'pti_driverNameOther');
   wireOtherNameToggle('nbhd_driverNameSelect', 'nbhd_driverNameOtherWrap', 'nbhd_driverNameOther');
+  wireOtherNameToggle('matco_driverNameSelect', 'matco_driverNameOtherWrap', 'matco_driverNameOther');
 
   function readSelectedDriverName(selectId, otherInputId){
     const sel = document.getElementById(selectId);
@@ -1052,6 +1119,111 @@
       ? document.getElementById(otherInputId).value.trim()
       : sel.value.trim();
   }
+
+  // ---------- Materials Checkout ----------
+  let driverMaterialsItems = [];
+
+  async function loadDriverMaterialsItems(){
+    const listEl = document.getElementById('matco_itemList');
+    const emptyNote = document.getElementById('matco_noItemsNote');
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/materials-items', {
+        headers: {'Authorization': 'Bearer ' + driverToken}
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      driverMaterialsItems = data.items || [];
+    }catch(err){
+      console.error('Load materials items failed:', err);
+      driverMaterialsItems = [];
+    }
+    if(driverMaterialsItems.length === 0){
+      listEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    listEl.innerHTML = driverMaterialsItems.map(i => `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--line);">
+        <div>
+          <div style="font-weight:600; font-size:14px;">${driverEsc(i.description)}</div>
+          ${i.supplierItemNumber ? `<div style="font-size:11.5px; color:var(--muted);">${driverEsc(i.supplierItemNumber)}</div>` : ''}
+        </div>
+        <input type="number" min="0" step="1" class="matco-qty" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:8px; border:1px solid var(--line); border-radius:4px; text-align:center; font-size:15px;">
+      </div>`).join('');
+  }
+
+  document.getElementById('matco_submitBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('matco_submitStatus');
+    const driverName = readSelectedDriverName('matco_driverNameSelect', 'matco_driverNameOther');
+    if(!driverName){
+      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const jobNumbers = document.getElementById('matco_jobNumbers').value
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const items = Array.from(document.querySelectorAll('.matco-qty'))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .filter(i => i.quantity > 0);
+
+    if(items.length > 0 && jobNumbers.length === 0){
+      statusEl.textContent = 'Enter at least one Job Number for the materials you took.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    statusEl.textContent = 'Submitting...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ driverName, jobNumbers, items, date: new Date().toISOString().slice(0,10) })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not submit checkout.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = items.length > 0 ? 'Checkout submitted. Thank you!' : 'Got it \u2014 logged that you took nothing today.';
+      statusEl.className = 'status-msg ok';
+      document.getElementById('matco_jobNumbers').value = '';
+      document.querySelectorAll('.matco-qty').forEach(input => input.value = '');
+    }catch(err){
+      console.error('Materials checkout submit failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // Proactive check (not the actual enforcement -- that's server-side in
+  // /api/driver/pretrip) so a driver who hasn't checked out yet sees a clear
+  // prompt right on the PTI form instead of only finding out after filling
+  // out the whole checklist and trying to submit.
+  async function checkPtiMaterialsGate(){
+    const banner = document.getElementById('pti_materialsGateBanner');
+    const driverName = readSelectedDriverName('pti_driverNameSelect', 'pti_driverNameOther');
+    if(!driverName){ banner.style.display = 'none'; return; }
+    try{
+      const today = new Date().toISOString().slice(0,10);
+      const res = await fetch(API_BASE_AUTH + `/api/driver/materials-checkout-status?driverName=${encodeURIComponent(driverName)}&date=${today}`, {
+        headers: {'Authorization': 'Bearer ' + driverToken}
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      banner.style.display = data.hasCheckoutToday ? 'none' : 'block';
+    }catch(err){
+      console.error('Materials gate check failed:', err);
+      // Fails open on the UI side -- the server-side check in
+      // /api/driver/pretrip is what actually enforces this either way.
+      banner.style.display = 'none';
+    }
+  }
+  document.getElementById('pti_driverNameSelect').addEventListener('change', checkPtiMaterialsGate);
+  document.getElementById('pti_driverNameOther').addEventListener('input', checkPtiMaterialsGate);
 
   function renderPtiChecklist(){
     const container = document.getElementById('pti_checklist');
@@ -1473,10 +1645,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
             <span>Operations</span>
-            <span class="dashSectionCount">(5)</span>
+            <span class="dashSectionCount">(6)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -1505,6 +1677,12 @@
         <span class="icon">📊</span>
         <h3>Ops Manager Metrics</h3>
         <p>Paperwork close-out tracking, with more operational metrics planned.</p>
+      </div>
+      <div class="tile" id="tile-materials" tabindex="0" role="button" aria-label="Open Materials">
+        <span class="badge" id="materialsTileBadge" style="display:none;">Low Stock</span>
+        <span class="icon">📦</span>
+        <h3>Materials</h3>
+        <p>Moving supplies inventory, reordering alerts, and driver checkout tracking.</p>
       </div>
         </div>
       </div>
@@ -2239,6 +2417,21 @@
             <option value="">Select Captain...</option>
           </select>
         </label>
+
+        <div style="border:1px solid var(--line); border-radius:8px; padding:14px; margin-top:12px; background:var(--offwhite);">
+          <div style="font-weight:600; font-size:13px; margin-bottom:2px;">Materials Billed</div>
+          <label style="display:flex; align-items:center; gap:8px; font-weight:normal; margin-bottom:6px;">
+            <input type="checkbox" id="pu_requiresMaterials" style="width:auto;">
+            This job required packing materials
+          </label>
+          <p class="form-note" id="pu_requiresMaterialsNote" style="margin-top:0;"></p>
+          <div id="pu_materialsBilledWrap" style="display:none;">
+            <p class="form-note" style="margin-top:0;">Enter the quantities of each material actually charged to the client for this job &mdash; leave at 0 for anything not billed. Free consumables (tape, shrink wrap) aren't shown here since they're never billed.</p>
+            <div id="pu_materialsBilledList"></div>
+            <p class="form-note" id="pu_materialsBilledEmptyNote" style="display:none;">No billable materials are set up yet &mdash; add some on the Materials tile.</p>
+          </div>
+        </div>
+
         <div id="pu_dropzone" style="border:2px dashed var(--line); border-radius:8px; padding:28px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer; transition:background .15s, border-color .15s;">
           <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
           <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB</div>
@@ -2344,6 +2537,95 @@
       <p class="form-note" id="om_closeoutSummary" style="font-weight:600;"></p>
       <div id="om_closeoutRows"></div>
       <p class="form-note" id="om_closeoutEmptyNote" style="display:none;">No job-paperwork records found in the last 90 days.</p>
+    </div>
+  </div>
+
+  <!-- ============ MATERIALS DETAIL ============ -->
+  <div id="materialsDetail" style="display:none;">
+    <button class="backlink" id="materialsBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Materials</h2>
+      <p>Moving supplies inventory, reordering alerts, and reconciliation against what drivers checked out vs. what was billed.</p>
+    </div>
+
+    <div class="panel" id="matLowStockPanel">
+      <h3>Low Stock <span id="mat_lowStockCountBadge" style="display:none; font-size:11px; font-weight:600; color:#B3261E; background:#FCDCD6; border:1px solid #E8A69C; padding:2px 8px; border-radius:10px; vertical-align:middle;"></span></h3>
+      <p class="form-note">Items at or below their Minimum Quantity &mdash; time to reorder.</p>
+      <div id="mat_lowStockRows"></div>
+      <p class="form-note" id="mat_lowStockEmptyNote" style="display:none;">Nothing is low right now.</p>
+    </div>
+
+    <div class="panel" id="matUnderbilledPanel">
+      <h3>Underbilled Jobs</h3>
+      <p class="form-note">Compares what drivers checked materials out for against what was actually billed for that job in Completed Paperwork. A job shows up here if more was pulled from the racks than was billed.</p>
+      <div id="mat_underbilledRows"></div>
+      <p class="form-note" id="mat_underbilledEmptyNote" style="display:none;">No underbilled jobs found.</p>
+    </div>
+
+    <div class="panel" id="matInvoicePanel">
+      <h3>Upload Invoice</h3>
+      <p class="form-note">Upload a supplier invoice and Claude will read the line items &mdash; item number, description, price, and quantity &mdash; so you can add them to inventory without typing each one in by hand. Matches against existing items by Supplier Item Number where possible.</p>
+      <div id="mat_invoiceDropzone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
+        <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop an invoice here, or click to paste (Ctrl+V or Cmd+V)</p>
+        <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="mat_invoiceChooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose a file</button> instead &mdash; image or PDF, multi-page OK</p>
+        <input type="file" id="mat_invoiceFiles" accept=".jpg,.jpeg,.png,.pdf,.heic" style="display:none;">
+      </div>
+      <div id="mat_invoiceThumbnails" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;"></div>
+      <div class="form-actions">
+        <button class="btn-primary" id="mat_invoiceExtractBtn" type="button">Read Invoice</button>
+        <span class="status-msg" id="mat_invoiceExtractStatus"></span>
+      </div>
+
+      <div id="mat_invoiceReviewWrap" style="display:none; margin-top:20px;">
+        <h4 style="margin-bottom:6px;">Review Before Adding to Inventory</h4>
+        <p class="form-note">Lines matching an existing Supplier Item Number will add to that item's quantity on hand. New item numbers will be created (with a Minimum Quantity of 0 &mdash; set that once added, on the item list below).</p>
+        <div id="mat_invoiceReviewRows"></div>
+        <div class="form-actions">
+          <button class="btn-primary" id="mat_invoiceApplyBtn" type="button">Add to Inventory</button>
+          <span class="status-msg" id="mat_invoiceApplyStatus"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="matItemFormPanel">
+      <h3 id="mat_itemFormTitle">Add Item</h3>
+      <input type="hidden" id="mat_itemId" value="">
+      <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+        <label>Supplier Item Number <input type="text" id="mat_supplierItemNumber"></label>
+        <label>Description <input type="text" id="mat_description"></label>
+        <label>Nickname (HunkWare name) <input type="text" id="mat_nickname" placeholder="e.g. small boxes"></label>
+        <label>Price Each <input type="number" id="mat_priceEach" step="0.01" min="0"></label>
+        <label>Minimum Quantity <input type="number" id="mat_minQuantity" step="1" min="0"></label>
+        <label>Quantity On Hand <input type="number" id="mat_quantityOnHand" step="1" min="0"></label>
+      </div>
+      <p class="form-note">Nickname is how this item is named in HunkWare quotes (e.g. "small boxes", "shrink wrap") &mdash; used to match quoted packing materials against this item automatically.</p>
+      <label style="display:flex; align-items:center; gap:8px; font-weight:normal;">
+        <input type="checkbox" id="mat_neverBilled" style="width:auto;">
+        Never billed to clients (free consumable, e.g. tape or shrink wrap) &mdash; still tracked, but excluded from billing entry and underbilling alerts
+      </label>
+      <div class="form-actions">
+        <button class="btn-primary" id="mat_itemSaveBtn" type="button">Add Item</button>
+        <button type="button" id="mat_itemCancelBtn" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel</button>
+        <span class="status-msg" id="mat_itemFormStatus"></span>
+      </div>
+    </div>
+
+    <div class="panel" id="matItemListPanel">
+      <h3>All Items</h3>
+      <label>Search by Description or Item Number <input type="text" id="mat_itemSearch" placeholder="Start typing..."></label>
+      <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
+        <thead><tr>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Supplier Item #</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Price Each</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">On Hand</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Min Qty</th>
+          <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+        </tr></thead>
+        <tbody id="mat_itemRows"></tbody>
+      </table>
+      <p class="form-note" id="mat_itemEmptyNote" style="display:none;">No items yet &mdash; add one above or upload an invoice.</p>
     </div>
   </div>
 
@@ -3547,6 +3829,7 @@
   const tipsDetail = document.getElementById('tipsDetail');
   const captainDetail = document.getElementById('captainDetail');
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
+  const materialsDetail = document.getElementById('materialsDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -3562,8 +3845,12 @@
     tipsDetail.style.display = view === 'tips' ? 'block' : 'none';
     captainDetail.style.display = view === 'captain' ? 'block' : 'none';
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
+    materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
+    }
+    if(view === 'paperwork'){
+      window.renderPuMaterialsBilledFields();
     }
     if(view === 'fleet'){
       loadFleetData();
@@ -3588,6 +3875,9 @@
     }
     if(view === 'mailroute'){
       renderMailAptRoute(mailCurrentRouteSource || 'apartments', mailCurrentRouteTier || 'all');
+    }
+    if(view === 'materials'){
+      window.loadMaterialsData();
     }
     if(view === 'tips'){
       loadTipsData();
@@ -3739,6 +4029,9 @@
 
   document.getElementById('tile-opsmetrics').addEventListener('click', ()=> navigateTo('opsmetrics'));
   document.getElementById('tile-opsmetrics').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('opsmetrics'); }});
+  document.getElementById('tile-materials').addEventListener('click', ()=> navigateTo('materials'));
+  document.getElementById('tile-materials').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('materials'); }});
+  document.getElementById('materialsBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
@@ -7435,7 +7728,7 @@
   // future badge-toggling function keeps working exactly as it does today --
   // nothing scattered elsewhere in this file needs to know sections exist.
   (function watchTileBadgesForAttentionSync(){
-    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge'];
+    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge'];
     const observer = new MutationObserver(updateDashSectionAttentionBadges);
     badgeIds.forEach(id => {
       const el = document.getElementById(id);
@@ -11690,7 +11983,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           thumbnail,
           workOrderPages,
           scheduledHours, quotedHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees,
-          quoteGap, quoteResolution, extrapolatedTotal
+          quoteGap, quoteResolution, extrapolatedTotal,
+          packingMaterials: Array.isArray(d.packingMaterials) ? d.packingMaterials : []
         };
       });
 
@@ -11947,7 +12241,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         document.getElementById('pw_captainOtherWrap').style.display = 'none';
         updatePWJobTypeUI();
 
-        await archiveJobData();
+        await archiveJobData(r.packingMaterials);
         const { html, extraNote } = await buildWorkPackageHtml(r.jobType, r.workOrderPages);
         generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote });
       }
@@ -12847,7 +13141,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return '';
   }
 
-  async function archiveJobData(){
+  async function archiveJobData(packingMaterials){
     const jobNumber = pwVal('pw_jobNumber');
     if(!jobNumber) return;
     const clientName = pwVal('pw_clientName');
@@ -12858,8 +13152,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     try{
       let archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
       const cutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
+      const existing = archive.find(j => j.jobNumber === jobNumber && j.savedAt >= cutoff);
+      // Preserves previously-captured quote data (e.g. from the original
+      // batch work-order extraction) when this call doesn't explicitly
+      // supply it -- re-archiving via a different path (Print, Digital
+      // Signing, Copy Link) shouldn't erase what was already known.
+      const resolvedPackingMaterials = packingMaterials !== undefined ? packingMaterials : ((existing && existing.packingMaterials) || []);
       archive = archive.filter(j => j.savedAt >= cutoff && j.jobNumber !== jobNumber);
-      archive.push({ jobNumber, clientName, clientEmail, clientPhone, captainName, assignmentDate, savedAt: new Date().toISOString() });
+      archive.push({ jobNumber, clientName, clientEmail, clientPhone, captainName, assignmentDate, packingMaterials: resolvedPackingMaterials, savedAt: new Date().toISOString() });
       await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
     }catch(err){ console.error('Job archive save failed:', err); }
   }
@@ -13030,6 +13330,516 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.loadOpsMetricsData = loadOpsMetricsData;
 
+  // ---------- Materials ----------
+  const MATERIALS_ITEMS_KEY = 'materials-items';
+  const MATERIALS_CHECKOUTS_KEY = 'materials-checkouts';
+  let materialsItems = [];
+  let materialsCheckouts = [];
+  let matInvoiceFiles = [];    // {id, allPageDataUris, isPdf, originalFile}
+  let matInvoiceReview = [];   // review rows before applying to inventory
+  let matItemSearchTerm = '';
+
+  function matEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+  function matMoney(v){ return '$' + Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  async function saveMaterialsItems(){
+    return await window.dashboardApi.set(MATERIALS_ITEMS_KEY, materialsItems);
+  }
+
+  function isLowStock(item){ return Number(item.quantityOnHand || 0) <= Number(item.minQuantity || 0); }
+
+  function updateMaterialsTileBadge(){
+    const lowCount = materialsItems.filter(isLowStock).length;
+    document.getElementById('materialsTileBadge').style.display = lowCount > 0 ? 'inline-block' : 'none';
+  }
+
+  function renderMaterialsLowStock(){
+    const lowItems = materialsItems.filter(isLowStock);
+    const countBadge = document.getElementById('mat_lowStockCountBadge');
+    const rowsEl = document.getElementById('mat_lowStockRows');
+    const emptyNote = document.getElementById('mat_lowStockEmptyNote');
+    if(lowItems.length === 0){
+      countBadge.style.display = 'none';
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    countBadge.style.display = 'inline-block';
+    countBadge.textContent = lowItems.length + (lowItems.length === 1 ? ' item' : ' items');
+    emptyNote.style.display = 'none';
+    rowsEl.innerHTML = '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>'
+      + '<th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Supplier Item #</th>'
+      + '<th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>'
+      + '<th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">On Hand</th>'
+      + '<th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Min Qty</th>'
+      + '</tr></thead><tbody>'
+      + lowItems.map(i => `<tr>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.supplierItemNumber)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.description)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; color:#B3261E; font-weight:600;">${Number(i.quantityOnHand||0)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${Number(i.minQuantity||0)}</td>
+      </tr>`).join('') + '</tbody></table>';
+  }
+
+  function renderMaterialsItemList(){
+    const tbody = document.getElementById('mat_itemRows');
+    const emptyNote = document.getElementById('mat_itemEmptyNote');
+    const term = matItemSearchTerm.trim().toLowerCase();
+    const filtered = materialsItems.filter(i =>
+      !term || (i.description||'').toLowerCase().includes(term) || (i.supplierItemNumber||'').toLowerCase().includes(term)
+    ).sort((a,b) => (a.description||'').localeCompare(b.description||''));
+
+    if(filtered.length === 0){
+      tbody.innerHTML = '';
+      emptyNote.style.display = 'block';
+      emptyNote.textContent = materialsItems.length === 0 ? 'No items yet \u2014 add one above or upload an invoice.' : 'No matches.';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    tbody.innerHTML = filtered.map(i => {
+      const low = isLowStock(i);
+      return `<tr style="${low ? 'background:#FFF6E8;' : ''}">
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.supplierItemNumber)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.description)}${i.neverBilled ? ' <span style="font-size:10px; font-weight:600; color:#00612C; background:#e8f5e9; padding:1px 6px; border-radius:8px;">Free</span>' : ''}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); color:var(--muted);">${matEsc(i.nickname)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${matMoney(i.priceEach)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; ${low ? 'color:#B3261E; font-weight:600;' : ''}">${Number(i.quantityOnHand||0)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${Number(i.minQuantity||0)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="mat-edit" data-id="${i.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
+          <button type="button" class="mat-delete" data-id="${i.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.mat-edit').forEach(btn => btn.addEventListener('click', (e)=>{
+      const item = materialsItems.find(i => i.id === e.currentTarget.dataset.id);
+      if(!item) return;
+      document.getElementById('mat_itemId').value = item.id;
+      document.getElementById('mat_supplierItemNumber').value = item.supplierItemNumber || '';
+      document.getElementById('mat_description').value = item.description || '';
+      document.getElementById('mat_nickname').value = item.nickname || '';
+      document.getElementById('mat_priceEach').value = item.priceEach || 0;
+      document.getElementById('mat_minQuantity').value = item.minQuantity || 0;
+      document.getElementById('mat_quantityOnHand').value = item.quantityOnHand || 0;
+      document.getElementById('mat_neverBilled').checked = !!item.neverBilled;
+      document.getElementById('mat_itemFormTitle').textContent = 'Edit Item';
+      document.getElementById('mat_itemSaveBtn').textContent = 'Save Changes';
+      document.getElementById('mat_itemCancelBtn').style.display = 'inline-block';
+      document.getElementById('matItemFormPanel').scrollIntoView({behavior:'smooth', block:'start'});
+    }));
+
+    tbody.querySelectorAll('.mat-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const item = materialsItems.find(i => i.id === id);
+      if(!item) return;
+      if(!confirm(`Delete "${item.description}"? This can't be undone.`)) return;
+      materialsItems = materialsItems.filter(i => i.id !== id);
+      await saveMaterialsItems();
+      renderMaterialsItemList();
+      renderMaterialsLowStock();
+      updateMaterialsTileBadge();
+    }));
+  }
+
+  document.getElementById('mat_itemSearch').addEventListener('input', (e)=>{
+    matItemSearchTerm = e.target.value;
+    renderMaterialsItemList();
+  });
+
+  function resetMaterialsItemForm(){
+    document.getElementById('mat_itemId').value = '';
+    document.getElementById('mat_supplierItemNumber').value = '';
+    document.getElementById('mat_description').value = '';
+    document.getElementById('mat_nickname').value = '';
+    document.getElementById('mat_priceEach').value = '';
+    document.getElementById('mat_minQuantity').value = '';
+    document.getElementById('mat_quantityOnHand').value = '';
+    document.getElementById('mat_neverBilled').checked = false;
+    document.getElementById('mat_itemFormTitle').textContent = 'Add Item';
+    document.getElementById('mat_itemSaveBtn').textContent = 'Add Item';
+    document.getElementById('mat_itemCancelBtn').style.display = 'none';
+  }
+  document.getElementById('mat_itemCancelBtn').addEventListener('click', resetMaterialsItemForm);
+
+  document.getElementById('mat_itemSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mat_itemFormStatus');
+    const id = document.getElementById('mat_itemId').value;
+    const supplierItemNumber = document.getElementById('mat_supplierItemNumber').value.trim();
+    const description = document.getElementById('mat_description').value.trim();
+    const nickname = document.getElementById('mat_nickname').value.trim();
+    const priceEach = Number(document.getElementById('mat_priceEach').value) || 0;
+    const minQuantity = Number(document.getElementById('mat_minQuantity').value) || 0;
+    const quantityOnHand = Number(document.getElementById('mat_quantityOnHand').value) || 0;
+    const neverBilled = document.getElementById('mat_neverBilled').checked;
+
+    if(!description){
+      statusEl.textContent = 'Enter a Description at least.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    if(id){
+      const item = materialsItems.find(i => i.id === id);
+      if(item) Object.assign(item, { supplierItemNumber, description, nickname, priceEach, minQuantity, quantityOnHand, neverBilled });
+    } else {
+      materialsItems.push({
+        id: 'mat_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        supplierItemNumber, description, nickname, priceEach, minQuantity, quantityOnHand, neverBilled,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    const ok = await saveMaterialsItems();
+    if(ok){
+      statusEl.textContent = id ? 'Saved.' : 'Added.';
+      statusEl.className = 'status-msg ok';
+      resetMaterialsItemForm();
+      renderMaterialsItemList();
+      renderMaterialsLowStock();
+      updateMaterialsTileBadge();
+    } else {
+      statusEl.textContent = 'Could not save \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---- Invoice upload / extraction / review / apply ----
+  function renderMatInvoiceThumbnails(){
+    const wrap = document.getElementById('mat_invoiceThumbnails');
+    wrap.innerHTML = matInvoiceFiles.map(f => `
+      <div style="position:relative; width:80px; height:80px;">
+        <img src="${f.allPageDataUris[0]}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        ${f.allPageDataUris.length > 1 ? `<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">${f.allPageDataUris.length} pages</span>` : ''}
+        <button type="button" class="mat-invoice-remove" data-id="${f.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
+      </div>`).join('');
+    wrap.querySelectorAll('.mat-invoice-remove').forEach(btn => btn.addEventListener('click', (e)=>{
+      matInvoiceFiles = matInvoiceFiles.filter(f => f.id !== e.target.dataset.id);
+      renderMatInvoiceThumbnails();
+    }));
+  }
+
+  async function addMatInvoiceFile(file){
+    const statusEl = document.getElementById('mat_invoiceExtractStatus');
+    if(file.size > 30*1024*1024){
+      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    try{
+      let allPageDataUris, isPdf = false;
+      if(file.type === 'application/pdf'){
+        allPageDataUris = await window.getImagesForAssessment(file);
+        if(allPageDataUris.length === 0) throw new Error('Could not read that PDF.');
+        isPdf = true;
+      } else if(file.type.startsWith('image/')){
+        allPageDataUris = [await window.compressImageForUpload(file, 2000, 0.92)];
+      } else {
+        throw new Error('Unsupported file type.');
+      }
+      if(allPageDataUris.length > 24){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer).`;
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      // One invoice at a time -- replaces rather than accumulates, since
+      // the review step below is scoped to a single invoice's line items.
+      matInvoiceFiles = [{ id: 'matinv_' + Date.now(), allPageDataUris, isPdf, originalFile: file }];
+      renderMatInvoiceThumbnails();
+    }catch(err){
+      console.error('Invoice file processing failed:', err);
+      statusEl.textContent = 'Could not process that file \u2014 try a different document.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+
+  const matInvoiceDropzone = document.getElementById('mat_invoiceDropzone');
+  matInvoiceDropzone.addEventListener('click', ()=> matInvoiceDropzone.focus());
+  matInvoiceDropzone.addEventListener('focus', ()=>{ matInvoiceDropzone.style.borderColor = 'var(--brand-orange)'; matInvoiceDropzone.style.background = '#fff'; });
+  matInvoiceDropzone.addEventListener('blur', ()=>{ matInvoiceDropzone.style.borderColor = 'var(--line)'; matInvoiceDropzone.style.background = '#fafafa'; });
+  matInvoiceDropzone.addEventListener('paste', async (e)=>{
+    e.preventDefault();
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && (item.type.startsWith('image/') || item.type === 'application/pdf'));
+    if(items.length === 0){
+      const statusEl = document.getElementById('mat_invoiceExtractStatus');
+      statusEl.textContent = 'That paste didn\u2019t contain an image or PDF.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const blob = items[0].getAsFile();
+    if(blob) await addMatInvoiceFile(blob);
+  });
+  matInvoiceDropzone.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    matInvoiceDropzone.style.borderColor = 'var(--brand-orange)';
+    matInvoiceDropzone.style.background = '#fff';
+  });
+  matInvoiceDropzone.addEventListener('dragleave', ()=>{
+    matInvoiceDropzone.style.borderColor = 'var(--line)';
+    matInvoiceDropzone.style.background = '#fafafa';
+  });
+  matInvoiceDropzone.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    matInvoiceDropzone.style.borderColor = 'var(--line)';
+    matInvoiceDropzone.style.background = '#fafafa';
+    const files = Array.from(e.dataTransfer ? e.dataTransfer.files : []);
+    if(files[0]) await addMatInvoiceFile(files[0]);
+  });
+  document.getElementById('mat_invoiceChooseFilesBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('mat_invoiceFiles').click();
+  });
+  document.getElementById('mat_invoiceFiles').addEventListener('change', async (e)=>{
+    if(e.target.files[0]) await addMatInvoiceFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  function renderMatInvoiceReview(){
+    const wrap = document.getElementById('mat_invoiceReviewWrap');
+    const container = document.getElementById('mat_invoiceReviewRows');
+    if(matInvoiceReview.length === 0){ wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    container.innerHTML = matInvoiceReview.map(r => `
+      <div data-review-id="${r.reviewId}" style="border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px;">
+        <div class="form-grid" style="margin-bottom:8px; grid-template-columns:repeat(4,1fr);">
+          <label style="font-size:11px;">Item # <input type="text" class="matinvrev-field" data-field="supplierItemNumber" data-review-id="${r.reviewId}" value="${matEsc(r.supplierItemNumber)}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Description <input type="text" class="matinvrev-field" data-field="description" data-review-id="${r.reviewId}" value="${matEsc(r.description)}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Price Each <input type="number" step="0.01" class="matinvrev-field" data-field="priceEach" data-review-id="${r.reviewId}" value="${r.priceEach}" style="font-size:13px;"></label>
+          <label style="font-size:11px;">Quantity <input type="number" step="1" class="matinvrev-field" data-field="quantity" data-review-id="${r.reviewId}" value="${r.quantity}" style="font-size:13px;"></label>
+        </div>
+        <div style="font-size:11.5px; color:${r.matchedItemId ? '#00612C' : 'var(--muted)'};">
+          ${r.matchedItemId ? '\u2713 Matches an existing item \u2014 will add to its quantity on hand.' : 'New item \u2014 will be created (set a Minimum Quantity afterward on the item list).'}
+        </div>
+      </div>`).join('');
+
+    container.querySelectorAll('.matinvrev-field').forEach(input => input.addEventListener('input', (e)=>{
+      const r = matInvoiceReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      const field = e.target.dataset.field;
+      r[field] = (field === 'priceEach' || field === 'quantity') ? Number(e.target.value) || 0 : e.target.value;
+      if(field === 'supplierItemNumber'){
+        const existing = r.supplierItemNumber
+          ? materialsItems.find(mi => (mi.supplierItemNumber||'').trim().toLowerCase() === r.supplierItemNumber.trim().toLowerCase())
+          : null;
+        r.matchedItemId = existing ? existing.id : null;
+        renderMatInvoiceReview();
+      }
+    }));
+  }
+
+  document.getElementById('mat_invoiceExtractBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mat_invoiceExtractStatus');
+    if(matInvoiceFiles.length === 0){
+      statusEl.textContent = 'Add an invoice file first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Reading invoice...';
+    statusEl.className = 'status-msg';
+    document.getElementById('mat_invoiceExtractBtn').disabled = true;
+    try{
+      const images = matInvoiceFiles[0].allPageDataUris;
+      const res = await fetch(`${API_BASE}/api/admin/extract-invoice-items`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ images })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Extraction failed.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      const lineItems = data.items || [];
+      if(lineItems.length === 0){
+        statusEl.textContent = 'No line items found on that invoice.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      matInvoiceReview = lineItems.map((it, i) => {
+        const existing = it.supplierItemNumber
+          ? materialsItems.find(mi => (mi.supplierItemNumber||'').trim().toLowerCase() === it.supplierItemNumber.trim().toLowerCase())
+          : null;
+        return {
+          reviewId: 'matinvrev_' + i,
+          supplierItemNumber: it.supplierItemNumber || '',
+          description: it.description || '',
+          priceEach: Number(it.priceEach) || 0,
+          quantity: Number(it.quantity) || 0,
+          matchedItemId: existing ? existing.id : null
+        };
+      });
+      statusEl.textContent = `Read ${lineItems.length} line item(s).` + (data.confident === false ? ' Some details may not be fully legible \u2014 please double-check.' : '');
+      statusEl.className = 'status-msg ok';
+      matInvoiceFiles = [];
+      renderMatInvoiceThumbnails();
+      renderMatInvoiceReview();
+    }catch(err){
+      console.error('Invoice extraction failed:', err);
+      statusEl.textContent = 'Extraction failed \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    } finally {
+      document.getElementById('mat_invoiceExtractBtn').disabled = false;
+    }
+  });
+
+  document.getElementById('mat_invoiceApplyBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mat_invoiceApplyStatus');
+    const applicable = matInvoiceReview.filter(r => r.description && r.quantity > 0);
+    if(applicable.length === 0){
+      statusEl.textContent = 'Nothing to add \u2014 check the quantities above.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    applicable.forEach(r => {
+      if(r.matchedItemId){
+        const item = materialsItems.find(mi => mi.id === r.matchedItemId);
+        if(item){
+          item.quantityOnHand = Number(item.quantityOnHand || 0) + r.quantity;
+          if(r.priceEach > 0) item.priceEach = r.priceEach;
+        }
+      } else {
+        materialsItems.push({
+          id: 'mat_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + Math.random().toString(36).slice(2,6),
+          supplierItemNumber: r.supplierItemNumber,
+          description: r.description,
+          priceEach: r.priceEach,
+          minQuantity: 0,
+          quantityOnHand: r.quantity,
+          createdAt: new Date().toISOString()
+        });
+      }
+    });
+    const ok = await saveMaterialsItems();
+    if(ok){
+      statusEl.textContent = `Added ${applicable.length} line item(s) to inventory.`;
+      statusEl.className = 'status-msg ok';
+      matInvoiceReview = [];
+      renderMatInvoiceReview();
+      renderMaterialsItemList();
+      renderMaterialsLowStock();
+      updateMaterialsTileBadge();
+    } else {
+      statusEl.textContent = 'Could not save \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---- Underbilled jobs reconciliation ----
+  // Compares what drivers checked materials out for (by Job Number) against
+  // what was actually billed for that job (materialsBilled on the matching
+  // Completed Paperwork record) -- flags any job where more was pulled than
+  // was billed, including jobs that haven't been billed for materials at all yet.
+  function renderMaterialsUnderbilled(uploads, archive){
+    const rowsEl = document.getElementById('mat_underbilledRows');
+    const emptyNote = document.getElementById('mat_underbilledEmptyNote');
+
+    // Free consumables (tape, shrink wrap, etc.) are never billed by
+    // design, so checking them out should never be flagged as underbilled.
+    const billableItemIds = new Set(materialsItems.filter(i => !i.neverBilled).map(i => i.id));
+
+    const checkedOutByJob = {};
+    materialsCheckouts.forEach(co => {
+      (co.jobNumbers || []).forEach(jobNumber => {
+        if(!checkedOutByJob[jobNumber]) checkedOutByJob[jobNumber] = {};
+        (co.items || []).forEach(it => {
+          if(!billableItemIds.has(it.itemId)) return;
+          checkedOutByJob[jobNumber][it.itemId] = (checkedOutByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
+        });
+      });
+    });
+
+    const billedByJob = {};
+    uploads.forEach(u => {
+      if(!u.jobNumber || !Array.isArray(u.materialsBilled)) return;
+      if(!billedByJob[u.jobNumber]) billedByJob[u.jobNumber] = {};
+      u.materialsBilled.forEach(b => {
+        billedByJob[u.jobNumber][b.itemId] = (billedByJob[u.jobNumber][b.itemId] || 0) + Number(b.quantity || 0);
+      });
+    });
+
+    // The quoted/expected quantity from the original work order's Packing
+    // Services line, matched to an item by its Nickname. Shown only as
+    // context -- captains routinely and legitimately pull more than
+    // quoted, so this never factors into whether something gets flagged.
+    const quotedByJob = {};
+    (archive || []).forEach(rec => {
+      if(!rec.jobNumber || !Array.isArray(rec.packingMaterials) || rec.packingMaterials.length === 0) return;
+      rec.packingMaterials.forEach(pm => {
+        const normalizedDesc = (pm.description || '').trim().toLowerCase();
+        if(!normalizedDesc) return;
+        const matchedItem = materialsItems.find(mi => (mi.nickname || '').trim().toLowerCase() === normalizedDesc);
+        if(!matchedItem) return;
+        if(!quotedByJob[rec.jobNumber]) quotedByJob[rec.jobNumber] = {};
+        quotedByJob[rec.jobNumber][matchedItem.id] = (quotedByJob[rec.jobNumber][matchedItem.id] || 0) + Number(pm.quantity || 0);
+      });
+    });
+
+    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
+    const problems = [];
+    Object.keys(checkedOutByJob).forEach(jobNumber => {
+      const checkedOutItems = checkedOutByJob[jobNumber];
+      const billedItems = billedByJob[jobNumber] || null;
+      const quotedItems = quotedByJob[jobNumber] || null;
+      Object.keys(checkedOutItems).forEach(itemId => {
+        const checkedOut = checkedOutItems[itemId];
+        const billed = billedItems ? (billedItems[itemId] || 0) : 0;
+        const quoted = quotedItems ? (quotedItems[itemId] || 0) : null;
+        if(checkedOut > billed) problems.push({ jobNumber, itemId, checkedOut, billed, quoted, hasBillingRecord: !!billedItems });
+      });
+    });
+
+    if(problems.length === 0){
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const byJob = {};
+    problems.forEach(p => { (byJob[p.jobNumber] = byJob[p.jobNumber] || []).push(p); });
+
+    rowsEl.innerHTML = Object.keys(byJob).sort().map(jobNumber => {
+      const jobProblems = byJob[jobNumber];
+      const anyUnbilled = jobProblems.some(p => !p.hasBillingRecord);
+      return `
+        <div style="border:1px solid ${anyUnbilled ? 'var(--line)' : '#E8A69C'}; background:${anyUnbilled ? 'var(--offwhite)' : '#FCDCD6'}; border-radius:8px; padding:12px 14px; margin-bottom:8px;">
+          <div style="font-weight:700; margin-bottom:4px;">Job # ${matEsc(jobNumber)}</div>
+          ${jobProblems.map(p => {
+            const item = itemsById.get(p.itemId);
+            const label = item ? item.description : '(item no longer on file)';
+            const quotedNote = p.quoted !== null ? `quoted ${p.quoted}, ` : '';
+            return `<div style="font-size:12.5px;">${matEsc(label)}: ${quotedNote}pulled ${p.checkedOut}, billed ${p.billed}${!p.hasBillingRecord ? ' (materials not yet entered for this job)' : ''}</div>`;
+          }).join('')}
+        </div>`;
+    }).join('');
+  }
+
+  async function loadMaterialsData(){
+    try{
+      const [items, checkouts, uploads, archive] = await Promise.all([
+        window.dashboardApi.get(MATERIALS_ITEMS_KEY, []),
+        window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []),
+        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, [])
+      ]);
+      materialsItems = items || [];
+      materialsCheckouts = checkouts || [];
+      renderMaterialsItemList();
+      renderMaterialsLowStock();
+      renderMaterialsUnderbilled(uploads || [], archive || []);
+      updateMaterialsTileBadge();
+    }catch(err){
+      console.error('Materials load failed:', err);
+    }
+  }
+  window.loadMaterialsData = loadMaterialsData;
+
   function renderPaperworkCloseout(archive, uploads){
     const summaryEl = document.getElementById('om_closeoutSummary');
     const rowsEl = document.getElementById('om_closeoutRows');
@@ -13092,6 +13902,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }).join('') + '</tbody></table>';
   }
 
+  // Not every job has packing materials to bill for -- this decides whether
+  // to show that section at all, using two signals: a driver already logged
+  // a Materials Checkout mentioning this job number, or the original work
+  // order's quote mentioned Packing Services materials. Either one is
+  // enough to default the checkbox on; Cameron can always override by hand.
+  async function checkPuRequiresMaterials(jobNumber, archiveMatch){
+    const checkbox = document.getElementById('pu_requiresMaterials');
+    const note = document.getElementById('pu_requiresMaterialsNote');
+    if(!jobNumber){
+      checkbox.checked = false;
+      note.textContent = '';
+      document.getElementById('pu_materialsBilledWrap').style.display = 'none';
+      return;
+    }
+
+    let detectedReason = null;
+    try{
+      const checkouts = await window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []) || [];
+      const checkoutMatch = checkouts.some(co => (co.jobNumbers || []).includes(jobNumber) && (co.items || []).length > 0);
+      if(checkoutMatch) detectedReason = 'A driver logged a Materials Checkout for this job number.';
+    }catch(err){ console.error('Checkout lookup for materials gate failed:', err); }
+
+    if(!detectedReason && archiveMatch && Array.isArray(archiveMatch.packingMaterials) && archiveMatch.packingMaterials.length > 0){
+      detectedReason = 'The original work order\u2019s quote mentioned packing materials.';
+    }
+
+    checkbox.checked = !!detectedReason;
+    document.getElementById('pu_materialsBilledWrap').style.display = detectedReason ? 'block' : 'none';
+    note.textContent = detectedReason
+      ? detectedReason + ' Uncheck above if that\u2019s wrong.'
+      : 'Nothing suggests this job needed packing materials \u2014 check the box above if it did.';
+  }
+  document.getElementById('pu_requiresMaterials').addEventListener('change', (e)=>{
+    document.getElementById('pu_materialsBilledWrap').style.display = e.target.checked ? 'block' : 'none';
+  });
+
   document.getElementById('pu_jobNumber').addEventListener('blur', async ()=>{
     const jobNumber = document.getElementById('pu_jobNumber').value.trim();
     if(!jobNumber) return;
@@ -13108,6 +13954,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         }
       }
     }
+    checkPuRequiresMaterials(jobNumber, match);
   });
 
   // ---------- Completed Paperwork: Batch Upload ----------
@@ -13118,6 +13965,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let puBatchFiles = [];   // {id, thumbnail, originalFile}
   let puBatchReview = [];  // review rows before saving
   let puBatchRosterCache = null;
+  let puBatchMaterialsItemsCache = null;
 
   function renderPuBatchThumbnails(){
     const wrap = document.getElementById('puBatch_thumbnails');
@@ -13238,6 +14086,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${!r.hasArchiveMatch ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 No matching job found in the archive \u2014 fill in Client Email and Captain manually.</div>' : ''}
           ${r.matchedBy === 'clientName' ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">Matched by client name \u2014 the job number wasn\u2019t read clearly on this document. Please double-check.</div>' : ''}
           ${!r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-top:6px;">Low confidence read on the job number \u2014 please double-check.</div>' : ''}
+          ${(() => {
+            const billableItems = (puBatchMaterialsItemsCache || []).filter(item => !item.neverBilled);
+            if(billableItems.length === 0) return '';
+            return `
+          <div style="border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-top:8px; background:var(--offwhite);">
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:11.5px; margin-bottom:6px;">
+              <input type="checkbox" class="puBatchRev-requires-materials" data-review-id="${r.reviewId}" style="width:auto;" ${r.requiresMaterials ? 'checked' : ''}>
+              This job required packing materials
+            </label>
+            <div class="puBatchRev-materials-grid" data-review-id="${r.reviewId}" style="display:${r.requiresMaterials ? 'grid' : 'none'}; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:6px;">
+              ${billableItems.map(item => {
+                const existing = r.materialsBilled.find(mb => mb.itemId === item.id);
+                return `<label style="font-size:11px; display:flex; justify-content:space-between; align-items:center; gap:4px;">
+                  <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${pwBatchEsc(item.description)}</span>
+                  <input type="number" min="0" step="1" class="puBatchRev-materials-qty" data-review-id="${r.reviewId}" data-item-id="${item.id}" value="${existing ? existing.quantity : ''}" placeholder="0" style="width:50px; padding:4px; font-size:11px;">
+                </label>`;
+              }).join('')}
+            </div>
+          </div>`;
+          })()}
         </div>
       </div>`;
     }).join('');
@@ -13262,6 +14130,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     container.querySelectorAll('.puBatchRev-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const win = window.open();
       if(win) win.document.write(`<img src="${e.target.src}" style="max-width:100%; display:block; margin:0 auto;">`);
+    }));
+    container.querySelectorAll('.puBatchRev-materials-qty').forEach(input => input.addEventListener('input', (e)=>{
+      const r = puBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      const itemId = e.target.dataset.itemId;
+      const quantity = Number(e.target.value) || 0;
+      r.materialsBilled = r.materialsBilled.filter(mb => mb.itemId !== itemId);
+      if(quantity > 0) r.materialsBilled.push({ itemId, quantity });
+    }));
+    container.querySelectorAll('.puBatchRev-requires-materials').forEach(checkbox => checkbox.addEventListener('change', (e)=>{
+      const r = puBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      r.requiresMaterials = e.target.checked;
+      if(!e.target.checked) r.materialsBilled = [];
+      const grid = container.querySelector(`.puBatchRev-materials-grid[data-review-id="${r.reviewId}"]`);
+      if(grid) grid.style.display = e.target.checked ? 'grid' : 'none';
     }));
   }
 
@@ -13302,6 +14186,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         try{ puBatchRosterCache = await window.getCurrentEmployeeRoster(); }
         catch(err){ console.error('Roster load failed:', err); puBatchRosterCache = []; }
       }
+      if(!puBatchMaterialsItemsCache){
+        try{ puBatchMaterialsItemsCache = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
+        catch(err){ console.error('Materials items load failed:', err); puBatchMaterialsItemsCache = []; }
+      }
 
       // Archive fetched once and matched locally, rather than calling
       // lookupArchivedJob() (its own fetch) once per document.
@@ -13309,6 +14197,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       try{ archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []) || []; }
       catch(err){ console.error('Job archive load failed:', err); }
       const archiveCutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
+
+      let checkoutsForGate = [];
+      try{ checkoutsForGate = await window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []) || []; }
+      catch(err){ console.error('Checkouts load for materials gate failed:', err); }
 
       puBatchReview = documents.map((d, i) => {
         const jobNumber = (d.jobNumber || '').trim();
@@ -13345,7 +14237,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           hasArchiveMatch: !!match,
           matchedBy,
           thumbnail: file ? file.allPageDataUris[0] : null,
-          originalFile: file ? file.originalFile : null
+          originalFile: file ? file.originalFile : null,
+          materialsBilled: [],
+          // Not every job has packing materials to bill for -- default to
+          // whichever signal already tells us this one does: a driver
+          // checkout mentioning this job number, or the original work
+          // order's quote mentioning Packing Services materials.
+          requiresMaterials: (() => {
+            const resolvedJobNumber = matchedBy === 'clientName' ? match.jobNumber : jobNumber;
+            if(!resolvedJobNumber) return false;
+            const hasCheckout = checkoutsForGate.some(co => (co.jobNumbers || []).includes(resolvedJobNumber) && (co.items || []).length > 0);
+            if(hasCheckout) return true;
+            return !!(match && Array.isArray(match.packingMaterials) && match.packingMaterials.length > 0);
+          })()
         };
       });
 
@@ -13379,7 +14283,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const failures = [];
     for(const r of savable){
       const result = await savePaperworkUpload(r.originalFile, {
-        clientName: r.clientName, jobNumber: r.jobNumber, clientEmail: r.clientEmail, captainName: r.captainName
+        clientName: r.clientName, jobNumber: r.jobNumber, clientEmail: r.clientEmail, captainName: r.captainName, materialsBilled: r.materialsBilled
       });
       if(result.ok){
         successCount++;
@@ -13439,12 +14343,52 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
 
+  // Cameron (or whoever's handling billing) fills these in as part of every
+  // Completed Paperwork upload -- what was actually charged to the client,
+  // compared later on the Materials tile against what the driver checked
+  // out for that job. Fetches materials-items fresh each time rather than
+  // relying on the Materials tile's own state, since that tile may not have
+  // been visited this session.
+  async function renderPuMaterialsBilledFields(){
+    const listEl = document.getElementById('pu_materialsBilledList');
+    const emptyNote = document.getElementById('pu_materialsBilledEmptyNote');
+    let items = [];
+    try{ items = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
+    catch(err){ console.error('Load materials items for billing failed:', err); }
+    items = items.filter(i => !i.neverBilled);
+    if(items.length === 0){
+      listEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    listEl.innerHTML = items.map(i => `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 0;">
+        <span style="font-size:13px;">${matEsc(i.description)}</span>
+        <input type="number" min="0" step="1" class="pu-materials-billed-qty" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:6px; border:1px solid var(--line); border-radius:4px; text-align:center;">
+      </div>`).join('');
+  }
+  window.renderPuMaterialsBilledFields = renderPuMaterialsBilledFields;
+
+  function readPuMaterialsBilled(){
+    return Array.from(document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty'))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .filter(i => i.quantity > 0);
+  }
+
+  function resetPuMaterialsBilledFields(){
+    document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty').forEach(input => input.value = '');
+    document.getElementById('pu_requiresMaterials').checked = false;
+    document.getElementById('pu_requiresMaterialsNote').textContent = '';
+    document.getElementById('pu_materialsBilledWrap').style.display = 'none';
+  }
+
   // Shared by the single-upload flow and the batch flow -- compresses and
   // stores the file, creates the upload record, syncs a Captain correction
   // back to the job archive, and kicks off the completeness assessment.
   // Returns {ok, message, uploadRecord} rather than touching any DOM itself,
   // so each caller can present the result its own way.
-  async function savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName }){
+  async function savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName, materialsBilled }){
     if(!clientName || !jobNumber){
       return { ok: false, message: 'Missing Client Name or Job Number.' };
     }
@@ -13459,7 +14403,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, compressed.dataUri);
       if(!blobOk) throw new Error('Blob save failed');
-      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, captainName, fileName: file.name, uploadedAt: new Date().toISOString() };
+      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, captainName, materialsBilled: materialsBilled || [], fileName: file.name, uploadedAt: new Date().toISOString() };
       paperworkUploads.push(uploadRecord);
       const listOk = await savePaperworkUploadsList();
       if(!listOk){
@@ -13509,7 +14453,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     statusEl.textContent = 'Compressing and uploading...';
     statusEl.className = 'status-msg';
-    const result = await savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName });
+    const materialsBilled = readPuMaterialsBilled();
+    const result = await savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName, materialsBilled });
     statusEl.textContent = result.message;
     statusEl.className = result.ok ? 'status-msg ok' : 'status-msg err';
     if(result.ok){
@@ -13517,6 +14462,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('pu_jobNumber').value = '';
       document.getElementById('pu_clientEmail').value = '';
       document.getElementById('pu_captainSelect').value = '';
+      resetPuMaterialsBilledFields();
     }
     renderPaperworkUploadsList();
   }
