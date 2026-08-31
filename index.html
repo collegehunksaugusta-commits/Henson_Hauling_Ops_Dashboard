@@ -2201,6 +2201,31 @@
         <div id="sr_results" style="margin-top:10px; font-size:13px;"></div>
       </div>
 
+      <div class="panel" id="puBatchPanel">
+        <h3>Batch Upload &mdash; Completed Paperwork</h3>
+        <p class="form-note">Drop in a day's worth of completed paperwork (images or PDFs) and Claude will read the job number off each one, match it against the job archive, and auto-fill Client Name, Email, and Captain. Review everything before saving.</p>
+        <div id="puBatch_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
+          <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop completed paperwork here, or click to paste (Ctrl+V or Cmd+V)</p>
+          <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="puBatch_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
+          <input type="file" id="puBatch_files" accept=".jpg,.jpeg,.png,.pdf,.heic" multiple style="display:none;">
+        </div>
+        <div id="puBatch_thumbnails" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;"></div>
+        <div class="form-actions">
+          <button class="btn-primary" id="puBatch_extractBtn" type="button">Match to Jobs</button>
+          <span class="status-msg" id="puBatch_extractStatus"></span>
+        </div>
+
+        <div id="puBatch_reviewWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Review Before Saving</h4>
+          <p class="form-note">Client Email and Captain auto-fill when a matching job is found in the archive (jobs generated in the last 3 months). Fix any field that looks off, and fill in anything that didn't auto-match, before saving.</p>
+          <div id="puBatch_reviewRows"></div>
+          <div class="form-actions">
+            <button class="btn-primary" id="puBatch_saveBtn" type="button">Save All</button>
+            <span class="status-msg" id="puBatch_saveStatus"></span>
+          </div>
+        </div>
+      </div>
+
       <div class="panel" id="paperworkUploadPanel">
         <h3>Completed Paperwork Storage</h3>
         <p class="form-note">Upload scanned or completed paperwork here to keep on file (retained for at least 1 year).</p>
@@ -13065,6 +13090,258 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   });
 
+  // ---------- Completed Paperwork: Batch Upload ----------
+  // Same shape as the Job Paperwork batch flow (paste/drop zone, thumbnails,
+  // extract, review, save) but simpler: each document is one job (no
+  // multi-job-per-file splitting), and matching pulls Client Name/Email/
+  // Captain straight from the job archive instead of extracting them fresh.
+  let puBatchFiles = [];   // {id, thumbnail, originalFile}
+  let puBatchReview = [];  // review rows before saving
+  let puBatchRosterCache = null;
+
+  function renderPuBatchThumbnails(){
+    const wrap = document.getElementById('puBatch_thumbnails');
+    wrap.innerHTML = puBatchFiles.map(f => `
+      <div style="position:relative; width:80px; height:80px;">
+        <img src="${f.thumbnail}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        <button type="button" class="puBatch-remove-file" data-id="${f.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
+      </div>`).join('');
+    wrap.querySelectorAll('.puBatch-remove-file').forEach(btn => btn.addEventListener('click', (e)=>{
+      puBatchFiles = puBatchFiles.filter(f => f.id !== e.target.dataset.id);
+      renderPuBatchThumbnails();
+    }));
+  }
+
+  async function addPuBatchFile(file){
+    const statusEl = document.getElementById('puBatch_extractStatus');
+    if(file.size > 30*1024*1024){
+      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    try{
+      let thumbnail;
+      if(file.type === 'application/pdf'){
+        const pages = await window.getImagesForAssessment(file);
+        if(pages.length === 0) throw new Error('Could not read that PDF.');
+        thumbnail = pages[0]; // the job number is always readable from the first page
+      } else if(file.type.startsWith('image/')){
+        thumbnail = await window.compressImageForUpload(file, 2000, 0.92);
+      } else {
+        throw new Error('Unsupported file type.');
+      }
+      puBatchFiles.push({ id: 'pubatch_' + Date.now() + '_' + Math.floor(Math.random()*1000), thumbnail, originalFile: file });
+      renderPuBatchThumbnails();
+    }catch(err){
+      console.error('Completed paperwork file processing failed:', err);
+      statusEl.textContent = 'Could not process that file \u2014 try a different document.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+
+  const puBatchPasteZone = document.getElementById('puBatch_pasteZone');
+  puBatchPasteZone.addEventListener('click', ()=> puBatchPasteZone.focus());
+  puBatchPasteZone.addEventListener('focus', ()=>{ puBatchPasteZone.style.borderColor = 'var(--brand-orange)'; puBatchPasteZone.style.background = '#fff'; });
+  puBatchPasteZone.addEventListener('blur', ()=>{ puBatchPasteZone.style.borderColor = 'var(--line)'; puBatchPasteZone.style.background = '#fafafa'; });
+  puBatchPasteZone.addEventListener('paste', async (e)=>{
+    e.preventDefault();
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && (item.type.startsWith('image/') || item.type === 'application/pdf'));
+    if(items.length === 0){
+      const statusEl = document.getElementById('puBatch_extractStatus');
+      statusEl.textContent = 'That paste didn\u2019t contain an image or PDF.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const item of items){
+      const blob = item.getAsFile();
+      if(blob) await addPuBatchFile(blob);
+    }
+  });
+  puBatchPasteZone.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    puBatchPasteZone.style.borderColor = 'var(--brand-orange)';
+    puBatchPasteZone.style.background = '#fff';
+  });
+  puBatchPasteZone.addEventListener('dragleave', ()=>{
+    puBatchPasteZone.style.borderColor = 'var(--line)';
+    puBatchPasteZone.style.background = '#fafafa';
+  });
+  puBatchPasteZone.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    puBatchPasteZone.style.borderColor = 'var(--line)';
+    puBatchPasteZone.style.background = '#fafafa';
+    for(const file of Array.from(e.dataTransfer ? e.dataTransfer.files : [])) await addPuBatchFile(file);
+  });
+  document.getElementById('puBatch_chooseFilesBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('puBatch_files').click();
+  });
+  document.getElementById('puBatch_files').addEventListener('change', async (e)=>{
+    for(const file of Array.from(e.target.files)) await addPuBatchFile(file);
+    e.target.value = '';
+  });
+
+  function renderPuBatchReview(){
+    const wrap = document.getElementById('puBatch_reviewWrap');
+    const container = document.getElementById('puBatch_reviewRows');
+    if(puBatchReview.length === 0){ wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+
+    const captainOptions = '<option value="">Select Captain...</option>' + (puBatchRosterCache || []).map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
+
+    container.innerHTML = puBatchReview.map(r => {
+      const missingKeyField = !r.jobNumber || !r.clientName;
+      return `
+      <div data-review-id="${r.reviewId}" style="display:flex; gap:12px; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; ${missingKeyField ? 'background:#fdf6e3;' : ''}">
+        ${r.thumbnail ? `<img class="puBatchRev-thumb" data-review-id="${r.reviewId}" src="${r.thumbnail}" style="width:56px; height:56px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;" title="Click to view the source page">` : ''}
+        <div style="flex:1; min-width:0;">
+          <div class="form-grid" style="margin-bottom:8px;">
+            <label style="font-size:11px;">Job # <input type="text" class="puBatchRev-field" data-field="jobNumber" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.jobNumber)}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Client Name <input type="text" class="puBatchRev-field" data-field="clientName" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.clientName)}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Client Email <input type="email" class="puBatchRev-field" data-field="clientEmail" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.clientEmail)}" style="font-size:13px;"></label>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <select class="puBatchRev-captain" data-review-id="${r.reviewId}" style="font-size:12.5px;">${captainOptions}</select>
+            <button type="button" class="puBatchRev-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:auto;">Remove</button>
+          </div>
+          ${missingKeyField ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 Missing job # or client name \u2014 fill in before saving.</div>' : ''}
+          ${!r.hasArchiveMatch ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 No matching job found in the archive \u2014 fill in Client Email and Captain manually.</div>' : ''}
+          ${!r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-top:6px;">Low confidence read on the job number \u2014 please double-check.</div>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    puBatchReview.forEach(r => {
+      const sel = container.querySelector(`.puBatchRev-captain[data-review-id="${r.reviewId}"]`);
+      if(sel) sel.value = r.captainName || '';
+    });
+
+    container.querySelectorAll('.puBatchRev-field').forEach(input => input.addEventListener('input', (e)=>{
+      const r = puBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(r) r[e.target.dataset.field] = e.target.value;
+    }));
+    container.querySelectorAll('.puBatchRev-captain').forEach(sel => sel.addEventListener('change', (e)=>{
+      const r = puBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(r) r.captainName = e.target.value;
+    }));
+    container.querySelectorAll('.puBatchRev-remove').forEach(btn => btn.addEventListener('click', (e)=>{
+      puBatchReview = puBatchReview.filter(x => x.reviewId !== e.target.dataset.reviewId);
+      renderPuBatchReview();
+    }));
+    container.querySelectorAll('.puBatchRev-thumb').forEach(img => img.addEventListener('click', (e)=>{
+      const win = window.open();
+      if(win) win.document.write(`<img src="${e.target.src}" style="max-width:100%; display:block; margin:0 auto;">`);
+    }));
+  }
+
+  document.getElementById('puBatch_extractBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('puBatch_extractStatus');
+    if(puBatchFiles.length === 0){
+      statusEl.textContent = 'Add at least one file first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(puBatchFiles.length > 20){
+      statusEl.textContent = 'Please upload 20 documents or fewer at a time.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = `Reading ${puBatchFiles.length} document(s) and matching to jobs...`;
+    statusEl.className = 'status-msg';
+    document.getElementById('puBatch_extractBtn').disabled = true;
+    try{
+      const images = puBatchFiles.map(f => f.thumbnail);
+      const res = await fetch(`${API_BASE}/api/admin/extract-job-numbers`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ images })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Extraction failed.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      const documents = data.documents || [];
+
+      if(!puBatchRosterCache){
+        try{ puBatchRosterCache = await window.getCurrentEmployeeRoster(); }
+        catch(err){ console.error('Roster load failed:', err); puBatchRosterCache = []; }
+      }
+
+      // Archive fetched once and matched locally, rather than calling
+      // lookupArchivedJob() (its own fetch) once per document.
+      let archive = [];
+      try{ archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []) || []; }
+      catch(err){ console.error('Job archive load failed:', err); }
+      const archiveCutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
+
+      puBatchReview = documents.map((d, i) => {
+        const jobNumber = d.jobNumber || '';
+        const match = archive.find(j => j.jobNumber === jobNumber && j.savedAt >= archiveCutoff) || null;
+        const file = puBatchFiles[d.imageIndex];
+        return {
+          reviewId: 'pubatchrev_' + i,
+          jobNumber,
+          clientName: (match && match.clientName) || '',
+          clientEmail: (match && match.clientEmail) || '',
+          captainName: (match && match.captainName) || '',
+          confident: !!d.confident,
+          hasArchiveMatch: !!match,
+          thumbnail: file ? file.thumbnail : null,
+          originalFile: file ? file.originalFile : null
+        };
+      });
+
+      const matchedCount = puBatchReview.filter(r => r.hasArchiveMatch).length;
+      statusEl.textContent = `Read ${documents.length} document(s), matched ${matchedCount} to an archived job.` + (data.partialFailures ? ' Some documents failed to process \u2014 you may need to add those manually.' : '');
+      statusEl.className = 'status-msg ok';
+      puBatchFiles = [];
+      renderPuBatchThumbnails();
+      renderPuBatchReview();
+    }catch(err){
+      console.error('Completed paperwork batch extraction failed:', err);
+      statusEl.textContent = 'Extraction failed \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    } finally {
+      document.getElementById('puBatch_extractBtn').disabled = false;
+    }
+  });
+
+  document.getElementById('puBatch_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('puBatch_saveStatus');
+    const savable = puBatchReview.filter(r => r.jobNumber && r.clientName && r.originalFile);
+    if(savable.length === 0){
+      statusEl.textContent = 'Nothing ready to save \u2014 fix the fields flagged above.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    document.getElementById('puBatch_saveBtn').disabled = true;
+    statusEl.textContent = `Saving ${savable.length} record(s)...`;
+    statusEl.className = 'status-msg';
+    let successCount = 0;
+    const failures = [];
+    for(const r of savable){
+      const result = await savePaperworkUpload(r.originalFile, {
+        clientName: r.clientName, jobNumber: r.jobNumber, clientEmail: r.clientEmail, captainName: r.captainName
+      });
+      if(result.ok){
+        successCount++;
+        puBatchReview = puBatchReview.filter(x => x.reviewId !== r.reviewId);
+      } else {
+        failures.push(`${r.clientName || r.jobNumber}: ${result.message}`);
+      }
+    }
+    renderPaperworkUploadsList();
+    renderPuBatchReview();
+    statusEl.textContent = failures.length === 0
+      ? `Saved all ${successCount} record(s) \u2014 ready to send from the list below.`
+      : `Saved ${successCount} record(s). ${failures.length} failed: ${failures.join('; ')}`;
+    statusEl.className = failures.length === 0 ? 'status-msg ok' : 'status-msg err';
+    document.getElementById('puBatch_saveBtn').disabled = false;
+  });
+
   async function assessPaperworkCompleteness(uploadRecord, file){
     const markAssessing = (val) => {
       const idx = paperworkUploads.findIndex(u => u.id === uploadRecord.id);
@@ -13107,6 +13384,63 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
 
+  // Shared by the single-upload flow and the batch flow -- compresses and
+  // stores the file, creates the upload record, syncs a Captain correction
+  // back to the job archive, and kicks off the completeness assessment.
+  // Returns {ok, message, uploadRecord} rather than touching any DOM itself,
+  // so each caller can present the result its own way.
+  async function savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName }){
+    if(!clientName || !jobNumber){
+      return { ok: false, message: 'Missing Client Name or Job Number.' };
+    }
+    if(file.size > 30 * 1024 * 1024){
+      return { ok: false, message: 'That file is over 30MB \u2014 please use a smaller file.' };
+    }
+    const uploadId = 'upload_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    try{
+      const compressed = await window.compressUploadedFile(file);
+      if(compressed.finalSize > 10 * 1024 * 1024){
+        return { ok: false, message: 'That file is still over 10MB after compression \u2014 please use a smaller file.' };
+      }
+      const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, compressed.dataUri);
+      if(!blobOk) throw new Error('Blob save failed');
+      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, captainName, fileName: file.name, uploadedAt: new Date().toISOString() };
+      paperworkUploads.push(uploadRecord);
+      const listOk = await savePaperworkUploadsList();
+      if(!listOk){
+        return { ok: false, message: 'File uploaded, but the list failed to save \u2014 check your connection.' };
+      }
+
+      // If the Captain was corrected here (job reassigned mid-day, etc.),
+      // write that correction back to the job-archive record -- Captain
+      // Metrics reads Captain from there, so this is what actually keeps
+      // a reassignment from being misattributed once metrics pick it up.
+      if(captainName){
+        try{
+          const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
+          const rec = archive.find(a => a.jobNumber === jobNumber);
+          if(rec && rec.captainName !== captainName){
+            rec.captainName = captainName;
+            await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
+          }
+        }catch(err){ console.error('Job archive Captain sync failed:', err); }
+      }
+
+      // Completeness assessment is a secondary, best-effort metric -- runs
+      // after the upload has already succeeded, and never blocks or
+      // undoes it if the assessment itself fails.
+      assessPaperworkCompleteness(uploadRecord, file);
+
+      const savedNote = compressed.wasCompressed
+        ? ` (compressed ${window.fmtBytes(compressed.originalSize)} \u2192 ${window.fmtBytes(compressed.finalSize)})`
+        : '';
+      return { ok: true, message: `Uploaded "${file.name}" for ${clientName}.${savedNote}`, uploadRecord };
+    }catch(err){
+      console.error('Paperwork upload failed:', err);
+      return { ok: false, message: 'Upload failed \u2014 check your connection.' };
+    }
+  }
+
   async function handlePaperworkFileUpload(file){
     const statusEl = document.getElementById('pu_status');
     const clientName = document.getElementById('pu_clientName').value.trim();
@@ -13118,64 +13452,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
       return;
     }
-    if(file.size > 30 * 1024 * 1024){
-      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
     statusEl.textContent = 'Compressing and uploading...';
     statusEl.className = 'status-msg';
-    const uploadId = 'upload_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-    try{
-      const compressed = await window.compressUploadedFile(file);
-      if(compressed.finalSize > 10 * 1024 * 1024){
-        statusEl.textContent = 'That file is still over 10MB after compression \u2014 please use a smaller file.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, compressed.dataUri);
-      if(!blobOk) throw new Error('Blob save failed');
-      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, captainName, fileName: file.name, uploadedAt: new Date().toISOString() };
-      paperworkUploads.push(uploadRecord);
-      const listOk = await savePaperworkUploadsList();
-      if(listOk){
-        const savedNote = compressed.wasCompressed
-          ? ` (compressed ${window.fmtBytes(compressed.originalSize)} \u2192 ${window.fmtBytes(compressed.finalSize)})`
-          : '';
-        statusEl.textContent = `Uploaded "${file.name}" for ${clientName}.${savedNote}`;
-        statusEl.className = 'status-msg ok';
-        document.getElementById('pu_clientName').value = '';
-        document.getElementById('pu_jobNumber').value = '';
-        document.getElementById('pu_clientEmail').value = '';
-        document.getElementById('pu_captainSelect').value = '';
-
-        // If the Captain was corrected here (job reassigned mid-day, etc.),
-        // write that correction back to the job-archive record -- Captain
-        // Metrics reads Captain from there, so this is what actually keeps
-        // a reassignment from being misattributed once metrics pick it up.
-        if(captainName){
-          try{
-            const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
-            const rec = archive.find(a => a.jobNumber === jobNumber);
-            if(rec && rec.captainName !== captainName){
-              rec.captainName = captainName;
-              await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
-            }
-          }catch(err){ console.error('Job archive Captain sync failed:', err); }
-        }
-
-        // Completeness assessment is a secondary, best-effort metric -- runs
-        // after the upload has already succeeded, and never blocks or
-        // undoes it if the assessment itself fails.
-        assessPaperworkCompleteness(uploadRecord, file);
-      } else {
-        statusEl.textContent = 'File uploaded, but the list failed to save \u2014 check your connection.';
-        statusEl.className = 'status-msg err';
-      }
-    }catch(err){
-      console.error('Paperwork upload failed:', err);
-      statusEl.textContent = 'Upload failed \u2014 check your connection.';
-      statusEl.className = 'status-msg err';
+    const result = await savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName });
+    statusEl.textContent = result.message;
+    statusEl.className = result.ok ? 'status-msg ok' : 'status-msg err';
+    if(result.ok){
+      document.getElementById('pu_clientName').value = '';
+      document.getElementById('pu_jobNumber').value = '';
+      document.getElementById('pu_clientEmail').value = '';
+      document.getElementById('pu_captainSelect').value = '';
     }
     renderPaperworkUploadsList();
   }
