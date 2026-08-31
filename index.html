@@ -13103,7 +13103,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const wrap = document.getElementById('puBatch_thumbnails');
     wrap.innerHTML = puBatchFiles.map(f => `
       <div style="position:relative; width:80px; height:80px;">
-        <img src="${f.thumbnail}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        <img src="${f.allPageDataUris[0]}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        ${f.allPageDataUris.length > 1 ? `<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">${f.allPageDataUris.length} pages</span>` : (f.isPdf ? '<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">PDF</span>' : '')}
         <button type="button" class="puBatch-remove-file" data-id="${f.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
       </div>`).join('');
     wrap.querySelectorAll('.puBatch-remove-file').forEach(btn => btn.addEventListener('click', (e)=>{
@@ -13120,17 +13121,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return;
     }
     try{
-      let thumbnail;
+      let allPageDataUris, isPdf = false;
       if(file.type === 'application/pdf'){
-        const pages = await window.getImagesForAssessment(file);
-        if(pages.length === 0) throw new Error('Could not read that PDF.');
-        thumbnail = pages[0]; // the job number is always readable from the first page
+        // Every page is sent for extraction -- the job number isn't always on
+        // the first page (e.g. a batch-generated job's printed packet starts
+        // with the original work order scan, pushing the Bill of Lading's
+        // own "Job #" field several pages in).
+        allPageDataUris = await window.getImagesForAssessment(file);
+        if(allPageDataUris.length === 0) throw new Error('Could not read that PDF.');
+        isPdf = true;
       } else if(file.type.startsWith('image/')){
-        thumbnail = await window.compressImageForUpload(file, 2000, 0.92);
+        allPageDataUris = [await window.compressImageForUpload(file, 2000, 0.92)];
       } else {
         throw new Error('Unsupported file type.');
       }
-      puBatchFiles.push({ id: 'pubatch_' + Date.now() + '_' + Math.floor(Math.random()*1000), thumbnail, originalFile: file });
+      if(allPageDataUris.length > 24){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      puBatchFiles.push({ id: 'pubatch_' + Date.now() + '_' + Math.floor(Math.random()*1000), allPageDataUris, isPdf, originalFile: file });
       renderPuBatchThumbnails();
     }catch(err){
       console.error('Completed paperwork file processing failed:', err);
@@ -13206,6 +13216,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
           ${missingKeyField ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 Missing job # or client name \u2014 fill in before saving.</div>' : ''}
           ${!r.hasArchiveMatch ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 No matching job found in the archive \u2014 fill in Client Email and Captain manually.</div>' : ''}
+          ${r.matchedBy === 'clientName' ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">Matched by client name \u2014 the job number wasn\u2019t read clearly on this document. Please double-check.</div>' : ''}
           ${!r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-top:6px;">Low confidence read on the job number \u2014 please double-check.</div>' : ''}
         </div>
       </div>`;
@@ -13234,6 +13245,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }));
   }
 
+  function puNormalizeForMatch(s){ return (s || '').trim().toLowerCase(); }
+
   document.getElementById('puBatch_extractBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('puBatch_extractStatus');
     if(puBatchFiles.length === 0){
@@ -13250,11 +13263,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     statusEl.className = 'status-msg';
     document.getElementById('puBatch_extractBtn').disabled = true;
     try{
-      const images = puBatchFiles.map(f => f.thumbnail);
+      const files = puBatchFiles.map(f => ({ images: f.allPageDataUris }));
       const res = await fetch(`${API_BASE}/api/admin/extract-job-numbers`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ images })
+        body: JSON.stringify({ files })
       });
       if(handleAuthFailure(res)) return;
       const data = await res.json();
@@ -13278,18 +13291,40 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const archiveCutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
 
       puBatchReview = documents.map((d, i) => {
-        const jobNumber = d.jobNumber || '';
-        const match = archive.find(j => j.jobNumber === jobNumber && j.savedAt >= archiveCutoff) || null;
-        const file = puBatchFiles[d.imageIndex];
+        const jobNumber = (d.jobNumber || '').trim();
+        const extractedClientName = (d.clientName || '').trim();
+        const file = puBatchFiles[d.fileIndex];
+
+        // Job number checked first -- it's the more precise signal.
+        let match = jobNumber
+          ? archive.find(j => puNormalizeForMatch(j.jobNumber) === puNormalizeForMatch(jobNumber) && j.savedAt >= archiveCutoff) || null
+          : null;
+        let matchedBy = match ? 'jobNumber' : null;
+
+        // Falls back to client name if the job number didn't match --
+        // catches a small printed number getting misread off a
+        // re-photographed signed document when the name is still legible.
+        // Exact-after-normalization only, never fuzzy: a wrong match here
+        // means attaching one client's contact info to another client's
+        // paperwork, which is worse than leaving it unmatched.
+        if(!match && extractedClientName){
+          match = archive.find(j => puNormalizeForMatch(j.clientName) === puNormalizeForMatch(extractedClientName) && j.savedAt >= archiveCutoff) || null;
+          if(match) matchedBy = 'clientName';
+        }
+
         return {
           reviewId: 'pubatchrev_' + i,
-          jobNumber,
-          clientName: (match && match.clientName) || '',
+          // If matched via the client-name fallback, the archive's own job
+          // number is trusted over whatever was (evidently, incorrectly) read
+          // off the document.
+          jobNumber: matchedBy === 'clientName' ? match.jobNumber : jobNumber,
+          clientName: (match && match.clientName) || extractedClientName || '',
           clientEmail: (match && match.clientEmail) || '',
           captainName: (match && match.captainName) || '',
           confident: !!d.confident,
           hasArchiveMatch: !!match,
-          thumbnail: file ? file.thumbnail : null,
+          matchedBy,
+          thumbnail: file ? file.allPageDataUris[0] : null,
           originalFile: file ? file.originalFile : null
         };
       });
