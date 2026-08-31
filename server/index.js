@@ -1384,33 +1384,24 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
 // endpoints.
 const EXTRACT_JOB_NUMBERS_TOOL = {
   name: 'extract_job_numbers',
-  description: 'Extract the job number from a batch of completed moving-job paperwork scans.',
+  description: 'Extract the job number and client name from a completed moving-job paperwork scan.',
   input_schema: {
     type: 'object',
     properties: {
-      documents: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            imageIndex: { type: 'number', description: 'The 0-based index of this image within the batch, in the order the images were provided.' },
-            jobNumber: { type: 'string', description: 'The job number printed on this document (often an 8-digit HunkWare job number, commonly found on the Bill of Lading or estimate summary page). Empty string if not found or not legible.' },
-            confident: { type: 'boolean', description: 'True if the job number was read clearly. False if the image was blurry, cut off, or no job number was visible.' }
-          },
-          required: ['imageIndex', 'jobNumber', 'confident']
-        }
-      }
+      jobNumber: { type: 'string', description: 'The job number for this document (often an 8-digit HunkWare job number). It may appear on any page -- check all of them, not just the first. Empty string if not found or not legible on any page.' },
+      clientName: { type: 'string', description: 'The client/customer\u2019s name, if visible anywhere on any page (e.g. next to "Name:" on a Bill of Lading or Liability Waiver, or a signature). Empty string if not found.' },
+      confident: { type: 'boolean', description: 'True if the job number was read clearly. False if every page was too blurry, cut off, or no job number was visible anywhere.' }
     },
-    required: ['documents']
+    required: ['jobNumber', 'clientName', 'confident']
   }
 };
 
 app.post('/api/admin/extract-job-numbers', requireAuth, async (req, res) => {
-  const { images } = req.body || {};
-  if (!Array.isArray(images) || images.length === 0) {
-    return res.status(400).json({ error: 'At least one image is required.' });
+  const { files } = req.body || {};
+  if (!Array.isArray(files) || files.length === 0) {
+    return res.status(400).json({ error: 'At least one document is required.' });
   }
-  if (images.length > 20) {
+  if (files.length > 20) {
     return res.status(400).json({ error: 'Please upload 20 documents or fewer at a time.' });
   }
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -1420,22 +1411,24 @@ app.post('/api/admin/extract-job-numbers', requireAuth, async (req, res) => {
   }
 
   try {
-    const imageBlocks = images.map(dataUri => {
-      const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
-      if (!match) return null;
-      return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
-    }).filter(Boolean);
-    if (imageBlocks.length === 0) {
-      return res.status(400).json({ error: 'No valid images were provided.' });
-    }
+    const parsedFiles = files.map(f => {
+      const imgs = Array.isArray(f.images) ? f.images : [];
+      return imgs.map(dataUri => {
+        const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+        if (!match) return null;
+        return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+      }).filter(Boolean);
+    });
 
-    const BATCH_SIZE = 5;
-    const batches = [];
-    for (let i = 0; i < imageBlocks.length; i += BATCH_SIZE) {
-      batches.push({ images: imageBlocks.slice(i, i + BATCH_SIZE), offset: i });
-    }
-
-    async function runBatch(batch, batchIndex){
+    // Each uploaded scan is its own model call (not grouped like the work-order
+    // batch, since page count varies a lot per completed-paperwork upload) --
+    // all of that document's pages go in together, since the job number isn't
+    // always on the first page (e.g. when a work order was prepended ahead of
+    // the signed Bill of Lading during printing).
+    async function runFile(imageBlocks, fileIndex){
+      if (imageBlocks.length === 0) {
+        return { fileIndex, error: 'No valid images in this document.' };
+      }
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -1445,14 +1438,14 @@ app.post('/api/admin/extract-job-numbers', requireAuth, async (req, res) => {
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1536,
+          max_tokens: 1024,
           tools: [EXTRACT_JOB_NUMBERS_TOOL],
           tool_choice: { type: 'tool', name: 'extract_job_numbers' },
           messages: [{
             role: 'user',
             content: [
-              ...batch.images,
-              { type: 'text', text: `These are ${batch.images.length} scanned completed-paperwork document(s) from a moving company, one per image, in order. For each image (using its 0-based position in this batch, starting at 0), find and read the job number printed on it.` }
+              ...imageBlocks,
+              { type: 'text', text: `These are ${imageBlocks.length} page(s), in order, from a single scanned completed-paperwork document from a moving company (Bill of Lading, Liability Waiver, and related signed forms for one job). Find the job number -- check every page, since it isn't always on the first one (for example, if a copy of the original work order was printed ahead of the signed forms). Also note the client's name if it's visible anywhere.` }
             ]
           }]
         })
@@ -1460,41 +1453,38 @@ app.post('/api/admin/extract-job-numbers', requireAuth, async (req, res) => {
 
       if (!anthropicRes.ok) {
         const errBody = await anthropicRes.text().catch(() => '');
-        console.error(`Job number extraction batch ${batchIndex} failed:`, anthropicRes.status, errBody);
+        console.error(`Job number extraction file ${fileIndex} failed:`, anthropicRes.status, errBody);
         let detail = '';
         try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
-        return { error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
+        return { fileIndex, error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
       }
 
       const data = await anthropicRes.json();
       const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_job_numbers');
       if (!toolUseBlock) {
-        console.error(`Job number extraction batch ${batchIndex}: no tool_use block. stop_reason=`, data.stop_reason);
-        return { error: 'Could not read a structured response from the extraction service.' };
+        console.error(`Job number extraction file ${fileIndex}: no tool_use block. stop_reason=`, data.stop_reason);
+        return { fileIndex, error: 'Could not read a structured response from the extraction service.' };
       }
-      const documents = Array.isArray(toolUseBlock.input.documents) ? toolUseBlock.input.documents : [];
-      const rebased = documents.map(d => ({ ...d, imageIndex: (d.imageIndex || 0) + batch.offset }));
-      return { documents: rebased };
+      return { fileIndex, ...toolUseBlock.input };
     }
 
-    const batchResults = await Promise.all(batches.map((b, i) => runBatch(b, i)));
-    const allDocuments = [];
-    const batchErrors = [];
-    batchResults.forEach(r => {
-      if (r.error) batchErrors.push(r.error);
-      else allDocuments.push(...r.documents);
+    const results = await Promise.all(parsedFiles.map((blocks, i) => runFile(blocks, i)));
+    const documents = [];
+    const fileErrors = [];
+    results.forEach(r => {
+      if (r.error) fileErrors.push(r.error);
+      else documents.push(r);
     });
 
-    if (allDocuments.length === 0 && batchErrors.length > 0) {
-      return res.status(502).json({ error: batchErrors[0] });
+    if (documents.length === 0 && fileErrors.length > 0) {
+      return res.status(502).json({ error: fileErrors[0] });
     }
-    res.json({ documents: allDocuments, partialFailures: batchErrors.length });
+    res.json({ documents, partialFailures: fileErrors.length });
   } catch (err) {
     console.error('Job number extraction failed:', err.message);
     res.status(500).json({ error: 'Extraction failed: ' + err.message });
   }
 });
-
 // ============ Job Paperwork: Corrected Quote Extraction ============
 // A single-document read for a replacement/corrected quote the admin
 // uploads when a work order's attached quote didn't actually match the
