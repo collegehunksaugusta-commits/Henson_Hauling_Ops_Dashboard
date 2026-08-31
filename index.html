@@ -13042,8 +13042,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <button type="button" class="pu-face" data-id="${u.id}" data-value="happy" title="Satisfied" style="background:#fff; border:2px solid ${u.satisfaction === 'happy' ? '#00612C' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
             <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#00843D"/><line x1="8" y1="10" x2="8" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="10" x2="16" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M7 14.5 Q12 19 17 14.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
           </button>
-          <button type="button" class="pu-face" data-id="${u.id}" data-value="sad" title="Not satisfied" style="background:#fff; border:2px solid ${u.satisfaction === 'sad' ? '#b3261e' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
-            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#b3261e"/><line x1="8" y1="10" x2="8" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="10" x2="16" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M7 17 Q12 12.5 17 17" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+          <button type="button" class="pu-face" data-id="${u.id}" data-value="sad" title="Not satisfied" style="background:#fff; border:2px solid ${u.satisfaction === 'sad' ? '#B8860B' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#B8860B"/><line x1="8" y1="10" x2="8" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="10" x2="16" y2="12.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M7 17 Q12 12.5 17 17" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+          </button>
+          <button type="button" class="pu-face" data-id="${u.id}" data-value="angry" title="Angry &mdash; no email required, excluded from Ops Manager Metrics" style="background:#fff; border:2px solid ${u.satisfaction === 'angry' ? '#b3261e' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#b3261e"/><line x1="6.5" y1="8.5" x2="9.5" y2="10" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="17.5" y1="8.5" x2="14.5" y2="10" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M7 17 Q12 12.5 17 17" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
           </button>
         </td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap;" title="${(u.incompleteFields||[]).map(esc).join('; ')}">
@@ -13071,7 +13074,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const upload = paperworkUploads.find(u => u.id === id);
       if(!upload) return;
       if(!upload.satisfaction){
-        alert('Select \u{1F60A} or \u{1F61E} for this client before sending the email.');
+        alert('Select a satisfaction level for this client before sending the email.');
         return;
       }
       const origText = e.target.textContent;
@@ -14220,8 +14223,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!upload) status = 'not-uploaded';
       else if(!upload.emailSentAt) status = 'uploaded-no-email';
       else status = 'complete';
-      return { job: j, status };
-    });
+      return { job: j, upload, status };
+    // An "angry" satisfaction rating means no email is required and this
+    // job shouldn't reflect on this metric at all -- dropped entirely
+    // rather than counted as complete or incomplete either way.
+    }).filter(s => !(s.upload && s.upload.satisfaction === 'angry'));
+
+    if(statused.length === 0){
+      summaryEl.textContent = '';
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
 
     const completeCount = statused.filter(s => s.status === 'complete').length;
     summaryEl.textContent = `${completeCount} of ${statused.length} jobs fully closed out (uploaded and emailed) in the last 90 days.`;
