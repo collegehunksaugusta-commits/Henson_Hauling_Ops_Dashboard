@@ -455,6 +455,10 @@
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Materials Checkout</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Report supplies you pulled from the racks &mdash; required before Pre-Trip Inspection</div>
       </button>
+      <button type="button" id="driverGoToEodBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
+        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">End of Day Inspection</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Photo of the truck and any unused supplies you're returning to the racks</div>
+      </button>
       <a href="https://fuelsites.corpay.com/fuelman" target="_blank" rel="noopener" id="driverFuelStationsLink" style="display:block; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit; text-decoration:none;">
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Find Fuel Stations &#8599;</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Opens Fuelman's official site locator to find nearby stations that accept our fuel card</div>
@@ -491,6 +495,17 @@
       <div style="font-weight:700; color:#8a6d00; margin-bottom:4px;">Materials Checkout needed first</div>
       <div style="font-size:13.5px; color:#8a6d00; margin-bottom:10px;">You haven't logged today's Materials Checkout yet &mdash; that's required before this inspection can be submitted.</div>
       <button type="button" id="pti_goToMaterialsBtn" style="background:var(--brand-orange); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Go to Materials Checkout</button>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Truck Photo</h3>
+      <p class="form-note">Take a photo of the back/cargo area of the truck before you load up &mdash; this gets compared against your End of Day photo.</p>
+      <div id="pti_photoPreviewWrap" style="display:none; margin-bottom:12px;">
+        <img id="pti_photoPreview" style="max-width:100%; border-radius:8px; border:1px solid var(--line); display:block;">
+      </div>
+      <button type="button" id="pti_photoCaptureBtn" style="width:100%; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:14px; border-radius:6px; cursor:pointer; font-size:14px;">Take Photo</button>
+      <input type="file" id="pti_photoInput" accept="image/*" capture="environment" style="display:none;">
+      <p class="status-msg" id="pti_photoStatus" style="margin-top:8px;"></p>
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
@@ -617,6 +632,56 @@
       <span class="status-msg" id="matco_submitStatus" style="text-align:center;"></span>
     </div>
   </div>
+
+  <div id="driverEodView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="driverEodBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
+      <h2 class="display" style="margin:0; font-size:20px;">End of Day Inspection</h2>
+      <button type="button" id="driverEodLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <div class="form-grid">
+        <label>Truck <select id="eod_truck"></select></label>
+        <label>Your Name
+          <select id="eod_driverNameSelect">
+            <option value="">Select your name...</option>
+            <option value="__other__">Not on the list (type your name)</option>
+          </select>
+        </label>
+      </div>
+      <label id="eod_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="eod_driverNameOther" placeholder="First and last name"></label>
+      <p class="form-note" id="eod_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Truck Photo</h3>
+      <p class="form-note">Take a photo of the back/cargo area of the truck, same angle as this morning &mdash; this gets compared against your Pre-Trip photo.</p>
+      <div id="eod_photoPreviewWrap" style="display:none; margin-bottom:12px;">
+        <img id="eod_photoPreview" style="max-width:100%; border-radius:8px; border:1px solid var(--line); display:block;">
+      </div>
+      <button type="button" id="eod_photoCaptureBtn" style="width:100%; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:14px; border-radius:6px; cursor:pointer; font-size:14px;">Take Photo</button>
+      <input type="file" id="eod_photoInput" accept="image/*" capture="environment" style="display:none;">
+      <p class="status-msg" id="eod_photoStatus" style="margin-top:8px;"></p>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <p class="form-note">Return any unused packing supplies to the racks and enter what you're returning below. If you used everything you took, you can still submit this with everything left at 0.</p>
+      <label>Job Number(s) <input type="text" id="eod_jobNumbers" placeholder="e.g. 11699257, 11700412" inputmode="numeric"></label>
+      <p class="form-note">Separate multiple job numbers with a comma. Only needed if you're returning something below.</p>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">What are you returning?</h3>
+      <div id="eod_itemList"></div>
+      <p class="form-note" id="eod_noItemsNote" style="display:none;">No materials are set up yet &mdash; ask your administrator to add some on the Materials tile.</p>
+    </div>
+
+    <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+      <button class="btn-primary" id="eod_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit End of Day Inspection</button>
+      <span class="status-msg" id="eod_submitStatus" style="text-align:center;"></span>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -711,6 +776,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverMaterialsView').style.display = 'none';
+    document.getElementById('driverEodView').style.display = 'none';
   }
 
   function showDriverMenu(){
@@ -722,6 +788,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverMaterialsView').style.display = 'none';
+    document.getElementById('driverEodView').style.display = 'none';
     loadDriverLeaderboard();
   }
 
@@ -734,11 +801,16 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverMaterialsView').style.display = 'none';
+    document.getElementById('driverEodView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
     loadDriverTrucks();
     loadDriverRoster();
     renderPtiChecklist();
     checkPtiMaterialsGate();
+    ptiCapturedPhoto = null;
+    document.getElementById('pti_photoPreviewWrap').style.display = 'none';
+    document.getElementById('pti_photoCaptureBtn').textContent = 'Take Photo';
+    document.getElementById('pti_photoStatus').textContent = '';
   }
 
   function showDriverNbhd(){
@@ -750,6 +822,7 @@
     document.getElementById('driverNbhdView').style.display = 'block';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverMaterialsView').style.display = 'none';
+    document.getElementById('driverEodView').style.display = 'none';
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
     document.getElementById('nbhd_visitPanel').style.display = 'none';
     document.getElementById('nbhd_manualAreaWrap').style.display = 'none';
@@ -766,6 +839,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'block';
     document.getElementById('driverMaterialsView').style.display = 'none';
+    document.getElementById('driverEodView').style.display = 'none';
     loadDriverTruckDocsTrucks();
   }
 
@@ -778,9 +852,30 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverMaterialsView').style.display = 'block';
+    document.getElementById('driverEodView').style.display = 'none';
     document.getElementById('matco_submitStatus').textContent = '';
     fetchDriverRosterInto('matco_driverNameSelect');
     loadDriverMaterialsItems();
+  }
+
+  function showDriverEod(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverMenuView').style.display = 'none';
+    document.getElementById('driverInspectionView').style.display = 'none';
+    document.getElementById('driverNbhdView').style.display = 'none';
+    document.getElementById('driverTruckDocsView').style.display = 'none';
+    document.getElementById('driverMaterialsView').style.display = 'none';
+    document.getElementById('driverEodView').style.display = 'block';
+    document.getElementById('eod_submitStatus').textContent = '';
+    eodCapturedPhoto = null;
+    document.getElementById('eod_photoPreviewWrap').style.display = 'none';
+    document.getElementById('eod_photoCaptureBtn').textContent = 'Take Photo';
+    document.getElementById('eod_photoStatus').textContent = '';
+    fetchDriverRosterInto('eod_driverNameSelect');
+    loadDriverEodTrucks();
+    loadDriverEodItems();
   }
 
   // Local copy of the admin dashboard's data-URI-to-blob-URL conversion --
@@ -874,6 +969,9 @@
   document.getElementById('driverGoToMaterialsBtn').addEventListener('click', showDriverMaterials);
   document.getElementById('driverMaterialsBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverMaterialsLogoutBtn').addEventListener('click', driverLogout);
+  document.getElementById('driverGoToEodBtn').addEventListener('click', showDriverEod);
+  document.getElementById('driverEodBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverEodLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('pti_goToMaterialsBtn').addEventListener('click', showDriverMaterials);
   document.getElementById('driverInspectionBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverNbhdBackBtn').addEventListener('click', showDriverMenu);
@@ -941,9 +1039,9 @@
     statusEl.className = 'status-msg err';
   }
 
-  async function loadDriverTrucks(){
-    const sel = document.getElementById('pti_truck');
-    const noTrucksNote = document.getElementById('pti_noTrucksNote');
+  async function fetchDriverTrucksInto(selectId, noTrucksNoteId){
+    const sel = document.getElementById(selectId);
+    const noTrucksNote = document.getElementById(noTrucksNoteId);
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/trucks', {
         headers: {'Authorization': 'Bearer ' + driverToken}
@@ -965,6 +1063,8 @@
       noTrucksNote.style.display = 'block';
     }
   }
+  function loadDriverTrucks(){ return fetchDriverTrucksInto('pti_truck', 'pti_noTrucksNote'); }
+  function loadDriverEodTrucks(){ return fetchDriverTrucksInto('eod_truck', 'eod_noTrucksNote'); }
 
   async function fetchDriverRosterInto(selectId){
     const sel = document.getElementById(selectId);
@@ -1112,6 +1212,7 @@
   wireOtherNameToggle('pti_driverNameSelect', 'pti_driverNameOtherWrap', 'pti_driverNameOther');
   wireOtherNameToggle('nbhd_driverNameSelect', 'nbhd_driverNameOtherWrap', 'nbhd_driverNameOther');
   wireOtherNameToggle('matco_driverNameSelect', 'matco_driverNameOtherWrap', 'matco_driverNameOther');
+  wireOtherNameToggle('eod_driverNameSelect', 'eod_driverNameOtherWrap', 'eod_driverNameOther');
 
   function readSelectedDriverName(selectId, otherInputId){
     const sel = document.getElementById(selectId);
@@ -1123,9 +1224,9 @@
   // ---------- Materials Checkout ----------
   let driverMaterialsItems = [];
 
-  async function loadDriverMaterialsItems(){
-    const listEl = document.getElementById('matco_itemList');
-    const emptyNote = document.getElementById('matco_noItemsNote');
+  async function fetchDriverMaterialsItemsInto(listElId, emptyNoteId, qtyClass){
+    const listEl = document.getElementById(listElId);
+    const emptyNote = document.getElementById(emptyNoteId);
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/materials-items', {
         headers: {'Authorization': 'Bearer ' + driverToken}
@@ -1149,9 +1250,11 @@
           <div style="font-weight:600; font-size:14px;">${driverEsc(i.description)}</div>
           ${i.supplierItemNumber ? `<div style="font-size:11.5px; color:var(--muted);">${driverEsc(i.supplierItemNumber)}</div>` : ''}
         </div>
-        <input type="number" min="0" step="1" class="matco-qty" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:8px; border:1px solid var(--line); border-radius:4px; text-align:center; font-size:15px;">
+        <input type="number" min="0" step="1" class="${qtyClass}" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:8px; border:1px solid var(--line); border-radius:4px; text-align:center; font-size:15px;">
       </div>`).join('');
   }
+  function loadDriverMaterialsItems(){ return fetchDriverMaterialsItemsInto('matco_itemList', 'matco_noItemsNote', 'matco-qty'); }
+  function loadDriverEodItems(){ return fetchDriverMaterialsItemsInto('eod_itemList', 'eod_noItemsNote', 'eod-qty'); }
 
   document.getElementById('matco_submitBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('matco_submitStatus');
@@ -1194,6 +1297,80 @@
       document.querySelectorAll('.matco-qty').forEach(input => input.value = '');
     }catch(err){
       console.error('Materials checkout submit failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  let eodCapturedPhoto = null;
+  document.getElementById('eod_photoCaptureBtn').addEventListener('click', ()=> document.getElementById('eod_photoInput').click());
+  document.getElementById('eod_photoInput').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    eodCapturedPhoto = await handleTruckPhotoCapture(file, {
+      previewImgId: 'eod_photoPreview', previewWrapId: 'eod_photoPreviewWrap',
+      statusElId: 'eod_photoStatus', captureBtnId: 'eod_photoCaptureBtn'
+    });
+    e.target.value = '';
+  });
+
+  document.getElementById('eod_submitBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('eod_submitStatus');
+    const truckSel = document.getElementById('eod_truck');
+    const truckId = truckSel.value;
+    const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
+    const driverName = readSelectedDriverName('eod_driverNameSelect', 'eod_driverNameOther');
+    if(!truckId){
+      statusEl.textContent = 'Select a truck.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(!driverName){
+      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(!eodCapturedPhoto){
+      statusEl.textContent = 'Take a photo of the back of the truck before submitting.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const jobNumbers = document.getElementById('eod_jobNumbers').value
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const returnedItems = Array.from(document.querySelectorAll('.eod-qty'))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .filter(i => i.quantity > 0);
+
+    if(returnedItems.length > 0 && jobNumbers.length === 0){
+      statusEl.textContent = 'Enter at least one Job Number for the materials you\u2019re returning.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    statusEl.textContent = 'Submitting...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/eod-inspection', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ truckId, truckNickname, driverName, jobNumbers, returnedItems, backPhoto: eodCapturedPhoto, date: new Date().toISOString().slice(0,10) })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not submit inspection.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'End of Day Inspection submitted. Thank you!';
+      statusEl.className = 'status-msg ok';
+      document.getElementById('eod_jobNumbers').value = '';
+      document.querySelectorAll('.eod-qty').forEach(input => input.value = '');
+      eodCapturedPhoto = null;
+      document.getElementById('eod_photoPreviewWrap').style.display = 'none';
+      document.getElementById('eod_photoCaptureBtn').textContent = 'Take Photo';
+    }catch(err){
+      console.error('End of day inspection submit failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -1251,6 +1428,37 @@
     });
   }
 
+  // ---------- Truck photo capture (shared pattern for PTI and EOD) ----------
+  async function handleTruckPhotoCapture(file, { previewImgId, previewWrapId, statusElId, captureBtnId }){
+    const statusEl = document.getElementById(statusElId);
+    try{
+      const compressed = await window.compressImageForUpload(file, 1600, 0.85);
+      document.getElementById(previewImgId).src = compressed;
+      document.getElementById(previewWrapId).style.display = 'block';
+      document.getElementById(captureBtnId).textContent = 'Retake Photo';
+      statusEl.textContent = '';
+      statusEl.className = 'status-msg';
+      return compressed;
+    }catch(err){
+      console.error('Photo capture failed:', err);
+      statusEl.textContent = 'Could not process that photo \u2014 try again.';
+      statusEl.className = 'status-msg err';
+      return null;
+    }
+  }
+
+  let ptiCapturedPhoto = null;
+  document.getElementById('pti_photoCaptureBtn').addEventListener('click', ()=> document.getElementById('pti_photoInput').click());
+  document.getElementById('pti_photoInput').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    ptiCapturedPhoto = await handleTruckPhotoCapture(file, {
+      previewImgId: 'pti_photoPreview', previewWrapId: 'pti_photoPreviewWrap',
+      statusElId: 'pti_photoStatus', captureBtnId: 'pti_photoCaptureBtn'
+    });
+    e.target.value = '';
+  });
+
   document.getElementById('pti_submitBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pti_submitStatus');
     const truckSel = document.getElementById('pti_truck');
@@ -1290,6 +1498,11 @@
       statusEl.className = 'status-msg err';
       return;
     }
+    if(!ptiCapturedPhoto){
+      statusEl.textContent = 'Take a photo of the back of the truck before submitting.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
 
     statusEl.textContent = 'Submitting...';
     statusEl.className = 'status-msg';
@@ -1297,7 +1510,7 @@
       const res = await fetch(API_BASE_AUTH + '/api/driver/pretrip', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-        body: JSON.stringify({ truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes })
+        body: JSON.stringify({ truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes, backPhoto: ptiCapturedPhoto })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -1314,6 +1527,9 @@
       document.getElementById('pti_odometer').value = '';
       document.getElementById('pti_additionalNotes').value = '';
       document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
+      ptiCapturedPhoto = null;
+      document.getElementById('pti_photoPreviewWrap').style.display = 'none';
+      document.getElementById('pti_photoCaptureBtn').textContent = 'Take Photo';
       renderPtiChecklist();
     }catch(err){
       console.error('Submit inspection failed:', err);
@@ -2513,6 +2729,20 @@
       <p class="form-note">Any Captain with at least one job on a given day must log one pre-trip inspection that day, regardless of how many jobs or which truck.</p>
       <div id="cm_ptiDayList"></div>
       <p class="form-note" id="cm_ptiEmptyNote" style="display:none;">No Captain-assigned jobs found yet.</p>
+    </div>
+
+    <div class="panel" id="cmEodPanel">
+      <h3>End of Day Inspection Compliance</h3>
+      <p class="form-note">Any Captain with a Pre-Trip Inspection on file for a day must also log an End of Day Inspection that same day.</p>
+      <div id="cm_eodDayList"></div>
+      <p class="form-note" id="cm_eodEmptyNote" style="display:none;">No Pre-Trip Inspections found yet.</p>
+    </div>
+
+    <div class="panel" id="cmTruckIssuesPanel">
+      <h3>Truck Condition Issues</h3>
+      <p class="form-note">Claude compares each End of Day photo against that same truck's Pre-Trip photo from that morning and flags equipment issues &mdash; missing items, unfolded blankets, and the like. Estimate only, not a precise audit.</p>
+      <div id="cm_truckIssuesRows"></div>
+      <p class="form-note" id="cm_truckIssuesEmptyNote" style="display:none;">No issues found.</p>
     </div>
 
     <div class="panel" id="cmCompletenessPanel">
@@ -13189,12 +13419,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function loadCaptainMetricsData(){
     let archive = [];
     try{
-      const [archiveResult, ptiRecords] = await Promise.all([
+      const [archiveResult, ptiRecords, eodRecords] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
-        window.dashboardApi.get('compliance-pretrip-inspections', [])
+        window.dashboardApi.get('compliance-pretrip-inspections', []),
+        window.dashboardApi.get('compliance-eod-inspections', [])
       ]);
       archive = archiveResult || [];
       renderCaptainPtiCompliance(archive, ptiRecords || []);
+      renderCaptainEodCompliance(ptiRecords || [], eodRecords || []);
+      renderTruckIssues(eodRecords || []);
     }catch(err){
       console.error('Captain Metrics load failed:', err);
     }
@@ -13263,6 +13496,91 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     });
 
     listEl.innerHTML = html;
+  }
+
+  function renderCaptainEodCompliance(ptiRecords, eodRecords){
+    const listEl = document.getElementById('cm_eodDayList');
+    const emptyNote = document.getElementById('cm_eodEmptyNote');
+
+    // A day only counts if it already has a Pre-Trip Inspection on file --
+    // nothing to "end" without a "start", and today isn't finished yet.
+    const todayStr = new Date().toISOString().slice(0,10);
+    const relevant = ptiRecords.filter(p => p.driverName && p.date && p.date < todayStr);
+
+    if(relevant.length === 0){
+      listEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const byDay = {};
+    relevant.forEach(p => {
+      if(!byDay[p.date]) byDay[p.date] = new Set();
+      byDay[p.date].add(p.driverName);
+    });
+
+    const days = Object.keys(byDay).sort((a,b) => b.localeCompare(a));
+
+    let html = '';
+    days.forEach(day => {
+      const captains = [...byDay[day]].sort();
+      let completeCount = 0;
+      const rows = captains.map(captain => {
+        const hasInspection = eodRecords.some(e => e.driverName === captain && e.date === day);
+        if(hasInspection) completeCount++;
+        return `<tr>
+          <td>${cmEsc(captain)}</td>
+          <td style="text-align:right;">
+            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${hasInspection ? 'background:#e8f5e9; color:#00612C;' : 'background:#fdecea; color:#b3261e;'}">
+              ${hasInspection ? 'Complete' : 'Incomplete'}
+            </span>
+          </td>
+        </tr>`;
+      }).join('');
+
+      html += `
+      <div style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong>${window.fmtDate(day)}</strong>
+          <span class="form-note" style="margin:0;">${completeCount} of ${captains.length} complete</span>
+        </div>
+        <table>
+          <thead><tr><th>Captain</th><th style="text-align:right;">End of Day Status</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    });
+
+    listEl.innerHTML = html;
+  }
+
+  function renderTruckIssues(eodRecords){
+    const rowsEl = document.getElementById('cm_truckIssuesRows');
+    const emptyNote = document.getElementById('cm_truckIssuesEmptyNote');
+
+    const flagged = eodRecords
+      .filter(e => e.visionStatus === 'issues_found' && Array.isArray(e.visionIssues) && e.visionIssues.length > 0)
+      .sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+
+    if(flagged.length === 0){
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    rowsEl.innerHTML = flagged.map(e => `
+      <div style="border:1px solid #E8A69C; background:#FDEDEA; border-radius:8px; padding:12px 14px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+          <strong>${cmEsc(e.driverName)} \u2014 ${cmEsc(e.truckNickname || 'Truck')}</strong>
+          <span class="form-note" style="margin:0;">${window.fmtDate(e.date)}</span>
+        </div>
+        ${e.visionSummary ? `<div style="font-size:12.5px; color:var(--muted); margin-bottom:6px;">${cmEsc(e.visionSummary)}</div>` : ''}
+        <ul style="margin:0; padding-left:18px; font-size:12.5px;">
+          ${e.visionIssues.map(issue => `<li>${cmEsc(issue.issue)}${issue.severity === 'moderate' ? ' <span style="color:#B3261E; font-weight:600;">(moderate)</span>' : ''}</li>`).join('')}
+        </ul>
+      </div>`).join('');
   }
 
   function renderCaptainCompleteness(archive, uploads){
@@ -13742,7 +14060,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // what was actually billed for that job (materialsBilled on the matching
   // Completed Paperwork record) -- flags any job where more was pulled than
   // was billed, including jobs that haven't been billed for materials at all yet.
-  function renderMaterialsUnderbilled(uploads, archive){
+  function renderMaterialsUnderbilled(uploads, archive, eodRecords){
     const rowsEl = document.getElementById('mat_underbilledRows');
     const emptyNote = document.getElementById('mat_underbilledEmptyNote');
 
@@ -13757,6 +14075,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         (co.items || []).forEach(it => {
           if(!billableItemIds.has(it.itemId)) return;
           checkedOutByJob[jobNumber][it.itemId] = (checkedOutByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
+        });
+      });
+    });
+
+    // What actually got used is what was pulled minus what came back
+    // unused at End of Day Inspection -- that's the figure that should be
+    // billed, not the raw amount checked out.
+    const returnedByJob = {};
+    (eodRecords || []).forEach(eod => {
+      (eod.jobNumbers || []).forEach(jobNumber => {
+        if(!returnedByJob[jobNumber]) returnedByJob[jobNumber] = {};
+        (eod.returnedItems || []).forEach(it => {
+          if(!billableItemIds.has(it.itemId)) return;
+          returnedByJob[jobNumber][it.itemId] = (returnedByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
         });
       });
     });
@@ -13791,13 +14123,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const problems = [];
     Object.keys(checkedOutByJob).forEach(jobNumber => {
       const checkedOutItems = checkedOutByJob[jobNumber];
+      const returnedItems = returnedByJob[jobNumber] || null;
       const billedItems = billedByJob[jobNumber] || null;
       const quotedItems = quotedByJob[jobNumber] || null;
       Object.keys(checkedOutItems).forEach(itemId => {
         const checkedOut = checkedOutItems[itemId];
+        const returned = returnedItems ? (returnedItems[itemId] || 0) : 0;
+        // Clamped at 0 -- a return credited to the wrong job (mismatched
+        // job-number entry at End of Day) shouldn't show as a negative
+        // "used" figure here.
+        const netUsed = Math.max(0, checkedOut - returned);
         const billed = billedItems ? (billedItems[itemId] || 0) : 0;
         const quoted = quotedItems ? (quotedItems[itemId] || 0) : null;
-        if(checkedOut > billed) problems.push({ jobNumber, itemId, checkedOut, billed, quoted, hasBillingRecord: !!billedItems });
+        if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems });
       });
     });
 
@@ -13821,7 +14159,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             const item = itemsById.get(p.itemId);
             const label = item ? item.description : '(item no longer on file)';
             const quotedNote = p.quoted !== null ? `quoted ${p.quoted}, ` : '';
-            return `<div style="font-size:12.5px;">${matEsc(label)}: ${quotedNote}pulled ${p.checkedOut}, billed ${p.billed}${!p.hasBillingRecord ? ' (materials not yet entered for this job)' : ''}</div>`;
+            const returnedNote = p.returned > 0 ? `, returned ${p.returned}, net used ${p.netUsed}` : '';
+            return `<div style="font-size:12.5px;">${matEsc(label)}: ${quotedNote}pulled ${p.checkedOut}${returnedNote}, billed ${p.billed}${!p.hasBillingRecord ? ' (materials not yet entered for this job)' : ''}</div>`;
           }).join('')}
         </div>`;
     }).join('');
@@ -13829,17 +14168,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   async function loadMaterialsData(){
     try{
-      const [items, checkouts, uploads, archive] = await Promise.all([
+      const [items, checkouts, uploads, archive, eodRecords] = await Promise.all([
         window.dashboardApi.get(MATERIALS_ITEMS_KEY, []),
         window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
-        window.dashboardApi.get(JOB_ARCHIVE_KEY, [])
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.dashboardApi.get('compliance-eod-inspections', [])
       ]);
       materialsItems = items || [];
       materialsCheckouts = checkouts || [];
       renderMaterialsItemList();
       renderMaterialsLowStock();
-      renderMaterialsUnderbilled(uploads || [], archive || []);
+      renderMaterialsUnderbilled(uploads || [], archive || [], eodRecords || []);
       updateMaterialsTileBadge();
     }catch(err){
       console.error('Materials load failed:', err);
