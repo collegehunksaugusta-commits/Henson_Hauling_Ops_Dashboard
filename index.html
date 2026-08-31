@@ -2636,13 +2636,9 @@
 
         <div style="border:1px solid var(--line); border-radius:8px; padding:14px; margin-top:12px; background:var(--offwhite);">
           <div style="font-weight:600; font-size:13px; margin-bottom:2px;">Materials Billed</div>
-          <label style="display:flex; align-items:center; gap:8px; font-weight:normal; margin-bottom:6px;">
-            <input type="checkbox" id="pu_requiresMaterials" style="width:auto;">
-            This job required packing materials
-          </label>
           <p class="form-note" id="pu_requiresMaterialsNote" style="margin-top:0;"></p>
           <div id="pu_materialsBilledWrap" style="display:none;">
-            <p class="form-note" style="margin-top:0;">Enter the quantities of each material actually charged to the client for this job &mdash; leave at 0 for anything not billed. Free consumables (tape, shrink wrap) aren't shown here since they're never billed.</p>
+            <p class="form-note" style="margin-top:0;">Enter the quantity actually charged to the client for every material below (0 if none) &mdash; every field is required before this job can be uploaded and its email sent. Free consumables (tape, shrink wrap) aren't shown here since they're never billed.</p>
             <div id="pu_materialsBilledList"></div>
             <p class="form-note" id="pu_materialsBilledEmptyNote" style="display:none;">No billable materials are set up yet &mdash; add some on the Materials tile.</p>
           </div>
@@ -13077,6 +13073,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         alert('Select a satisfaction level for this client before sending the email.');
         return;
       }
+      // Checked against what was billable at upload time, captured then --
+      // not re-evaluated against today's item list, so a material added
+      // later doesn't retroactively block an already-complete record.
+      if(upload.requiresMaterials === true && (!Array.isArray(upload.materialsBilled) || upload.materialsBilled.length === 0)){
+        alert('This job requires packing materials to be billed before an email can be sent \u2014 please complete the Materials Billed section for this job.');
+        return;
+      }
       const origText = e.target.textContent;
       e.target.textContent = 'Preparing...';
       e.target.disabled = true;
@@ -14265,13 +14268,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // Not every job has packing materials to bill for -- this decides whether
   // to show that section at all, using two signals: a driver already logged
   // a Materials Checkout mentioning this job number, or the original work
-  // order's quote mentioned Packing Services materials. Either one is
-  // enough to default the checkbox on; Cameron can always override by hand.
+  // order's quote mentioned Packing Services materials. Fully automatic --
+  // no manual override, since this needs to be a reliable gate, not a
+  // suggestion Cameron can dismiss.
+  let puCurrentRequiresMaterials = false;
   async function checkPuRequiresMaterials(jobNumber, archiveMatch){
-    const checkbox = document.getElementById('pu_requiresMaterials');
     const note = document.getElementById('pu_requiresMaterialsNote');
     if(!jobNumber){
-      checkbox.checked = false;
+      puCurrentRequiresMaterials = false;
       note.textContent = '';
       document.getElementById('pu_materialsBilledWrap').style.display = 'none';
       return;
@@ -14288,15 +14292,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       detectedReason = 'The original work order\u2019s quote mentioned packing materials.';
     }
 
-    checkbox.checked = !!detectedReason;
+    puCurrentRequiresMaterials = !!detectedReason;
     document.getElementById('pu_materialsBilledWrap').style.display = detectedReason ? 'block' : 'none';
     note.textContent = detectedReason
-      ? detectedReason + ' Uncheck above if that\u2019s wrong.'
-      : 'Nothing suggests this job needed packing materials \u2014 check the box above if it did.';
+      ? detectedReason + ' A quantity is required for every material below before this job can be uploaded.'
+      : 'Nothing on file suggests this job needed packing materials.';
   }
-  document.getElementById('pu_requiresMaterials').addEventListener('change', (e)=>{
-    document.getElementById('pu_materialsBilledWrap').style.display = e.target.checked ? 'block' : 'none';
-  });
 
   document.getElementById('pu_jobNumber').addEventListener('blur', async ()=>{
     const jobNumber = document.getElementById('pu_jobNumber').value.trim();
@@ -14450,13 +14451,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${(() => {
             const billableItems = (puBatchMaterialsItemsCache || []).filter(item => !item.neverBilled);
             if(billableItems.length === 0) return '';
+            if(!r.requiresMaterials){
+              return '<div style="font-size:11px; color:var(--muted); margin-top:6px;">No materials billing required for this job.</div>';
+            }
+            const allFilled = billableItems.every(item => r.materialsBilled.some(mb => mb.itemId === item.id));
             return `
           <div style="border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-top:8px; background:var(--offwhite);">
-            <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:11.5px; margin-bottom:6px;">
-              <input type="checkbox" class="puBatchRev-requires-materials" data-review-id="${r.reviewId}" style="width:auto;" ${r.requiresMaterials ? 'checked' : ''}>
-              This job required packing materials
-            </label>
-            <div class="puBatchRev-materials-grid" data-review-id="${r.reviewId}" style="display:${r.requiresMaterials ? 'grid' : 'none'}; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:6px;">
+            <div style="font-weight:600; font-size:11.5px; margin-bottom:6px;">Materials Billed <span style="font-weight:400; color:var(--muted);">(required for this job)</span></div>
+            <div class="puBatchRev-materials-grid" data-review-id="${r.reviewId}" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:6px;">
               ${billableItems.map(item => {
                 const existing = r.materialsBilled.find(mb => mb.itemId === item.id);
                 return `<label style="font-size:11px; display:flex; justify-content:space-between; align-items:center; gap:4px;">
@@ -14465,6 +14467,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 </label>`;
               }).join('')}
             </div>
+            ${!allFilled ? '<div class="puBatchRev-materials-warning" style="font-size:11px; color:#8a6d00; margin-top:6px;">\u26a0 Enter a quantity (0 if none) for every material before saving.</div>' : '<div class="puBatchRev-materials-warning" style="font-size:11px; color:#8a6d00; margin-top:6px; display:none;">\u26a0 Enter a quantity (0 if none) for every material before saving.</div>'}
           </div>`;
           })()}
         </div>
@@ -14496,17 +14499,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const r = puBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
       if(!r) return;
       const itemId = e.target.dataset.itemId;
-      const quantity = Number(e.target.value) || 0;
       r.materialsBilled = r.materialsBilled.filter(mb => mb.itemId !== itemId);
-      if(quantity > 0) r.materialsBilled.push({ itemId, quantity });
-    }));
-    container.querySelectorAll('.puBatchRev-requires-materials').forEach(checkbox => checkbox.addEventListener('change', (e)=>{
-      const r = puBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
-      if(!r) return;
-      r.requiresMaterials = e.target.checked;
-      if(!e.target.checked) r.materialsBilled = [];
-      const grid = container.querySelector(`.puBatchRev-materials-grid[data-review-id="${r.reviewId}"]`);
-      if(grid) grid.style.display = e.target.checked ? 'grid' : 'none';
+      // An explicit "0" is a real, deliberate entry -- kept distinct from a
+      // field the Operations Manager hasn't touched yet, so the
+      // completeness check below can tell the two apart.
+      if(e.target.value.trim() !== ''){
+        r.materialsBilled.push({ itemId, quantity: Number(e.target.value) || 0 });
+      }
+      const grid = e.target.closest('.puBatchRev-materials-grid');
+      if(grid){
+        const warningEl = grid.parentElement.querySelector('.puBatchRev-materials-warning');
+        const billableIds = Array.from(grid.querySelectorAll('.puBatchRev-materials-qty')).map(inp => inp.dataset.itemId);
+        const allFilled = billableIds.every(id => r.materialsBilled.some(mb => mb.itemId === id));
+        if(warningEl) warningEl.style.display = allFilled ? 'none' : 'block';
+      }
     }));
   }
 
@@ -14640,9 +14646,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   });
 
+  // A row is savable only once materials billing is complete for it (when
+  // required) -- same reasoning as the single-upload flow's gate.
+  function puBatchRowMaterialsComplete(r){
+    if(!r.requiresMaterials) return true;
+    const billableItems = (puBatchMaterialsItemsCache || []).filter(item => !item.neverBilled);
+    if(billableItems.length === 0) return true;
+    return billableItems.every(item => r.materialsBilled.some(mb => mb.itemId === item.id));
+  }
+
   document.getElementById('puBatch_saveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('puBatch_saveStatus');
-    const savable = puBatchReview.filter(r => r.jobNumber && r.clientName && r.originalFile);
+    const savable = puBatchReview.filter(r => r.jobNumber && r.clientName && r.originalFile && puBatchRowMaterialsComplete(r));
     if(savable.length === 0){
       statusEl.textContent = 'Nothing ready to save \u2014 fix the fields flagged above.';
       statusEl.className = 'status-msg err';
@@ -14655,7 +14670,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const failures = [];
     for(const r of savable){
       const result = await savePaperworkUpload(r.originalFile, {
-        clientName: r.clientName, jobNumber: r.jobNumber, clientEmail: r.clientEmail, captainName: r.captainName, materialsBilled: r.materialsBilled
+        clientName: r.clientName, jobNumber: r.jobNumber, clientEmail: r.clientEmail, captainName: r.captainName, materialsBilled: r.materialsBilled, requiresMaterials: r.requiresMaterials
       });
       if(result.ok){
         successCount++;
@@ -14666,9 +14681,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     renderPaperworkUploadsList();
     renderPuBatchReview();
+    const skippedCount = puBatchReview.length > 0 ? puBatchReview.filter(r => r.jobNumber && r.clientName && r.originalFile && !puBatchRowMaterialsComplete(r)).length : 0;
+    const skippedNote = skippedCount > 0 ? ` ${skippedCount} row(s) skipped \u2014 materials billing incomplete.` : '';
     statusEl.textContent = failures.length === 0
-      ? `Saved all ${successCount} record(s) \u2014 ready to send from the list below.`
-      : `Saved ${successCount} record(s). ${failures.length} failed: ${failures.join('; ')}`;
+      ? `Saved all ${successCount} record(s) \u2014 ready to send from the list below.${skippedNote}`
+      : `Saved ${successCount} record(s). ${failures.length} failed: ${failures.join('; ')}${skippedNote}`;
     statusEl.className = failures.length === 0 ? 'status-msg ok' : 'status-msg err';
     document.getElementById('puBatch_saveBtn').disabled = false;
   });
@@ -14743,14 +14760,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   window.renderPuMaterialsBilledFields = renderPuMaterialsBilledFields;
 
   function readPuMaterialsBilled(){
+    // Only fields the Operations Manager actually typed into -- a blank
+    // field is not the same as an explicit 0, and that distinction matters
+    // for the completeness check below.
     return Array.from(document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty'))
-      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
-      .filter(i => i.quantity > 0);
+      .filter(input => input.value.trim() !== '')
+      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }));
+  }
+
+  // When materials are required, every billable field needs an explicit
+  // entry (0 counts) before this job can be uploaded and its email sent.
+  function puMaterialsBilledIsComplete(){
+    if(!puCurrentRequiresMaterials) return true;
+    const inputs = document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty');
+    if(inputs.length === 0) return true;
+    return Array.from(inputs).every(input => input.value.trim() !== '');
   }
 
   function resetPuMaterialsBilledFields(){
     document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty').forEach(input => input.value = '');
-    document.getElementById('pu_requiresMaterials').checked = false;
+    puCurrentRequiresMaterials = false;
     document.getElementById('pu_requiresMaterialsNote').textContent = '';
     document.getElementById('pu_materialsBilledWrap').style.display = 'none';
   }
@@ -14760,7 +14789,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // back to the job archive, and kicks off the completeness assessment.
   // Returns {ok, message, uploadRecord} rather than touching any DOM itself,
   // so each caller can present the result its own way.
-  async function savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName, materialsBilled }){
+  async function savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName, materialsBilled, requiresMaterials }){
     if(!clientName || !jobNumber){
       return { ok: false, message: 'Missing Client Name or Job Number.' };
     }
@@ -14775,7 +14804,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, compressed.dataUri);
       if(!blobOk) throw new Error('Blob save failed');
-      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, captainName, materialsBilled: materialsBilled || [], fileName: file.name, uploadedAt: new Date().toISOString() };
+      const uploadRecord = { id: uploadId, clientName, jobNumber, clientEmail, captainName, materialsBilled: materialsBilled || [], requiresMaterials: !!requiresMaterials, fileName: file.name, uploadedAt: new Date().toISOString() };
       paperworkUploads.push(uploadRecord);
       const listOk = await savePaperworkUploadsList();
       if(!listOk){
@@ -14823,6 +14852,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
       return;
     }
+    if(!puMaterialsBilledIsComplete()){
+      statusEl.textContent = 'Enter a quantity (0 if none) for every material listed before uploading.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
 
     // Looks for a prior upload already on file for this job number --
     // doesn't block, since a legitimate re-scan/correction should still be
@@ -14843,7 +14877,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     statusEl.textContent = 'Compressing and uploading...';
     statusEl.className = 'status-msg';
     const materialsBilled = readPuMaterialsBilled();
-    const result = await savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName, materialsBilled });
+    const result = await savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName, materialsBilled, requiresMaterials: puCurrentRequiresMaterials });
     statusEl.textContent = result.message;
     statusEl.className = result.ok ? 'status-msg ok' : 'status-msg err';
     if(result.ok){
