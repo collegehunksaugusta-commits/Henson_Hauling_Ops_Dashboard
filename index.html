@@ -14446,6 +14446,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${!r.hasArchiveMatch ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 No matching job found in the archive \u2014 fill in Client Email and Captain manually.</div>' : ''}
           ${r.matchedBy === 'clientName' ? '<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">Matched by client name \u2014 the job number wasn\u2019t read clearly on this document. Please double-check.</div>' : ''}
           ${!r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-top:6px;">Low confidence read on the job number \u2014 please double-check.</div>' : ''}
+          ${r.priorUpload ? `<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 A completed paperwork upload already exists for this job number \u2014 "${pwBatchEsc(r.priorUpload.fileName)}", ${new Date(r.priorUpload.uploadedAt).toLocaleDateString()}. Saving will add this as an additional record.</div>` : ''}
           ${(() => {
             const billableItems = (puBatchMaterialsItemsCache || []).filter(item => !item.neverBilled);
             if(billableItems.length === 0) return '';
@@ -14609,6 +14610,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             const hasCheckout = checkoutsForGate.some(co => (co.jobNumbers || []).includes(resolvedJobNumber) && (co.items || []).length > 0);
             if(hasCheckout) return true;
             return !!(match && Array.isArray(match.packingMaterials) && match.packingMaterials.length > 0);
+          })(),
+          // Flags (doesn't block) when a completed paperwork record already
+          // exists for this job number -- a legitimate re-scan/correction
+          // should still be allowed through, just noticed rather than
+          // silently duplicated.
+          priorUpload: (() => {
+            const resolvedJobNumber = matchedBy === 'clientName' ? match.jobNumber : jobNumber;
+            if(!resolvedJobNumber) return null;
+            const priorMatches = paperworkUploads.filter(u => puNormalizeForMatch(u.jobNumber) === puNormalizeForMatch(resolvedJobNumber));
+            if(priorMatches.length === 0) return null;
+            return [...priorMatches].sort((a,b) => (b.uploadedAt||'').localeCompare(a.uploadedAt||''))[0];
           })()
         };
       });
@@ -14811,6 +14823,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
       return;
     }
+
+    // Looks for a prior upload already on file for this job number --
+    // doesn't block, since a legitimate re-scan/correction should still be
+    // allowed, but makes sure it's a deliberate choice, not an accidental
+    // double-upload.
+    const priorMatches = paperworkUploads.filter(u => puNormalizeForMatch(u.jobNumber) === puNormalizeForMatch(jobNumber));
+    if(priorMatches.length > 0){
+      const mostRecent = [...priorMatches].sort((a,b) => (b.uploadedAt||'').localeCompare(a.uploadedAt||''))[0];
+      const countNote = priorMatches.length > 1 ? ` (${priorMatches.length} on file total)` : '';
+      const proceed = confirm(`A completed paperwork upload already exists for Job # ${jobNumber} \u2014 "${mostRecent.fileName}", uploaded ${new Date(mostRecent.uploadedAt).toLocaleDateString()}${countNote}.\n\nUpload this as an additional record anyway?`);
+      if(!proceed){
+        statusEl.textContent = 'Upload cancelled.';
+        statusEl.className = 'status-msg';
+        return;
+      }
+    }
+
     statusEl.textContent = 'Compressing and uploading...';
     statusEl.className = 'status-msg';
     const materialsBilled = readPuMaterialsBilled();
