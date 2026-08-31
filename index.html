@@ -1247,7 +1247,7 @@
     listEl.innerHTML = driverMaterialsItems.map(i => `
       <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--line);">
         <div>
-          <div style="font-weight:600; font-size:14px;">${driverEsc(i.description)}</div>
+          <div style="font-weight:600; font-size:14px;">${driverEsc(i.nickname || i.description)}</div>
           ${i.supplierItemNumber ? `<div style="font-size:11.5px; color:var(--muted);">${driverEsc(i.supplierItemNumber)}</div>` : ''}
         </div>
         <input type="number" min="0" step="1" class="${qtyClass}" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:8px; border:1px solid var(--line); border-radius:4px; text-align:center; font-size:15px;">
