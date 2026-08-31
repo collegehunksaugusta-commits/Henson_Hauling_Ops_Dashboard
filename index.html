@@ -10833,6 +10833,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return result;
   }
 
+  // The quote narrative that lands in this box varies a lot in length --
+  // sometimes a few short lines, sometimes a much longer verbatim HunkWare
+  // quote with more line items -- since it's whatever shape the original
+  // estimate took. A fixed box height either wastes space on short quotes
+  // (pushing the whole page's content past one printed page) or doesn't
+  // leave room for long ones, so this scales spacing to the actual number
+  // of lines instead.
+  function pwExplanationBoxStyle(narrativeHtml){
+    const lineCount = ((narrativeHtml || '').match(/<br\s*\/?>/gi) || []).length + 1;
+    let lineHeight, padding, minHeight;
+    if(lineCount <= 4){
+      lineHeight = 1.8; padding = '10px 14px'; minHeight = '50px';
+    } else if(lineCount <= 8){
+      lineHeight = 1.4; padding = '8px 12px'; minHeight = '40px';
+    } else {
+      lineHeight = 1.15; padding = '6px 10px'; minHeight = '30px';
+    }
+    return `border:1px solid #999; padding:${padding}; font-size:7.5pt; line-height:${lineHeight}; min-height:${minHeight};`;
+  }
+
   function buildPWBillOfLading(pageNum){
     const origin = pwVal('pw_originAddress'), dest = pwVal('pw_destAddress');
     const stops = [pwVal('pw_stop1'), pwVal('pw_stop2'), pwVal('pw_stop3')].filter(s => s);
@@ -10890,7 +10910,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <table style="width:100%; border-collapse:collapse; font-size:7pt; margin-bottom:2px;">
           <tr style="border-bottom:1px solid #999;"><td colspan="6" style="padding:2px 0; font-weight:bold;">Explanation of Charges</td></tr>
           <tr><td colspan="6" style="padding:4px 0;">
-            <div style="border:1px solid #999; padding:14px 16px; font-size:7.5pt; line-height:2.1; min-height:200px;">${laborNarrative}</div>
+            <div style="${pwExplanationBoxStyle(laborNarrative)}">${laborNarrative}</div>
           </td></tr>
         </table>
 
