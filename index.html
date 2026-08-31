@@ -2556,7 +2556,7 @@
     </div>
 
     <div class="panel" id="matItemListPanel">
-      <h3>All Items</h3>
+      <h3>Current Inventory</h3>
       <label>Search by Description or Item Number <input type="text" id="mat_itemSearch" placeholder="Start typing..."></label>
       <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
         <thead><tr>
@@ -2569,6 +2569,11 @@
           <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
         </tr></thead>
         <tbody id="mat_itemRows"></tbody>
+        <tfoot id="mat_itemTotalRow" style="display:none;"><tr>
+          <td colspan="3" style="padding:8px 4px; border-top:2px solid var(--charcoal); font-weight:700;">Total Inventory Value</td>
+          <td id="mat_itemTotalValue" style="padding:8px 4px; border-top:2px solid var(--charcoal); text-align:right; font-weight:700;"></td>
+          <td colspan="3" style="border-top:2px solid var(--charcoal);"></td>
+        </tr></tfoot>
       </table>
       <p class="form-note" id="mat_itemEmptyNote" style="display:none;">No items yet &mdash; add one below or upload an invoice.</p>
     </div>
@@ -13394,6 +13399,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       tbody.innerHTML = '';
       emptyNote.style.display = 'block';
       emptyNote.textContent = materialsItems.length === 0 ? 'No items yet \u2014 add one above or upload an invoice.' : 'No matches.';
+      document.getElementById('mat_itemTotalRow').style.display = 'none';
       return;
     }
     emptyNote.style.display = 'none';
@@ -13412,6 +13418,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </td>
       </tr>`;
     }).join('');
+
+    const totalValue = filtered.reduce((sum, i) => sum + (Number(i.priceEach||0) * Number(i.quantityOnHand||0)), 0);
+    document.getElementById('mat_itemTotalRow').style.display = '';
+    document.getElementById('mat_itemTotalValue').textContent = matMoney(totalValue);
 
     tbody.querySelectorAll('.mat-edit').forEach(btn => btn.addEventListener('click', (e)=>{
       const item = materialsItems.find(i => i.id === e.currentTarget.dataset.id);
