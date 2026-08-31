@@ -2548,18 +2548,29 @@
       <p>Moving supplies inventory, reordering alerts, and reconciliation against what drivers checked out vs. what was billed.</p>
     </div>
 
-    <div class="panel" id="matLowStockPanel">
-      <h3>Low Stock <span id="mat_lowStockCountBadge" style="display:none; font-size:11px; font-weight:600; color:#B3261E; background:#FCDCD6; border:1px solid #E8A69C; padding:2px 8px; border-radius:10px; vertical-align:middle;"></span></h3>
-      <p class="form-note">Items at or below their Minimum Quantity &mdash; time to reorder.</p>
-      <div id="mat_lowStockRows"></div>
-      <p class="form-note" id="mat_lowStockEmptyNote" style="display:none;">Nothing is low right now.</p>
+    <div id="matLowStockAlert" style="display:none; background:#FDEDEA; border:1px solid #E8A69C; border-radius:8px; padding:14px 18px; margin-bottom:22px;">
+      <div style="font-weight:700; color:#B3261E; margin-bottom:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em; font-size:16px;">
+        Low Stock <span id="mat_lowStockCountBadge" style="display:none; font-size:11px; font-weight:600; color:#B3261E; background:#FCDCD6; border:1px solid #E8A69C; padding:2px 8px; border-radius:10px; vertical-align:middle;"></span>
+      </div>
+      <div id="mat_lowStockInline" style="font-size:13px; color:#7a2419; line-height:1.6;"></div>
     </div>
 
-    <div class="panel" id="matUnderbilledPanel">
-      <h3>Underbilled Jobs</h3>
-      <p class="form-note">Compares what drivers checked materials out for against what was actually billed for that job in Completed Paperwork. A job shows up here if more was pulled from the racks than was billed.</p>
-      <div id="mat_underbilledRows"></div>
-      <p class="form-note" id="mat_underbilledEmptyNote" style="display:none;">No underbilled jobs found.</p>
+    <div class="panel" id="matItemListPanel">
+      <h3>All Items</h3>
+      <label>Search by Description or Item Number <input type="text" id="mat_itemSearch" placeholder="Start typing..."></label>
+      <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
+        <thead><tr>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Supplier Item #</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Price Each</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">On Hand</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Min Qty</th>
+          <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+        </tr></thead>
+        <tbody id="mat_itemRows"></tbody>
+      </table>
+      <p class="form-note" id="mat_itemEmptyNote" style="display:none;">No items yet &mdash; add one below or upload an invoice.</p>
     </div>
 
     <div class="panel" id="matInvoicePanel">
@@ -2578,7 +2589,7 @@
 
       <div id="mat_invoiceReviewWrap" style="display:none; margin-top:20px;">
         <h4 style="margin-bottom:6px;">Review Before Adding to Inventory</h4>
-        <p class="form-note">Lines matching an existing Supplier Item Number will add to that item's quantity on hand. New item numbers will be created (with a Minimum Quantity of 0 &mdash; set that once added, on the item list below).</p>
+        <p class="form-note">Lines matching an existing Supplier Item Number will add to that item's quantity on hand. New item numbers will be created (with a Minimum Quantity of 0 &mdash; set that once added, on the item list above).</p>
         <div id="mat_invoiceReviewRows"></div>
         <div class="form-actions">
           <button class="btn-primary" id="mat_invoiceApplyBtn" type="button">Add to Inventory</button>
@@ -2610,22 +2621,11 @@
       </div>
     </div>
 
-    <div class="panel" id="matItemListPanel">
-      <h3>All Items</h3>
-      <label>Search by Description or Item Number <input type="text" id="mat_itemSearch" placeholder="Start typing..."></label>
-      <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
-        <thead><tr>
-          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Supplier Item #</th>
-          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
-          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
-          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Price Each</th>
-          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">On Hand</th>
-          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Min Qty</th>
-          <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
-        </tr></thead>
-        <tbody id="mat_itemRows"></tbody>
-      </table>
-      <p class="form-note" id="mat_itemEmptyNote" style="display:none;">No items yet &mdash; add one above or upload an invoice.</p>
+    <div class="panel" id="matUnderbilledPanel">
+      <h3>Underbilled Jobs</h3>
+      <p class="form-note">Compares what drivers checked materials out for against what was actually billed for that job in Completed Paperwork. A job shows up here if more was pulled from the racks than was billed.</p>
+      <div id="mat_underbilledRows"></div>
+      <p class="form-note" id="mat_underbilledEmptyNote" style="display:none;">No underbilled jobs found.</p>
     </div>
   </div>
 
@@ -13354,35 +13354,32 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function updateMaterialsTileBadge(){
     const lowCount = materialsItems.filter(isLowStock).length;
-    document.getElementById('materialsTileBadge').style.display = lowCount > 0 ? 'inline-block' : 'none';
+    const tile = document.getElementById('tile-materials');
+    const badge = document.getElementById('materialsTileBadge');
+    if(lowCount > 0){
+      tile.classList.add('attention');
+      badge.style.display = 'inline-block';
+    } else {
+      tile.classList.remove('attention');
+      badge.style.display = 'none';
+    }
   }
 
   function renderMaterialsLowStock(){
     const lowItems = materialsItems.filter(isLowStock);
+    const alertEl = document.getElementById('matLowStockAlert');
     const countBadge = document.getElementById('mat_lowStockCountBadge');
-    const rowsEl = document.getElementById('mat_lowStockRows');
-    const emptyNote = document.getElementById('mat_lowStockEmptyNote');
+    const inlineEl = document.getElementById('mat_lowStockInline');
     if(lowItems.length === 0){
-      countBadge.style.display = 'none';
-      rowsEl.innerHTML = '';
-      emptyNote.style.display = 'block';
+      alertEl.style.display = 'none';
       return;
     }
+    alertEl.style.display = 'block';
     countBadge.style.display = 'inline-block';
     countBadge.textContent = lowItems.length + (lowItems.length === 1 ? ' item' : ' items');
-    emptyNote.style.display = 'none';
-    rowsEl.innerHTML = '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>'
-      + '<th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Supplier Item #</th>'
-      + '<th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>'
-      + '<th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">On Hand</th>'
-      + '<th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Min Qty</th>'
-      + '</tr></thead><tbody>'
-      + lowItems.map(i => `<tr>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.supplierItemNumber)}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.description)}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; color:#B3261E; font-weight:600;">${Number(i.quantityOnHand||0)}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${Number(i.minQuantity||0)}</td>
-      </tr>`).join('') + '</tbody></table>';
+    inlineEl.innerHTML = lowItems.map(i =>
+      `${matEsc(i.description)} (${Number(i.quantityOnHand||0)} on hand, min ${Number(i.minQuantity||0)})`
+    ).join('<br>');
   }
 
   function renderMaterialsItemList(){
