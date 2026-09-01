@@ -876,6 +876,10 @@ const DEFAULT_APP_SETTINGS = {
   paperwork: {
     completedPaperworkCc: 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com',
     googleReviewLink: 'https://g.page/r/CTsnaSA6YbvlEBM/review'
+  },
+  materials: {
+    supplierPhone: '',
+    supplierEmail: ''
   }
 };
 
