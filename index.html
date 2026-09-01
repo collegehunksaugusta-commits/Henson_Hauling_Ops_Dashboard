@@ -2770,6 +2770,7 @@
 
     <div class="panel" id="matItemListPanel">
       <h3>Current Inventory</h3>
+      <p class="form-note" id="mat_supplierContactNote" style="margin-top:0;"></p>
       <label>Search by Description or Item Number <input type="text" id="mat_itemSearch" placeholder="Start typing..."></label>
       <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
         <thead><tr>
@@ -2779,14 +2780,29 @@
           <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Price Each</th>
           <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">On Hand</th>
           <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Min Qty</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); background:#FFF8EC;" title="Enter how many to order next time -- feeds the Estimated Order Cost below">Order Qty</th>
           <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
         </tr></thead>
         <tbody id="mat_itemRows"></tbody>
-        <tfoot id="mat_itemTotalRow" style="display:none;"><tr>
-          <td colspan="3" style="padding:8px 4px; border-top:2px solid var(--charcoal); font-weight:700;">Total Inventory Value</td>
-          <td id="mat_itemTotalValue" style="padding:8px 4px; border-top:2px solid var(--charcoal); text-align:right; font-weight:700;"></td>
-          <td colspan="3" style="border-top:2px solid var(--charcoal);"></td>
-        </tr></tfoot>
+        <tfoot id="mat_itemTotalRow" style="display:none;">
+          <tr>
+            <td colspan="3" style="padding:8px 4px; border-top:2px solid var(--charcoal); font-weight:700;">Total Inventory Value</td>
+            <td id="mat_itemTotalValue" style="padding:8px 4px; border-top:2px solid var(--charcoal); text-align:right; font-weight:700;"></td>
+            <td colspan="4" style="border-top:2px solid var(--charcoal);"></td>
+          </tr>
+          <tr id="mat_orderCostRow" style="display:none;">
+            <td colspan="8" style="padding:10px 4px 4px;">
+              <div style="background:var(--offwhite); border:1px solid var(--line); border-radius:6px; padding:12px 14px;">
+                <div style="font-weight:700; font-size:13px; margin-bottom:6px;">Estimated Order Cost</div>
+                <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:2px;"><span>Subtotal (Order Qty &times; Price Each)</span><span id="mat_orderSubtotal"></span></div>
+                <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:2px;"><span>Tax (8%)</span><span id="mat_orderTax"></span></div>
+                <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:6px;"><span>Energy Surcharge</span><span id="mat_orderSurcharge"></span></div>
+                <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:700; padding-top:6px; border-top:1px solid var(--line);"><span>Estimated Total</span><span id="mat_orderTotal"></span></div>
+                <div id="mat_orderMinNote" style="margin-top:8px; font-size:12px; font-weight:600; padding:6px 8px; border-radius:4px;"></div>
+              </div>
+            </td>
+          </tr>
+        </tfoot>
       </table>
       <p class="form-note" id="mat_itemEmptyNote" style="display:none;">No items yet &mdash; add one below or upload an invoice.</p>
     </div>
@@ -3868,6 +3884,11 @@
           <label>Google Review Link <input type="url" id="appset_googleReviewLink"></label>
           <p class="form-note">Included in the thank-you email sent to clients. Update if your Google Business listing ever changes.</p>
 
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Materials</h4>
+          <label>Supplier Phone Number <input type="text" id="appset_supplierPhone" placeholder="e.g. (706) 555-0100"></label>
+          <label>Supplier Email <input type="email" id="appset_supplierEmail"></label>
+          <p class="form-note">Shown on the Materials tile so whoever's placing the next order has the supplier's contact info on hand.</p>
+
           <div class="form-actions" style="margin-top:16px;">
             <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
             <span class="status-msg" id="set_appSettingsStatus"></span>
@@ -4018,6 +4039,10 @@
     paperwork: {
       completedPaperworkCc: 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com',
       googleReviewLink: 'https://g.page/r/CTsnaSA6YbvlEBM/review'
+    },
+    materials: {
+      supplierPhone: '',
+      supplierEmail: ''
     }
   };
   let appSettingsLoaded = false;
@@ -4110,6 +4135,7 @@
     }
     if(view === 'materials'){
       window.loadMaterialsData();
+      window.renderMaterialsSupplierContact();
     }
     if(view === 'tips'){
       loadTipsData();
@@ -10416,6 +10442,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_redfinAugusta').value = s.marketing.redfinAugusta || '';
     document.getElementById('appset_completedPaperworkCc').value = s.paperwork.completedPaperworkCc || '';
     document.getElementById('appset_googleReviewLink').value = s.paperwork.googleReviewLink || '';
+    document.getElementById('appset_supplierPhone').value = s.materials.supplierPhone || '';
+    document.getElementById('appset_supplierEmail').value = s.materials.supplierEmail || '';
     loadOverridePinStatus();
   }
 
@@ -10480,6 +10508,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       completedPaperworkCc: document.getElementById('appset_completedPaperworkCc').value.trim(),
       googleReviewLink: document.getElementById('appset_googleReviewLink').value.trim()
     };
+    const materials = {
+      supplierPhone: document.getElementById('appset_supplierPhone').value.trim(),
+      supplierEmail: document.getElementById('appset_supplierEmail').value.trim()
+    };
     if(!marketing.redfinSouthCarolina || !marketing.redfinEvansMartinez || !marketing.redfinAugusta){
       statusEl.textContent = 'All three search URLs are required.';
       statusEl.className = 'status-msg err';
@@ -10496,7 +10528,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { marketing, paperwork } })
+        body: JSON.stringify({ settings: { marketing, paperwork, materials } })
       });
       if(handleAuthFailure(res)) return;
       const data = await res.json();
@@ -13961,6 +13993,56 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
 
+  // Matches GA_COMBINED_TAX_RATE used elsewhere in the app for quotes, so
+  // this estimate stays consistent with how tax is calculated everywhere else.
+  const MATERIALS_TAX_RATE = 0.08;
+  const MATERIALS_ENERGY_SURCHARGE = 35;
+  const MATERIALS_SUPPLIER_MINIMUM = 750;
+
+  // Reflects every item with an Order Qty set, regardless of the current
+  // search filter -- order planning is a whole-inventory activity, not
+  // scoped to whatever happens to be visible under a search term.
+  function renderMaterialsOrderCost(){
+    const rowEl = document.getElementById('mat_orderCostRow');
+    const itemsOrdered = materialsItems.filter(i => Number(i.orderQty) > 0);
+    if(itemsOrdered.length === 0){
+      rowEl.style.display = 'none';
+      return;
+    }
+    rowEl.style.display = '';
+    const subtotal = itemsOrdered.reduce((sum, i) => sum + (Number(i.orderQty) * Number(i.priceEach||0)), 0);
+    const tax = subtotal * MATERIALS_TAX_RATE;
+    const total = subtotal + tax + MATERIALS_ENERGY_SURCHARGE;
+    document.getElementById('mat_orderSubtotal').textContent = matMoney(subtotal);
+    document.getElementById('mat_orderTax').textContent = matMoney(tax);
+    document.getElementById('mat_orderSurcharge').textContent = matMoney(MATERIALS_ENERGY_SURCHARGE);
+    document.getElementById('mat_orderTotal').textContent = matMoney(total);
+
+    const minNoteEl = document.getElementById('mat_orderMinNote');
+    if(total >= MATERIALS_SUPPLIER_MINIMUM){
+      minNoteEl.textContent = `\u2713 Meets the supplier\u2019s $750 minimum (${matMoney(total - MATERIALS_SUPPLIER_MINIMUM)} over).`;
+      minNoteEl.style.background = '#EAF6EE';
+      minNoteEl.style.color = 'var(--brand-green-dark)';
+    } else {
+      minNoteEl.textContent = `Below the supplier\u2019s $750 minimum by ${matMoney(MATERIALS_SUPPLIER_MINIMUM - total)} \u2014 add more before ordering.`;
+      minNoteEl.style.background = '#FDEDEA';
+      minNoteEl.style.color = '#B3261E';
+    }
+  }
+
+  async function renderMaterialsSupplierContact(){
+    await window.ensureAppSettingsLoaded();
+    const noteEl = document.getElementById('mat_supplierContactNote');
+    const m = window.appSettings.materials || {};
+    const parts = [];
+    if(m.supplierPhone) parts.push(`Phone: ${m.supplierPhone}`);
+    if(m.supplierEmail) parts.push(`Email: ${m.supplierEmail}`);
+    noteEl.textContent = parts.length > 0
+      ? `Supplier Contact \u2014 ${parts.join(' \u00b7 ')}`
+      : 'Supplier contact info not set yet \u2014 add it in Settings \u2192 App Settings \u2192 Materials.';
+  }
+  window.renderMaterialsSupplierContact = renderMaterialsSupplierContact;
+
   function renderMaterialsLowStock(){
     const lowItems = materialsItems.filter(isLowStock);
     const alertEl = document.getElementById('matLowStockAlert');
@@ -13991,6 +14073,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       emptyNote.style.display = 'block';
       emptyNote.textContent = materialsItems.length === 0 ? 'No items yet \u2014 add one above or upload an invoice.' : 'No matches.';
       document.getElementById('mat_itemTotalRow').style.display = 'none';
+      renderMaterialsOrderCost();
       return;
     }
     emptyNote.style.display = 'none';
@@ -14001,8 +14084,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.description)}${i.neverBilled ? ' <span style="font-size:10px; font-weight:600; color:#00612C; background:#e8f5e9; padding:1px 6px; border-radius:8px;">Free</span>' : ''}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); color:var(--muted);">${matEsc(i.nickname)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${matMoney(i.priceEach)}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; ${low ? 'color:#B3261E; font-weight:600;' : ''}">${Number(i.quantityOnHand||0)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><input type="number" min="0" step="1" class="mat-onhand-edit" data-id="${i.id}" value="${Number(i.quantityOnHand||0)}" style="width:60px; text-align:right; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px; ${low ? 'color:#B3261E; font-weight:600;' : ''}"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${Number(i.minQuantity||0)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; background:#FFFBF3;"><input type="number" min="0" step="1" class="mat-orderqty-edit" data-id="${i.id}" value="${i.orderQty ? Number(i.orderQty) : ''}" placeholder="0" style="width:60px; text-align:right; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="mat-edit" data-id="${i.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
           <button type="button" class="mat-delete" data-id="${i.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
@@ -14013,6 +14097,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const totalValue = filtered.reduce((sum, i) => sum + (Number(i.priceEach||0) * Number(i.quantityOnHand||0)), 0);
     document.getElementById('mat_itemTotalRow').style.display = '';
     document.getElementById('mat_itemTotalValue').textContent = matMoney(totalValue);
+    renderMaterialsOrderCost();
+
+    tbody.querySelectorAll('.mat-onhand-edit').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const item = materialsItems.find(i => i.id === e.target.dataset.id);
+      if(!item) return;
+      item.quantityOnHand = Math.max(0, Number(e.target.value) || 0);
+      await saveMaterialsItems();
+      renderMaterialsItemList();
+      renderMaterialsLowStock();
+      updateMaterialsTileBadge();
+    }));
+
+    tbody.querySelectorAll('.mat-orderqty-edit').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const item = materialsItems.find(i => i.id === e.target.dataset.id);
+      if(!item) return;
+      item.orderQty = Math.max(0, Number(e.target.value) || 0);
+      await saveMaterialsItems();
+      renderMaterialsOrderCost();
+    }));
 
     tbody.querySelectorAll('.mat-edit').forEach(btn => btn.addEventListener('click', (e)=>{
       const item = materialsItems.find(i => i.id === e.currentTarget.dataset.id);
