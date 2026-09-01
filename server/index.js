@@ -879,6 +879,7 @@ const DEFAULT_APP_SETTINGS = {
   },
   materials: {
     supplierPhone: '',
+    supplierAccountNumber: '',
     supplierEmail: ''
   }
 };
