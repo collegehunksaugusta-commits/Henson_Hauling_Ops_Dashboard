@@ -697,8 +697,50 @@
   </div>
 </div>
 
+<div id="damageClaimUploadGate" style="display:none; position:fixed; inset:0; background:var(--offwhite); z-index:9999; overflow-y:auto; padding:20px;">
+  <div style="max-width:480px; width:100%; margin:40px auto 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:32px 28px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <h2 class="display" style="margin:0 0 4px; text-align:center; font-size:20px;">College Hunks-Augusta</h2>
+    <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 24px;">Damage Claim Photos</p>
+
+    <div id="dcu_loadingState">
+      <p style="text-align:center; color:var(--muted);">Loading your claim...</p>
+    </div>
+
+    <div id="dcu_notFoundState" style="display:none;">
+      <p style="text-align:center; color:#B3261E;">This link could not be found or may have expired. Please contact our office for a new one.</p>
+    </div>
+
+    <div id="dcu_formState" style="display:none;">
+      <p id="dcu_greeting" style="margin:0 0 4px; font-weight:600;"></p>
+      <p class="form-note" style="margin-top:0;">Please upload photos of the damage below. You can select more than one at a time.</p>
+      <label>Photos <input type="file" id="dcu_fileInput" accept="image/*" multiple style="display:block; margin-top:6px;"></label>
+      <div id="dcu_thumbnails" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;"></div>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:16px;">
+        <button class="btn-primary" id="dcu_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Photos</button>
+        <span class="status-msg" id="dcu_status" style="text-align:center;"></span>
+      </div>
+    </div>
+
+    <div id="dcu_successState" style="display:none;">
+      <p style="text-align:center; color:var(--brand-green-dark); font-weight:600; font-size:16px;">&#10003; Photos received!</p>
+      <p style="text-align:center; color:var(--muted); font-size:13.5px;">Thank you &mdash; our team will review your claim and follow up with next steps.</p>
+      <button type="button" id="dcu_addMoreBtn" style="width:100%; margin-top:12px; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Upload More Photos</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const API_BASE_AUTH = 'https://henson-dashboard-backend.onrender.com';
+
+  // A client clicking a Damage Claim link has no dashboard credentials at
+  // all -- this has to run before anything else touches the login gate, so
+  // they never see it flash or have any path back to it.
+  const __damageClaimHashMatch = (location.hash || '').match(/^#claim-(.+)$/);
+  if(__damageClaimHashMatch){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('damageClaimUploadGate').style.display = 'block';
+    window.__damageClaimToken = __damageClaimHashMatch[1];
+  }
 
   if(localStorage.getItem('henson_auth_token')){
     document.getElementById('loginGate').style.display = 'none';
@@ -1874,10 +1916,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
             <span>Operations</span>
-            <span class="dashSectionCount">(6)</span>
+            <span class="dashSectionCount">(7)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -1912,6 +1954,12 @@
         <span class="icon">📦</span>
         <h3>Materials</h3>
         <p>Moving supplies inventory, reordering alerts, and driver checkout tracking.</p>
+      </div>
+      <div class="tile" id="tile-damageclaim" tabindex="0" role="button" aria-label="Open Damage Claim">
+        <span class="badge" id="damageClaimTileBadge" style="display:none;">Photos Uploaded</span>
+        <span class="icon">📸</span>
+        <h3>Damage Claim</h3>
+        <p>Send a client a link to upload photos of moving damage, and get notified when they do.</p>
       </div>
         </div>
       </div>
@@ -2860,6 +2908,36 @@
       <p class="form-note">Compares what drivers checked materials out for against what was actually billed for that job in Completed Paperwork. A job shows up here if more was pulled from the racks than was billed.</p>
       <div id="mat_underbilledRows"></div>
       <p class="form-note" id="mat_underbilledEmptyNote" style="display:none;">No underbilled jobs found.</p>
+    </div>
+  </div>
+
+  <!-- ============ DAMAGE CLAIM DETAIL ============ -->
+  <div id="damageClaimDetail" style="display:none;">
+    <button class="backlink" id="damageClaimBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Damage Claim</h2>
+      <p>Enter a job number to send the client a secure link for uploading photos of any damage. This tile flags itself once photos come in.</p>
+    </div>
+
+    <div class="panel" id="dcNewClaimPanel">
+      <h3>Send a New Claim Link</h3>
+      <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+        <label>Job Number <input type="text" id="dc_jobNumber"></label>
+        <label>Client Email <input type="email" id="dc_clientEmail"></label>
+      </div>
+      <p class="form-note" id="dc_clientNameNote" style="margin-top:0;"></p>
+      <div class="form-actions">
+        <button class="btn-primary" id="dc_generateBtn" type="button">Generate Email</button>
+        <span class="status-msg" id="dc_generateStatus"></span>
+      </div>
+    </div>
+
+    <div class="panel" id="dcClaimsListPanel">
+      <h3>Claims (<span id="dc_count">0</span>)</h3>
+      <p class="form-note" style="margin-top:0;">Claims and their uploaded photos are kept for 3 months, then removed automatically.</p>
+      <label>Search by Job # or Client <input type="text" id="dc_search" placeholder="Start typing..."></label>
+      <div id="dc_claimRows" style="margin-top:10px;"></div>
+      <p class="form-note" id="dc_emptyNote" style="display:none;">No damage claims yet.</p>
     </div>
   </div>
 
@@ -3892,6 +3970,10 @@
           <label>Supplier Email <input type="email" id="appset_supplierEmail"></label>
           <p class="form-note">Shown on the Materials tile so whoever's placing the next order has the supplier's contact info &mdash; and account number &mdash; on hand.</p>
 
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Damage Claims</h4>
+          <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
+          <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim.</p>
+
           <div class="form-actions" style="margin-top:16px;">
             <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
             <span class="status-msg" id="set_appSettingsStatus"></span>
@@ -4047,6 +4129,9 @@
       supplierPhone: '',
       supplierAccountNumber: '',
       supplierEmail: ''
+    },
+    damageClaims: {
+      emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
     }
   };
   let appSettingsLoaded = false;
@@ -4094,6 +4179,7 @@
   const captainDetail = document.getElementById('captainDetail');
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
   const materialsDetail = document.getElementById('materialsDetail');
+  const damageClaimDetail = document.getElementById('damageClaimDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -4110,6 +4196,7 @@
     captainDetail.style.display = view === 'captain' ? 'block' : 'none';
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
+    damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -4140,6 +4227,9 @@
     if(view === 'materials'){
       window.loadMaterialsData();
       window.renderMaterialsSupplierContact();
+    }
+    if(view === 'damageclaim'){
+      window.loadDamageClaimsData();
     }
     if(view === 'tips'){
       loadTipsData();
@@ -4294,6 +4384,9 @@
   document.getElementById('tile-materials').addEventListener('click', ()=> navigateTo('materials'));
   document.getElementById('tile-materials').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('materials'); }});
   document.getElementById('materialsBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('tile-damageclaim').addEventListener('click', ()=> navigateTo('damageclaim'));
+  document.getElementById('tile-damageclaim').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('damageclaim'); }});
+  document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
@@ -8049,7 +8142,7 @@
   // future badge-toggling function keeps working exactly as it does today --
   // nothing scattered elsewhere in this file needs to know sections exist.
   (function watchTileBadgesForAttentionSync(){
-    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge'];
+    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge', 'damageClaimTileBadge'];
     const observer = new MutationObserver(updateDashSectionAttentionBadges);
     badgeIds.forEach(id => {
       const el = document.getElementById(id);
@@ -10441,14 +10534,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(!isCurrentUserAdmin()) return;
     await ensureAppSettingsLoaded();
     const s = window.appSettings;
-    document.getElementById('appset_redfinSouthCarolina').value = s.marketing.redfinSouthCarolina || '';
-    document.getElementById('appset_redfinEvansMartinez').value = s.marketing.redfinEvansMartinez || '';
-    document.getElementById('appset_redfinAugusta').value = s.marketing.redfinAugusta || '';
-    document.getElementById('appset_completedPaperworkCc').value = s.paperwork.completedPaperworkCc || '';
-    document.getElementById('appset_googleReviewLink').value = s.paperwork.googleReviewLink || '';
-    document.getElementById('appset_supplierPhone').value = s.materials.supplierPhone || '';
-    document.getElementById('appset_supplierAccountNumber').value = s.materials.supplierAccountNumber || '';
-    document.getElementById('appset_supplierEmail').value = s.materials.supplierEmail || '';
+    const marketing = s.marketing || {};
+    const paperwork = s.paperwork || {};
+    const materials = s.materials || {};
+    const damageClaims = s.damageClaims || {};
+    document.getElementById('appset_redfinSouthCarolina').value = marketing.redfinSouthCarolina || '';
+    document.getElementById('appset_redfinEvansMartinez').value = marketing.redfinEvansMartinez || '';
+    document.getElementById('appset_redfinAugusta').value = marketing.redfinAugusta || '';
+    document.getElementById('appset_completedPaperworkCc').value = paperwork.completedPaperworkCc || '';
+    document.getElementById('appset_googleReviewLink').value = paperwork.googleReviewLink || '';
+    document.getElementById('appset_supplierPhone').value = materials.supplierPhone || '';
+    document.getElementById('appset_supplierAccountNumber').value = materials.supplierAccountNumber || '';
+    document.getElementById('appset_supplierEmail').value = materials.supplierEmail || '';
+    document.getElementById('appset_damageClaimEmailBody').value = damageClaims.emailBodyTemplate || '';
     loadOverridePinStatus();
   }
 
@@ -10518,6 +10616,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       supplierAccountNumber: document.getElementById('appset_supplierAccountNumber').value.trim(),
       supplierEmail: document.getElementById('appset_supplierEmail').value.trim()
     };
+    const damageClaims = {
+      emailBodyTemplate: document.getElementById('appset_damageClaimEmailBody').value
+    };
     if(!marketing.redfinSouthCarolina || !marketing.redfinEvansMartinez || !marketing.redfinAugusta){
       statusEl.textContent = 'All three search URLs are required.';
       statusEl.className = 'status-msg err';
@@ -10534,7 +10635,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { marketing, paperwork, materials } })
+        body: JSON.stringify({ settings: { marketing, paperwork, materials, damageClaims } })
       });
       if(handleAuthFailure(res)) return;
       const data = await res.json();
@@ -14570,6 +14671,243 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.loadMaterialsData = loadMaterialsData;
 
+  // ---------- Damage Claim ----------
+  const DAMAGE_CLAIMS_KEY = 'damage-claims';
+  const DAMAGE_CLAIM_RETENTION_DAYS = 92; // ~3 months, matching this app's other "about 3 months" retention windows
+  let damageClaims = [];
+  let dcSearchTerm = '';
+
+  function dcEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function dcGenerateToken(){
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function saveDamageClaims(){
+    try{ return await window.dashboardApi.set(DAMAGE_CLAIMS_KEY, damageClaims); }
+    catch(err){ console.error('Damage claims save failed:', err); return false; }
+  }
+
+  // Drops any claim -- and every photo blob it uploaded -- older than the
+  // retention window, so old client photos don't sit in storage forever.
+  // Returns true if anything was actually removed, so the caller knows
+  // whether a save is needed.
+  async function pruneOldDamageClaims(){
+    const cutoff = new Date(Date.now() - DAMAGE_CLAIM_RETENTION_DAYS*24*60*60*1000).toISOString();
+    const toRemove = damageClaims.filter(c => (c.createdAt || '') < cutoff);
+    if(toRemove.length === 0) return false;
+    for(const claim of toRemove){
+      for(const photo of (claim.photos || [])){
+        try{ await window.dashboardApi.delete(`damage-claim-photo-${claim.id}-${photo.id}`); }
+        catch(err){ console.error('Damage claim photo delete failed:', err); }
+      }
+    }
+    damageClaims = damageClaims.filter(c => (c.createdAt || '') >= cutoff);
+    return true;
+  }
+
+  function updateDamageClaimTileBadge(){
+    const alertCount = damageClaims.filter(c => c.photosUploadedAt && !c.acknowledgedAt).length;
+    const tile = document.getElementById('tile-damageclaim');
+    const badge = document.getElementById('damageClaimTileBadge');
+    if(alertCount > 0){
+      tile.classList.add('attention');
+      badge.style.display = 'inline-block';
+      badge.textContent = alertCount === 1 ? 'Photos Uploaded' : `${alertCount} Claims \u2014 Photos Uploaded`;
+    } else {
+      tile.classList.remove('attention');
+      badge.style.display = 'none';
+    }
+  }
+
+  async function loadDamageClaimsData(){
+    try{
+      damageClaims = await window.dashboardApi.get(DAMAGE_CLAIMS_KEY, []) || [];
+      if(await pruneOldDamageClaims()) await saveDamageClaims();
+      renderDamageClaimsList();
+      updateDamageClaimTileBadge();
+    }catch(err){ console.error('Damage claims load failed:', err); }
+  }
+  window.loadDamageClaimsData = loadDamageClaimsData;
+
+  function dcClaimStatus(claim){
+    if(claim.photosUploadedAt && !claim.acknowledgedAt) return { label: 'Photos Uploaded', color: '#B3261E', bg: '#FDEDEA' };
+    if(claim.photosUploadedAt && claim.acknowledgedAt) return { label: 'Reviewed', color: 'var(--brand-green-dark)', bg: '#EAF6EE' };
+    if(claim.emailSentAt) return { label: 'Email Sent', color: '#8a6d00', bg: '#FDF6E3' };
+    return { label: 'Not Sent', color: 'var(--muted)', bg: 'var(--offwhite)' };
+  }
+
+  function renderDamageClaimsList(){
+    const rowsEl = document.getElementById('dc_claimRows');
+    const emptyNote = document.getElementById('dc_emptyNote');
+    const term = dcSearchTerm.trim().toLowerCase();
+    const filtered = damageClaims.filter(c =>
+      !term || (c.jobNumber||'').toLowerCase().includes(term) || (c.clientName||'').toLowerCase().includes(term) || (c.clientEmail||'').toLowerCase().includes(term)
+    ).sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+
+    document.getElementById('dc_count').textContent = damageClaims.length;
+
+    if(filtered.length === 0){
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      emptyNote.textContent = damageClaims.length === 0 ? 'No damage claims yet.' : 'No matches.';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    rowsEl.innerHTML = filtered.map(c => {
+      const status = dcClaimStatus(c);
+      const photoCount = (c.photos || []).length;
+      return `
+      <div data-id="${c.id}" style="padding:14px 0; border-bottom:1px solid var(--line);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700; font-size:14px;">${dcEsc(c.jobNumber)} ${c.clientName ? '\u2014 ' + dcEsc(c.clientName) : ''}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${dcEsc(c.clientEmail)}</div>
+          </div>
+          <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+          ${photoCount > 0 ? `<button type="button" class="dc-view-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View ${photoCount} Photo${photoCount===1?'':'s'}</button>` : ''}
+          ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-acknowledge" data-id="${c.id}" style="background:var(--brand-green); border:none; color:#fff; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Mark Reviewed</button>` : ''}
+          <button type="button" class="dc-delete" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Delete</button>
+        </div>
+        <div class="dc-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-wrap:wrap; gap:8px;"></div>
+      </div>`;
+    }).join('');
+
+    rowsEl.querySelectorAll('.dc-view-photos').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const claim = damageClaims.find(c => c.id === id);
+      const wrap = rowsEl.querySelector(`.dc-photos-wrap[data-id="${id}"]`);
+      if(!claim || !wrap) return;
+      if(wrap.style.display === 'flex'){ wrap.style.display = 'none'; return; }
+      wrap.style.display = 'flex';
+      wrap.innerHTML = '<span class="form-note" style="margin:0;">Loading photos...</span>';
+      const imgs = await Promise.all((claim.photos || []).map(async p => {
+        try{
+          const dataUri = await window.dashboardApi.get(`damage-claim-photo-${claim.id}-${p.id}`, null);
+          return dataUri ? `<a href="${dataUri}" target="_blank" rel="noopener noreferrer"><img src="${dataUri}" style="width:90px; height:90px; object-fit:cover; border-radius:6px; border:1px solid var(--line);"></a>` : '';
+        }catch(err){ console.error('Photo load failed:', err); return ''; }
+      }));
+      wrap.innerHTML = imgs.join('') || '<span class="form-note" style="margin:0;">Could not load these photos.</span>';
+    }));
+
+    rowsEl.querySelectorAll('.dc-acknowledge').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      if(!claim) return;
+      claim.acknowledgedAt = new Date().toISOString();
+      await saveDamageClaims();
+      renderDamageClaimsList();
+      updateDamageClaimTileBadge();
+    }));
+
+    rowsEl.querySelectorAll('.dc-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const claim = damageClaims.find(c => c.id === id);
+      if(!claim) return;
+      if(!confirm(`Delete the damage claim for Job # ${claim.jobNumber}? This can't be undone.`)) return;
+      damageClaims = damageClaims.filter(c => c.id !== id);
+      await saveDamageClaims();
+      renderDamageClaimsList();
+      updateDamageClaimTileBadge();
+    }));
+  }
+
+  document.getElementById('dc_search').addEventListener('input', (e)=>{
+    dcSearchTerm = e.target.value;
+    renderDamageClaimsList();
+  });
+
+  document.getElementById('dc_jobNumber').addEventListener('blur', async ()=>{
+    const jobNumber = document.getElementById('dc_jobNumber').value.trim();
+    const noteEl = document.getElementById('dc_clientNameNote');
+    if(!jobNumber){ noteEl.textContent = ''; return; }
+    const match = await lookupArchivedJob(jobNumber);
+    if(match){
+      if(match.clientEmail && !document.getElementById('dc_clientEmail').value.trim()){
+        document.getElementById('dc_clientEmail').value = match.clientEmail;
+      }
+      noteEl.textContent = match.clientName ? `Matched to ${match.clientName} in the job archive.` : '';
+    } else {
+      noteEl.textContent = 'No matching job found in the archive \u2014 enter the client\u2019s email manually.';
+    }
+  });
+
+  document.getElementById('dc_generateBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('dc_generateStatus');
+    const jobNumber = document.getElementById('dc_jobNumber').value.trim();
+    const clientEmail = document.getElementById('dc_clientEmail').value.trim();
+    if(!jobNumber || !clientEmail){
+      statusEl.textContent = 'Enter both a Job Number and Client Email.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    statusEl.textContent = 'Generating...';
+    statusEl.className = 'status-msg';
+
+    const match = await lookupArchivedJob(jobNumber);
+    const token = dcGenerateToken();
+    const claim = {
+      id: 'claim_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+      token,
+      jobNumber,
+      clientName: (match && match.clientName) || '',
+      clientEmail,
+      createdAt: new Date().toISOString(),
+      emailSentAt: null,
+      photos: [],
+      photosUploadedAt: null,
+      acknowledgedAt: null
+    };
+
+    await ensureAppSettingsLoaded();
+    const dc = window.appSettings.damageClaims || {};
+    const link = `${location.origin}${location.pathname}#claim-${token}`;
+    const template = dc.emailBodyTemplate || 'Please upload photos of the damage here: {{link}}';
+    const body = template.split('{{link}}').join(link);
+    const subject = `RE: Damage Claim ${jobNumber}`;
+
+    let clipboardOk = false;
+    try{
+      await navigator.clipboard.writeText(body);
+      clipboardOk = true;
+    }catch(clipErr){
+      console.error('Clipboard copy failed:', clipErr);
+      prompt('Could not auto-copy \u2014 copy this message manually, then paste it into the email body:', body);
+    }
+
+    const mailto = `mailto:${encodeURIComponent(clientEmail)}?subject=${encodeURIComponent(subject)}`;
+    window.location.href = mailto;
+
+    claim.emailSentAt = new Date().toISOString();
+    damageClaims.push(claim);
+    const ok = await saveDamageClaims();
+
+    if(!ok){
+      statusEl.textContent = 'Could not save this claim \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    document.getElementById('dc_jobNumber').value = '';
+    document.getElementById('dc_clientEmail').value = '';
+    document.getElementById('dc_clientNameNote').textContent = '';
+    renderDamageClaimsList();
+    updateDamageClaimTileBadge();
+    statusEl.textContent = clipboardOk
+      ? 'Message copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body.'
+      : 'Your email is open \u2014 paste the message from the popup into the body.';
+    statusEl.className = 'status-msg ok';
+  });
+
   function renderPaperworkCloseout(archive, uploads){
     const summaryEl = document.getElementById('om_closeoutSummary');
     const rowsEl = document.getElementById('om_closeoutRows');
@@ -15193,6 +15531,108 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   if(window.__pendingSignHash){
     handleJobLinkHash(window.__pendingSignHash);
+  }
+
+  // ---------- Damage Claim: public photo upload (no login required) ----------
+  if(window.__damageClaimToken){
+    let dcuStagedFiles = [];
+
+    function renderDcuThumbnails(){
+      const wrap = document.getElementById('dcu_thumbnails');
+      wrap.innerHTML = dcuStagedFiles.map((f, i) => `
+        <div style="position:relative;">
+          <img src="${f.dataUri}" style="width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+          <button type="button" class="dcu-remove" data-index="${i}" style="position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:#B3261E; color:#fff; border:none; cursor:pointer; font-size:12px; line-height:1;">&times;</button>
+        </div>`).join('');
+      wrap.querySelectorAll('.dcu-remove').forEach(btn => btn.addEventListener('click', (e) => {
+        dcuStagedFiles.splice(Number(e.currentTarget.dataset.index), 1);
+        renderDcuThumbnails();
+      }));
+    }
+
+    document.getElementById('dcu_fileInput').addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      const statusEl = document.getElementById('dcu_status');
+      if(files.length > 0){
+        statusEl.textContent = 'Processing photos...';
+        statusEl.className = 'status-msg';
+      }
+      for(const file of files){
+        try{
+          const dataUri = await compressImageForUpload(file, 1600, 0.8);
+          dcuStagedFiles.push({ filename: file.name, dataUri });
+        }catch(err){ console.error('Photo processing failed:', err); }
+      }
+      statusEl.textContent = '';
+      renderDcuThumbnails();
+      e.target.value = '';
+    });
+
+    document.getElementById('dcu_submitBtn').addEventListener('click', async () => {
+      const statusEl = document.getElementById('dcu_status');
+      if(dcuStagedFiles.length === 0){
+        statusEl.textContent = 'Choose at least one photo first.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Uploading...';
+      statusEl.className = 'status-msg';
+      try{
+        const res = await fetch(`${API_BASE_AUTH}/api/claim/${encodeURIComponent(window.__damageClaimToken)}/photos`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ photos: dcuStagedFiles.map(f => ({filename: f.filename, dataUri: f.dataUri})) })
+        });
+        const data = await res.json();
+        if(!res.ok){
+          statusEl.textContent = data.error || 'Could not upload those photos.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+        dcuStagedFiles = [];
+        document.getElementById('dcu_formState').style.display = 'none';
+        document.getElementById('dcu_successState').style.display = 'block';
+      }catch(err){
+        console.error('Photo upload failed:', err);
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection and try again.';
+        statusEl.className = 'status-msg err';
+      }
+    });
+
+    document.getElementById('dcu_addMoreBtn').addEventListener('click', () => {
+      document.getElementById('dcu_successState').style.display = 'none';
+      document.getElementById('dcu_formState').style.display = 'block';
+      renderDcuThumbnails();
+    });
+
+    (async () => {
+      let claimInfo = null;
+      try{
+        const res = await fetch(`${API_BASE_AUTH}/api/claim/${encodeURIComponent(window.__damageClaimToken)}`);
+        if(res.ok) claimInfo = await res.json();
+      }catch(err){ console.error('Claim lookup failed:', err); }
+
+      document.getElementById('dcu_loadingState').style.display = 'none';
+      if(!claimInfo || !claimInfo.found){
+        document.getElementById('dcu_notFoundState').style.display = 'block';
+        return;
+      }
+      document.getElementById('dcu_formState').style.display = 'block';
+      const firstName = (claimInfo.clientName || '').split(' ')[0];
+      document.getElementById('dcu_greeting').textContent = firstName
+        ? `Hi ${firstName} \u2014 Job #${claimInfo.jobNumber}`
+        : `Job #${claimInfo.jobNumber}`;
+    })();
+  }
+
+  // Unlike other tile badges in this app (which only populate once that
+  // tile has been opened this session), the whole point of this alert is to
+  // catch the admin's eye from the home dashboard without them needing to
+  // go looking -- so it's checked proactively as soon as the app loads for
+  // an already-logged-in user, skipped only for the special public/signing
+  // flows above where nothing else on the dashboard is relevant anyway.
+  if(localStorage.getItem('henson_auth_token') && !window.__damageClaimToken && !window.__pendingSignHash){
+    window.loadDamageClaimsData();
   }
 
   recalc();
