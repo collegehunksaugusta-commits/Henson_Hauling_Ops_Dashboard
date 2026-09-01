@@ -3885,9 +3885,12 @@
           <p class="form-note">Included in the thank-you email sent to clients. Update if your Google Business listing ever changes.</p>
 
           <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Materials</h4>
-          <label>Supplier Phone Number <input type="text" id="appset_supplierPhone" placeholder="e.g. (706) 555-0100"></label>
+          <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+            <label>Supplier Phone Number <input type="text" id="appset_supplierPhone" placeholder="e.g. (706) 555-0100"></label>
+            <label>Supplier Account Number <input type="text" id="appset_supplierAccountNumber" placeholder="e.g. 12345-A"></label>
+          </div>
           <label>Supplier Email <input type="email" id="appset_supplierEmail"></label>
-          <p class="form-note">Shown on the Materials tile so whoever's placing the next order has the supplier's contact info on hand.</p>
+          <p class="form-note">Shown on the Materials tile so whoever's placing the next order has the supplier's contact info &mdash; and account number &mdash; on hand.</p>
 
           <div class="form-actions" style="margin-top:16px;">
             <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
@@ -4042,6 +4045,7 @@
     },
     materials: {
       supplierPhone: '',
+      supplierAccountNumber: '',
       supplierEmail: ''
     }
   };
@@ -10443,6 +10447,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_completedPaperworkCc').value = s.paperwork.completedPaperworkCc || '';
     document.getElementById('appset_googleReviewLink').value = s.paperwork.googleReviewLink || '';
     document.getElementById('appset_supplierPhone').value = s.materials.supplierPhone || '';
+    document.getElementById('appset_supplierAccountNumber').value = s.materials.supplierAccountNumber || '';
     document.getElementById('appset_supplierEmail').value = s.materials.supplierEmail || '';
     loadOverridePinStatus();
   }
@@ -10510,6 +10515,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     };
     const materials = {
       supplierPhone: document.getElementById('appset_supplierPhone').value.trim(),
+      supplierAccountNumber: document.getElementById('appset_supplierAccountNumber').value.trim(),
       supplierEmail: document.getElementById('appset_supplierEmail').value.trim()
     };
     if(!marketing.redfinSouthCarolina || !marketing.redfinEvansMartinez || !marketing.redfinAugusta){
@@ -14036,6 +14042,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const m = window.appSettings.materials || {};
     const parts = [];
     if(m.supplierPhone) parts.push(`Phone: ${m.supplierPhone}`);
+    if(m.supplierAccountNumber) parts.push(`Acct #: ${m.supplierAccountNumber}`);
     if(m.supplierEmail) parts.push(`Email: ${m.supplierEmail}`);
     noteEl.textContent = parts.length > 0
       ? `Supplier Contact \u2014 ${parts.join(' \u00b7 ')}`
