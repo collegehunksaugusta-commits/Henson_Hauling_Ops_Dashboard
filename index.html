@@ -2596,8 +2596,8 @@
       </div>
 
       <div class="panel" id="puBatchPanel">
-        <h3>Batch Upload &mdash; Completed Paperwork</h3>
-        <p class="form-note">Drop in a day's worth of completed paperwork (images or PDFs) and Claude will read the job number off each one, match it against the job archive, and auto-fill Client Name, Email, and Captain. Review everything before saving.</p>
+        <h3>Completed Paperwork Storage</h3>
+        <p class="form-note">Drop in completed paperwork &mdash; one file or several, images or PDFs &mdash; and Claude will read the job number off each one, match it against the job archive, and auto-fill Client Name, Email, and Captain. Review everything before saving.</p>
         <div id="puBatch_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
           <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop completed paperwork here, or click to paste (Ctrl+V or Cmd+V)</p>
           <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="puBatch_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
@@ -2621,46 +2621,11 @@
       </div>
 
       <div class="panel" id="paperworkUploadPanel">
-        <h3>Completed Paperwork Storage</h3>
-        <p class="form-note">Upload scanned or completed paperwork here to keep on file (retained for at least 1 year).</p>
-        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
-          <label>Client Name <input type="text" id="pu_clientName"></label>
-          <label>Job Number <input type="text" id="pu_jobNumber"></label>
-        </div>
-        <label>Client Email (auto-fills once you enter the Job Number above, if that job's paperwork was generated in the last 3 months) <input type="email" id="pu_clientEmail"></label>
-        <label>Captain (auto-fills from the job's original assignment &mdash; change it here if the job was reassigned during the day)
-          <select id="pu_captainSelect">
-            <option value="">Select Captain...</option>
-          </select>
-        </label>
+        <h3>Paperwork on File</h3>
+        <p class="form-note">Every completed paperwork record, retained for at least 1 year. Upload new paperwork above.</p>
+        <div class="status-msg" id="pu_status" style="margin-bottom:8px;"></div>
 
-        <div style="margin-top:10px;">
-          <p class="form-note" id="pu_requiresMaterialsNote" style="margin:0; display:none;"></p>
-          <button type="button" id="pu_manualMaterialsToggle" style="display:none; background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10.5px; cursor:pointer; padding:2px 0 0; margin:0;">Enter materials billed manually</button>
-          <div id="pu_materialsBilledWrap" style="display:none; border:1px solid var(--line); border-radius:6px; padding:10px; margin-top:6px; background:var(--offwhite);">
-            <p class="form-note" style="margin-top:0; font-size:10.5px;">Fallback only &mdash; uploading the HunkWare invoice (once this job appears in the list below) reads this automatically and is strongly preferred.</p>
-            <div id="pu_materialsBilledList"></div>
-            <p class="form-note" id="pu_materialsBilledEmptyNote" style="display:none;">No billable materials are set up yet &mdash; add some on the Materials tile.</p>
-          </div>
-        </div>
-
-        <div id="pu_dropzone" style="border:2px dashed var(--line); border-radius:8px; padding:28px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer; transition:background .15s, border-color .15s;">
-          <div id="pu_dropzonePrompt">
-            <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
-            <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB. Fill in Client Name and Job Number whenever\u2019s convenient, before or after.</div>
-          </div>
-          <div id="pu_dropzoneStaged" style="display:none;">
-            <div style="font-size:14px; color:#00612C; font-weight:600; margin-bottom:4px;">&#10003; <span id="pu_stagedFileName"></span></div>
-            <div style="font-size:12px; color:var(--muted);">Ready to upload &mdash; <button type="button" id="pu_stagedRemoveBtn" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">remove and choose a different file</button></div>
-          </div>
-          <input type="file" id="pu_fileInput" accept=".pdf,.jpg,.jpeg,.png,.heic" style="display:none;">
-        </div>
-        <div class="form-actions" id="pu_uploadActionWrap" style="display:none; margin-top:10px;">
-          <button class="btn-primary" id="pu_uploadBtn" type="button">Upload</button>
-        </div>
-        <div class="status-msg" id="pu_status" style="margin-top:8px;"></div>
-
-        <div style="margin-top:20px;">
+        <div>
           <label>Search by Client Name or Job # <input type="text" id="pu_search" placeholder="Start typing..."></label>
           <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
             <thead><tr>
@@ -4100,9 +4065,6 @@
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
-    }
-    if(view === 'paperwork'){
-      window.renderPuMaterialsBilledFields();
     }
     if(view === 'fleet'){
       loadFleetData();
@@ -13103,15 +13065,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   loadPaperworkUploads();
 
-  async function loadPuCaptainRoster(){
-    const sel = document.getElementById('pu_captainSelect');
-    try{
-      const names = await window.getCurrentEmployeeRoster();
-      sel.innerHTML = '<option value="">Select Captain...</option>' + names.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
-    }catch(err){ console.error('Captain roster load failed:', err); }
-  }
-  loadPuCaptainRoster();
-
   async function savePaperworkUploadsList(){
     try{ return await window.dashboardApi.set(PAPERWORK_UPLOADS_KEY, paperworkUploads); }
     catch(err){ console.error('Paperwork uploads save failed:', err); return false; }
@@ -14572,70 +14525,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }).join('') + '</tbody></table>';
   }
 
-  // Not every job has packing materials to bill for -- this decides whether
-  // to show that section at all, using two signals: a driver already logged
-  // a Materials Checkout mentioning this job number, or the original work
-  // order's quote mentioned Packing Services materials. Fully automatic --
-  // no manual override, since this needs to be a reliable gate, not a
-  // suggestion Cameron can dismiss.
-  let puCurrentRequiresMaterials = false;
-  async function checkPuRequiresMaterials(jobNumber, archiveMatch){
-    const note = document.getElementById('pu_requiresMaterialsNote');
-    const toggle = document.getElementById('pu_manualMaterialsToggle');
-    if(!jobNumber){
-      puCurrentRequiresMaterials = false;
-      note.style.display = 'none';
-      toggle.style.display = 'none';
-      document.getElementById('pu_materialsBilledWrap').style.display = 'none';
-      return;
-    }
-
-    let detectedReason = null;
-    try{
-      const checkouts = await window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []) || [];
-      const checkoutMatch = checkouts.some(co => (co.jobNumbers || []).includes(jobNumber) && (co.items || []).length > 0);
-      if(checkoutMatch) detectedReason = 'A driver logged a Materials Checkout for this job number.';
-    }catch(err){ console.error('Checkout lookup for materials gate failed:', err); }
-
-    if(!detectedReason && archiveMatch && Array.isArray(archiveMatch.packingMaterials) && archiveMatch.packingMaterials.length > 0){
-      detectedReason = 'The original work order\u2019s quote mentioned packing materials.';
-    }
-
-    puCurrentRequiresMaterials = !!detectedReason;
-    document.getElementById('pu_materialsBilledWrap').style.display = 'none'; // stays collapsed even when detected -- invoice upload (after this job is saved) is the preferred way to satisfy this
-    toggle.style.display = detectedReason ? 'inline' : 'none';
-    if(detectedReason){
-      note.style.display = 'block';
-      note.textContent = detectedReason + ' Upload the HunkWare invoice once this job appears below to bill materials automatically.';
-    } else {
-      note.style.display = 'none';
-    }
-  }
-
-  document.getElementById('pu_manualMaterialsToggle').addEventListener('click', ()=>{
-    const wrap = document.getElementById('pu_materialsBilledWrap');
-    wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
-  });
-
-  document.getElementById('pu_jobNumber').addEventListener('blur', async ()=>{
-    const jobNumber = document.getElementById('pu_jobNumber').value.trim();
-    if(!jobNumber) return;
-    const match = await lookupArchivedJob(jobNumber);
-    if(match){
-      if(match.clientEmail) document.getElementById('pu_clientEmail').value = match.clientEmail;
-      if(match.clientName && !document.getElementById('pu_clientName').value.trim()){
-        document.getElementById('pu_clientName').value = match.clientName;
-      }
-      if(match.captainName){
-        const captainSel = document.getElementById('pu_captainSelect');
-        if([...captainSel.options].some(o => o.value === match.captainName)){
-          captainSel.value = match.captainName;
-        }
-      }
-    }
-    checkPuRequiresMaterials(jobNumber, match);
-  });
-
   // ---------- Completed Paperwork: Batch Upload ----------
   // Same shape as the Job Paperwork batch flow (paste/drop zone, thumbnails,
   // extract, review, save) but simpler: each document is one job (no
@@ -15033,51 +14922,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
 
-  // Cameron (or whoever's handling billing) fills these in as part of every
-  // Completed Paperwork upload -- what was actually charged to the client,
-  // compared later on the Materials tile against what the driver checked
-  // out for that job. Fetches materials-items fresh each time rather than
-  // relying on the Materials tile's own state, since that tile may not have
-  // been visited this session.
-  async function renderPuMaterialsBilledFields(){
-    const listEl = document.getElementById('pu_materialsBilledList');
-    const emptyNote = document.getElementById('pu_materialsBilledEmptyNote');
-    let items = [];
-    try{ items = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
-    catch(err){ console.error('Load materials items for billing failed:', err); }
-    items = items.filter(i => !i.neverBilled);
-    if(items.length === 0){
-      listEl.innerHTML = '';
-      emptyNote.style.display = 'block';
-      return;
-    }
-    emptyNote.style.display = 'none';
-    listEl.innerHTML = items.map(i => `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 0;">
-        <span style="font-size:13px;">${matEsc(i.description)}</span>
-        <input type="number" min="0" step="1" class="pu-materials-billed-qty" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:6px; border:1px solid var(--line); border-radius:4px; text-align:center;">
-      </div>`).join('');
-  }
-  window.renderPuMaterialsBilledFields = renderPuMaterialsBilledFields;
 
-  function readPuMaterialsBilled(){
-    // Only fields the Operations Manager actually typed into -- a blank
-    // field is not the same as an explicit 0, and that distinction matters
-    // for the completeness check below.
-    return Array.from(document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty'))
-      .filter(input => input.value.trim() !== '')
-      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }));
-  }
-
-  function resetPuMaterialsBilledFields(){
-    document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty').forEach(input => input.value = '');
-    puCurrentRequiresMaterials = false;
-    document.getElementById('pu_requiresMaterialsNote').style.display = 'none';
-    document.getElementById('pu_manualMaterialsToggle').style.display = 'none';
-    document.getElementById('pu_materialsBilledWrap').style.display = 'none';
-  }
-
-  // Shared by the single-upload flow and the batch flow -- compresses and
+  // Used by the batch upload flow -- compresses and
   // stores the file, creates the upload record, syncs a Captain correction
   // back to the job archive, and kicks off the completeness assessment.
   // Returns {ok, message, uploadRecord} rather than touching any DOM itself,
@@ -15133,108 +14979,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return { ok: false, message: 'Upload failed \u2014 check your connection.' };
     }
   }
-
-  async function handlePaperworkFileUpload(file){
-    const statusEl = document.getElementById('pu_status');
-    const clientName = document.getElementById('pu_clientName').value.trim();
-    const jobNumber = document.getElementById('pu_jobNumber').value.trim();
-    const clientEmail = document.getElementById('pu_clientEmail').value.trim();
-    const captainName = document.getElementById('pu_captainSelect').value;
-    if(!clientName || !jobNumber){
-      statusEl.textContent = 'Enter both Client Name and Job Number before uploading.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-
-    // Looks for a prior upload already on file for this job number --
-    // doesn't block, since a legitimate re-scan/correction should still be
-    // allowed, but makes sure it's a deliberate choice, not an accidental
-    // double-upload.
-    const priorMatches = paperworkUploads.filter(u => puNormalizeForMatch(u.jobNumber) === puNormalizeForMatch(jobNumber));
-    if(priorMatches.length > 0){
-      const mostRecent = [...priorMatches].sort((a,b) => (b.uploadedAt||'').localeCompare(a.uploadedAt||''))[0];
-      const countNote = priorMatches.length > 1 ? ` (${priorMatches.length} on file total)` : '';
-      const proceed = confirm(`A completed paperwork upload already exists for Job # ${jobNumber} \u2014 "${mostRecent.fileName}", uploaded ${new Date(mostRecent.uploadedAt).toLocaleDateString()}${countNote}.\n\nUpload this as an additional record anyway?`);
-      if(!proceed){
-        statusEl.textContent = 'Upload cancelled.';
-        statusEl.className = 'status-msg';
-        return;
-      }
-    }
-
-    statusEl.textContent = 'Compressing and uploading...';
-    statusEl.className = 'status-msg';
-    const materialsBilled = readPuMaterialsBilled();
-    const result = await savePaperworkUpload(file, { clientName, jobNumber, clientEmail, captainName, materialsBilled, requiresMaterials: puCurrentRequiresMaterials });
-    statusEl.textContent = result.message;
-    statusEl.className = result.ok ? 'status-msg ok' : 'status-msg err';
-    if(result.ok){
-      document.getElementById('pu_clientName').value = '';
-      document.getElementById('pu_jobNumber').value = '';
-      document.getElementById('pu_clientEmail').value = '';
-      document.getElementById('pu_captainSelect').value = '';
-      resetPuMaterialsBilledFields();
-      clearStagedFile();
-    }
-    renderPaperworkUploadsList();
-  }
-
-  // The file itself is staged independently of Client Name / Job Number --
-  // dropping or picking a file always works, regardless of whether those
-  // fields are filled in yet. The actual save (and its validation) only
-  // happens once the Operations Manager clicks Upload, so a drop is never
-  // silently rejected just because the manual lookup fields are empty.
-  let puStagedFile = null;
-
-  function stageFile(file){
-    puStagedFile = file;
-    document.getElementById('pu_dropzonePrompt').style.display = 'none';
-    document.getElementById('pu_dropzoneStaged').style.display = 'block';
-    document.getElementById('pu_stagedFileName').textContent = file.name;
-    document.getElementById('pu_uploadActionWrap').style.display = 'flex';
-    document.getElementById('pu_status').textContent = '';
-  }
-
-  function clearStagedFile(){
-    puStagedFile = null;
-    document.getElementById('pu_dropzonePrompt').style.display = 'block';
-    document.getElementById('pu_dropzoneStaged').style.display = 'none';
-    document.getElementById('pu_uploadActionWrap').style.display = 'none';
-  }
-
-  document.getElementById('pu_stagedRemoveBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    clearStagedFile();
-  });
-
-  document.getElementById('pu_uploadBtn').addEventListener('click', () => {
-    if(puStagedFile) handlePaperworkFileUpload(puStagedFile);
-  });
-
-  const puDropzone = document.getElementById('pu_dropzone');
-  const puFileInput = document.getElementById('pu_fileInput');
-
-  puDropzone.addEventListener('click', () => puFileInput.click());
-  puFileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if(file) stageFile(file);
-    puFileInput.value = '';
-  });
-
-  ['dragenter','dragover'].forEach(evt => puDropzone.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation();
-    puDropzone.style.background = '#EAF3EC';
-    puDropzone.style.borderColor = '#00612C';
-  }));
-  ['dragleave','drop'].forEach(evt => puDropzone.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation();
-    puDropzone.style.background = 'var(--offwhite)';
-    puDropzone.style.borderColor = 'var(--line)';
-  }));
-  puDropzone.addEventListener('drop', (e) => {
-    const file = e.dataTransfer.files[0];
-    if(file) stageFile(file);
-  });
 
   // ---------- Copy Link (field access to Digital Paperwork) ----------
   document.getElementById('pw_copyLinkBtn').addEventListener('click', async ()=>{
