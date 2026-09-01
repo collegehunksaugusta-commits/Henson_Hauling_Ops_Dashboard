@@ -287,6 +287,19 @@
   @media (max-width:600px){
     table{display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap;}
   }
+  /* Wide, editable tables (Marketing tile's Apartment/Storage/Neighborhood
+     lists) get their own bounded scroll region instead of relying on the
+     table or its ancestor to overflow -- that pushed the horizontal
+     scrollbar to the very bottom of a long list. This keeps the scrollbar
+     reachable near the top, and keeps the identifying column in view while
+     scrolling right to reach editable fields further along the row. */
+  .mail-table-wrap{overflow:auto; max-height:65vh; border:1px solid var(--line); border-radius:6px; -webkit-overflow-scrolling:touch;}
+  .mail-table-wrap table{display:table; overflow:visible; white-space:normal; margin:0; width:max-content; min-width:100%;}
+  .mail-table-wrap th, .mail-table-wrap td{white-space:nowrap;}
+  .mail-table-wrap thead th{position:sticky; top:0; background:#fff; z-index:2; box-shadow:0 1px 0 var(--line);}
+  .mail-sticky-col{position:sticky; left:0; z-index:1;}
+  .mail-sticky-col-2{position:sticky; left:26px; z-index:1; box-shadow:2px 0 3px -2px rgba(0,0,0,.15);}
+  .mail-table-wrap thead .mail-sticky-col, .mail-table-wrap thead .mail-sticky-col-2{z-index:3;}
   th{
     text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.06em;
     text-transform:uppercase; color:var(--muted); border-bottom:2px solid var(--line); padding:8px 10px;
@@ -3466,10 +3479,11 @@
           <button type="button" id="mailApt_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
           <span class="status-msg" id="mailApt_bulkStatus"></span>
         </div>
+        <div class="mail-table-wrap">
         <table>
           <thead><tr>
-            <th style="width:26px;"><input type="checkbox" id="mailApt_selectAll"></th>
-            <th>Complex Name</th>
+            <th class="mail-sticky-col" style="width:26px;"><input type="checkbox" id="mailApt_selectAll"></th>
+            <th class="mail-sticky-col-2">Complex Name</th>
             <th>Address</th>
             <th>City</th>
             <th>State</th>
@@ -3482,6 +3496,7 @@
           </tr></thead>
           <tbody id="mailApt_rows"></tbody>
         </table>
+        </div>
         <p class="form-note" id="mailApt_emptyNote" style="display:none;">No apartment complexes yet &mdash; paste some in above to get started.</p>
         <p class="form-note" id="mailApt_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each complex's published starting rent, bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Pines at Five and Providence Family Homes have no comparable fixed monthly rate (per-stay or BAH-based) and are left unpriced.</p>
       </div>
@@ -3542,10 +3557,11 @@
           <button type="button" id="mailStorage_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
           <span class="status-msg" id="mailStorage_bulkStatus"></span>
         </div>
+        <div class="mail-table-wrap">
         <table>
           <thead><tr>
-            <th style="width:26px;"><input type="checkbox" id="mailStorage_selectAll"></th>
-            <th>Facility Name</th>
+            <th class="mail-sticky-col" style="width:26px;"><input type="checkbox" id="mailStorage_selectAll"></th>
+            <th class="mail-sticky-col-2">Facility Name</th>
             <th>Address</th>
             <th>City</th>
             <th>State</th>
@@ -3558,6 +3574,7 @@
           </tr></thead>
           <tbody id="mailStorage_rows"></tbody>
         </table>
+        </div>
         <p class="form-note" id="mailStorage_emptyNote" style="display:none;">No storage facilities yet &mdash; paste some in above to get started.</p>
         <p class="form-note" id="mailStorage_priceNote" style="margin-top:10px;">Price tiers ($ to $$$$) reflect each facility's published starting rate for its smallest standard unit (5x5 or 5x10), bucketed into quartiles relative to this specific list (not a fixed citywide scale) as of August 2026. Storage Sense-Martinez-Wheeler Rd, U-Haul Columbia Fairgrounds, and Surrey Storage have no published rate; Southern Boat & RV Storage and Premier Storage Group are RV/boat-only lots not comparable to standard units &mdash; all five are left unpriced.</p>
       </div>
@@ -3586,9 +3603,10 @@
           <button type="button" id="mailNbhd_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:9px 16px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:13px; cursor:pointer; margin-left:auto;">Clear Entire List</button>
           <span class="status-msg" id="mailNbhd_bulkStatus"></span>
         </div>
+        <div class="mail-table-wrap">
         <table>
           <thead><tr>
-            <th>Neighborhood</th>
+            <th class="mail-sticky-col">Neighborhood</th>
             <th>City</th>
             <th>State</th>
             <th>Times Visited</th>
@@ -3597,6 +3615,7 @@
           </tr></thead>
           <tbody id="mailNbhd_rows"></tbody>
         </table>
+        </div>
         <p class="form-note" id="mailNbhd_emptyNote" style="display:none;">No neighborhoods yet &mdash; paste some in above to get started.</p>
       </div>
       </div>
@@ -9276,11 +9295,11 @@
 
     tbody.innerHTML = filtered.map(r => {
       const overdue = mailAptIsOverdue(r);
-      const rowBg = overdue ? 'background:#FDEDEA;' : '';
+      const rowBg = overdue ? '#FDEDEA' : '#fff';
       return `
-      <tr data-id="${r.id}" style="${rowBg}">
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="checkbox" class="mailApt-select" data-id="${r.id}"></td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600; max-width:220px;">${mailEsc(r.name)}</td>
+      <tr data-id="${r.id}" style="${overdue ? 'background:#FDEDEA;' : ''}">
+        <td class="mail-sticky-col" style="padding:5px 4px; border-bottom:1px solid var(--line); background:${rowBg};"><input type="checkbox" class="mailApt-select" data-id="${r.id}"></td>
+        <td class="mail-sticky-col-2" style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600; max-width:220px; background:${rowBg};">${mailEsc(r.name)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="address" value="${mailEsc(r.address)}" style="width:150px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="city" value="${mailEsc(r.city)}" style="width:90px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="state" value="${mailEsc(r.state)}" style="width:38px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
@@ -9640,11 +9659,11 @@
 
     tbody.innerHTML = filtered.map(r => {
       const overdue = mailAptIsOverdue(r);
-      const rowBg = overdue ? 'background:#FDEDEA;' : '';
+      const rowBg = overdue ? '#FDEDEA' : '#fff';
       return `
-      <tr data-id="${r.id}" style="${rowBg}">
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="checkbox" class="mailStorage-select" data-id="${r.id}"></td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600; max-width:220px;">${mailEsc(r.name)}</td>
+      <tr data-id="${r.id}" style="${overdue ? 'background:#FDEDEA;' : ''}">
+        <td class="mail-sticky-col" style="padding:5px 4px; border-bottom:1px solid var(--line); background:${rowBg};"><input type="checkbox" class="mailStorage-select" data-id="${r.id}"></td>
+        <td class="mail-sticky-col-2" style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600; max-width:220px; background:${rowBg};">${mailEsc(r.name)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="address" value="${mailEsc(r.address)}" style="width:150px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="city" value="${mailEsc(r.city)}" style="width:90px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="state" value="${mailEsc(r.state)}" style="width:38px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
@@ -9960,7 +9979,7 @@
       const lastVisit = visits[0];
       return `
       <tr>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(r.name)}</td>
+        <td class="mail-sticky-col" style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600; background:#fff;">${fleetEsc(r.name)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(r.city)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(r.state)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${visits.length}</td>
