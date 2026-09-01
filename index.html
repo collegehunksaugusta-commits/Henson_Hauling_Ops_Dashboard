@@ -2645,9 +2645,18 @@
         </div>
 
         <div id="pu_dropzone" style="border:2px dashed var(--line); border-radius:8px; padding:28px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer; transition:background .15s, border-color .15s;">
-          <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
-          <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB</div>
+          <div id="pu_dropzonePrompt">
+            <div style="font-size:14px; color:var(--charcoal); font-weight:600; margin-bottom:4px;">Drag &amp; drop a file here</div>
+            <div style="font-size:12px; color:var(--muted);">or click to browse &mdash; PDF, JPG, or PNG, up to 10MB. Fill in Client Name and Job Number whenever\u2019s convenient, before or after.</div>
+          </div>
+          <div id="pu_dropzoneStaged" style="display:none;">
+            <div style="font-size:14px; color:#00612C; font-weight:600; margin-bottom:4px;">&#10003; <span id="pu_stagedFileName"></span></div>
+            <div style="font-size:12px; color:var(--muted);">Ready to upload &mdash; <button type="button" id="pu_stagedRemoveBtn" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">remove and choose a different file</button></div>
+          </div>
           <input type="file" id="pu_fileInput" accept=".pdf,.jpg,.jpeg,.png,.heic" style="display:none;">
+        </div>
+        <div class="form-actions" id="pu_uploadActionWrap" style="display:none; margin-top:10px;">
+          <button class="btn-primary" id="pu_uploadBtn" type="button">Upload</button>
         </div>
         <div class="status-msg" id="pu_status" style="margin-top:8px;"></div>
 
@@ -15165,9 +15174,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('pu_clientEmail').value = '';
       document.getElementById('pu_captainSelect').value = '';
       resetPuMaterialsBilledFields();
+      clearStagedFile();
     }
     renderPaperworkUploadsList();
   }
+
+  // The file itself is staged independently of Client Name / Job Number --
+  // dropping or picking a file always works, regardless of whether those
+  // fields are filled in yet. The actual save (and its validation) only
+  // happens once the Operations Manager clicks Upload, so a drop is never
+  // silently rejected just because the manual lookup fields are empty.
+  let puStagedFile = null;
+
+  function stageFile(file){
+    puStagedFile = file;
+    document.getElementById('pu_dropzonePrompt').style.display = 'none';
+    document.getElementById('pu_dropzoneStaged').style.display = 'block';
+    document.getElementById('pu_stagedFileName').textContent = file.name;
+    document.getElementById('pu_uploadActionWrap').style.display = 'flex';
+    document.getElementById('pu_status').textContent = '';
+  }
+
+  function clearStagedFile(){
+    puStagedFile = null;
+    document.getElementById('pu_dropzonePrompt').style.display = 'block';
+    document.getElementById('pu_dropzoneStaged').style.display = 'none';
+    document.getElementById('pu_uploadActionWrap').style.display = 'none';
+  }
+
+  document.getElementById('pu_stagedRemoveBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearStagedFile();
+  });
+
+  document.getElementById('pu_uploadBtn').addEventListener('click', () => {
+    if(puStagedFile) handlePaperworkFileUpload(puStagedFile);
+  });
 
   const puDropzone = document.getElementById('pu_dropzone');
   const puFileInput = document.getElementById('pu_fileInput');
@@ -15175,7 +15217,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   puDropzone.addEventListener('click', () => puFileInput.click());
   puFileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
-    if(file) handlePaperworkFileUpload(file);
+    if(file) stageFile(file);
     puFileInput.value = '';
   });
 
@@ -15191,7 +15233,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }));
   puDropzone.addEventListener('drop', (e) => {
     const file = e.dataTransfer.files[0];
-    if(file) handlePaperworkFileUpload(file);
+    if(file) stageFile(file);
   });
 
   // ---------- Copy Link (field access to Digital Paperwork) ----------
