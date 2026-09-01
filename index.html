@@ -9154,20 +9154,49 @@
       mailAptOfferManualArrival(recId, 'Location services aren\u2019t available in this browser.');
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const dist = mailHaversineMiles(pos.coords.latitude, pos.coords.longitude, stop.coords.lat, stop.coords.lng);
-        if(dist <= 0.2){
-          mailAptMarkArrived(recId);
+
+    const runCheck = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const dist = mailHaversineMiles(pos.coords.latitude, pos.coords.longitude, stop.coords.lat, stop.coords.lng);
+          if(dist <= 0.3){
+            mailAptMarkArrived(recId);
+          } else {
+            mailAptOfferManualArrival(recId, `You're about ${dist.toFixed(1)} mi from this stop \u2014 not close enough to auto-confirm.`);
+          }
+        },
+        (err) => {
+          // code 1 = permission denied, 2 = position unavailable, 3 = timed out.
+          // Once a site's location permission is denied, the browser won't
+          // prompt again on its own -- every future check fails instantly,
+          // silently, with no way to grant it from here. Telling drivers
+          // that plainly (vs. a generic error) is what actually gets it
+          // fixed, since "check your connection"-style wording doesn't.
+          const reason = err.code === 1
+            ? 'Location access is blocked for this site \u2014 enable it in your browser/phone\u2019s site settings to let this mark arrivals automatically.'
+            : err.code === 3
+              ? 'Location check timed out \u2014 your signal may be weak here.'
+              : `Couldn't get your location (${err.message}).`;
+          mailAptOfferManualArrival(recId, reason);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    };
+
+    // Checking permission state first (where supported) means a site that's
+    // already been blocked skips straight to the fallback instead of
+    // waiting out a call that's guaranteed to fail.
+    if(navigator.permissions && navigator.permissions.query){
+      navigator.permissions.query({ name: 'geolocation' }).then(status => {
+        if(status.state === 'denied'){
+          mailAptOfferManualArrival(recId, 'Location access is blocked for this site \u2014 enable it in your browser/phone\u2019s site settings to let this mark arrivals automatically.');
         } else {
-          mailAptOfferManualArrival(recId, `You're about ${dist.toFixed(1)} mi from this stop \u2014 not close enough to auto-confirm.`);
+          runCheck();
         }
-      },
-      (err) => {
-        mailAptOfferManualArrival(recId, `Couldn't get your location (${err.message}).`);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      }).catch(runCheck);
+    } else {
+      runCheck();
+    }
   }
 
   function mailAptOfferManualArrival(recId, reason){
