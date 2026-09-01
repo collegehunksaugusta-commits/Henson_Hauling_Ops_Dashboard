@@ -2589,12 +2589,6 @@
         </div>
       </div>
 
-      <div class="panel" id="signedRecordsPanel">
-        <h3>Signed Paperwork Records</h3>
-        <label>Search by Client Name or Job # <input type="text" id="sr_search" placeholder="Start typing..."></label>
-        <div id="sr_results" style="margin-top:10px; font-size:13px;"></div>
-      </div>
-
       <div class="panel" id="puBatchPanel">
         <h3>Completed Paperwork Storage</h3>
         <p class="form-note">Drop in completed paperwork &mdash; one file or several, images or PDFs &mdash; and Claude will read the job number off each one, match it against the job archive, and auto-fill Client Name, Email, and Captain. Review everything before saving.</p>
@@ -2621,8 +2615,12 @@
       </div>
 
       <div class="panel" id="paperworkUploadPanel">
-        <h3>Paperwork on File</h3>
-        <p class="form-note">Every completed paperwork record, retained for at least 1 year. Upload new paperwork above.</p>
+        <button type="button" id="pu_panelToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+          <h3 style="margin:0;">Paperwork on File <span id="pu_panelCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
+          <span id="pu_panelChevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;">&#9656;</span>
+        </button>
+        <div id="pu_panelBody" style="display:none; margin-top:14px;">
+        <p class="form-note" style="margin-top:0;">Every completed paperwork record, retained for at least 1 year. Upload new paperwork above.</p>
         <div class="status-msg" id="pu_status" style="margin-bottom:8px;"></div>
 
         <div>
@@ -2640,6 +2638,7 @@
             </tr></thead>
             <tbody id="pu_listRows"></tbody>
           </table>
+        </div>
         </div>
       </div>
 
@@ -9137,6 +9136,7 @@
             ? `<span style="flex:1; text-align:center; background:#EAF6EE; color:var(--brand-green-dark); padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700;">\u2713 Arrived Today</span>`
             : `<button type="button" class="mailApt-arrive-btn" data-id="${rec.id}" style="flex:1; background:var(--brand-green); color:#fff; border:none; padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer;">Mark Arrived</button>`}
         </div>
+        <p class="status-msg mailApt-stop-status" data-id="${rec.id}" style="margin:8px 0 0 46px; font-size:13px;"></p>
       </div>`;
     }).join('');
 
@@ -9146,9 +9146,9 @@
   function mailAptCheckArrival(recId){
     const stop = mailCurrentRoute.find(s => s.rec.id === recId);
     if(!stop) return;
-    const statusEl = document.getElementById('mailApt_routeStatus');
+    const statusEl = document.querySelector(`.mailApt-stop-status[data-id="${recId}"]`);
     statusEl.textContent = 'Checking your location...';
-    statusEl.className = 'status-msg';
+    statusEl.className = 'status-msg mailApt-stop-status';
 
     if(!navigator.geolocation){
       mailAptOfferManualArrival(recId, 'Location services aren\u2019t available in this browser.');
@@ -9171,9 +9171,10 @@
   }
 
   function mailAptOfferManualArrival(recId, reason){
-    const statusEl = document.getElementById('mailApt_routeStatus');
+    const statusEl = document.querySelector(`.mailApt-stop-status[data-id="${recId}"]`);
+    if(!statusEl) return;
     statusEl.innerHTML = '';
-    statusEl.className = 'status-msg err';
+    statusEl.className = 'status-msg mailApt-stop-status err';
     const span = document.createElement('span');
     span.textContent = reason + ' ';
     const btn = document.createElement('button');
@@ -12990,59 +12991,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const pwStatusEl = document.getElementById('pw_status');
     pwStatusEl.textContent = ok ? `Digital signatures saved for ${record.clientName || 'this job'}.` : 'Save failed \u2014 check your connection.';
     pwStatusEl.className = ok ? 'status-msg ok' : 'status-msg err';
-    renderSignedRecordsSearch();
   }
 
   document.getElementById('pw_digitalBtn').addEventListener('click', ()=>{ startDigitalSigning(); });
 
-  // ---------- Signed Paperwork Records search ----------
-  async function renderSignedRecordsSearch(){
-    const term = document.getElementById('sr_search').value.trim().toLowerCase();
-    const resultsEl = document.getElementById('sr_results');
-    if(!term){ resultsEl.innerHTML = '<span style="color:var(--muted);">Type a client name or job number to search.</span>'; return; }
-    resultsEl.innerHTML = 'Searching...';
-    let records = [];
-    try{ records = await window.dashboardApi.get(SIGNED_RECORDS_KEY, []); }
-    catch(err){ console.error('Signed records search failed:', err); resultsEl.innerHTML = '<span style="color:#b3261e;">Could not load records \u2014 check your connection.</span>'; return; }
-
-    const matches = records.filter(r =>
-      (r.clientName||'').toLowerCase().includes(term) || (r.jobNumber||'').toLowerCase().includes(term)
-    ).sort((a,b)=> b.signedAt.localeCompare(a.signedAt));
-
-    if(matches.length === 0){ resultsEl.innerHTML = '<span style="color:var(--muted);">No matching signed records found.</span>'; return; }
-
-    resultsEl.innerHTML = matches.map(r => `
-      <div style="border-bottom:1px solid var(--line); padding:8px 0;">
-        <b>${esc(r.clientName || '(no name)')}</b> \u2014 Job #${esc(r.jobNumber || '\u2014')} \u2014 ${esc(new Date(r.signedAt).toLocaleString())}
-        <br><span style="color:var(--muted); font-size:12px;">${r.documents.length} document(s) signed</span>
-        <button type="button" class="sr-view" data-id="${r.id}" style="margin-left:8px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">View</button>
-      </div>`).join('');
-
-    resultsEl.querySelectorAll('.sr-view').forEach(btn => btn.addEventListener('click', (e)=>{
-      const id = e.target.dataset.id;
-      const record = matches.find(r => r.id === id);
-      if(!record) return;
-      const win = window.open();
-      if(win){
-        const docsHtml = record.documents.map(d => {
-          const fields = d.fields || (d.signatures || []).map(s => ({ label: s.label, type: 'signature', value: s.dataUri }));
-          return `
-          <h3>${esc(d.title)}</h3>
-          ${fields.map(f => {
-            if(f.type === 'text'){
-              return `<div style="margin-bottom:12px;"><div style="font-size:12px; color:#666;">${esc(f.label)}</div>${f.value ? `<div style="white-space:pre-wrap; border:1px solid #eee; padding:8px; border-radius:4px;">${esc(f.value)}</div>` : '<i>(left blank)</i>'}</div>`;
-            }
-            const imgWidth = f.type === 'initial' ? 100 : 400;
-            return `<div style="margin-bottom:12px;"><div style="font-size:12px; color:#666;">${esc(f.label)}</div>${f.value ? `<img src="${f.value}" style="border:1px solid #ccc; max-width:${imgWidth}px;">` : '<i>Not signed</i>'}</div>`;
-          }).join('')}
-        `;
-        }).join('<hr>');
-        win.document.write(`<title>Signed Paperwork - ${esc(record.clientName)}</title><body style="font-family:sans-serif; padding:20px; max-width:700px; margin:0 auto;"><h2>${esc(record.clientName)} \u2014 Job #${esc(record.jobNumber)}</h2><p>Signed: ${esc(new Date(record.signedAt).toLocaleString())}</p><hr>${docsHtml}</body>`);
-      }
-    }));
-  }
-
-  document.getElementById('sr_search').addEventListener('input', renderSignedRecordsSearch);
 
   // ---------- Completed Paperwork Storage ----------
   const PAPERWORK_UPLOADS_KEY = 'paperwork-uploads';
@@ -13064,6 +13016,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderPaperworkUploadsList();
   }
   loadPaperworkUploads();
+
+  // Collapsed by default -- this list can get long, and it's mostly
+  // reference material once a job's paperwork is uploaded and emailed.
+  document.getElementById('pu_panelToggle').addEventListener('click', ()=>{
+    const body = document.getElementById('pu_panelBody');
+    const chevron = document.getElementById('pu_panelChevron');
+    const expanded = body.style.display !== 'none';
+    body.style.display = expanded ? 'none' : 'block';
+    chevron.style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
+  });
 
   async function savePaperworkUploadsList(){
     try{ return await window.dashboardApi.set(PAPERWORK_UPLOADS_KEY, paperworkUploads); }
@@ -13208,6 +13170,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function renderPaperworkUploadsList(){
     renderArchiveEligibleCount();
+    document.getElementById('pu_panelCount').textContent = paperworkUploads.length > 0
+      ? `(${paperworkUploads.length} record${paperworkUploads.length === 1 ? '' : 's'})`
+      : '';
     const term = (document.getElementById('pu_search').value || '').trim().toLowerCase();
     let filtered = paperworkUploads.filter(u =>
       !term || (u.clientName||'').toLowerCase().includes(term) || (u.jobNumber||'').toLowerCase().includes(term)
