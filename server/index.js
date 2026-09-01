@@ -71,9 +71,10 @@ const ALLOWED_KEYS = new Set([
   'roster-manual-additions',
   'materials-items',
   'materials-checkouts',
-  'compliance-eod-inspections'
+  'compliance-eod-inspections',
+  'damage-claims'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-'];
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -881,6 +882,9 @@ const DEFAULT_APP_SETTINGS = {
     supplierPhone: '',
     supplierAccountNumber: '',
     supplierEmail: ''
+  },
+  damageClaims: {
+    emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
   }
 };
 
@@ -2621,6 +2625,72 @@ app.delete('/api/data/:key', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(`DELETE /api/data/${key} failed:`, err.message);
     res.status(500).json({ error: 'Storage delete failed.' });
+  }
+});
+
+// ============ Damage Claim: public, token-scoped client upload ============
+// Deliberately NOT behind requireAuth or requireDriverAuth -- the client has
+// no dashboard credentials at all. Each claim gets its own long, random
+// token (never a shared code), so one client's link can never touch another
+// client's claim. This is the only pair of routes in the whole app meant to
+// be reachable by someone who has never logged in.
+const DAMAGE_CLAIMS_KEY = 'damage-claims';
+const MAX_CLAIM_PHOTOS_PER_SUBMISSION = 15;
+const MAX_CLAIM_PHOTO_DATA_URI_LENGTH = 8 * 1024 * 1024; // ~8MB encoded, well under the global 15mb body limit even with several photos
+
+app.get('/api/claim/:token', async (req, res) => {
+  try {
+    const raw = await redis.get(DAMAGE_CLAIMS_KEY);
+    const claims = raw ? JSON.parse(raw) : [];
+    const claim = claims.find(c => c.token === req.params.token);
+    if (!claim) return res.json({ found: false });
+    // Minimal exposure -- just enough to greet the client and confirm the
+    // link is for their job, nothing else about the claim or the account.
+    res.json({ found: true, jobNumber: claim.jobNumber, clientName: claim.clientName || '' });
+  } catch (err) {
+    console.error('GET /api/claim/:token failed:', err.message);
+    res.status(500).json({ error: 'Could not load this link.' });
+  }
+});
+
+app.post('/api/claim/:token/photos', async (req, res) => {
+  const { photos } = req.body || {};
+  if (!Array.isArray(photos) || photos.length === 0) {
+    return res.status(400).json({ error: 'No photos were included.' });
+  }
+  if (photos.length > MAX_CLAIM_PHOTOS_PER_SUBMISSION) {
+    return res.status(400).json({ error: `Please upload ${MAX_CLAIM_PHOTOS_PER_SUBMISSION} photos or fewer at a time.` });
+  }
+  for (const p of photos) {
+    if (!p || typeof p.dataUri !== 'string' || !p.dataUri.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'One of those files doesn\u2019t look like a photo.' });
+    }
+    if (p.dataUri.length > MAX_CLAIM_PHOTO_DATA_URI_LENGTH) {
+      return res.status(400).json({ error: 'One of those photos is too large. Please use a smaller photo.' });
+    }
+  }
+  try {
+    const raw = await redis.get(DAMAGE_CLAIMS_KEY);
+    const claims = raw ? JSON.parse(raw) : [];
+    const claim = claims.find(c => c.token === req.params.token);
+    if (!claim) return res.status(404).json({ error: 'This link could not be found or may have expired.' });
+
+    const now = new Date().toISOString();
+    claim.photos = claim.photos || [];
+    for (const p of photos) {
+      const photoId = crypto.randomBytes(8).toString('hex');
+      await redis.set(`damage-claim-photo-${claim.id}-${photoId}`, JSON.stringify(p.dataUri));
+      claim.photos.push({ id: photoId, filename: p.filename || 'photo.jpg', uploadedAt: now });
+    }
+    // Preserves the first-upload timestamp even if the client comes back
+    // later and adds more -- that's what actually drives the admin alert.
+    if (!claim.photosUploadedAt) claim.photosUploadedAt = now;
+
+    await redis.set(DAMAGE_CLAIMS_KEY, JSON.stringify(claims));
+    res.json({ ok: true, count: photos.length });
+  } catch (err) {
+    console.error('POST /api/claim/:token/photos failed:', err.message);
+    res.status(500).json({ error: 'Could not save those photos \u2014 check your connection and try again.' });
   }
 });
 
