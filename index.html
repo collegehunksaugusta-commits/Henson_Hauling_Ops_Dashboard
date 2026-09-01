@@ -2634,11 +2634,11 @@
           </select>
         </label>
 
-        <div style="border:1px solid var(--line); border-radius:8px; padding:14px; margin-top:12px; background:var(--offwhite);">
-          <div style="font-weight:600; font-size:13px; margin-bottom:2px;">Materials Billed</div>
-          <p class="form-note" id="pu_requiresMaterialsNote" style="margin-top:0;"></p>
-          <div id="pu_materialsBilledWrap" style="display:none;">
-            <p class="form-note" style="margin-top:0;">Enter the quantity actually charged to the client for every material below (0 if none) &mdash; every field is required before this job can be uploaded and its email sent. Free consumables (tape, shrink wrap) aren't shown here since they're never billed.</p>
+        <div style="margin-top:10px;">
+          <p class="form-note" id="pu_requiresMaterialsNote" style="margin:0; display:none;"></p>
+          <button type="button" id="pu_manualMaterialsToggle" style="display:none; background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10.5px; cursor:pointer; padding:2px 0 0; margin:0;">Enter materials billed manually</button>
+          <div id="pu_materialsBilledWrap" style="display:none; border:1px solid var(--line); border-radius:6px; padding:10px; margin-top:6px; background:var(--offwhite);">
+            <p class="form-note" style="margin-top:0; font-size:10.5px;">Fallback only &mdash; uploading the HunkWare invoice (once this job appears in the list below) reads this automatically and is strongly preferred.</p>
             <div id="pu_materialsBilledList"></div>
             <p class="form-note" id="pu_materialsBilledEmptyNote" style="display:none;">No billable materials are set up yet &mdash; add some on the Materials tile.</p>
           </div>
@@ -2661,6 +2661,7 @@
               <th class="pu-sort-header" data-field="uploadedAt" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Uploaded <span class="pu-sort-arrow" data-field="uploadedAt"></span></th>
               <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Satisfied?</th>
               <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Estimated share of signature/initial fields that appear filled in">Completeness</th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">HunkWare Invoice</th>
               <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="pu_listRows"></tbody>
@@ -3878,6 +3879,17 @@
           <div class="form-actions" style="margin-top:16px;">
             <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
             <span class="status-msg" id="set_appSettingsStatus"></span>
+          </div>
+        </div>
+
+        <div class="panel" id="set_overridePinPanel">
+          <h4 style="margin:0 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Materials</h4>
+          <p class="form-note" style="margin-top:0;">Administrator Override PIN &mdash; lets Cameron close out a job whose HunkWare invoice still shows a Balance Due, for the rare case a payment is genuinely delayed, without it counting against his Ops Manager Metrics. Kept separate from the settings above and never displayed once set.</p>
+          <p class="form-note" id="appset_pinStatus" style="margin-top:0;">Checking current status...</p>
+          <label>Set / Change Override PIN (4 digits) <input type="text" id="appset_overridePin" inputmode="numeric" maxlength="4" placeholder="1234" style="max-width:120px;"></label>
+          <div class="form-actions" style="margin-top:8px;">
+            <button class="btn-primary" id="set_savePinBtn" type="button">Save PIN</button>
+            <span class="status-msg" id="set_savePinStatus"></span>
           </div>
         </div>
 
@@ -5414,6 +5426,65 @@
     return [];
   }
   window.getImagesForAssessment = getImagesForAssessment;
+
+  // Converts an already-stored data URI back into a real File/Blob so it
+  // can be fed into getImagesForAssessment() the same way a fresh upload
+  // would be -- used when a second document needs to be merged onto an
+  // existing stored record.
+  function dataUriToFile(dataUri, filename){
+    const [header, base64] = dataUri.split(',');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i++){ bytes[i] = binary.charCodeAt(i); }
+    return new File([bytes], filename || 'file', { type: mime });
+  }
+  window.dataUriToFile = dataUriToFile;
+
+  // Combines two files' pages into one PDF, first file's pages then
+  // second's -- rasterizes everything first (via getImagesForAssessment)
+  // so it works regardless of whether either source is a PDF or a photo.
+  // Pages are sized to fit a standard Letter page, preserving each image's
+  // own aspect ratio rather than stretching it.
+  async function mergeFilesToPdf(firstFile, secondFile){
+    const firstPages = await getImagesForAssessment(firstFile);
+    const secondPages = await getImagesForAssessment(secondFile);
+    const allPages = [...firstPages, ...secondPages];
+    if(allPages.length === 0) return null;
+
+    const { jsPDF } = window.jspdf;
+    const pageWidth = 612, pageHeight = 792; // US Letter, points
+    let doc = null;
+
+    for(const pageDataUri of allPages){
+      const dims = await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => resolve({ w: pageWidth, h: pageHeight });
+        img.src = pageDataUri;
+      });
+      const scale = Math.min(pageWidth / dims.w, pageHeight / dims.h);
+      const drawW = dims.w * scale, drawH = dims.h * scale;
+      const offsetX = (pageWidth - drawW) / 2, offsetY = (pageHeight - drawH) / 2;
+
+      if(!doc){
+        doc = new jsPDF({ unit: 'pt', format: [pageWidth, pageHeight] });
+      } else {
+        doc.addPage([pageWidth, pageHeight]);
+      }
+      doc.addImage(pageDataUri, 'JPEG', offsetX, offsetY, drawW, drawH);
+    }
+
+    const blob = doc.output('blob');
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  }
+  window.mergeFilesToPdf = mergeFilesToPdf;
 
   // ---------- Invoice Extraction (Fleet Maintenance) ----------
   document.getElementById('m_invoice').addEventListener('change', async (e)=>{
@@ -10325,7 +10396,58 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_redfinAugusta').value = s.marketing.redfinAugusta || '';
     document.getElementById('appset_completedPaperworkCc').value = s.paperwork.completedPaperworkCc || '';
     document.getElementById('appset_googleReviewLink').value = s.paperwork.googleReviewLink || '';
+    loadOverridePinStatus();
   }
+
+  // The PIN value itself is never sent to the frontend, even to an admin --
+  // only whether one is currently set.
+  async function loadOverridePinStatus(){
+    if(!isCurrentUserAdmin()) return;
+    const statusEl = document.getElementById('appset_pinStatus');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/override-pin-status`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      statusEl.textContent = data.isSet
+        ? 'A PIN is currently set. Enter a new 4-digit PIN below to change it.'
+        : 'No PIN has been set yet \u2014 Balance Due overrides aren\u2019t available until one is.';
+    }catch(err){
+      console.error('Load PIN status failed:', err);
+      statusEl.textContent = 'Could not check PIN status \u2014 check your connection.';
+    }
+  }
+
+  document.getElementById('set_savePinBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('set_savePinStatus');
+    const pin = document.getElementById('appset_overridePin').value.trim();
+    if(!/^\d{4}$/.test(pin)){
+      statusEl.textContent = 'PIN must be exactly 4 digits.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      document.getElementById('appset_overridePin').value = '';
+      statusEl.textContent = 'PIN saved.';
+      statusEl.className = 'status-msg ok';
+      loadOverridePinStatus();
+    }catch(err){
+      console.error('Save PIN failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   document.getElementById('set_saveAppSettingsBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('set_appSettingsStatus');
@@ -13005,6 +13127,123 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return `<span style="font-weight:600; color:${color};">${pct}%</span>${lowConfidenceNote}${excludedIcon}`;
   }
 
+  function puInvoiceCell(u){
+    if(u.invoiceProcessing){
+      return '<span class="form-note" style="margin:0;">Reading invoice\u2026</span>';
+    }
+    if(!u.invoiceUploadedAt){
+      return `<div class="pu-invoice-drop" data-id="${u.id}" style="border:1px dashed var(--line); border-radius:5px; padding:5px 8px; cursor:pointer; font-size:10.5px; color:var(--muted); white-space:nowrap;">
+        Drop invoice or click
+        <input type="file" class="pu-invoice-input" data-id="${u.id}" accept=".jpg,.jpeg,.png,.pdf,.heic" style="display:none;">
+      </div>`;
+    }
+    const reconciled = Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden;
+    if(reconciled){
+      const overrideNote = u.balanceDueOverridden
+        ? ` <span title="Reconciliation overridden by an administrator" style="cursor:help; color:var(--muted);">(overridden)</span>`
+        : '';
+      return `<span style="font-weight:600; color:#00612C;">${matMoney(u.invoiceBalanceDue)}</span>${overrideNote}`;
+    }
+    return `<span style="font-weight:600; color:#b3261e;">${matMoney(u.invoiceBalanceDue)}</span>
+      <button type="button" class="pu-invoice-override" data-id="${u.id}" style="display:block; margin:2px auto 0; background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10px; cursor:pointer; padding:0;">Override</button>`;
+  }
+
+  // Extracts Balance Due + billed materials from a HunkWare invoice, merges
+  // its pages onto the end of the existing stored document (so what stays
+  // on file and gets emailed to the client is one combined package,
+  // invoice last), and matches the invoice's line items to inventory by
+  // Nickname -- becoming the authoritative source for materialsBilled
+  // going forward, in place of manual entry.
+  async function processInvoiceUpload(uploadId, file){
+    const upload = paperworkUploads.find(u => u.id === uploadId);
+    if(!upload) return;
+
+    upload.invoiceProcessing = true;
+    renderPaperworkUploadsList();
+
+    try{
+      const invoicePages = await window.getImagesForAssessment(file);
+      if(invoicePages.length === 0){
+        alert('Could not read that file \u2014 please use an image or PDF.');
+        delete upload.invoiceProcessing;
+        renderPaperworkUploadsList();
+        return;
+      }
+
+      const extractRes = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ images: invoicePages })
+      });
+      if(handleAuthFailure(extractRes)) return;
+      const extractData = await extractRes.json();
+      if(!extractRes.ok){
+        alert(extractData.error || 'Could not read the invoice.');
+        delete upload.invoiceProcessing;
+        renderPaperworkUploadsList();
+        return;
+      }
+
+      const existingDataUri = await window.dashboardApi.get('paperwork-upload-' + uploadId, null);
+      if(!existingDataUri){
+        alert('Could not load the existing paperwork file to merge with.');
+        delete upload.invoiceProcessing;
+        renderPaperworkUploadsList();
+        return;
+      }
+      const existingFile = window.dataUriToFile(existingDataUri, upload.fileName);
+      const mergedDataUri = await window.mergeFilesToPdf(existingFile, file);
+      if(!mergedDataUri){
+        alert('Could not combine the invoice with the existing paperwork.');
+        delete upload.invoiceProcessing;
+        renderPaperworkUploadsList();
+        return;
+      }
+
+      let materialsItems = [];
+      try{ materialsItems = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
+      catch(err){ console.error('Load materials items for invoice matching failed:', err); }
+      const matchedMaterialsBilled = [];
+      (extractData.lineItems || []).forEach(li => {
+        const normalizedDesc = (li.description || '').trim().toLowerCase();
+        if(!normalizedDesc) return;
+        const matchedItem = materialsItems.find(mi => (mi.nickname || '').trim().toLowerCase() === normalizedDesc);
+        if(!matchedItem) return;
+        matchedMaterialsBilled.push({ itemId: matchedItem.id, quantity: Number(li.quantity) || 0 });
+      });
+
+      const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, mergedDataUri);
+      if(!blobOk){
+        alert('Could not save the combined file.');
+        delete upload.invoiceProcessing;
+        renderPaperworkUploadsList();
+        return;
+      }
+
+      const baseName = (upload.fileName || 'paperwork').replace(/\.[a-zA-Z0-9]+$/, '');
+      upload.fileName = baseName + '_with_invoice.pdf';
+      upload.invoiceBalanceDue = Number(extractData.balanceDue) || 0;
+      upload.invoiceFileName = file.name;
+      upload.invoiceUploadedAt = new Date().toISOString();
+      upload.invoiceConfident = !!extractData.confident;
+      upload.balanceDueOverridden = false;
+      // Invoice-derived data replaces manual entry once available -- it's
+      // the concrete source of truth this whole feature is built around.
+      if(matchedMaterialsBilled.length > 0){
+        upload.materialsBilled = matchedMaterialsBilled;
+        upload.requiresMaterials = true;
+      }
+      delete upload.invoiceProcessing;
+      await savePaperworkUploadsList();
+      renderPaperworkUploadsList();
+    }catch(err){
+      console.error('Invoice processing failed:', err);
+      alert('Could not process the invoice \u2014 check your connection and try again.');
+      delete upload.invoiceProcessing;
+      renderPaperworkUploadsList();
+    }
+  }
+
   function renderPaperworkUploadsList(){
     renderArchiveEligibleCount();
     const term = (document.getElementById('pu_search').value || '').trim().toLowerCase();
@@ -13025,7 +13264,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     const tbody = document.getElementById('pu_listRows');
     if(filtered.length === 0){
-      tbody.innerHTML = `<tr><td colspan="7" style="padding:10px 4px; color:var(--muted);">${paperworkUploads.length === 0 ? 'No paperwork uploaded yet.' : 'No matches.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="padding:10px 4px; color:var(--muted);">${paperworkUploads.length === 0 ? 'No paperwork uploaded yet.' : 'No matches.'}</td></tr>`;
       return;
     }
     tbody.innerHTML = filtered.map(u => `
@@ -13048,12 +13287,65 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap;" title="${(u.incompleteFields||[]).map(esc).join('; ')}">
           ${puCompletenessCell(u)}
         </td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap;">
+          ${puInvoiceCell(u)}
+        </td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
           <button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Email Sent' : 'Send Email'}</button>
           <button type="button" class="pu-delete" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
         </td>
       </tr>`).join('');
+
+    tbody.querySelectorAll('.pu-invoice-drop').forEach(dropEl => {
+      const id = dropEl.dataset.id;
+      const input = dropEl.querySelector('.pu-invoice-input');
+      dropEl.addEventListener('click', () => input.click());
+      input.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if(file) processInvoiceUpload(id, file);
+      });
+      dropEl.addEventListener('dragover', (e) => { e.preventDefault(); dropEl.style.background = '#f0f0f0'; });
+      dropEl.addEventListener('dragleave', () => { dropEl.style.background = ''; });
+      dropEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropEl.style.background = '';
+        const file = e.dataTransfer.files[0];
+        if(file) processInvoiceUpload(id, file);
+      });
+    });
+
+    tbody.querySelectorAll('.pu-invoice-override').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const upload = paperworkUploads.find(u => u.id === id);
+      if(!upload) return;
+      const pin = prompt('Enter the Administrator Override PIN to close out this job despite the outstanding Balance Due:');
+      if(pin === null) return; // cancelled
+      try{
+        const res = await fetch(`${API_BASE}/api/verify-override-pin`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({ pin })
+        });
+        if(handleAuthFailure(res)) return;
+        const data = await res.json();
+        if(!res.ok){
+          alert(data.error || 'Could not verify PIN.');
+          return;
+        }
+        if(!data.valid){
+          alert('Incorrect PIN.');
+          return;
+        }
+        upload.balanceDueOverridden = true;
+        upload.balanceDueOverriddenAt = new Date().toISOString();
+        await savePaperworkUploadsList();
+        renderPaperworkUploadsList();
+      }catch(err){
+        console.error('Override PIN verification failed:', err);
+        alert('Could not reach the server \u2014 check your connection.');
+      }
+    }));
 
     tbody.querySelectorAll('.pu-face').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.dataset.id;
@@ -14225,6 +14517,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       let status;
       if(!upload) status = 'not-uploaded';
       else if(!upload.emailSentAt) status = 'uploaded-no-email';
+      else if(!upload.invoiceUploadedAt) status = 'no-invoice';
+      else if(!(Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden)) status = 'balance-due';
       else status = 'complete';
       return { job: j, upload, status };
     // An "angry" satisfaction rating means no email is required and this
@@ -14240,7 +14534,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
 
     const completeCount = statused.filter(s => s.status === 'complete').length;
-    summaryEl.textContent = `${completeCount} of ${statused.length} jobs fully closed out (uploaded and emailed) in the last 90 days.`;
+    summaryEl.textContent = `${completeCount} of ${statused.length} jobs fully closed out (uploaded, emailed, and HunkWare invoice reconciled) in the last 90 days.`;
 
     const incomplete = statused.filter(s => s.status !== 'complete')
       .sort((a,b) => (a.job.assignmentDate || a.job.savedAt || '').localeCompare(b.job.assignmentDate || b.job.savedAt || ''));
@@ -14250,11 +14544,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return;
     }
 
+    const STATUS_LABELS = {
+      'not-uploaded': { label: 'Not Uploaded', color: '#b3261e', bg: '#fdecea' },
+      'uploaded-no-email': { label: 'Uploaded, Email Not Sent', color: '#8a6d00', bg: '#fdf6e3' },
+      'no-invoice': { label: 'Invoice Not Uploaded', color: '#8a6d00', bg: '#fdf6e3' },
+      'balance-due': { label: 'Balance Due Not Reconciled', color: '#8a6d00', bg: '#fdf6e3' }
+    };
     rowsEl.innerHTML = '<table><thead><tr><th>Job #</th><th>Client</th><th>Captain</th><th>Job Date</th><th style="text-align:right;">Status</th></tr></thead><tbody>' +
       incomplete.map(({job, status}) => {
-        const label = status === 'not-uploaded' ? 'Not Uploaded' : 'Uploaded, Email Not Sent';
-        const color = status === 'not-uploaded' ? '#b3261e' : '#8a6d00';
-        const bg = status === 'not-uploaded' ? '#fdecea' : '#fdf6e3';
+        const { label, color, bg } = STATUS_LABELS[status];
         return `<tr>
           <td>${cmEsc(job.jobNumber)}</td>
           <td>${cmEsc(job.clientName)}</td>
@@ -14274,9 +14572,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let puCurrentRequiresMaterials = false;
   async function checkPuRequiresMaterials(jobNumber, archiveMatch){
     const note = document.getElementById('pu_requiresMaterialsNote');
+    const toggle = document.getElementById('pu_manualMaterialsToggle');
     if(!jobNumber){
       puCurrentRequiresMaterials = false;
-      note.textContent = '';
+      note.style.display = 'none';
+      toggle.style.display = 'none';
       document.getElementById('pu_materialsBilledWrap').style.display = 'none';
       return;
     }
@@ -14293,11 +14593,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
 
     puCurrentRequiresMaterials = !!detectedReason;
-    document.getElementById('pu_materialsBilledWrap').style.display = detectedReason ? 'block' : 'none';
-    note.textContent = detectedReason
-      ? detectedReason + ' A quantity is required for every material below before this job can be uploaded.'
-      : 'Nothing on file suggests this job needed packing materials.';
+    document.getElementById('pu_materialsBilledWrap').style.display = 'none'; // stays collapsed even when detected -- invoice upload (after this job is saved) is the preferred way to satisfy this
+    toggle.style.display = detectedReason ? 'inline' : 'none';
+    if(detectedReason){
+      note.style.display = 'block';
+      note.textContent = detectedReason + ' Upload the HunkWare invoice once this job appears below to bill materials automatically.';
+    } else {
+      note.style.display = 'none';
+    }
   }
+
+  document.getElementById('pu_manualMaterialsToggle').addEventListener('click', ()=>{
+    const wrap = document.getElementById('pu_materialsBilledWrap');
+    wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
+  });
 
   document.getElementById('pu_jobNumber').addEventListener('blur', async ()=>{
     const jobNumber = document.getElementById('pu_jobNumber').value.trim();
@@ -14450,15 +14759,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${r.priorUpload ? `<div style="font-size:11.5px; color:#8a6d00; margin-top:6px;">\u26a0 A completed paperwork upload already exists for this job number \u2014 "${pwBatchEsc(r.priorUpload.fileName)}", ${new Date(r.priorUpload.uploadedAt).toLocaleDateString()}. Saving will add this as an additional record.</div>` : ''}
           ${(() => {
             const billableItems = (puBatchMaterialsItemsCache || []).filter(item => !item.neverBilled);
-            if(billableItems.length === 0) return '';
-            if(!r.requiresMaterials){
-              return '<div style="font-size:11px; color:var(--muted); margin-top:6px;">No materials billing required for this job.</div>';
-            }
-            const allFilled = billableItems.every(item => r.materialsBilled.some(mb => mb.itemId === item.id));
+            if(billableItems.length === 0 || !r.requiresMaterials) return '';
             return `
-          <div style="border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-top:8px; background:var(--offwhite);">
-            <div style="font-weight:600; font-size:11.5px; margin-bottom:6px;">Materials Billed <span style="font-weight:400; color:var(--muted);">(required for this job)</span></div>
-            <div class="puBatchRev-materials-grid" data-review-id="${r.reviewId}" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:6px;">
+          <div style="margin-top:8px;">
+            <p class="form-note" style="margin:0; font-size:11px;">A driver checkout or the original quote suggests this job needed packing materials. Uploading the HunkWare invoice (after saving, from the list below) bills this automatically and is strongly preferred.</p>
+            <button type="button" class="puBatchRev-manual-toggle" data-review-id="${r.reviewId}" style="background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10px; cursor:pointer; padding:2px 0 0;">Enter materials billed manually</button>
+            <div class="puBatchRev-materials-grid" data-review-id="${r.reviewId}" style="display:none; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:6px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-top:4px; background:var(--offwhite);">
               ${billableItems.map(item => {
                 const existing = r.materialsBilled.find(mb => mb.itemId === item.id);
                 return `<label style="font-size:11px; display:flex; justify-content:space-between; align-items:center; gap:4px;">
@@ -14467,7 +14773,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 </label>`;
               }).join('')}
             </div>
-            ${!allFilled ? '<div class="puBatchRev-materials-warning" style="font-size:11px; color:#8a6d00; margin-top:6px;">\u26a0 Enter a quantity (0 if none) for every material before saving.</div>' : '<div class="puBatchRev-materials-warning" style="font-size:11px; color:#8a6d00; margin-top:6px; display:none;">\u26a0 Enter a quantity (0 if none) for every material before saving.</div>'}
           </div>`;
           })()}
         </div>
@@ -14501,18 +14806,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const itemId = e.target.dataset.itemId;
       r.materialsBilled = r.materialsBilled.filter(mb => mb.itemId !== itemId);
       // An explicit "0" is a real, deliberate entry -- kept distinct from a
-      // field the Operations Manager hasn't touched yet, so the
-      // completeness check below can tell the two apart.
+      // field the Operations Manager hasn't touched, in case the invoice
+      // (read later) needs to be told apart from manual entry.
       if(e.target.value.trim() !== ''){
         r.materialsBilled.push({ itemId, quantity: Number(e.target.value) || 0 });
       }
-      const grid = e.target.closest('.puBatchRev-materials-grid');
-      if(grid){
-        const warningEl = grid.parentElement.querySelector('.puBatchRev-materials-warning');
-        const billableIds = Array.from(grid.querySelectorAll('.puBatchRev-materials-qty')).map(inp => inp.dataset.itemId);
-        const allFilled = billableIds.every(id => r.materialsBilled.some(mb => mb.itemId === id));
-        if(warningEl) warningEl.style.display = allFilled ? 'none' : 'block';
-      }
+    }));
+
+    container.querySelectorAll('.puBatchRev-manual-toggle').forEach(btn => btn.addEventListener('click', (e)=>{
+      const grid = container.querySelector(`.puBatchRev-materials-grid[data-review-id="${e.currentTarget.dataset.reviewId}"]`);
+      if(grid) grid.style.display = grid.style.display === 'none' ? 'grid' : 'none';
     }));
   }
 
@@ -14646,18 +14949,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   });
 
-  // A row is savable only once materials billing is complete for it (when
-  // required) -- same reasoning as the single-upload flow's gate.
-  function puBatchRowMaterialsComplete(r){
-    if(!r.requiresMaterials) return true;
-    const billableItems = (puBatchMaterialsItemsCache || []).filter(item => !item.neverBilled);
-    if(billableItems.length === 0) return true;
-    return billableItems.every(item => r.materialsBilled.some(mb => mb.itemId === item.id));
-  }
-
   document.getElementById('puBatch_saveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('puBatch_saveStatus');
-    const savable = puBatchReview.filter(r => r.jobNumber && r.clientName && r.originalFile && puBatchRowMaterialsComplete(r));
+    const savable = puBatchReview.filter(r => r.jobNumber && r.clientName && r.originalFile);
     if(savable.length === 0){
       statusEl.textContent = 'Nothing ready to save \u2014 fix the fields flagged above.';
       statusEl.className = 'status-msg err';
@@ -14681,11 +14975,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     renderPaperworkUploadsList();
     renderPuBatchReview();
-    const skippedCount = puBatchReview.length > 0 ? puBatchReview.filter(r => r.jobNumber && r.clientName && r.originalFile && !puBatchRowMaterialsComplete(r)).length : 0;
-    const skippedNote = skippedCount > 0 ? ` ${skippedCount} row(s) skipped \u2014 materials billing incomplete.` : '';
     statusEl.textContent = failures.length === 0
-      ? `Saved all ${successCount} record(s) \u2014 ready to send from the list below.${skippedNote}`
-      : `Saved ${successCount} record(s). ${failures.length} failed: ${failures.join('; ')}${skippedNote}`;
+      ? `Saved all ${successCount} record(s) \u2014 ready to send from the list below.`
+      : `Saved ${successCount} record(s). ${failures.length} failed: ${failures.join('; ')}`;
     statusEl.className = failures.length === 0 ? 'status-msg ok' : 'status-msg err';
     document.getElementById('puBatch_saveBtn').disabled = false;
   });
@@ -14768,19 +15060,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }));
   }
 
-  // When materials are required, every billable field needs an explicit
-  // entry (0 counts) before this job can be uploaded and its email sent.
-  function puMaterialsBilledIsComplete(){
-    if(!puCurrentRequiresMaterials) return true;
-    const inputs = document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty');
-    if(inputs.length === 0) return true;
-    return Array.from(inputs).every(input => input.value.trim() !== '');
-  }
-
   function resetPuMaterialsBilledFields(){
     document.querySelectorAll('#pu_materialsBilledList .pu-materials-billed-qty').forEach(input => input.value = '');
     puCurrentRequiresMaterials = false;
-    document.getElementById('pu_requiresMaterialsNote').textContent = '';
+    document.getElementById('pu_requiresMaterialsNote').style.display = 'none';
+    document.getElementById('pu_manualMaterialsToggle').style.display = 'none';
     document.getElementById('pu_materialsBilledWrap').style.display = 'none';
   }
 
@@ -14849,11 +15133,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const captainName = document.getElementById('pu_captainSelect').value;
     if(!clientName || !jobNumber){
       statusEl.textContent = 'Enter both Client Name and Job Number before uploading.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    if(!puMaterialsBilledIsComplete()){
-      statusEl.textContent = 'Enter a quantity (0 if none) for every material listed before uploading.';
       statusEl.className = 'status-msg err';
       return;
     }
