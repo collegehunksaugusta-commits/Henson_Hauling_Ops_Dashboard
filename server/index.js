@@ -1742,6 +1742,11 @@ const EXTRACT_WORK_ORDER_TOOL = {
               enum: ['move', 'movelabor', 'junkremoval', 'unclear'],
               description: '"move" if this is a full moving service (packing/loading/transporting/unloading household goods). "movelabor" if it\u2019s a labor-only service (e.g. just loading/unloading help, no long-haul transport of goods). "junkremoval" if this is a junk/hauling-away job rather than a household move (this company does both moving and junk removal work orders). "unclear" only if the service type genuinely can\u2019t be determined -- do not guess between the other three if it isn\u2019t reasonably clear.'
             },
+            orderType: {
+              type: 'string',
+              enum: ['job', 'estimate', 'unclear'],
+              description: 'Read directly from the work order\u2019s own "Type:" field near the top of the document (e.g. "Type: JOB" or "Type: ESTIMATE") -- not inferred from anything else on the page. "estimate" means this document is only a price estimate that hasn\u2019t been booked as an actual job, and should never get paperwork generated for it. "unclear" if no such Type field is present or legible -- do not guess "job" or "estimate" without seeing that field.'
+            },
             estimateSummary: { type: 'string', description: 'If a "Move Factors" or auto-generated quote/estimate narrative section is present (often starting with something like "This is an inventory quote..." and including sentences like "We have estimated the move to last X hours", "$X per hour for Y HUNKS", "The cost for labor... is estimated at $X", "The estimated total cost of this move is $X"), transcribe that narrative text as close to verbatim as possible -- do not summarize or paraphrase it, since exact phrasing and numbers matter. Empty string if no such section is present.' },
             packingMaterials: {
               type: 'array',
@@ -1757,7 +1762,7 @@ const EXTRACT_WORK_ORDER_TOOL = {
             },
             confident: { type: 'boolean', description: 'True if the job number, client info, and addresses were all read clearly. False if the image was blurry, cut off, or key fields were ambiguous.' }
           },
-          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'confident', 'scheduledHours', 'quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees', 'packingMaterials']
+          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'orderType', 'confident', 'scheduledHours', 'quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees', 'packingMaterials']
         }
       }
     },
