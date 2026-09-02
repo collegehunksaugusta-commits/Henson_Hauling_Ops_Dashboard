@@ -12253,8 +12253,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // The actual cost math is always done here, in plain arithmetic, never by
   // asking the model to compute it -- only the raw inputs (rate, crew size,
   // fees) come from extraction.
+  // NOTE: hourlyRate is already the full crew's combined rate (e.g. "$199.00
+  // per hour for 3 HUNKS" means $199/hr total, not $199/hr per person) --
+  // crewSize is passed through only for the printed narrative text below,
+  // never multiplied into the cost itself.
   function computeExtrapolatedEstimate(scheduledHours, hourlyRate, crewSize, otherFees){
-    const laborCost = hourlyRate * crewSize * scheduledHours;
+    const laborCost = hourlyRate * scheduledHours;
     const totalCost = laborCost + (otherFees || 0);
     return { laborCost, totalCost };
   }
@@ -14825,19 +14829,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderDamageClaimsList();
   });
 
+  let dcLastLookedUpJobNumber = null;
+
   document.getElementById('dc_jobNumber').addEventListener('blur', async ()=>{
     const jobNumber = document.getElementById('dc_jobNumber').value.trim();
     const noteEl = document.getElementById('dc_clientNameNote');
-    if(!jobNumber){ noteEl.textContent = ''; return; }
+    if(!jobNumber){ noteEl.textContent = ''; dcLastLookedUpJobNumber = null; return; }
+
+    // Whatever's currently in the email field was matched against a
+    // different job number than the one just entered -- it's stale and
+    // must not be left sitting there under this job's client name, or the
+    // claim link could go out to the wrong person's inbox.
+    const jobNumberChanged = jobNumber !== dcLastLookedUpJobNumber;
     const match = await lookupArchivedJob(jobNumber);
     if(match){
-      if(match.clientEmail && !document.getElementById('dc_clientEmail').value.trim()){
-        document.getElementById('dc_clientEmail').value = match.clientEmail;
+      if(jobNumberChanged || !document.getElementById('dc_clientEmail').value.trim()){
+        document.getElementById('dc_clientEmail').value = match.clientEmail || '';
       }
       noteEl.textContent = match.clientName ? `Matched to ${match.clientName} in the job archive.` : '';
     } else {
+      if(jobNumberChanged){
+        document.getElementById('dc_clientEmail').value = '';
+      }
       noteEl.textContent = 'No matching job found in the archive \u2014 enter the client\u2019s email manually.';
     }
+    dcLastLookedUpJobNumber = jobNumber;
   });
 
   document.getElementById('dc_generateBtn').addEventListener('click', async ()=>{
