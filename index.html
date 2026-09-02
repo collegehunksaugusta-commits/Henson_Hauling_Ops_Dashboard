@@ -2664,6 +2664,12 @@
           <span class="status-msg" id="puBatch_extractStatus"></span>
         </div>
 
+        <div id="puBatch_excludedWrap" style="display:none; margin-top:16px;">
+          <h4 style="margin-bottom:6px;">Duplicates Excluded</h4>
+          <p class="form-note">These looked like repeat scans of the same job within this batch, so only one copy of each was kept below.</p>
+          <div id="puBatch_excludedRows"></div>
+        </div>
+
         <div id="puBatch_reviewWrap" style="display:none; margin-top:20px;">
           <h4 style="margin-bottom:6px;">Review Before Saving</h4>
           <p class="form-note">Client Email and Captain auto-fill when a matching job is found in the archive (jobs generated in the last 3 months). Fix any field that looks off, and fill in anything that didn't auto-match, before saving.</p>
@@ -3948,7 +3954,7 @@
       <div id="set_config" class="set-section" style="display:none;">
         <div class="panel" id="set_appSettingsPanel">
           <h3>App Settings</h3>
-          <p class="form-note">Settings used elsewhere in the dashboard, grouped by which tile they belong to. Change these here instead of asking Claude to edit the code each time \u2014 helpful as things like search sources or contact emails change over time, and for handing this off to a future owner.</p>
+          <p class="form-note">Settings used elsewhere in the dashboard, grouped by which tile they belong to. Change these here instead of asking Claude to edit the code each time &mdash; helpful as things like search sources or contact emails change over time, and for handing this off to a future owner.</p>
 
           <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Marketing</h4>
           <label>South Carolina Search URL <input type="url" id="appset_redfinSouthCarolina"></label>
@@ -3969,6 +3975,33 @@
           </div>
           <label>Supplier Email <input type="email" id="appset_supplierEmail"></label>
           <p class="form-note">Shown on the Materials tile so whoever's placing the next order has the supplier's contact info &mdash; and account number &mdash; on hand.</p>
+
+          <label>Supplier Ship Days</label>
+          <div id="appset_shipDays" style="display:flex; flex-wrap:wrap; gap:12px; margin:4px 0 10px;">
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400;"><input type="checkbox" class="appset-shipday" value="0"> Sun</label>
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400;"><input type="checkbox" class="appset-shipday" value="1"> Mon</label>
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400;"><input type="checkbox" class="appset-shipday" value="2"> Tue</label>
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400;"><input type="checkbox" class="appset-shipday" value="3"> Wed</label>
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400;"><input type="checkbox" class="appset-shipday" value="4"> Thu</label>
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400;"><input type="checkbox" class="appset-shipday" value="5"> Fri</label>
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400;"><input type="checkbox" class="appset-shipday" value="6"> Sat</label>
+          </div>
+          <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+            <label>Order Deadline Day
+              <select id="appset_orderDeadlineDay">
+                <option value="">None</option>
+                <option value="0">Sunday</option>
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+              </select>
+            </label>
+            <label>Order Deadline Time <input type="time" id="appset_orderDeadlineTime"></label>
+          </div>
+          <p class="form-note">The Materials tile flashes red on the deadline day to remind whoever's ordering to get it submitted on time &mdash; e.g. ship days Tuesday, deadline Monday at 12:00 PM.</p>
 
           <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Damage Claims</h4>
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
@@ -4128,7 +4161,10 @@
     materials: {
       supplierPhone: '',
       supplierAccountNumber: '',
-      supplierEmail: ''
+      supplierEmail: '',
+      shipDays: [],
+      orderDeadlineDay: '',
+      orderDeadlineTime: ''
     },
     damageClaims: {
       emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
@@ -4227,6 +4263,7 @@
     if(view === 'materials'){
       window.loadMaterialsData();
       window.renderMaterialsSupplierContact();
+      window.checkMaterialsOrderDeadline();
     }
     if(view === 'damageclaim'){
       window.loadDamageClaimsData();
@@ -10546,6 +10583,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_supplierPhone').value = materials.supplierPhone || '';
     document.getElementById('appset_supplierAccountNumber').value = materials.supplierAccountNumber || '';
     document.getElementById('appset_supplierEmail').value = materials.supplierEmail || '';
+    const shipDaysSet = new Set((materials.shipDays || []).map(String));
+    document.querySelectorAll('.appset-shipday').forEach(cb => { cb.checked = shipDaysSet.has(cb.value); });
+    document.getElementById('appset_orderDeadlineDay').value = (materials.orderDeadlineDay === 0 || materials.orderDeadlineDay) ? String(materials.orderDeadlineDay) : '';
+    document.getElementById('appset_orderDeadlineTime').value = materials.orderDeadlineTime || '';
     document.getElementById('appset_damageClaimEmailBody').value = damageClaims.emailBodyTemplate || '';
     loadOverridePinStatus();
   }
@@ -10614,7 +10655,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const materials = {
       supplierPhone: document.getElementById('appset_supplierPhone').value.trim(),
       supplierAccountNumber: document.getElementById('appset_supplierAccountNumber').value.trim(),
-      supplierEmail: document.getElementById('appset_supplierEmail').value.trim()
+      supplierEmail: document.getElementById('appset_supplierEmail').value.trim(),
+      shipDays: Array.from(document.querySelectorAll('.appset-shipday:checked')).map(cb => Number(cb.value)),
+      orderDeadlineDay: document.getElementById('appset_orderDeadlineDay').value === '' ? '' : Number(document.getElementById('appset_orderDeadlineDay').value),
+      orderDeadlineTime: document.getElementById('appset_orderDeadlineTime').value
     };
     const damageClaims = {
       emailBodyTemplate: document.getElementById('appset_damageClaimEmailBody').value
@@ -14105,18 +14149,69 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function isLowStock(item){ return Number(item.quantityOnHand || 0) <= Number(item.minQuantity || 0); }
 
+  // Set by checkMaterialsOrderDeadline() (below), read here -- kept as its
+  // own piece of state rather than recomputed inline so updateMaterialsTileBadge()
+  // (called from several places whenever materialsItems changes) never has
+  // to know anything about dates or settings, and so the deadline check
+  // never clobbers whatever the low-stock count already put on the badge.
+  let materialsOrderDeadlineInfo = null;
+
   function updateMaterialsTileBadge(){
     const lowCount = materialsItems.filter(isLowStock).length;
     const tile = document.getElementById('tile-materials');
     const badge = document.getElementById('materialsTileBadge');
-    if(lowCount > 0){
+    const parts = [];
+    if(lowCount > 0) parts.push('Low Stock');
+    if(materialsOrderDeadlineInfo) parts.push(materialsOrderDeadlineInfo.label);
+    if(parts.length > 0){
       tile.classList.add('attention');
       badge.style.display = 'inline-block';
+      badge.textContent = parts.join(' \u00b7 ');
     } else {
       tile.classList.remove('attention');
       badge.style.display = 'none';
     }
   }
+
+  // Flashes the tile red on the admin-configured order deadline day (e.g.
+  // "orders due Monday by noon for Tuesday shipping") -- a plain weekly
+  // calendar check, same every week regardless of what's currently in the
+  // Order Qty column, since the whole point is to prompt someone to go
+  // check whether anything needs ordering before the cutoff.
+  function formatTimeForDisplay(hhmm){
+    if(!hhmm) return '';
+    const [h, m] = hhmm.split(':').map(Number);
+    if(Number.isNaN(h) || Number.isNaN(m)) return '';
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d.toLocaleTimeString(undefined, {hour:'numeric', minute:'2-digit'});
+  }
+
+  async function checkMaterialsOrderDeadline(){
+    await window.ensureAppSettingsLoaded();
+    const m = window.appSettings.materials || {};
+    materialsOrderDeadlineInfo = null;
+    if(m.orderDeadlineDay !== '' && m.orderDeadlineDay !== undefined && m.orderDeadlineDay !== null){
+      const now = new Date();
+      if(now.getDay() === Number(m.orderDeadlineDay)){
+        const timeLabel = formatTimeForDisplay(m.orderDeadlineTime);
+        let pastDeadline = false;
+        if(m.orderDeadlineTime){
+          const [h, min] = m.orderDeadlineTime.split(':').map(Number);
+          if(!Number.isNaN(h) && !Number.isNaN(min)){
+            const deadlineMoment = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, min);
+            pastDeadline = now >= deadlineMoment;
+          }
+        }
+        materialsOrderDeadlineInfo = {
+          label: pastDeadline ? 'Order Deadline Passed' : (timeLabel ? `Order Due Today by ${timeLabel}` : 'Order Due Today'),
+          pastDeadline
+        };
+      }
+    }
+    updateMaterialsTileBadge();
+  }
+  window.checkMaterialsOrderDeadline = checkMaterialsOrderDeadline;
 
   // Matches GA_COMBINED_TAX_RATE used elsewhere in the app for quotes, so
   // this estimate stays consistent with how tax is calculated everywhere else.
@@ -15023,6 +15118,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // Captain straight from the job archive instead of extracting them fresh.
   let puBatchFiles = [];   // {id, thumbnail, originalFile}
   let puBatchReview = [];  // review rows before saving
+  let puBatchExcluded = []; // duplicate scans (same job number, same batch) pulled out of review
   let puBatchRosterCache = null;
   let puBatchMaterialsItemsCache = null;
 
@@ -15117,6 +15213,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     for(const file of Array.from(e.target.files)) await addPuBatchFile(file);
     e.target.value = '';
   });
+
+  function renderPuBatchExcluded(){
+    const wrap = document.getElementById('puBatch_excludedWrap');
+    const container = document.getElementById('puBatch_excludedRows');
+    if(puBatchExcluded.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    container.innerHTML = puBatchExcluded.map((x, i) => `
+      <div style="display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+        ${x.thumbnail ? `<img class="puBatch-excluded-thumb" data-index="${i}" src="${x.thumbnail}" style="width:44px; height:44px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;">` : ''}
+        <div><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)} <span class="form-note" style="margin:0;">${pwBatchEsc(x.reason)}</span></div>
+      </div>`).join('');
+    container.querySelectorAll('.puBatch-excluded-thumb').forEach(img => img.addEventListener('click', (e)=>{
+      const x = puBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
+      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+    }));
+  }
 
   function renderPuBatchReview(){
     const wrap = document.getElementById('puBatch_reviewWrap');
@@ -15323,8 +15438,41 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         };
       });
 
+      // Same job number appearing more than once in this batch almost
+      // always means the same physical package got scanned or uploaded
+      // twice by mistake -- each file here is expected to be one job's
+      // complete signed paperwork, so there's no legitimate reason for one
+      // job number to show up in two separate files within a single batch.
+      // Only the clearest-read copy is kept; the rest are pulled out and
+      // shown separately (never just silently dropped).
+      const seenJobNumbers = new Map(); // normalized job number -> the review row currently being kept
+      const deduped = [];
+      puBatchExcluded = [];
+      for(const r of puBatchReview){
+        const normalized = r.jobNumber ? puNormalizeForMatch(r.jobNumber) : '';
+        if(!normalized){ deduped.push(r); continue; } // nothing read to compare against -- let it through for manual review
+        const existing = seenJobNumbers.get(normalized);
+        if(!existing){
+          seenJobNumbers.set(normalized, r);
+          deduped.push(r);
+        } else if(!existing.confident && r.confident){
+          // The copy already kept was a low-confidence read -- prefer this
+          // clearer duplicate instead, and exclude the weaker one.
+          const idx = deduped.indexOf(existing);
+          if(idx !== -1) deduped.splice(idx, 1);
+          puBatchExcluded.push({ jobNumber: existing.jobNumber, clientName: existing.clientName, thumbnail: existing.thumbnail, reason: 'Duplicate' });
+          seenJobNumbers.set(normalized, r);
+          deduped.push(r);
+        } else {
+          puBatchExcluded.push({ jobNumber: r.jobNumber, clientName: r.clientName, thumbnail: r.thumbnail, reason: 'Duplicate' });
+        }
+      }
+      puBatchReview = deduped;
+      renderPuBatchExcluded();
+
       const matchedCount = puBatchReview.filter(r => r.hasArchiveMatch).length;
-      statusEl.textContent = `Read ${documents.length} document(s), matched ${matchedCount} to an archived job.` + (data.partialFailures ? ' Some documents failed to process \u2014 you may need to add those manually.' : '');
+      const dupeNote = puBatchExcluded.length > 0 ? ` (${puBatchExcluded.length} duplicate scan${puBatchExcluded.length===1?'':'s'} excluded, shown above)` : '';
+      statusEl.textContent = `Read ${documents.length} document(s), matched ${matchedCount} to an archived job.${dupeNote}` + (data.partialFailures ? ' Some documents failed to process \u2014 you may need to add those manually.' : '');
       statusEl.className = 'status-msg ok';
       puBatchFiles = [];
       renderPuBatchThumbnails();
@@ -15661,8 +15809,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // go looking -- so it's checked proactively as soon as the app loads for
   // an already-logged-in user, skipped only for the special public/signing
   // flows above where nothing else on the dashboard is relevant anyway.
+  // Same reasoning as the Damage Claim check above -- a deadline reminder
+  // that only shows up once someone has already opened the tile is not
+  // much of a reminder, so this runs proactively too.
   if(localStorage.getItem('henson_auth_token') && !window.__damageClaimToken && !window.__pendingSignHash){
     window.loadDamageClaimsData();
+    window.checkMaterialsOrderDeadline();
   }
 
   recalc();
