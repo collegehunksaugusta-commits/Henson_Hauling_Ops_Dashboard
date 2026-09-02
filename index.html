@@ -12408,23 +12408,34 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
 
-      // Junk removal work orders never get paperwork packets -- pull them
-      // out into their own excluded list up front, visibly, rather than
-      // silently dropping them from the review list with no explanation.
+      // Junk removal work orders and mere Estimates (not yet booked as an
+      // actual job) never get paperwork packets -- pull them both out into
+      // an excluded list up front, visibly, rather than silently dropping
+      // them from the review list with no explanation.
       const junkDocs = allDocuments.filter(d => d.serviceType === 'junkremoval');
-      const documents = allDocuments.filter(d => d.serviceType !== 'junkremoval');
+      const estimateDocs = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType === 'estimate');
+      const documents = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType !== 'estimate');
       pwBatchExcluded = junkDocs.map(d => ({
         jobNumber: d.jobNumber || '(no job # read)',
         clientName: d.clientName || '(no client name read)',
-        thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null
-      }));
+        thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
+        reason: 'Junk Removal'
+      })).concat(estimateDocs.map(d => ({
+        jobNumber: d.jobNumber || '(no job # read)',
+        clientName: d.clientName || '(no client name read)',
+        thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
+        reason: 'Estimate'
+      })));
 
       if(documents.length === 0){
         renderPwBatchExcluded();
-        statusEl.textContent = junkDocs.length > 0
-          ? `Found ${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'} \u2014 none need paperwork, so nothing to review.`
+        const excludedParts = [];
+        if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
+        if(estimateDocs.length > 0) excludedParts.push(`${estimateDocs.length} estimate${estimateDocs.length===1?'':'s'}`);
+        statusEl.textContent = excludedParts.length > 0
+          ? `Found ${excludedParts.join(' and ')} \u2014 none need paperwork, so nothing to review.`
           : 'Could not read any work orders from those files.';
-        statusEl.className = junkDocs.length > 0 ? 'status-msg ok' : 'status-msg err';
+        statusEl.className = excludedParts.length > 0 ? 'status-msg ok' : 'status-msg err';
         pwBatchPastedImages = [];
         renderPwBatchThumbnails();
         return;
@@ -12506,7 +12517,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
       await renderPwBatchReview();
       renderPwBatchExcluded();
-      const junkNote = junkDocs.length > 0 ? ` (${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'} excluded, shown below)` : '';
+      const excludedParts = [];
+      if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
+      if(estimateDocs.length > 0) excludedParts.push(`${estimateDocs.length} estimate${estimateDocs.length===1?'':'s'}`);
+      const junkNote = excludedParts.length > 0 ? ` (${excludedParts.join(' and ')} excluded, shown below)` : '';
       statusEl.textContent = `${pwBatchReview.length} job${pwBatchReview.length===1?'':'s'} read and ready to review.${junkNote}`;
       statusEl.className = 'status-msg ok';
       pwBatchPastedImages = [];
@@ -12539,7 +12553,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     container.innerHTML = pwBatchExcluded.map((x, i) => `
       <div style="display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
         ${x.thumbnail ? `<img class="pwBatch-excluded-thumb" data-index="${i}" src="${x.thumbnail}" style="width:44px; height:44px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;">` : ''}
-        <div><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)} <span class="form-note" style="margin:0;">Junk Removal</span></div>
+        <div><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)} <span class="form-note" style="margin:0;">${pwBatchEsc(x.reason)}</span></div>
       </div>`).join('');
     container.querySelectorAll('.pwBatch-excluded-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = pwBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
