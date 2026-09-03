@@ -433,22 +433,27 @@
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
+      <button type="button" id="driverLbPanelToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
         <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Captain Leaderboard</h3>
-        <button type="button" id="driverLbWhoAmIBtn" style="display:none; background:none; border:none; color:var(--muted); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;"></button>
+        <span id="driverLbPanelChevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;">&#9656;</span>
+      </button>
+      <div id="driverLbPanelBody" style="display:none; margin-top:10px;">
+        <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+          <button type="button" id="driverLbWhoAmIBtn" style="display:none; background:none; border:none; color:var(--muted); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;"></button>
+        </div>
+        <div id="driverLbWhoAmIPrompt" style="display:none; margin-bottom:8px;">
+          <label style="font-size:12.5px; display:block;">Who are you? (so we can show where you stand)
+            <div style="display:flex; gap:6px; margin-top:4px;">
+              <select id="driverLbNameSelect" style="flex:1;">
+                <option value="">Select your name...</option>
+              </select>
+              <button type="button" id="driverLbConfirmBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:0 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">Confirm</button>
+            </div>
+          </label>
+        </div>
+        <div id="driverLbCategories"></div>
+        <p class="form-note" id="driverLbEmptyNote" style="display:none; margin:0;">No leaderboard data yet.</p>
       </div>
-      <div id="driverLbWhoAmIPrompt" style="display:none; margin-bottom:8px;">
-        <label style="font-size:12.5px; display:block;">Who are you? (so we can show where you stand)
-          <div style="display:flex; gap:6px; margin-top:4px;">
-            <select id="driverLbNameSelect" style="flex:1;">
-              <option value="">Select your name...</option>
-            </select>
-            <button type="button" id="driverLbConfirmBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:0 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">Confirm</button>
-          </div>
-        </label>
-      </div>
-      <div id="driverLbCategories"></div>
-      <p class="form-note" id="driverLbEmptyNote" style="display:none; margin:0;">No leaderboard data yet.</p>
     </div>
 
     <div style="display:flex; flex-direction:column; gap:12px;">
@@ -1158,6 +1163,14 @@
   // pre-fill the dropdown as a convenience -- never to skip confirmation.
   const DRIVER_LAST_NAME_KEY = 'henson_driver_last_name';
   let driverLbCategories = [];
+
+  document.getElementById('driverLbPanelToggle').addEventListener('click', ()=>{
+    const body = document.getElementById('driverLbPanelBody');
+    const chevron = document.getElementById('driverLbPanelChevron');
+    const expanded = body.style.display !== 'none';
+    body.style.display = expanded ? 'none' : 'block';
+    chevron.style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
+  });
   let driverLbConfirmedThisPageLoad = false;
   let driverLbConfirmedName = '';
 
