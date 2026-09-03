@@ -1,5 +1,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#00843D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Driver Tools">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="favicon.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -1027,6 +1034,11 @@
 
   if(driverToken){
     showDriverMenu();
+  } else if(location.hash === '#driver'){
+    // The installed PWA's start_url points here so a fresh install never
+    // shows the admin login screen at all -- only ever the driver code form
+    // or (once logged in, via the branch above) the driver's own menu.
+    showDriverCodeForm();
   }
 
   document.getElementById('showDriverGateBtn').addEventListener('click', showDriverCodeForm);
@@ -15887,5 +15899,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   recalc();
+
+  // Registered last, after the rest of the app has initialized -- failing
+  // to register (unsupported browser, blocked, etc.) should never prevent
+  // the app itself from working normally.
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js').catch((err) => {
+        console.error('Service worker registration failed:', err);
+      });
+    });
+  }
 })();
 </script>
