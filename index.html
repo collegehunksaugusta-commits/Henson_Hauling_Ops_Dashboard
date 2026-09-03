@@ -14912,6 +14912,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
           <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
         </div>
+        <div style="display:flex; gap:16px; margin-top:10px; flex-wrap:wrap;">
+          <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Resolution
+            <select class="dc-resolution" data-id="${c.id}" style="display:block; margin-top:3px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
+              <option value="pending"${(c.resolution||'pending')==='pending'?' selected':''}>Pending</option>
+              <option value="repaired"${c.resolution==='repaired'?' selected':''}>Repaired</option>
+              <option value="replaced"${c.resolution==='replaced'?' selected':''}>Replaced</option>
+              <option value="reimbursed"${c.resolution==='reimbursed'?' selected':''}>Reimbursed</option>
+              <option value="denied"${c.resolution==='denied'?' selected':''}>Denied</option>
+              <option value="no_damage_found"${c.resolution==='no_damage_found'?' selected':''}>No Damage Found</option>
+            </select>
+          </label>
+          <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Total Cost
+            <input type="number" class="dc-total-cost" data-id="${c.id}" min="0" step="0.01" placeholder="0.00" value="${c.totalCost || c.totalCost === 0 ? c.totalCost : ''}" style="display:block; margin-top:3px; width:100px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
+          </label>
+        </div>
         <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
           ${photoCount > 0 ? `<button type="button" class="dc-view-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View ${photoCount} Photo${photoCount===1?'':'s'}</button>` : ''}
           ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-acknowledge" data-id="${c.id}" style="background:var(--brand-green); border:none; color:#fff; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Mark Reviewed</button>` : ''}
@@ -14920,6 +14935,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <div class="dc-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-wrap:wrap; gap:8px;"></div>
       </div>`;
     }).join('');
+
+    rowsEl.querySelectorAll('.dc-resolution').forEach(sel => sel.addEventListener('change', async (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      if(!claim) return;
+      claim.resolution = e.currentTarget.value;
+      await saveDamageClaims();
+    }));
+
+    rowsEl.querySelectorAll('.dc-total-cost').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      if(!claim) return;
+      const val = e.currentTarget.value.trim();
+      claim.totalCost = val === '' ? null : Math.max(0, Number(val) || 0);
+      await saveDamageClaims();
+    }));
 
     rowsEl.querySelectorAll('.dc-view-photos').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.dataset.id;
@@ -15016,7 +15046,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       emailSentAt: null,
       photos: [],
       photosUploadedAt: null,
-      acknowledgedAt: null
+      acknowledgedAt: null,
+      resolution: 'pending',
+      totalCost: null
     };
 
     await ensureAppSettingsLoaded();
