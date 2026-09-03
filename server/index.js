@@ -887,7 +887,7 @@ const DEFAULT_APP_SETTINGS = {
     orderDeadlineTime: ''
   },
   damageClaims: {
-    emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
+    emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
   }
 };
 
@@ -2645,6 +2645,13 @@ app.delete('/api/data/:key', requireAuth, async (req, res) => {
 const DAMAGE_CLAIMS_KEY = 'damage-claims';
 const MAX_CLAIM_PHOTOS_PER_SUBMISSION = 15;
 const MAX_CLAIM_PHOTO_DATA_URI_LENGTH = 8 * 1024 * 1024; // ~8MB encoded, well under the global 15mb body limit even with several photos
+const CLAIM_LINK_VALID_DAYS = 7;
+
+function isClaimLinkExpired(claim) {
+  if (!claim.createdAt) return false;
+  const ageMs = Date.now() - new Date(claim.createdAt).getTime();
+  return ageMs > CLAIM_LINK_VALID_DAYS * 24 * 60 * 60 * 1000;
+}
 
 app.get('/api/claim/:token', async (req, res) => {
   try {
@@ -2652,6 +2659,7 @@ app.get('/api/claim/:token', async (req, res) => {
     const claims = raw ? JSON.parse(raw) : [];
     const claim = claims.find(c => c.token === req.params.token);
     if (!claim) return res.json({ found: false });
+    if (isClaimLinkExpired(claim)) return res.json({ found: false, expired: true });
     // Minimal exposure -- just enough to greet the client and confirm the
     // link is for their job, nothing else about the claim or the account.
     res.json({ found: true, jobNumber: claim.jobNumber, clientName: claim.clientName || '' });
@@ -2681,7 +2689,8 @@ app.post('/api/claim/:token/photos', async (req, res) => {
     const raw = await redis.get(DAMAGE_CLAIMS_KEY);
     const claims = raw ? JSON.parse(raw) : [];
     const claim = claims.find(c => c.token === req.params.token);
-    if (!claim) return res.status(404).json({ error: 'This link could not be found or may have expired.' });
+    if (!claim) return res.status(404).json({ error: 'This link could not be found.' });
+    if (isClaimLinkExpired(claim)) return res.status(410).json({ error: 'This link has expired. Links are valid for 7 days \u2014 please contact us for a new one.', expired: true });
 
     const now = new Date().toISOString();
     claim.photos = claim.photos || [];
