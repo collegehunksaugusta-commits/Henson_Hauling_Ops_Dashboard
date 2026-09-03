@@ -707,7 +707,11 @@
     </div>
 
     <div id="dcu_notFoundState" style="display:none;">
-      <p style="text-align:center; color:#B3261E;">This link could not be found or may have expired. Please contact our office for a new one.</p>
+      <p style="text-align:center; color:#B3261E;">This link could not be found. Please contact our office for a new one.</p>
+    </div>
+
+    <div id="dcu_expiredState" style="display:none;">
+      <p style="text-align:center; color:#B3261E;">This link has expired &mdash; links are valid for 7 days. Please contact our office for a new one.</p>
     </div>
 
     <div id="dcu_formState" style="display:none;">
@@ -2932,6 +2936,7 @@
         <label>Client Email <input type="email" id="dc_clientEmail"></label>
       </div>
       <p class="form-note" id="dc_clientNameNote" style="margin-top:0;"></p>
+      <p class="form-note">The upload link is valid for 7 days after it's generated &mdash; after that, generate a new one to send instead.</p>
       <div class="form-actions">
         <button class="btn-primary" id="dc_generateBtn" type="button">Generate Email</button>
         <span class="status-msg" id="dc_generateStatus"></span>
@@ -4167,7 +4172,7 @@
       orderDeadlineTime: ''
     },
     damageClaims: {
-      emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
+      emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
     }
   };
   let appSettingsLoaded = false;
@@ -14849,9 +14854,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.loadDamageClaimsData = loadDamageClaimsData;
 
+  const CLAIM_LINK_VALID_DAYS = 7; // matches the backend's enforcement window
+
   function dcClaimStatus(claim){
     if(claim.photosUploadedAt && !claim.acknowledgedAt) return { label: 'Photos Uploaded', color: '#B3261E', bg: '#FDEDEA' };
     if(claim.photosUploadedAt && claim.acknowledgedAt) return { label: 'Reviewed', color: 'var(--brand-green-dark)', bg: '#EAF6EE' };
+    if(claim.emailSentAt && !claim.photosUploadedAt && claim.createdAt){
+      const ageMs = Date.now() - new Date(claim.createdAt).getTime();
+      if(ageMs > CLAIM_LINK_VALID_DAYS*24*60*60*1000){
+        return { label: 'Link Expired', color: '#8a6d00', bg: '#FDF6E3' };
+      }
+    }
     if(claim.emailSentAt) return { label: 'Email Sent', color: '#8a6d00', bg: '#FDF6E3' };
     return { label: 'Not Sent', color: 'var(--muted)', bg: 'var(--offwhite)' };
   }
@@ -15792,7 +15805,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
       document.getElementById('dcu_loadingState').style.display = 'none';
       if(!claimInfo || !claimInfo.found){
-        document.getElementById('dcu_notFoundState').style.display = 'block';
+        if(claimInfo && claimInfo.expired){
+          document.getElementById('dcu_expiredState').style.display = 'block';
+        } else {
+          document.getElementById('dcu_notFoundState').style.display = 'block';
+        }
         return;
       }
       document.getElementById('dcu_formState').style.display = 'block';
