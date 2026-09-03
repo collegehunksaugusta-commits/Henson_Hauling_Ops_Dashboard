@@ -476,10 +476,6 @@
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Truck Documents</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">View a truck's registration and insurance card</div>
       </button>
-      <button type="button" id="driverGoToMaterialsBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
-        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Materials Checkout</div>
-        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Log supplies you pulled from the racks mid-day &mdash; your first checkout of the day happens inside Pre-Trip Inspection</div>
-      </button>
       <button type="button" id="driverGoToEodBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">End of Day Inspection</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Photo of the truck and any unused supplies you're returning to the racks</div>
@@ -635,38 +631,6 @@
       <label>Truck <select id="tdocs_truck"></select></label>
       <p class="form-note" id="tdocs_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
       <div id="tdocs_docList" style="margin-top:14px;"></div>
-    </div>
-  </div>
-
-  <div id="driverMaterialsView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
-      <button type="button" id="driverMaterialsBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
-      <h2 class="display" style="margin:0; font-size:20px;">Materials Checkout</h2>
-      <button type="button" id="driverMaterialsLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
-    </div>
-
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
-      <p class="form-note">Report what you pulled from the racks today. If you didn't take anything, you can still submit this with everything left at 0 &mdash; that's what clears you for Pre-Trip Inspection.</p>
-      <label>Your Name
-        <select id="matco_driverNameSelect">
-          <option value="">Select your name...</option>
-          <option value="__other__">Not on the list (type your name)</option>
-        </select>
-      </label>
-      <label id="matco_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="matco_driverNameOther" placeholder="First and last name"></label>
-      <label>Job Number(s) <input type="text" id="matco_jobNumbers" placeholder="e.g. 11699257, 11700412" inputmode="numeric"></label>
-      <p class="form-note">Separate multiple job numbers with a comma. Only needed if you're taking something below.</p>
-    </div>
-
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
-      <h3 style="margin-top:0;">What did you take?</h3>
-      <div id="matco_itemList"></div>
-      <p class="form-note" id="matco_noItemsNote" style="display:none;">No materials are set up yet &mdash; ask your administrator to add some on the Materials tile.</p>
-    </div>
-
-    <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
-      <button class="btn-primary" id="matco_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Checkout</button>
-      <span class="status-msg" id="matco_submitStatus" style="text-align:center;"></span>
     </div>
   </div>
 
@@ -858,7 +822,6 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
-    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
   }
 
@@ -870,7 +833,6 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
-    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
     loadDriverLeaderboard();
   }
@@ -883,7 +845,6 @@
     document.getElementById('driverInspectionView').style.display = 'block';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
-    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
     loadDriverTrucks();
@@ -905,7 +866,6 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'block';
     document.getElementById('driverTruckDocsView').style.display = 'none';
-    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
     document.getElementById('nbhd_visitPanel').style.display = 'none';
@@ -922,24 +882,8 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'block';
-    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
     loadDriverTruckDocsTrucks();
-  }
-
-  function showDriverMaterials(){
-    document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
-    document.getElementById('driverCodeForm').style.display = 'none';
-    document.getElementById('driverMenuView').style.display = 'none';
-    document.getElementById('driverInspectionView').style.display = 'none';
-    document.getElementById('driverNbhdView').style.display = 'none';
-    document.getElementById('driverTruckDocsView').style.display = 'none';
-    document.getElementById('driverMaterialsView').style.display = 'block';
-    document.getElementById('driverEodView').style.display = 'none';
-    document.getElementById('matco_submitStatus').textContent = '';
-    fetchDriverRosterInto('matco_driverNameSelect');
-    loadDriverMaterialsItems();
   }
 
   function showDriverEod(){
@@ -950,7 +894,6 @@
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
-    document.getElementById('driverMaterialsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'block';
     document.getElementById('eod_submitStatus').textContent = '';
     eodCapturedPhoto = null;
@@ -1055,9 +998,6 @@
   document.getElementById('driverGoToInspectionBtn').addEventListener('click', showDriverInspection);
   document.getElementById('driverGoToNbhdBtn').addEventListener('click', showDriverNbhd);
   document.getElementById('driverGoToTruckDocsBtn').addEventListener('click', showDriverTruckDocs);
-  document.getElementById('driverGoToMaterialsBtn').addEventListener('click', showDriverMaterials);
-  document.getElementById('driverMaterialsBackBtn').addEventListener('click', showDriverMenu);
-  document.getElementById('driverMaterialsLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('driverGoToEodBtn').addEventListener('click', showDriverEod);
   document.getElementById('driverEodBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverEodLogoutBtn').addEventListener('click', driverLogout);
@@ -1307,7 +1247,6 @@
   }
   wireOtherNameToggle('pti_driverNameSelect', 'pti_driverNameOtherWrap', 'pti_driverNameOther');
   wireOtherNameToggle('nbhd_driverNameSelect', 'nbhd_driverNameOtherWrap', 'nbhd_driverNameOther');
-  wireOtherNameToggle('matco_driverNameSelect', 'matco_driverNameOtherWrap', 'matco_driverNameOther');
   wireOtherNameToggle('eod_driverNameSelect', 'eod_driverNameOtherWrap', 'eod_driverNameOther');
 
   function readSelectedDriverName(selectId, otherInputId){
@@ -1349,55 +1288,8 @@
         <input type="number" min="0" step="1" class="${qtyClass}" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:8px; border:1px solid var(--line); border-radius:4px; text-align:center; font-size:15px;">
       </div>`).join('');
   }
-  function loadDriverMaterialsItems(){ return fetchDriverMaterialsItemsInto('matco_itemList', 'matco_noItemsNote', 'matco-qty'); }
   function loadDriverEodItems(){ return fetchDriverMaterialsItemsInto('eod_itemList', 'eod_noItemsNote', 'eod-qty'); }
   function loadDriverPtiMaterialsItems(){ return fetchDriverMaterialsItemsInto('pti_matco_itemList', 'pti_matco_noItemsNote', 'pti-matco-qty'); }
-
-  document.getElementById('matco_submitBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('matco_submitStatus');
-    const driverName = readSelectedDriverName('matco_driverNameSelect', 'matco_driverNameOther');
-    if(!driverName){
-      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    const jobNumbers = document.getElementById('matco_jobNumbers').value
-      .split(',').map(s => s.trim()).filter(Boolean);
-    const items = Array.from(document.querySelectorAll('.matco-qty'))
-      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
-      .filter(i => i.quantity > 0);
-
-    if(items.length > 0 && jobNumbers.length === 0){
-      statusEl.textContent = 'Enter at least one Job Number for the materials you took.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-
-    statusEl.textContent = 'Submitting...';
-    statusEl.className = 'status-msg';
-    try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-        body: JSON.stringify({ driverName, jobNumbers, items, date: new Date().toISOString().slice(0,10) })
-      });
-      if(res.status === 401){ driverSessionExpired(); return; }
-      const data = await res.json();
-      if(!res.ok){
-        statusEl.textContent = data.error || 'Could not submit checkout.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      statusEl.textContent = items.length > 0 ? 'Checkout submitted. Thank you!' : 'Got it \u2014 logged that you took nothing today.';
-      statusEl.className = 'status-msg ok';
-      document.getElementById('matco_jobNumbers').value = '';
-      document.querySelectorAll('.matco-qty').forEach(input => input.value = '');
-    }catch(err){
-      console.error('Materials checkout submit failed:', err);
-      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
-      statusEl.className = 'status-msg err';
-    }
-  });
 
   let eodCapturedPhoto = null;
   document.getElementById('eod_photoCaptureBtn').addEventListener('click', ()=> document.getElementById('eod_photoInput').click());
