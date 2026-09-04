@@ -6978,9 +6978,20 @@
     }));
   }
 
-  function viewPtiDetails(id){
+  async function viewPtiDetails(id){
     const rec = compPretripInspections.find(r => r.id === id);
     if(!rec) return;
+    // Opened synchronously, before any await, so it's never at risk of
+    // being blocked as a non-user-gesture popup -- filled in once ready.
+    const win = window.open();
+    if(!win) return;
+    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
+
+    let photoDataUri = null;
+    if(rec.backPhotoKey){
+      try{ photoDataUri = await window.dashboardApi.get(rec.backPhotoKey, null); }
+      catch(err){ console.error('PTI photo load failed:', err); }
+    }
     const statusLabels = {ok:'OK', defect:'DEFECT', na:'N/A'};
     const statusColors = {ok:'#00612C', defect:'#B3261E', na:'#666'};
     const rows = (rec.checklist || []).map(c => `
@@ -6989,8 +7000,7 @@
         <td style="padding:6px 8px; border-bottom:1px solid #ddd; font-weight:600; color:${statusColors[c.status]||'#333'};">${statusLabels[c.status]||fleetEsc(c.status)}</td>
         <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(c.note || '')}</td>
       </tr>`).join('');
-    const win = window.open();
-    if(!win) return;
+    win.document.open();
     win.document.write(`<!DOCTYPE html><html><head><title>Pre-Trip Inspection \u2014 ${fleetEsc(rec.truckNickname)} \u2014 ${fleetEsc(rec.date)}</title></head>
       <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
         <h2 style="margin-bottom:4px;">Pre-Trip Inspection</h2>
@@ -7001,6 +7011,7 @@
           <strong>Odometer:</strong> ${fleetEsc(rec.odometer || '\u2014')}<br>
           <strong>Overall:</strong> ${rec.overallStatus === 'defects' ? '<span style="color:#B3261E;">Defects Noted</span>' : '<span style="color:#00612C;">OK</span>'}
         </p>
+        ${photoDataUri ? `<p style="margin:14px 0 6px;"><strong>Truck Photo:</strong></p><img src="${photoDataUri}" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block; margin-bottom:18px;">` : (rec.backPhotoKey ? `<p style="margin:14px 0 18px; color:#B3261E;">Could not load the truck photo \u2014 check your connection and try again.</p>` : '')}
         <table style="border-collapse:collapse; width:100%;">
           <thead><tr>
             <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Item</th>
