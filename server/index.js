@@ -888,6 +888,12 @@ const DEFAULT_APP_SETTINGS = {
   },
   damageClaims: {
     emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
+  },
+  captainMetrics: {
+    resetDate: ''
+  },
+  opsManagerMetrics: {
+    resetDate: ''
   }
 };
 
