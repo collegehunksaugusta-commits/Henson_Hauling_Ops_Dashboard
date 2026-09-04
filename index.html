@@ -3191,6 +3191,21 @@
           <p class="form-note" id="comp_pti_emptyNote" style="display:none; margin-top:10px;">No pre-trip inspections submitted yet for this truck.</p>
         </div>
 
+        <div class="panel" id="comp_eodPanel">
+          <h3>End of Day Inspections</h3>
+          <p class="form-note">Submitted electronically by drivers at the end of their shift. Vision Check compares this photo against the same day's Pre-Trip photo and flags equipment issues automatically.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Driver</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Vision Check</th>
+              <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="comp_eod_rows"></tbody>
+          </table>
+          <p class="form-note" id="comp_eod_emptyNote" style="display:none; margin-top:10px;">No end of day inspections submitted yet for this truck.</p>
+        </div>
+
         <div class="panel" id="comp_dotInspectionPanel">
           <h3>DOT Inspections</h3>
           <div class="form-grid">
@@ -6683,6 +6698,7 @@
   const COMP_VIOLATION_KEY = 'compliance-truck-violations';
   const COMP_DRIVERS_KEY = 'compliance-drivers';
   const COMP_PTI_KEY = 'compliance-pretrip-inspections';
+  const COMP_EOD_KEY = 'compliance-eod-inspections';
 
   let compAuthorizations = [];
   let compDotInspections = [];
@@ -6690,6 +6706,7 @@
   let compViolations = [];
   let compDrivers = [];
   let compPretripInspections = [];
+  let compEodInspections = [];
   let compCurrentSection = 'business';
   let compSelectedTruckId = null;
   let compSelectedDriverName = null;
@@ -6716,13 +6733,14 @@
 
   async function loadComplianceData(){
     try{
-      const [auths, dot, inc, vio, drv, pti] = await Promise.all([
+      const [auths, dot, inc, vio, drv, pti, eod] = await Promise.all([
         window.dashboardApi.get(COMP_AUTH_KEY, null),
         window.dashboardApi.get(COMP_DOT_KEY, []),
         window.dashboardApi.get(COMP_INCIDENT_KEY, []),
         window.dashboardApi.get(COMP_VIOLATION_KEY, []),
         window.dashboardApi.get(COMP_DRIVERS_KEY, []),
-        window.dashboardApi.get(COMP_PTI_KEY, [])
+        window.dashboardApi.get(COMP_PTI_KEY, []),
+        window.dashboardApi.get(COMP_EOD_KEY, [])
       ]);
       if(auths === null){
         compAuthorizations = seedComplianceAuthorizations();
@@ -6732,6 +6750,7 @@
       }
       compDotInspections = dot; compIncidents = inc; compViolations = vio; compDrivers = drv;
       compPretripInspections = pti || [];
+      compEodInspections = eod || [];
     }catch(err){ console.error('Compliance data load failed:', err); }
 
     renderCompAuthTable();
@@ -6924,11 +6943,11 @@
       sel.innerHTML = list.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
       compSelectedTruckId = sel.value;
     }
-    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows();
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows(); renderCompEodRows();
   }
   document.getElementById('comp_truckSelect').addEventListener('change', (e)=>{
     compSelectedTruckId = e.target.value;
-    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows();
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows(); renderCompEodRows();
   });
 
   function renderCompPtiRows(){
@@ -7020,6 +7039,97 @@
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
+        ${rec.additionalNotes ? `<p style="margin-top:18px;"><strong>Additional Notes:</strong><br>${fleetEsc(rec.additionalNotes)}</p>` : ''}
+      </body></html>`);
+    win.document.close();
+  }
+
+  function renderCompEodRows(){
+    const tbody = document.getElementById('comp_eod_rows');
+    const emptyNote = document.getElementById('comp_eod_emptyNote');
+    const rows = compEodInspections.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.submittedAt||'').localeCompare(a.submittedAt||''));
+    emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
+    const visionLabels = {
+      ok: '<span style="color:#00612C;">No Issues</span>',
+      issues_found: '<span style="color:#B3261E; font-weight:600;">Issues Found</span>',
+      failed: '<span style="color:var(--muted);">Check Failed</span>',
+      no_pti_photo: '<span style="color:var(--muted);">No PTI Photo to Compare</span>'
+    };
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.driverName)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${visionLabels[r.visionStatus] || '\u2014'}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+          <button type="button" class="comp-eod-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>
+          <button type="button" class="comp-eod-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.comp-eod-view').forEach(btn => btn.addEventListener('click', (e)=> viewEodDetails(e.target.dataset.id)));
+    tbody.querySelectorAll('.comp-eod-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Delete this end of day inspection record?')) return;
+      compEodInspections = compEodInspections.filter(r => r.id !== id);
+      try{ await window.dashboardApi.set(COMP_EOD_KEY, compEodInspections); }catch(err){ console.error(err); }
+      renderCompEodRows();
+    }));
+  }
+
+  async function viewEodDetails(id){
+    const rec = compEodInspections.find(r => r.id === id);
+    if(!rec) return;
+    // Opened synchronously, before any await, so it's never at risk of
+    // being blocked as a non-user-gesture popup -- filled in once ready.
+    const win = window.open();
+    if(!win) return;
+    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
+
+    let photoDataUri = null;
+    if(rec.backPhotoKey){
+      try{ photoDataUri = await window.dashboardApi.get(rec.backPhotoKey, null); }
+      catch(err){ console.error('EOD photo load failed:', err); }
+    }
+    const returnedRows = (rec.returnedItems || []).map(i => `
+      <tr>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(i.description)}</td>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(i.supplierItemNumber)}</td>
+        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(i.quantity)}</td>
+      </tr>`).join('');
+    const visionLabels2 = {
+      ok: '<span style="color:#00612C;">No Issues Found</span>',
+      issues_found: '<span style="color:#B3261E; font-weight:600;">Issues Found</span>',
+      failed: '<span style="color:#666;">Comparison Failed</span>',
+      no_pti_photo: '<span style="color:#666;">No Pre-Trip Photo Available to Compare</span>'
+    };
+    const visionIssuesHtml = (rec.visionStatus === 'issues_found' && Array.isArray(rec.visionIssues) && rec.visionIssues.length > 0)
+      ? `<ul style="margin:6px 0 0; padding-left:20px;">${rec.visionIssues.map(issue => `<li>${fleetEsc(issue.issue)}${issue.severity === 'moderate' ? ' <span style="color:#B3261E; font-weight:600;">(moderate)</span>' : ''}</li>`).join('')}</ul>`
+      : '';
+    win.document.open();
+    win.document.write(`<!DOCTYPE html><html><head><title>End of Day Inspection \u2014 ${fleetEsc(rec.truckNickname)} \u2014 ${fleetEsc(rec.date)}</title></head>
+      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
+        <h2 style="margin-bottom:4px;">End of Day Inspection</h2>
+        <p style="margin-top:0; line-height:1.6;">
+          <strong>Truck:</strong> ${fleetEsc(rec.truckNickname)}<br>
+          <strong>Date:</strong> ${fleetEsc(rec.date)}<br>
+          <strong>Driver:</strong> ${fleetEsc(rec.driverName)}<br>
+          ${(rec.jobNumbers && rec.jobNumbers.length > 0) ? `<strong>Job Number(s):</strong> ${fleetEsc(rec.jobNumbers.join(', '))}<br>` : ''}
+        </p>
+        <p style="margin:14px 0 18px; padding:10px 14px; background:#f5f5f5; border-radius:6px;">
+          <strong>Vision Check:</strong> ${visionLabels2[rec.visionStatus] || '\u2014'}
+          ${rec.visionSummary ? `<br><span style="color:#555;">${fleetEsc(rec.visionSummary)}</span>` : ''}
+          ${visionIssuesHtml}
+        </p>
+        ${photoDataUri ? `<p style="margin:14px 0 6px;"><strong>Truck Photo:</strong></p><img src="${photoDataUri}" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block; margin-bottom:18px;">` : (rec.backPhotoKey ? `<p style="margin:14px 0 18px; color:#B3261E;">Could not load the truck photo \u2014 check your connection and try again.</p>` : '')}
+        ${returnedRows ? `<p style="margin:14px 0 6px;"><strong>Materials Returned:</strong></p>
+        <table style="border-collapse:collapse; width:100%; margin-bottom:18px;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Item</th>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Item #</th>
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Qty</th>
+          </tr></thead>
+          <tbody>${returnedRows}</tbody>
+        </table>` : '<p style="margin:14px 0 18px; color:#666;">No materials returned.</p>'}
         ${rec.additionalNotes ? `<p style="margin-top:18px;"><strong>Additional Notes:</strong><br>${fleetEsc(rec.additionalNotes)}</p>` : ''}
       </body></html>`);
     win.document.close();
@@ -13914,11 +14024,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const listEl = document.getElementById('cm_ptiDayList');
     const emptyNote = document.getElementById('cm_ptiEmptyNote');
 
-    // Only jobs with both a Captain and an assignment date matter here, and only
-    // days strictly before today -- today isn't finished yet, so marking anyone
-    // "incomplete" while the day is still in progress would be misleading.
+    // Every day with a Captain-assigned job is shown, including today -- a
+    // captain whose day isn't over yet just reads as "Pending" rather than
+    // the red "Incomplete" flag reserved for a day that's actually finished
+    // without a matching Pre-Trip Inspection.
     const todayStr = new Date().toISOString().slice(0,10);
-    const relevant = archive.filter(j => j.captainName && j.assignmentDate && j.assignmentDate < todayStr);
+    const relevant = archive.filter(j => j.captainName && j.assignmentDate);
 
     if(relevant.length === 0){
       listEl.innerHTML = '';
@@ -13937,16 +14048,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     let html = '';
     days.forEach(day => {
+      const isToday = day === todayStr;
       const captains = [...byDay[day]].sort();
       let completeCount = 0;
       const rows = captains.map(captain => {
         const hasInspection = ptiRecords.some(p => p.driverName === captain && p.date === day);
         if(hasInspection) completeCount++;
+        const pendingLabel = isToday && !hasInspection;
+        const label = hasInspection ? 'Complete' : (pendingLabel ? 'Pending' : 'Incomplete');
+        const style = hasInspection ? 'background:#e8f5e9; color:#00612C;' : (pendingLabel ? 'background:#f0f0f0; color:var(--muted);' : 'background:#fdecea; color:#b3261e;');
         return `<tr>
           <td>${cmEsc(captain)}</td>
           <td style="text-align:right;">
-            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${hasInspection ? 'background:#e8f5e9; color:#00612C;' : 'background:#fdecea; color:#b3261e;'}">
-              ${hasInspection ? 'Complete' : 'Incomplete'}
+            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${style}">
+              ${label}
             </span>
           </td>
         </tr>`;
@@ -13955,7 +14070,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       html += `
       <div style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <strong>${window.fmtDate(day)}</strong>
+          <strong>${window.fmtDate(day)}${isToday ? ' (Today)' : ''}</strong>
           <span class="form-note" style="margin:0;">${completeCount} of ${captains.length} complete</span>
         </div>
         <table>
@@ -13972,10 +14087,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const listEl = document.getElementById('cm_eodDayList');
     const emptyNote = document.getElementById('cm_eodEmptyNote');
 
-    // A day only counts if it already has a Pre-Trip Inspection on file --
-    // nothing to "end" without a "start", and today isn't finished yet.
+    // Every day with a Pre-Trip Inspection on file is shown, including
+    // today -- a driver whose day isn't over yet just reads as "Pending"
+    // rather than the red "Incomplete" flag reserved for a day that's
+    // actually finished without a matching End of Day Inspection.
     const todayStr = new Date().toISOString().slice(0,10);
-    const relevant = ptiRecords.filter(p => p.driverName && p.date && p.date < todayStr);
+    const relevant = ptiRecords.filter(p => p.driverName && p.date);
 
     if(relevant.length === 0){
       listEl.innerHTML = '';
@@ -13994,16 +14111,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     let html = '';
     days.forEach(day => {
+      const isToday = day === todayStr;
       const captains = [...byDay[day]].sort();
       let completeCount = 0;
       const rows = captains.map(captain => {
         const hasInspection = eodRecords.some(e => e.driverName === captain && e.date === day);
         if(hasInspection) completeCount++;
+        const pendingLabel = isToday && !hasInspection;
+        const label = hasInspection ? 'Complete' : (pendingLabel ? 'Pending' : 'Incomplete');
+        const style = hasInspection ? 'background:#e8f5e9; color:#00612C;' : (pendingLabel ? 'background:#f0f0f0; color:var(--muted);' : 'background:#fdecea; color:#b3261e;');
         return `<tr>
           <td>${cmEsc(captain)}</td>
           <td style="text-align:right;">
-            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${hasInspection ? 'background:#e8f5e9; color:#00612C;' : 'background:#fdecea; color:#b3261e;'}">
-              ${hasInspection ? 'Complete' : 'Incomplete'}
+            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${style}">
+              ${label}
             </span>
           </td>
         </tr>`;
@@ -14012,7 +14133,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       html += `
       <div style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <strong>${window.fmtDate(day)}</strong>
+          <strong>${window.fmtDate(day)}${isToday ? ' (Today)' : ''}</strong>
           <span class="form-note" style="margin:0;">${completeCount} of ${captains.length} complete</span>
         </div>
         <table>
