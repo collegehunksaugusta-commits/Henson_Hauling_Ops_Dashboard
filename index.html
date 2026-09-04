@@ -4007,6 +4007,28 @@
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
           <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim.</p>
 
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Captain Metrics</h4>
+          <p class="form-note" id="appset_cmResetDateCurrent" style="margin-top:0;"></p>
+          <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
+            <label>Metrics Reset Date <input type="date" id="appset_cmResetDate"></label>
+            <div class="form-actions" style="margin:0;">
+              <button type="button" id="appset_cmResetDateBtn" style="background:#B3261E; border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Set Reset Date</button>
+              <span class="status-msg" id="appset_cmResetDateStatus"></span>
+            </div>
+          </div>
+          <p class="form-note">Everything dated before this day is excluded from every section of Captain Metrics &mdash; Pre-Trip/End of Day Compliance, Truck Condition Issues, and Paperwork Quality &mdash; for every Captain. Nothing is deleted; it's just left out of the scoring. Since this changes how every Captain's performance is measured, it requires your Override PIN to change.</p>
+
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Ops Manager Metrics</h4>
+          <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
+          <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
+            <label>Metrics Reset Date <input type="date" id="appset_omResetDate"></label>
+            <div class="form-actions" style="margin:0;">
+              <button type="button" id="appset_omResetDateBtn" style="background:#B3261E; border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Set Reset Date</button>
+              <span class="status-msg" id="appset_omResetDateStatus"></span>
+            </div>
+          </div>
+          <p class="form-note">Everything dated before this day is excluded from Ops Manager Metrics &mdash; currently Paperwork Close-Out. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
+
           <div class="form-actions" style="margin-top:16px;">
             <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
             <span class="status-msg" id="set_appSettingsStatus"></span>
@@ -4168,6 +4190,12 @@
     },
     damageClaims: {
       emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
+    },
+    captainMetrics: {
+      resetDate: ''
+    },
+    opsManagerMetrics: {
+      resetDate: ''
     }
   };
   let appSettingsLoaded = false;
@@ -10681,6 +10709,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const paperwork = s.paperwork || {};
     const materials = s.materials || {};
     const damageClaims = s.damageClaims || {};
+    const captainMetrics = s.captainMetrics || {};
+    const opsManagerMetrics = s.opsManagerMetrics || {};
     document.getElementById('appset_redfinSouthCarolina').value = marketing.redfinSouthCarolina || '';
     document.getElementById('appset_redfinEvansMartinez').value = marketing.redfinEvansMartinez || '';
     document.getElementById('appset_redfinAugusta').value = marketing.redfinAugusta || '';
@@ -10694,6 +10724,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_orderDeadlineDay').value = (materials.orderDeadlineDay === 0 || materials.orderDeadlineDay) ? String(materials.orderDeadlineDay) : '';
     document.getElementById('appset_orderDeadlineTime').value = materials.orderDeadlineTime || '';
     document.getElementById('appset_damageClaimEmailBody').value = damageClaims.emailBodyTemplate || '';
+    document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
+    document.getElementById('appset_cmResetDateCurrent').textContent = captainMetrics.resetDate
+      ? `Currently set to ${window.fmtDate(captainMetrics.resetDate)} \u2014 nothing before that date counts toward Captain Metrics.`
+      : 'Not currently set \u2014 Captain Metrics includes all history.';
+    document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
+    document.getElementById('appset_omResetDateCurrent').textContent = opsManagerMetrics.resetDate
+      ? `Currently set to ${window.fmtDate(opsManagerMetrics.resetDate)} \u2014 nothing before that date counts toward Ops Manager Metrics.`
+      : 'Not currently set \u2014 Ops Manager Metrics includes all history.';
     loadOverridePinStatus();
   }
 
@@ -10742,6 +10780,114 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       loadOverridePinStatus();
     }catch(err){
       console.error('Save PIN failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_cmResetDateBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_cmResetDateStatus');
+    const resetDate = document.getElementById('appset_cmResetDate').value;
+    if(!resetDate){
+      statusEl.textContent = 'Choose a date first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const pin = prompt('Enter the Administrator Override PIN to change the Captain Metrics reset date:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { captainMetrics: { resetDate } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save the reset date.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.captainMetrics = Object.assign({}, window.appSettings.captainMetrics, { resetDate });
+      document.getElementById('appset_cmResetDateCurrent').textContent = `Currently set to ${window.fmtDate(resetDate)} \u2014 nothing before that date counts toward Captain Metrics.`;
+      statusEl.textContent = 'Reset date saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Set Captain Metrics reset date failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_omResetDateBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_omResetDateStatus');
+    const resetDate = document.getElementById('appset_omResetDate').value;
+    if(!resetDate){
+      statusEl.textContent = 'Choose a date first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const pin = prompt('Enter the Administrator Override PIN to change the Ops Manager Metrics reset date:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { opsManagerMetrics: { resetDate } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save the reset date.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.opsManagerMetrics = Object.assign({}, window.appSettings.opsManagerMetrics, { resetDate });
+      document.getElementById('appset_omResetDateCurrent').textContent = `Currently set to ${window.fmtDate(resetDate)} \u2014 nothing before that date counts toward Ops Manager Metrics.`;
+      statusEl.textContent = 'Reset date saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Set Ops Manager Metrics reset date failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -13999,21 +14145,33 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function loadCaptainMetricsData(){
     let archive = [];
     try{
+      await window.ensureAppSettingsLoaded();
+      const resetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
+
       const [archiveResult, ptiRecords, eodRecords] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
         window.dashboardApi.get('compliance-pretrip-inspections', []),
         window.dashboardApi.get('compliance-eod-inspections', [])
       ]);
-      archive = archiveResult || [];
-      renderCaptainPtiCompliance(archive, ptiRecords || []);
-      renderCaptainEodCompliance(ptiRecords || [], eodRecords || []);
-      renderTruckIssues(eodRecords || []);
+      // Nothing dated before the reset date counts toward any Captain
+      // Metrics section -- applied once here, centrally, so every render
+      // function below sees the same, already-clean data. Records
+      // themselves are never touched, only left out of the scoring.
+      archive = resetDate ? (archiveResult || []).filter(j => !j.assignmentDate || j.assignmentDate >= resetDate) : (archiveResult || []);
+      const filteredPti = resetDate ? (ptiRecords || []).filter(p => !p.date || p.date >= resetDate) : (ptiRecords || []);
+      const filteredEod = resetDate ? (eodRecords || []).filter(e => !e.date || e.date >= resetDate) : (eodRecords || []);
+
+      renderCaptainPtiCompliance(archive, filteredPti);
+      renderCaptainEodCompliance(filteredPti, filteredEod);
+      renderTruckIssues(filteredEod);
     }catch(err){
       console.error('Captain Metrics load failed:', err);
     }
     try{
-      const uploads = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []);
-      renderCaptainCompleteness(archive, uploads || []);
+      const resetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
+      const uploadsRaw = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []);
+      const uploads = resetDate ? (uploadsRaw || []).filter(u => !u.uploadedAt || u.uploadedAt.slice(0,10) >= resetDate) : (uploadsRaw || []);
+      renderCaptainCompleteness(archive, uploads);
     }catch(err){
       console.error('Captain Metrics completeness load failed:', err);
     }
@@ -14233,11 +14391,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // ---------- Ops Manager Metrics ----------
   async function loadOpsMetricsData(){
     try{
-      const [archive, uploads] = await Promise.all([
+      await window.ensureAppSettingsLoaded();
+      const resetDate = (window.appSettings.opsManagerMetrics && window.appSettings.opsManagerMetrics.resetDate) || '';
+
+      const [archiveResult, uploads] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, [])
       ]);
-      renderPaperworkCloseout(archive || [], uploads || []);
+      // Nothing dated before the reset date counts toward Ops Manager
+      // Metrics -- filtered here, centrally, before rendering. Records
+      // themselves are never touched, only left out of the scoring.
+      const archive = resetDate
+        ? (archiveResult || []).filter(j => {
+            const d = j.assignmentDate || (j.savedAt ? j.savedAt.slice(0,10) : '');
+            return !d || d >= resetDate;
+          })
+        : (archiveResult || []);
+      renderPaperworkCloseout(archive, uploads || []);
     }catch(err){
       console.error('Ops Metrics load failed:', err);
     }
