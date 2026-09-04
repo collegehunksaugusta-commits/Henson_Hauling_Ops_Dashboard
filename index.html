@@ -4016,7 +4016,7 @@
               <span class="status-msg" id="appset_cmResetDateStatus"></span>
             </div>
           </div>
-          <p class="form-note">Everything dated before this day is excluded from every section of Captain Metrics &mdash; Pre-Trip/End of Day Compliance, Truck Condition Issues, and Paperwork Quality &mdash; for every Captain. Nothing is deleted; it's just left out of the scoring. Since this changes how every Captain's performance is measured, it requires your Override PIN to change.</p>
+          <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from every section of Captain Metrics &mdash; Pre-Trip/End of Day Compliance, Truck Condition Issues, and Paperwork Quality &mdash; for every Captain. Nothing is deleted; it's just left out of the scoring. Since this changes how every Captain's performance is measured, it requires your Override PIN to change.</p>
 
           <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Ops Manager Metrics</h4>
           <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
@@ -4027,7 +4027,7 @@
               <span class="status-msg" id="appset_omResetDateStatus"></span>
             </div>
           </div>
-          <p class="form-note">Everything dated before this day is excluded from Ops Manager Metrics &mdash; currently Paperwork Close-Out. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
+          <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from Ops Manager Metrics &mdash; currently Paperwork Close-Out. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
 
           <div class="form-actions" style="margin-top:16px;">
             <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
@@ -4215,6 +4215,18 @@
     return window.appSettings;
   }
   window.ensureAppSettingsLoaded = ensureAppSettingsLoaded;
+
+  // A future reset date is scheduled, not yet active -- everything still
+  // counts normally until that day arrives. Shared so this reads the same
+  // way everywhere it's shown (Captain Metrics and Ops Manager Metrics).
+  function formatResetDateStatus(resetDate, metricsLabel){
+    if(!resetDate) return `Not currently set \u2014 ${metricsLabel} includes all history.`;
+    const todayStr = new Date().toISOString().slice(0,10);
+    if(resetDate > todayStr){
+      return `Scheduled for ${window.fmtDate(resetDate)} \u2014 still counting all history until then. Nothing will be excluded from ${metricsLabel} until that day arrives.`;
+    }
+    return `Active since ${window.fmtDate(resetDate)} \u2014 nothing before that date counts toward ${metricsLabel}.`;
+  }
 
   let weeks = [];
   let chart = null;
@@ -10725,13 +10737,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_orderDeadlineTime').value = materials.orderDeadlineTime || '';
     document.getElementById('appset_damageClaimEmailBody').value = damageClaims.emailBodyTemplate || '';
     document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
-    document.getElementById('appset_cmResetDateCurrent').textContent = captainMetrics.resetDate
-      ? `Currently set to ${window.fmtDate(captainMetrics.resetDate)} \u2014 nothing before that date counts toward Captain Metrics.`
-      : 'Not currently set \u2014 Captain Metrics includes all history.';
+    document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(captainMetrics.resetDate, 'Captain Metrics');
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
-    document.getElementById('appset_omResetDateCurrent').textContent = opsManagerMetrics.resetDate
-      ? `Currently set to ${window.fmtDate(opsManagerMetrics.resetDate)} \u2014 nothing before that date counts toward Ops Manager Metrics.`
-      : 'Not currently set \u2014 Ops Manager Metrics includes all history.';
+    document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
     loadOverridePinStatus();
   }
 
@@ -10829,7 +10837,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
       window.appSettings.captainMetrics = Object.assign({}, window.appSettings.captainMetrics, { resetDate });
-      document.getElementById('appset_cmResetDateCurrent').textContent = `Currently set to ${window.fmtDate(resetDate)} \u2014 nothing before that date counts toward Captain Metrics.`;
+      document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(resetDate, 'Captain Metrics');
       statusEl.textContent = 'Reset date saved.';
       statusEl.className = 'status-msg ok';
     }catch(err){
@@ -10883,7 +10891,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
       window.appSettings.opsManagerMetrics = Object.assign({}, window.appSettings.opsManagerMetrics, { resetDate });
-      document.getElementById('appset_omResetDateCurrent').textContent = `Currently set to ${window.fmtDate(resetDate)} \u2014 nothing before that date counts toward Ops Manager Metrics.`;
+      document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(resetDate, 'Ops Manager Metrics');
       statusEl.textContent = 'Reset date saved.';
       statusEl.className = 'status-msg ok';
     }catch(err){
@@ -14146,7 +14154,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     let archive = [];
     try{
       await window.ensureAppSettingsLoaded();
-      const resetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
+      const configuredResetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
+      // A future reset date schedules the reset rather than applying it
+      // immediately -- everything keeps counting normally right up until
+      // that day arrives, then the cutoff kicks in on its own from there.
+      const todayStr = new Date().toISOString().slice(0,10);
+      const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
 
       const [archiveResult, ptiRecords, eodRecords] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
@@ -14168,7 +14181,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       console.error('Captain Metrics load failed:', err);
     }
     try{
-      const resetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
+      const configuredResetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
+      const todayStr = new Date().toISOString().slice(0,10);
+      const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
       const uploadsRaw = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []);
       const uploads = resetDate ? (uploadsRaw || []).filter(u => !u.uploadedAt || u.uploadedAt.slice(0,10) >= resetDate) : (uploadsRaw || []);
       renderCaptainCompleteness(archive, uploads);
@@ -14392,7 +14407,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function loadOpsMetricsData(){
     try{
       await window.ensureAppSettingsLoaded();
-      const resetDate = (window.appSettings.opsManagerMetrics && window.appSettings.opsManagerMetrics.resetDate) || '';
+      const configuredResetDate = (window.appSettings.opsManagerMetrics && window.appSettings.opsManagerMetrics.resetDate) || '';
+      // A future reset date schedules the reset rather than applying it
+      // immediately -- everything keeps counting normally right up until
+      // that day arrives, then the cutoff kicks in on its own from there.
+      const todayStr = new Date().toISOString().slice(0,10);
+      const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
 
       const [archiveResult, uploads] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
