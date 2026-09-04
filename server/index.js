@@ -4,7 +4,7 @@ const Redis = require('ioredis');
 const crypto = require('crypto');
 
 const app = express();
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '15mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cors());
 
 function hashPassword(password) {
@@ -80,6 +80,87 @@ function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
   return ALLOWED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
 }
+
+// ============ GitHub webhook: auto-archive source snapshots ============
+// Fires on every push to the repo's default branch. If index.html or
+// server/index.js changed, fetches that exact commit's version and stores
+// it in the same in-app "Dashboard Source Code" archive the manual upload
+// panel writes to (settings-config-files / settings-config-doc-*), so a
+// snapshot lands there automatically without a second manual upload step.
+// Configured on GitHub's side under Repo Settings > Webhooks, pointed at
+// this endpoint, with the shared secret set as GITHUB_WEBHOOK_SECRET here.
+const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
+const CONFIG_SNAPSHOT_TARGETS = [
+  { path: 'index.html', fileType: 'html', mimeType: 'text/html' },
+  { path: 'server/index.js', fileType: 'server', mimeType: 'text/javascript' }
+];
+
+function verifyGithubSignature(req) {
+  if (!GITHUB_WEBHOOK_SECRET || !req.rawBody) return false;
+  const signature = req.headers['x-hub-signature-256'];
+  if (typeof signature !== 'string' || !signature.startsWith('sha256=')) return false;
+  const hmac = crypto.createHmac('sha256', GITHUB_WEBHOOK_SECRET);
+  const digest = 'sha256=' + hmac.update(req.rawBody).digest('hex');
+  const sigBuf = Buffer.from(signature);
+  const digestBuf = Buffer.from(digest);
+  if (sigBuf.length !== digestBuf.length) return false;
+  return crypto.timingSafeEqual(sigBuf, digestBuf);
+}
+
+app.post('/api/github-webhook', async (req, res) => {
+  // Respond immediately -- GitHub expects a fast response and will flag the
+  // webhook as unhealthy otherwise, regardless of whether there's anything
+  // in this particular push worth snapshotting.
+  res.json({ ok: true });
+
+  if (!verifyGithubSignature(req)) {
+    console.error('GitHub webhook: invalid or missing signature, ignoring.');
+    return;
+  }
+  if (req.headers['x-github-event'] !== 'push') return;
+
+  const payload = req.body || {};
+  const commit = payload.head_commit;
+  const repoFullName = payload.repository && payload.repository.full_name;
+  const defaultBranch = payload.repository && payload.repository.default_branch;
+  if (!commit || !repoFullName) return; // e.g. a branch deletion push has no head_commit
+  if (defaultBranch && payload.ref !== `refs/heads/${defaultBranch}`) return; // ignore pushes to other branches
+
+  const changedFiles = new Set([...(commit.added || []), ...(commit.modified || [])]);
+
+  for (const target of CONFIG_SNAPSHOT_TARGETS) {
+    if (!changedFiles.has(target.path)) continue;
+    try {
+      const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/${commit.id}/${target.path}`;
+      const fileRes = await fetch(rawUrl);
+      if (!fileRes.ok) {
+        console.error(`GitHub webhook: could not fetch ${target.path} at ${commit.id}, status ${fileRes.status}`);
+        continue;
+      }
+      const content = await fileRes.text();
+      const dataUri = `data:${target.mimeType};base64,${Buffer.from(content, 'utf-8').toString('base64')}`;
+
+      const fileId = 'config_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+      await redis.set('settings-config-doc-' + fileId, JSON.stringify(dataUri));
+
+      const filesRaw = await redis.get('settings-config-files');
+      const files = filesRaw ? JSON.parse(filesRaw) : [];
+      const shortSha = commit.id.slice(0, 7);
+      const commitMessage = (commit.message || '').split('\n')[0].slice(0, 200);
+      files.push({
+        id: fileId,
+        fileType: target.fileType,
+        fileName: target.path.split('/').pop(),
+        notes: `Auto-saved from GitHub commit ${shortSha}${commitMessage ? ': ' + commitMessage : ''}`,
+        uploadedAt: commit.timestamp || new Date().toISOString()
+      });
+      await redis.set('settings-config-files', JSON.stringify(files));
+      console.log(`GitHub webhook: saved ${target.path} snapshot from commit ${shortSha}`);
+    } catch (err) {
+      console.error(`GitHub webhook: failed to snapshot ${target.path}:`, err.message);
+    }
+  }
+});
 
 // ============ Auth: user accounts (stored separately, never exposed via /api/data) ============
 const USERS_KEY = 'auth:users';
