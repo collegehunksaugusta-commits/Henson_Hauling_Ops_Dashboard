@@ -837,7 +837,7 @@
     loadDriverLeaderboard();
   }
 
-  function showDriverInspection(){
+  async function showDriverInspection(){
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
@@ -847,15 +847,19 @@
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
-    loadDriverTrucks();
-    loadDriverRoster();
     renderPtiChecklist();
-    loadDriverPtiMaterialsItems();
-    checkPtiMaterialsGate();
     ptiCapturedPhoto = null;
     document.getElementById('pti_photoPreviewWrap').style.display = 'none';
     document.getElementById('pti_photoCaptureBtn').textContent = 'Take Photo';
     document.getElementById('pti_photoStatus').textContent = '';
+
+    // Restoring a draft needs every <select>'s options already populated,
+    // or setting .value on it silently does nothing -- so this waits for
+    // all three loads before attempting it.
+    await Promise.all([loadDriverTrucks(), loadDriverRoster(), loadDriverPtiMaterialsItems()]);
+    checkPtiMaterialsGate();
+    restorePtiDraftIfAny();
+    startPtiDraftAutosave();
   }
 
   function showDriverNbhd(){
@@ -1001,7 +1005,10 @@
   document.getElementById('driverGoToEodBtn').addEventListener('click', showDriverEod);
   document.getElementById('driverEodBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverEodLogoutBtn').addEventListener('click', driverLogout);
-  document.getElementById('driverInspectionBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverInspectionBackBtn').addEventListener('click', ()=>{
+    stopPtiDraftAutosave();
+    showDriverMenu();
+  });
   document.getElementById('driverNbhdBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverTruckDocsBackBtn').addEventListener('click', showDriverMenu);
 
@@ -1049,6 +1056,7 @@
         body: JSON.stringify({token: driverToken})
       });
     }catch(err){ console.error('Driver logout failed:', err); }
+    stopPtiDraftAutosave();
     localStorage.removeItem('henson_driver_token');
     driverToken = null;
     showDriverCodeForm();
@@ -1059,6 +1067,7 @@
   document.getElementById('driverTruckDocsLogoutBtn').addEventListener('click', driverLogout);
 
   function driverSessionExpired(){
+    stopPtiDraftAutosave();
     localStorage.removeItem('henson_driver_token');
     driverToken = null;
     showDriverCodeForm();
@@ -1444,6 +1453,118 @@
     }
   }
 
+  // ---------- Pre-Trip Inspection: draft persistence ----------
+  // Protects against losing in-progress work if the page gets reloaded out
+  // from under the driver mid-inspection -- most notably, iOS aggressively
+  // reclaims a PWA's memory when the native camera app takes focus during
+  // photo capture, which can silently reload the page on return and drop
+  // everything typed so far. Saved to localStorage (survives a reload,
+  // unlike anything held only in JS variables) and restored automatically
+  // the next time this screen opens, so a dropped photo costs a driver a
+  // few seconds, not the whole inspection.
+  const PTI_DRAFT_KEY = 'henson_pti_draft';
+  const PTI_DRAFT_MAX_AGE_MS = 12 * 60 * 60 * 1000; // one shift's worth -- old enough drafts are just noise, not help
+
+  function savePtiDraft(){
+    try{
+      const checklist = Array.from(document.querySelectorAll('#pti_checklist .pti-item')).map(item => {
+        const activeBtn = item.querySelector('.pti-status-btn.active');
+        return { status: activeBtn ? activeBtn.dataset.status : null, note: item.querySelector('.pti-note').value };
+      });
+      const matcoItems = Array.from(document.querySelectorAll('.pti-matco-qty')).map(input => ({ itemId: input.dataset.itemId, quantity: input.value }));
+      const draft = {
+        truckId: document.getElementById('pti_truck').value,
+        driverNameSelect: document.getElementById('pti_driverNameSelect').value,
+        driverNameOther: document.getElementById('pti_driverNameOther').value,
+        odometer: document.getElementById('pti_odometer').value,
+        additionalNotes: document.getElementById('pti_additionalNotes').value,
+        matcoJobNumbers: document.getElementById('pti_matco_jobNumbers').value,
+        matcoItems,
+        checklist,
+        photo: ptiCapturedPhoto,
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem(PTI_DRAFT_KEY, JSON.stringify(draft));
+    }catch(err){
+      console.error('Could not save PTI draft:', err);
+    }
+  }
+
+  function stopPtiDraftAutosave(){
+    if(ptiDraftAutosaveTimer){ clearInterval(ptiDraftAutosaveTimer); ptiDraftAutosaveTimer = null; }
+  }
+
+  function clearPtiDraft(){
+    localStorage.removeItem(PTI_DRAFT_KEY);
+    stopPtiDraftAutosave();
+  }
+
+  // Runs once the truck/roster/materials lists have all finished loading,
+  // so restored <select> values land on options that actually exist yet --
+  // setting a select's value before its options exist just silently fails.
+  function restorePtiDraftIfAny(){
+    let draft;
+    try{
+      const raw = localStorage.getItem(PTI_DRAFT_KEY);
+      if(!raw) return false;
+      draft = JSON.parse(raw);
+    }catch(err){
+      console.error('Could not read PTI draft:', err);
+      return false;
+    }
+    if(!draft || !draft.savedAt || (Date.now() - new Date(draft.savedAt).getTime()) > PTI_DRAFT_MAX_AGE_MS){
+      clearPtiDraft();
+      return false;
+    }
+
+    if(draft.truckId) document.getElementById('pti_truck').value = draft.truckId;
+    if(draft.driverNameSelect) document.getElementById('pti_driverNameSelect').value = draft.driverNameSelect;
+    if(draft.driverNameOther){
+      document.getElementById('pti_driverNameOther').value = draft.driverNameOther;
+      document.getElementById('pti_driverNameOtherWrap').style.display = 'block';
+    }
+    document.getElementById('pti_odometer').value = draft.odometer || '';
+    document.getElementById('pti_additionalNotes').value = draft.additionalNotes || '';
+    document.getElementById('pti_matco_jobNumbers').value = draft.matcoJobNumbers || '';
+
+    (draft.matcoItems || []).forEach(saved => {
+      const input = document.querySelector(`.pti-matco-qty[data-item-id="${saved.itemId}"]`);
+      if(input) input.value = saved.quantity;
+    });
+
+    const checklistItems = document.querySelectorAll('#pti_checklist .pti-item');
+    (draft.checklist || []).forEach((saved, i) => {
+      const item = checklistItems[i];
+      if(!item || !saved.status) return;
+      const btn = item.querySelector(`.pti-status-btn[data-status="${saved.status}"]`);
+      if(btn) btn.click(); // reuses the existing click handler to set .active and toggle the note field
+      if(saved.note) item.querySelector('.pti-note').value = saved.note;
+    });
+
+    if(draft.photo){
+      ptiCapturedPhoto = draft.photo;
+      document.getElementById('pti_photoPreviewWrap').style.display = 'block';
+      document.getElementById('pti_photoPreview').src = draft.photo;
+      document.getElementById('pti_photoCaptureBtn').textContent = 'Retake Photo';
+    }
+
+    // The materials gate depends on which driver is selected -- re-check it
+    // now that the restored name is in place, since the initial check in
+    // showDriverInspection() ran before this draft was restored.
+    checkPtiMaterialsGate();
+
+    const statusEl = document.getElementById('pti_submitStatus');
+    statusEl.textContent = 'Restored your in-progress inspection from earlier \u2014 review and submit when ready.';
+    statusEl.className = 'status-msg ok';
+    return true;
+  }
+
+  let ptiDraftAutosaveTimer = null;
+  function startPtiDraftAutosave(){
+    if(ptiDraftAutosaveTimer) clearInterval(ptiDraftAutosaveTimer);
+    ptiDraftAutosaveTimer = setInterval(savePtiDraft, 10000);
+  }
+
   let ptiCapturedPhoto = null;
   document.getElementById('pti_photoCaptureBtn').addEventListener('click', ()=> document.getElementById('pti_photoInput').click());
   document.getElementById('pti_photoInput').addEventListener('change', async (e)=>{
@@ -1453,6 +1574,7 @@
       previewImgId: 'pti_photoPreview', previewWrapId: 'pti_photoPreviewWrap',
       statusElId: 'pti_photoStatus', captureBtnId: 'pti_photoCaptureBtn'
     });
+    if(ptiCapturedPhoto) savePtiDraft();
     e.target.value = '';
   });
 
@@ -1570,6 +1692,7 @@
       document.getElementById('pti_photoCaptureBtn').textContent = 'Take Photo';
       renderPtiChecklist();
       checkPtiMaterialsGate();
+      clearPtiDraft();
     }catch(err){
       console.error('Submit inspection failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
