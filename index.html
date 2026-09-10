@@ -11844,9 +11844,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return {charge, note, tierUsed:tier, billWeight, rate:rateOf(tier), mileBand:`${row[0]}-${row[1]}`};
   }
 
+  // ---------- Minimum billable weight ----------
+  // Never applied to the input field itself while typing (recalc fires on
+  // every keystroke -- overwriting the field would make it impossible to
+  // type past "2" toward "2500"). Instead, every downstream calculation
+  // that reads weight uses this clamped value, and a note next to the
+  // charge breakdown makes the override visible.
+  const MIN_BILLABLE_WEIGHT = 2000;
+  function getBillableWeight(){
+    const raw = parseFloat(document.getElementById('weight').value) || 0;
+    const billable = (raw > 0 && raw < MIN_BILLABLE_WEIGHT) ? MIN_BILLABLE_WEIGHT : raw;
+    return { raw, billable, wasClamped: raw > 0 && raw < MIN_BILLABLE_WEIGHT };
+  }
+
   // ---------- Main recalc ----------
   function recalc(){
-    const weight = parseFloat(document.getElementById('weight').value) || 0;
+    const { raw: rawWeight, billable: weight, wasClamped: weightClamped } = getBillableWeight();
     const miles = parseFloat(document.getElementById('miles').value) || 0;
     const dayType = document.getElementById('dayType').value;
     const isLocal = miles > 0 && miles <= 50;
@@ -11897,10 +11910,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(isLong){
       const result = computeWeightDistanceCharge(weight, miles);
       const infoEl = document.getElementById('weightTierInfo');
+      const minNote = weightClamped ? `2,000 lb minimum applied (entered ${rawWeight.toLocaleString()} lbs). ` : '';
       if(result.mileBand){
-        infoEl.textContent = `Mileage band ${result.mileBand} mi, billed weight ${result.billWeight.toLocaleString()} lbs at $${result.rate.toFixed(2)}/100lb. ${result.note}`;
+        infoEl.textContent = `${minNote}Mileage band ${result.mileBand} mi, billed weight ${result.billWeight.toLocaleString()} lbs at $${result.rate.toFixed(2)}/100lb. ${result.note}`;
       } else {
-        infoEl.textContent = result.note;
+        infoEl.textContent = minNote + result.note;
       }
       items.push([`Weight & Distance Transportation (${weight.toLocaleString()} lbs, ${miles} mi)`, result.charge]);
 
@@ -12022,7 +12036,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   const VALUATION_PER_LB = 6.00; // general moving-industry standard for estimating declared value; not itself part of Tariff No. 7
 
   function updateValuationSuggestion(){
-    const weight = parseFloat(document.getElementById('weight').value) || 0;
+    const { billable: weight } = getBillableWeight();
     const rooms = parseFloat(document.getElementById('roomCount').value) || 0;
     const weightEst = weight * VALUATION_PER_LB;
     const roomMin = rooms * 5000;
@@ -12042,6 +12056,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   });
   ['weight','roomCount'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateValuationSuggestion);
+  });
+  // Only on change (fires when the field loses focus), never on every
+  // keystroke -- so typing "2500" is never disrupted by an intermediate
+  // "2" getting snapped to "2000" first.
+  document.getElementById('weight').addEventListener('change', () => {
+    const { billable, wasClamped } = getBillableWeight();
+    if(wasClamped) document.getElementById('weight').value = billable;
   });
 
   document.querySelectorAll('input, select').forEach(el => {
