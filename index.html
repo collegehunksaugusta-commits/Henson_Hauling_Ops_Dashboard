@@ -2352,10 +2352,9 @@
         <p>Send a client a link to upload photos of moving damage, and get notified when they do.</p>
       </div>
       <div class="tile" id="tile-junkremoval" tabindex="0" role="button" aria-label="Open Junk Removal">
-        <span class="badge" id="junkRemovalTileBadge" style="display:none;">Needs Captain</span>
         <span class="icon">🗑️</span>
         <h3>Junk Removal</h3>
-        <p>Assign Captains to junk removal jobs, and review Claude's photo-based volume estimates.</p>
+        <p>Review each junk removal job's photos and Claude's volume estimates. Captains are assigned during the morning batch upload in Job Paperwork.</p>
       </div>
         </div>
       </div>
@@ -2983,9 +2982,15 @@
         </div>
 
         <div id="pwBatch_excludedWrap" style="display:none; margin-top:20px;">
-          <h4 style="margin-bottom:6px;">Excluded &mdash; Junk Removal (no paperwork needed)</h4>
-          <p class="form-note">These were found in the uploaded files but skipped, since junk removal jobs don't get a work package.</p>
+          <h4 style="margin-bottom:6px;">Excluded &mdash; Estimates (no paperwork needed yet)</h4>
+          <p class="form-note">These were found in the uploaded files but skipped, since an estimate isn't a booked job yet.</p>
           <div id="pwBatch_excludedRows"></div>
+        </div>
+
+        <div id="pwBatch_junkRemovalWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Junk Removal &mdash; Assign a Captain</h4>
+          <p class="form-note">Every junk removal job that isn't finished yet, from any day &mdash; assign or change the Captain here anytime, including mid-day if plans change. Changing it here updates what shows in that Captain's Driver Portal right away.</p>
+          <div id="pwBatch_junkRemovalRows"></div>
         </div>
 
         <div id="pwBatch_packagesWrap" style="display:none; margin-top:20px;">
@@ -3349,7 +3354,7 @@
     <button class="backlink" id="junkRemovalBackBtn">&larr; Dispatch</button>
     <div class="detail-head">
       <h2 class="display">Junk Removal</h2>
-      <p>Jobs land here automatically when the morning work order batch in Job Paperwork identifies them. Assign a Captain to each one below &mdash; once assigned, it shows up in that Captain's Driver Portal for the on-site photo estimate.</p>
+      <p>Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. This tile is for review &mdash; each job's on-site and loaded-truck photos, and Claude's volume estimates for both.</p>
     </div>
     <div class="panel" id="junkRemovalJobsPanel">
       <h3>Jobs</h3>
@@ -4769,6 +4774,9 @@
     }
     if(view === 'junkremoval'){
       window.loadJunkRemovalJobs();
+    }
+    if(view === 'paperwork'){
+      window.loadPwBatchJunkRemovalPersistent();
     }
     if(view === 'tips'){
       loadTipsData();
@@ -8790,7 +8798,7 @@
   // future badge-toggling function keeps working exactly as it does today --
   // nothing scattered elsewhere in this file needs to know sections exist.
   (function watchTileBadgesForAttentionSync(){
-    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge', 'damageClaimTileBadge', 'junkRemovalTileBadge'];
+    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge', 'damageClaimTileBadge'];
     const observer = new MutationObserver(updateDashSectionAttentionBadges);
     badgeIds.forEach(id => {
       const el = document.getElementById(id);
@@ -13047,7 +13055,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let pwBatchPastedImages = []; // {id, previewDataUri, originalFile, isPdf}
   let pwBatchReview = [];       // review rows before generation
   let pwBatchPackages = [];     // generated work packages {jobNumber, clientName, jobType, html, extraNote}
-  let pwBatchExcluded = [];     // junk removal jobs found but excluded (no paperwork needed)
+  let pwBatchExcluded = [];     // estimates found but excluded (no paperwork needed until booked)
+  let pwBatchJunkRemoval = [];  // all active junk removal jobs (any day), available here for Captain assignment/reassignment
   let pwBatchRosterCache = null;
 
   function pwBatchEsc(s){
@@ -13237,26 +13246,37 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const junkDocs = allDocuments.filter(d => d.serviceType === 'junkremoval');
       const estimateDocs = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType === 'estimate');
       const documents = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType !== 'estimate');
-      pwBatchExcluded = junkDocs.map(d => ({
-        jobNumber: d.jobNumber || '(no job # read)',
-        clientName: d.clientName || '(no client name read)',
-        thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
-        reason: 'Junk Removal'
-      })).concat(estimateDocs.map(d => ({
+      pwBatchExcluded = estimateDocs.map(d => ({
         jobNumber: d.jobNumber || '(no job # read)',
         clientName: d.clientName || '(no client name read)',
         thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
         reason: 'Estimate'
-      })));
-      await createJunkRemovalJobsFromExcluded(junkDocs);
+      }));
+      const junkRemovalRecords = await createJunkRemovalJobsFromExcluded(junkDocs);
+      // Attach a thumbnail to each returned record by matching back to this
+      // batch's source doc, purely for display in the assignment cards below.
+      const thisBatchWithThumbnails = junkRemovalRecords.map(rec => {
+        const sourceDoc = junkDocs.find(d => d.jobNumber === rec.jobNumber);
+        const thumbnail = sourceDoc ? (pwBatchPastedImages[sourceDoc.fileIndex] && pwBatchPastedImages[sourceDoc.fileIndex].allPageDataUris[sourceDoc.firstPageIndex]) || null : null;
+        return Object.assign({}, rec, { thumbnail });
+      });
+      // Merge into whatever's already showing (e.g. older active jobs
+      // loaded when this screen first opened) rather than overwriting --
+      // so a fresh upload never hides jobs from earlier in the day/week
+      // that still need a Captain assigned or reassigned.
+      const thisBatchById = new Map(thisBatchWithThumbnails.map(j => [j.id, j]));
+      pwBatchJunkRemoval = pwBatchJunkRemoval
+        .filter(existing => !thisBatchById.has(existing.id))
+        .concat(thisBatchWithThumbnails);
 
       if(documents.length === 0){
         renderPwBatchExcluded();
+        await renderPwBatchJunkRemoval();
         const excludedParts = [];
         if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
         if(estimateDocs.length > 0) excludedParts.push(`${estimateDocs.length} estimate${estimateDocs.length===1?'':'s'}`);
         statusEl.textContent = excludedParts.length > 0
-          ? `Found ${excludedParts.join(' and ')} \u2014 none need paperwork.${junkDocs.length > 0 ? ' Junk removal jobs are now on the Junk Removal tile, ready to assign a Captain.' : ''}`
+          ? `Found ${excludedParts.join(' and ')} \u2014 none need paperwork.${junkDocs.length > 0 ? ' Assign a Captain to the junk removal job(s) below.' : ''}`
           : 'Could not read any work orders from those files.';
         statusEl.className = excludedParts.length > 0 ? 'status-msg ok' : 'status-msg err';
         pwBatchPastedImages = [];
@@ -13340,10 +13360,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
       await renderPwBatchReview();
       renderPwBatchExcluded();
+      await renderPwBatchJunkRemoval();
       const excludedParts = [];
-      if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
       if(estimateDocs.length > 0) excludedParts.push(`${estimateDocs.length} estimate${estimateDocs.length===1?'':'s'}`);
-      const junkNote = excludedParts.length > 0 ? ` (${excludedParts.join(' and ')} excluded, shown below)` : '';
+      if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
+      const junkNote = excludedParts.length > 0 ? ` (${excludedParts.join(' and ')} shown below)` : '';
       statusEl.textContent = `${pwBatchReview.length} job${pwBatchReview.length===1?'':'s'} read and ready to review.${junkNote}`;
       statusEl.className = 'status-msg ok';
       pwBatchPastedImages = [];
@@ -13372,15 +13393,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // this is where that job record first gets created, right as the morning
   // batch upload identifies and excludes it from paperwork.
   async function createJunkRemovalJobsFromExcluded(junkDocs){
-    if(junkDocs.length === 0) return;
+    if(junkDocs.length === 0) return [];
     try{
       const existing = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []);
       const jobs = existing || [];
       const existingJobNumbers = new Set(jobs.map(j => j.jobNumber));
-      let added = 0;
+      const thisBatchJobNumbers = [];
       junkDocs.forEach(d => {
         const jobNumber = d.jobNumber || '';
-        if(!jobNumber || existingJobNumbers.has(jobNumber)) return; // skip unreadable or duplicate job numbers
+        if(!jobNumber) return; // skip unreadable job numbers -- nothing to assign a Captain to
+        thisBatchJobNumbers.push(jobNumber);
+        if(existingJobNumbers.has(jobNumber)) return; // already tracked from a prior upload
         jobs.push({
           id: 'junk_' + Date.now() + '_' + Math.floor(Math.random()*1000),
           jobNumber,
@@ -13393,11 +13416,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
         });
         existingJobNumbers.add(jobNumber);
-        added++;
       });
-      if(added > 0) await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, jobs);
+      await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, jobs);
+      return jobs.filter(j => thisBatchJobNumbers.includes(j.jobNumber));
     }catch(err){
       console.error('Could not create junk removal job records:', err);
+      return [];
     }
   }
 
@@ -13418,6 +13442,75 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const x = pwBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
       if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
     }));
+  }
+
+  // Loads every active (not yet completed) junk removal job, whenever this
+  // screen is opened -- not just right after the batch that created one.
+  // Merges with whatever's already showing (e.g. from a batch just
+  // uploaded this same session, which carries a thumbnail) rather than
+  // replacing outright, so Cam or Aaron can reassign a Captain on any
+  // active job at any point in the day, not only in the moment right after
+  // the morning upload.
+  async function loadPwBatchJunkRemovalPersistent(){
+    try{
+      const jobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []);
+      const active = (jobs || []).filter(j => j.status !== 'completed');
+      const existingById = new Map(pwBatchJunkRemoval.map(j => [j.id, j]));
+      pwBatchJunkRemoval = active.map(j => existingById.get(j.id) || j);
+      await renderPwBatchJunkRemoval();
+    }catch(err){
+      console.error('Could not load junk removal jobs for assignment:', err);
+    }
+  }
+  window.loadPwBatchJunkRemovalPersistent = loadPwBatchJunkRemovalPersistent;
+
+  async function renderPwBatchJunkRemoval(){
+    const wrap = document.getElementById('pwBatch_junkRemovalWrap');
+    const container = document.getElementById('pwBatch_junkRemovalRows');
+    if(pwBatchJunkRemoval.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+
+    if(!pwBatchRosterCache){
+      try{ pwBatchRosterCache = await window.getCurrentEmployeeRoster(); }
+      catch(err){ console.error('Roster load failed:', err); pwBatchRosterCache = []; }
+    }
+    const captainOptions = '<option value="">Select Captain...</option>' + pwBatchRosterCache.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
+
+    container.innerHTML = pwBatchJunkRemoval.map((x, i) => `
+      <div style="display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+        ${x.thumbnail ? `<img class="pwBatch-junk-thumb" data-index="${i}" src="${x.thumbnail}" style="width:44px; height:44px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;">` : ''}
+        <div style="flex:1; min-width:0;">
+          <div><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)}</div>
+          ${x.assignmentDate ? `<div class="form-note" style="margin:2px 0 0;">${pwBatchEsc(x.assignmentDate)}</div>` : ''}
+        </div>
+        <select class="pwBatch-junk-captain" data-id="${x.id}" style="font-size:12.5px;">${captainOptions}</select>
+      </div>`).join('');
+
+    container.querySelectorAll('.pwBatch-junk-thumb').forEach(img => img.addEventListener('click', (e)=>{
+      const x = pwBatchJunkRemoval[parseInt(e.currentTarget.dataset.index, 10)];
+      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+    }));
+
+    container.querySelectorAll('.pwBatch-junk-captain').forEach(sel => {
+      const job = pwBatchJunkRemoval.find(x => x.id === sel.dataset.id);
+      if(job) sel.value = job.captainName || '';
+      sel.addEventListener('change', async (e)=>{
+        const id = e.target.dataset.id;
+        try{
+          const jobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []);
+          const j = (jobs || []).find(x => x.id === id);
+          if(!j) return;
+          j.captainName = e.target.value;
+          j.updatedAt = new Date().toISOString();
+          await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, jobs);
+          const localJob = pwBatchJunkRemoval.find(x => x.id === id);
+          if(localJob) localJob.captainName = e.target.value;
+        }catch(err){ console.error('Could not save Captain assignment:', err); }
+      });
+    });
   }
 
   async function renderPwBatchReview(){
@@ -15724,25 +15817,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     try{
       junkRemovalJobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []) || [];
       await renderJunkRemovalJobs();
-      updateJunkRemovalTileBadge();
     }catch(err){ console.error('Junk removal jobs load failed:', err); }
   }
   window.loadJunkRemovalJobs = loadJunkRemovalJobs;
 
-  function updateJunkRemovalTileBadge(){
-    const needsCaptain = junkRemovalJobs.some(j => !j.captainName);
-    const tile = document.getElementById('tile-junkremoval');
-    const badge = document.getElementById('junkRemovalTileBadge');
-    if(needsCaptain){
-      tile.classList.add('attention');
-      badge.style.display = 'inline-block';
-    } else {
-      tile.classList.remove('attention');
-      badge.style.display = 'none';
-    }
-  }
-
-  async function renderJunkRemovalJobs(){
+  function renderJunkRemovalJobs(){
     const rowsEl = document.getElementById('jr_jobRows');
     const emptyNote = document.getElementById('jr_emptyNote');
     if(junkRemovalJobs.length === 0){
@@ -15751,10 +15830,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return;
     }
     emptyNote.style.display = 'none';
-
-    let roster = [];
-    try{ roster = await window.getCurrentEmployeeRoster(); }catch(err){ console.error('Roster load failed:', err); }
-    const rosterOptions = roster.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
 
     const sorted = [...junkRemovalJobs].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
     rowsEl.innerHTML = sorted.map(j => {
@@ -15765,34 +15840,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
           <div>
             <div style="font-weight:700; font-size:14px;">${jrEsc(j.jobNumber)} ${j.clientName ? '\u2014 ' + jrEsc(j.clientName) : ''}</div>
-            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${jrEsc(j.assignmentDate)}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${jrEsc(j.assignmentDate)} &middot; Captain: ${j.captainName ? jrEsc(j.captainName) : 'Unassigned'}</div>
           </div>
-          <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Captain
-              <select class="jr-captain-select" data-id="${j.id}" style="display:block; margin-top:3px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
-                <option value="">Unassigned</option>
-                ${rosterOptions}
-              </select>
-            </label>
-            <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
-          </div>
+          <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
         </div>
         ${hasDetail ? `<div style="margin-top:10px;"><button type="button" class="jr-view-detail" data-id="${j.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">View Estimate${j.finalEstimate ? 's' : ''}</button></div>` : ''}
       </div>`;
     }).join('');
-
-    rowsEl.querySelectorAll('.jr-captain-select').forEach(sel => {
-      const job = junkRemovalJobs.find(j => j.id === sel.dataset.id);
-      if(job) sel.value = job.captainName || '';
-      sel.addEventListener('change', async (e)=>{
-        const j = junkRemovalJobs.find(x => x.id === e.target.dataset.id);
-        if(!j) return;
-        j.captainName = e.target.value;
-        j.updatedAt = new Date().toISOString();
-        try{ await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, junkRemovalJobs); }catch(err){ console.error(err); }
-        updateJunkRemovalTileBadge();
-      });
-    });
 
     rowsEl.querySelectorAll('.jr-view-detail').forEach(btn => btn.addEventListener('click', (e)=> viewJunkRemovalDetail(e.target.dataset.id)));
   }
@@ -16862,7 +16916,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   if(localStorage.getItem('henson_auth_token') && !window.__damageClaimToken && !window.__pendingSignHash){
     window.loadDamageClaimsData();
     window.checkMaterialsOrderDeadline();
-    window.loadJunkRemovalJobs();
   }
 
   recalc();
