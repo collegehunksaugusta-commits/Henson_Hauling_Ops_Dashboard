@@ -2940,8 +2940,10 @@
     <div style="margin-top:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
       <button class="btn secondary" id="genEstimateBtn" type="button">Print / Save Estimate as PDF</button>
       <button class="btn" id="genBolBtn" type="button">Print / Save Bill of Lading as PDF</button>
+      <button class="btn secondary" id="emailQuoteBtn" type="button">Email Quote to Client</button>
       <span class="status" id="bolStatus"></span>
     </div>
+    <div class="hint" style="margin-top:8px;" id="emailQuoteStatus"></div>
     <div class="hint" style="margin-top:8px;">The Estimate is a client-facing quote (no signature fields) with your logo, itemized charges, and a plain-language explanation of valuation options. It always includes Option 2(a) Full Value Protection by default, regardless of which option is selected below for the Bill of Lading &mdash; reduce coverage only if the client asks.</div>
     <div class="hint" style="margin-top:8px;">Opens your browser's print dialog with the GDPS-prescribed Bill of Lading (matching hourly or weight/distance mode), the required Contract Terms and Conditions, and the Shipper Declaration of Value addendum. Choose "Save as PDF" as the destination to get a PDF file, or print physically.</div>
   </div>
@@ -4438,6 +4440,12 @@
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
           <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim.</p>
 
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Long Distance Quote Email</h4>
+          <label>CC Recipients <input type="text" id="appset_ldQuoteCc" placeholder="name@chhj.com, name2@chhj.com"></label>
+          <p class="form-note" style="margin-top:0;">Comma-separated. Every quote email sent from the Long Distance Estimates tile CC's these addresses.</p>
+          <label>Email Body <textarea id="appset_ldQuoteEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
+          <p class="form-note">Sent from the "Email Quote to Client" button, with the estimate PDF downloaded and ready to attach. Available merge fields: <span class="mono">{{clientName}}</span>, <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{weight}}</span>, <span class="mono">{{miles}}</span>, <span class="mono">{{total}}</span>, <span class="mono">{{valuationCost}}</span> (the Full Value Protection charge &mdash; what the total would drop by if the client chose the free 60&cent;/lb option instead) &mdash; each is swapped in automatically from the estimate on screen. Subject line is always fixed to "College Hunks - Weight and Distance Quote".</p>
+
           <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Captain Metrics</h4>
           <p class="form-note" id="appset_cmResetDateCurrent" style="margin-top:0;"></p>
           <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
@@ -4658,6 +4666,10 @@
         { tier: '7/8', label: '7/8 Truckload', price: 559 },
         { tier: 'full', label: 'Full Truckload', price: 579 }
       ]
+    },
+    longDistanceQuote: {
+      ccEmails: '',
+      emailBodyTemplate: 'Hi {{clientFirstName}}! It was a pleasure speaking with you and I appreciate the opportunity to serve you on your upcoming Move! Attached is our weight and distance quote based on an estimated weight of {{weight}} lbs. This quote includes Full Value Protection (FVP) which would reimburse for the full value of any item damaged beyond repair. There is a free option which would reimburse you at a rate of 60 cents per pound for any item damaged beyond repair. If the free option is chosen, the total cost would be reduced by {{valuationCost}}. Feel free to give me a call if you have any questions/concerns or want to book the HUNKS!\nThanks!'
     }
   };
   let appSettingsLoaded = false;
@@ -11194,6 +11206,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const paperwork = s.paperwork || {};
     const materials = s.materials || {};
     const damageClaims = s.damageClaims || {};
+    const longDistanceQuote = s.longDistanceQuote || {};
     const captainMetrics = s.captainMetrics || {};
     const opsManagerMetrics = s.opsManagerMetrics || {};
     const junkRemoval = s.junkRemoval || {};
@@ -11210,6 +11223,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_orderDeadlineDay').value = (materials.orderDeadlineDay === 0 || materials.orderDeadlineDay) ? String(materials.orderDeadlineDay) : '';
     document.getElementById('appset_orderDeadlineTime').value = materials.orderDeadlineTime || '';
     document.getElementById('appset_damageClaimEmailBody').value = damageClaims.emailBodyTemplate || '';
+    document.getElementById('appset_ldQuoteCc').value = longDistanceQuote.ccEmails || '';
+    document.getElementById('appset_ldQuoteEmailBody').value = longDistanceQuote.emailBodyTemplate || '';
     document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
     document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(captainMetrics.resetDate, 'Captain Metrics');
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
@@ -11449,6 +11464,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const damageClaims = {
       emailBodyTemplate: document.getElementById('appset_damageClaimEmailBody').value
     };
+    const longDistanceQuote = {
+      ccEmails: document.getElementById('appset_ldQuoteCc').value.trim(),
+      emailBodyTemplate: document.getElementById('appset_ldQuoteEmailBody').value
+    };
     if(!marketing.redfinSouthCarolina || !marketing.redfinEvansMartinez || !marketing.redfinAugusta){
       statusEl.textContent = 'All three search URLs are required.';
       statusEl.className = 'status-msg err';
@@ -11465,7 +11484,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { marketing, paperwork, materials, damageClaims } })
+        body: JSON.stringify({ settings: { marketing, paperwork, materials, damageClaims, longDistanceQuote } })
       });
       if(handleAuthFailure(res)) return;
       const data = await res.json();
@@ -12245,6 +12264,60 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   document.getElementById('genBolBtn').addEventListener('click', () => genBOL());
 
+  document.getElementById('emailQuoteBtn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('emailQuoteStatus');
+    const clientEmail = document.getElementById('shipperEmail').value.trim();
+    if(!clientEmail || !clientEmail.includes('@')){
+      statusEl.textContent = 'Enter a valid Shipper Email above first.';
+      statusEl.className = 'hint err';
+      return;
+    }
+    if(!window.__calc){
+      statusEl.textContent = 'Enter the move details above first so there\u2019s a total to quote.';
+      statusEl.className = 'hint err';
+      return;
+    }
+    await ensureAppSettingsLoaded();
+    const ldQuote = window.appSettings.longDistanceQuote || {};
+    const fullName = document.getElementById('shipperName').value.trim();
+    const clientName = fullName || 'there';
+    const clientFirstName = fullName ? fullName.split(/\s+/)[0] : 'there';
+    const { val2a } = computeEstimateFigures();
+    const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    const template = ldQuote.emailBodyTemplate || '';
+    const body = template
+      .split('{{clientName}}').join(clientName)
+      .split('{{clientFirstName}}').join(clientFirstName)
+      .split('{{weight}}').join(Math.round(window.__calc.weight).toLocaleString())
+      .split('{{miles}}').join(Math.round(window.__calc.miles).toLocaleString())
+      .split('{{total}}').join(money(window.__calc.total))
+      .split('{{valuationCost}}').join(money(val2a));
+    const subject = 'College Hunks - Weight and Distance Quote';
+    const cc = ldQuote.ccEmails || '';
+
+    // Downloads the estimate as an actual PDF file first -- mailto: links
+    // cannot attach files (a hard limitation of the protocol itself, true
+    // in every browser and every mail client), so this is as close to
+    // "automatically included" as is technically possible: the file is
+    // ready and waiting the moment the email opens, one drag/attach away.
+    let pdfFilename = '';
+    try{
+      const doc = buildEstimatePDF();
+      pdfFilename = `Estimate - ${fullName || clientEmail}.pdf`.replace(/[\\/:*?"<>|]/g, '');
+      doc.save(pdfFilename);
+    }catch(err){
+      console.error('Estimate PDF generation failed:', err);
+    }
+
+    const mailto = `mailto:${encodeURIComponent(clientEmail)}${cc ? '?cc=' + encodeURIComponent(cc) + '&' : '?'}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailto;
+
+    statusEl.textContent = pdfFilename
+      ? `"${pdfFilename}" downloaded and your email is open with the message filled in \u2014 attach the downloaded file, review, then send.`
+      : 'Your email is open with the message filled in \u2014 review, then send. (The PDF download failed \u2014 attach the estimate manually.)';
+    statusEl.className = 'hint';
+  });
+
   // ---------- Client-Facing Estimate ----------
   function genEstimate(){
     const statusEl = document.getElementById('bolStatus');
@@ -12260,16 +12333,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
 
-  function buildEstimateView(){
+  // Shared by both the printable HTML estimate and the emailed PDF, so the
+  // two are always guaranteed to show identical figures.
+  function computeEstimateFigures(){
     const calc = window.__calc || {items:[], total:0, isLocal:false, isLong:false, discountAmt:0};
-    const val = (id) => document.getElementById(id).value || '';
-    const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-    const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
-
     // Estimate always assumes Option 2(a) valuation by default, regardless of the
     // Valuation Selected radio elsewhere on the page (that reflects the actual BOL choice).
     const declared = calc.declared || 0;
-    const val1 = 0;
     const val2a = declared > 0 ? (declared/1000)*15.73 : 0;
     const val2b = declared > 0 ? (declared/1000)*5.17 : 0;
 
@@ -12285,6 +12355,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     discountAmt = Math.max(0, Math.min(discountAmt, subtotalWithVal));
     const estimateTotal = subtotalWithVal - discountAmt;
+    return { calc, declared, val2a, val2b, baseItems, baseSubtotal, subtotalWithVal, discountAmt, estimateTotal };
+  }
+
+  function buildEstimateView(){
+    const { calc, declared, val2a, val2b, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
+    const val1 = 0; // Option 1 (Released Value Protection) is always free
+    const val = (id) => document.getElementById(id).value || '';
+    const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
 
     let details = `Estimated Weight: ${calc.weight ? calc.weight.toLocaleString()+' lbs' : '\u2014'} &nbsp;&nbsp; Day Type: ${calc.dayType === 'weekend' ? 'Weekend/Holiday' : 'Weekday'}`;
     if(calc.isLong) details += ` &nbsp;&nbsp; Distance: ${esc(calc.miles)} mi`;
@@ -12370,6 +12449,106 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('printBOL').innerHTML = '';
     const ppEl2 = document.getElementById('printPaperwork');
     if(ppEl2) ppEl2.innerHTML = '';
+  }
+
+  // Builds an actual, downloadable PDF (unlike genEstimate(), which only
+  // opens the browser's print dialog for a manual "Save as PDF"). Used for
+  // the emailed quote, where the file needs to already exist on disk for
+  // the person to attach -- returns the jsPDF doc; caller decides whether
+  // to .save() (download) or read a blob from it.
+  function buildEstimatePDF(){
+    const { calc, declared, val2a, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
+    const val = (id) => document.getElementById(id).value || '';
+    const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const marginX = 50;
+    const pageWidth = 612;
+    const rightX = pageWidth - marginX;
+    let y = 56;
+
+    if(logoSrc){
+      try{ doc.addImage(logoSrc, 'JPEG', marginX, y - 30, 42, 42); }catch(err){ console.error('Logo embed failed:', err); }
+    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(28,33,38);
+    doc.text(val('carrierName') || 'College HUNKS Hauling Junk & Moving', marginX + (logoSrc ? 54 : 0), y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(85,85,85);
+    doc.text(val('carrierAddress'), marginX + (logoSrc ? 54 : 0), y + 14);
+    doc.text(val('carrierPhone'), marginX + (logoSrc ? 54 : 0), y + 26);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(0,132,61);
+    doc.text('MOVE ESTIMATE', rightX, y, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(85,85,85);
+    doc.text(val('issueDate'), rightX, y + 14, { align: 'right' });
+
+    y += 50;
+    doc.setDrawColor(0,132,61); doc.setLineWidth(2); doc.line(marginX, y, rightX, y);
+    y += 24;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(85,85,85);
+    doc.text('PREPARED FOR', marginX, y);
+    doc.text('MOVE DETAILS', marginX + 260, y);
+    y += 12;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(28,33,38);
+    let leftY = y, rightY = y;
+    [val('shipperName'), val('shipperPhone'), val('shipperEmail')].filter(Boolean).forEach(line => { doc.text(line, marginX, leftY); leftY += 13; });
+    doc.text(`Estimated Weight: ${calc.weight ? calc.weight.toLocaleString()+' lbs' : '\u2014'}`, marginX + 260, rightY); rightY += 13;
+    doc.text(`Day Type: ${calc.dayType === 'weekend' ? 'Weekend/Holiday' : 'Weekday'}`, marginX + 260, rightY); rightY += 13;
+    if(calc.isLong){ doc.text(`Distance: ${calc.miles} mi`, marginX + 260, rightY); rightY += 13; }
+    y = Math.max(leftY, rightY) + 14;
+
+    if(val('originAddress') || val('destAddress')){
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(85,85,85);
+      doc.text('FROM', marginX, y);
+      doc.text('TO', marginX + 260, y);
+      y += 12;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(28,33,38);
+      doc.text(doc.splitTextToSize(val('originAddress'), 240), marginX, y);
+      doc.text(doc.splitTextToSize(val('destAddress'), 240), marginX + 260, y);
+      y += 32;
+    }
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(0,97,44);
+    doc.text('Estimated Charges', marginX, y);
+    y += 6;
+    doc.setDrawColor(200,200,200); doc.setLineWidth(0.5); doc.line(marginX, y, rightX, y);
+    y += 18;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(28,33,38);
+    baseItems.forEach(([label, amt]) => {
+      doc.text(String(label), marginX, y);
+      doc.text(money(amt), rightX, y, { align: 'right' });
+      y += 16;
+    });
+    doc.text('Full Value Protection (Option 2(a), included by default)', marginX, y);
+    doc.text(money(val2a), rightX, y, { align: 'right' });
+    y += 16;
+    if(discountAmt > 0){
+      doc.text('Discount', marginX, y);
+      doc.text('-' + money(discountAmt), rightX, y, { align: 'right' });
+      y += 16;
+    }
+
+    doc.setDrawColor(0,132,61); doc.setLineWidth(1.5); doc.line(marginX, y, rightX, y);
+    y += 18;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(0,97,44);
+    doc.text('Estimated Total', marginX, y);
+    doc.text(money(estimateTotal), rightX, y, { align: 'right' });
+    y += 30;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(102,102,102);
+    const valNote = declared > 0
+      ? `Based on a declared value of ${money(declared)}. This quote includes Full Value Protection (Option 2(a)) by default. A free option (Released Value Protection, $0.60/lb per article) is also available and would reduce the total by ${money(val2a)}.`
+      : 'Valuation costs shown are based on the declared value entered for this move.';
+    doc.text(doc.splitTextToSize(valNote, rightX - marginX), marginX, y);
+    y += 40;
+
+    doc.setFontSize(8); doc.setTextColor(150,150,150);
+    doc.text('This is an estimate only, not a binding quote. Final charges are determined at time of move per the signed Bill of Lading.', marginX, 760);
+
+    return doc;
   }
 
   document.getElementById('genEstimateBtn').addEventListener('click', () => genEstimate());
