@@ -72,9 +72,10 @@ const ALLOWED_KEYS = new Set([
   'materials-items',
   'materials-checkouts',
   'compliance-eod-inspections',
-  'damage-claims'
+  'damage-claims',
+  'junk-removal-jobs'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-'];
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -696,6 +697,91 @@ async function compareTruckPhotos(ptiPhotoDataUri, eodPhotoDataUri) {
   }
 }
 
+// ============ Junk Removal: volume estimation ============
+const JUNK_REMOVAL_TIERS = [
+  '1/8', '1/6', '1/4', '1/3', '3/8', '1/2', '5/8', '2/3', '3/4', '5/6', '7/8', 'full'
+];
+
+const ESTIMATE_JUNK_VOLUME_TOOL = {
+  name: 'estimate_junk_volume',
+  description: 'Estimate what fraction of a moving truck a pile of junk/furniture/trash would fill, or how full a truck bed already is.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      tier: {
+        type: 'string',
+        enum: JUNK_REMOVAL_TIERS,
+        description: 'The closest matching fraction of a full truckload.'
+      },
+      reasoning: {
+        type: 'string',
+        description: 'One or two sentences explaining the estimate -- mention the key items/volume you\u2019re weighing and how they compare to the fridge-volume reference.'
+      }
+    },
+    required: ['tier', 'reasoning']
+  }
+};
+
+const JUNK_VOLUME_REFERENCE_TEXT = 'A College HUNKS junk removal truck holds up to 8 full-size refrigerators\u2019 worth of volume standing upright -- each 1/8 of the truck equals one of those refrigerators. Use that as your reference scale when judging size.';
+
+async function estimateJunkVolume(photoDataUris, stage) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return { status: 'failed', tier: null, reasoning: '' };
+  const images = (photoDataUris || [])
+    .map(uri => /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(uri || ''))
+    .filter(Boolean);
+  if (images.length === 0) return { status: 'failed', tier: null, reasoning: '' };
+
+  const framingText = stage === 'final'
+    ? `This photo (or photos) shows a moving truck bed already loaded with junk/furniture/items. ${JUNK_VOLUME_REFERENCE_TEXT} Looking at how much of the truck bed is filled in the photo(s), estimate the closest tier.`
+    : `This photo (or photos) shows a pile of junk, furniture, or trash that needs to be removed and hauled away, before it has been loaded into a truck. ${JUNK_VOLUME_REFERENCE_TEXT} Estimate how much of the truck these items would fill once loaded, and pick the closest tier.`;
+
+  const content = [{ type: 'text', text: framingText }];
+  images.forEach(m => content.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } }));
+
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [ESTIMATE_JUNK_VOLUME_TOOL],
+        tool_choice: { type: 'tool', name: 'estimate_junk_volume' },
+        messages: [{ role: 'user', content }]
+      })
+    });
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Junk volume estimate failed:', anthropicRes.status, errBody);
+      return { status: 'failed', tier: null, reasoning: '' };
+    }
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'estimate_junk_volume');
+    if (!toolUseBlock) return { status: 'failed', tier: null, reasoning: '' };
+    return { status: 'ok', tier: toolUseBlock.input.tier, reasoning: toolUseBlock.input.reasoning || '' };
+  } catch (err) {
+    console.error('Junk volume estimate failed:', err.message);
+    return { status: 'failed', tier: null, reasoning: '' };
+  }
+}
+
+async function getJunkRemovalPricing() {
+  try {
+    const raw = await redis.get(APP_SETTINGS_KEY);
+    const saved = raw ? JSON.parse(raw) : null;
+    const merged = mergeAppSettings(saved);
+    return merged.junkRemoval.pricing;
+  } catch (err) {
+    console.error('Could not load junk removal pricing, using defaults:', err.message);
+    return DEFAULT_APP_SETTINGS.junkRemoval.pricing;
+  }
+}
+
 app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
   const { truckId, truckNickname, driverName, date, jobNumbers, returnedItems, backPhoto, additionalNotes } = req.body || {};
   if (!truckId || !driverName) {
@@ -792,6 +878,143 @@ app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
   } catch (err) {
     console.error('End of day inspection submission failed:', err.message);
     res.status(500).json({ error: 'Could not submit inspection.' });
+  }
+});
+
+// ============ Junk Removal: driver-facing endpoints ============
+const JUNK_REMOVAL_JOBS_KEY = 'junk-removal-jobs';
+
+function junkRemovalPriceForTier(pricing, tier) {
+  const entry = pricing.find(p => p.tier === tier);
+  if (!entry) return null;
+  return { low: entry.price - 40, high: entry.price + 40 };
+}
+
+// Full pricing table so the driver portal can instantly recompute the price
+// range client-side as a Captain adjusts the estimated tier, with no extra
+// round trip per adjustment.
+app.get('/api/driver/junk-removal-pricing', requireDriverAuth, async (req, res) => {
+  try {
+    const pricing = await getJunkRemovalPricing();
+    res.json({ pricing });
+  } catch (err) {
+    console.error('Driver junk removal pricing load failed:', err.message);
+    res.status(500).json({ error: 'Could not load pricing.' });
+  }
+});
+
+// Jobs assigned to a given Captain that aren't finished yet -- a completed
+// job (final photo + estimate already recorded) drops off this list.
+app.get('/api/driver/junk-removal-jobs', requireDriverAuth, async (req, res) => {
+  const captainName = (req.query.captainName || '').trim();
+  if (!captainName) return res.status(400).json({ error: 'Missing captainName.' });
+  try {
+    const raw = await redis.get(JUNK_REMOVAL_JOBS_KEY);
+    const jobs = raw ? JSON.parse(raw) : [];
+    const mine = jobs
+      .filter(j => j.captainName === captainName && j.status !== 'completed')
+      .map(j => ({
+        id: j.id, jobNumber: j.jobNumber, clientName: j.clientName, status: j.status,
+        initialEstimate: j.initialEstimate || null, initialConfirmedTier: j.initialConfirmedTier || null
+      }));
+    res.json({ jobs: mine });
+  } catch (err) {
+    console.error('Driver junk removal jobs load failed:', err.message);
+    res.status(500).json({ error: 'Could not load jobs.' });
+  }
+});
+
+app.post('/api/driver/junk-removal/:jobId/estimate', requireDriverAuth, async (req, res) => {
+  const { stage, photos } = req.body || {};
+  if (stage !== 'initial' && stage !== 'final') {
+    return res.status(400).json({ error: 'Invalid stage.' });
+  }
+  if (!Array.isArray(photos) || photos.length === 0) {
+    return res.status(400).json({ error: 'At least one photo is required.' });
+  }
+  if (photos.length > 6) {
+    return res.status(400).json({ error: 'Please upload 6 photos or fewer at a time.' });
+  }
+  for (const p of photos) {
+    if (typeof p !== 'string' || !p.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'One of those files doesn\'t look like a photo.' });
+    }
+  }
+  try {
+    const raw = await redis.get(JUNK_REMOVAL_JOBS_KEY);
+    const jobs = raw ? JSON.parse(raw) : [];
+    const job = jobs.find(j => j.id === req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    const result = await estimateJunkVolume(photos, stage);
+    if (result.status !== 'ok') {
+      return res.status(502).json({ error: 'Could not estimate volume from those photos \u2014 try again.' });
+    }
+
+    const photoKeys = [];
+    for (const p of photos) {
+      const photoId = crypto.randomBytes(8).toString('hex');
+      const key = `junk-removal-photo-${job.id}-${stage}-${photoId}`;
+      await redis.set(key, JSON.stringify(p));
+      photoKeys.push(key);
+    }
+
+    const pricing = await getJunkRemovalPricing();
+    const range = junkRemovalPriceForTier(pricing, result.tier);
+
+    if (stage === 'initial') {
+      job.initialPhotoKeys = photoKeys;
+      job.initialEstimate = { tier: result.tier, reasoning: result.reasoning };
+      job.initialConfirmedTier = result.tier; // defaults to Claude's read; Captain can adjust via the confirm endpoint
+      job.status = 'estimated';
+    } else {
+      job.finalPhotoKeys = photoKeys;
+      job.finalEstimate = { tier: result.tier, reasoning: result.reasoning };
+      job.finalConfirmedTier = result.tier;
+      job.status = 'completed';
+    }
+    job.updatedAt = new Date().toISOString();
+    await redis.set(JUNK_REMOVAL_JOBS_KEY, JSON.stringify(jobs));
+
+    res.json({ tier: result.tier, reasoning: result.reasoning, priceLow: range ? range.low : null, priceHigh: range ? range.high : null });
+  } catch (err) {
+    console.error('Junk removal estimate failed:', err.message);
+    res.status(500).json({ error: 'Could not process that estimate.' });
+  }
+});
+
+// Lets the Captain adjust the tier before quoting the client (initial
+// stage) or correct the final record if needed, without re-running vision.
+app.post('/api/driver/junk-removal/:jobId/confirm-tier', requireDriverAuth, async (req, res) => {
+  const { stage, tier } = req.body || {};
+  if (stage !== 'initial' && stage !== 'final') {
+    return res.status(400).json({ error: 'Invalid stage.' });
+  }
+  if (!JUNK_REMOVAL_TIERS.includes(tier)) {
+    return res.status(400).json({ error: 'Invalid tier.' });
+  }
+  try {
+    const raw = await redis.get(JUNK_REMOVAL_JOBS_KEY);
+    const jobs = raw ? JSON.parse(raw) : [];
+    const job = jobs.find(j => j.id === req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    const pricing = await getJunkRemovalPricing();
+    const range = junkRemovalPriceForTier(pricing, tier);
+
+    if (stage === 'initial') {
+      job.initialConfirmedTier = tier;
+      job.status = 'quoted';
+    } else {
+      job.finalConfirmedTier = tier;
+    }
+    job.updatedAt = new Date().toISOString();
+    await redis.set(JUNK_REMOVAL_JOBS_KEY, JSON.stringify(jobs));
+
+    res.json({ ok: true, priceLow: range ? range.low : null, priceHigh: range ? range.high : null });
+  } catch (err) {
+    console.error('Junk removal tier confirm failed:', err.message);
+    res.status(500).json({ error: 'Could not save that.' });
   }
 });
 
@@ -975,6 +1198,22 @@ const DEFAULT_APP_SETTINGS = {
   },
   opsManagerMetrics: {
     resetDate: ''
+  },
+  junkRemoval: {
+    pricing: [
+      { tier: '1/8', label: '1/8 Truckload', price: 119 },
+      { tier: '1/6', label: '1/6 Truckload', price: 179 },
+      { tier: '1/4', label: '1/4 Truckload', price: 239 },
+      { tier: '1/3', label: '1/3 Truckload', price: 289 },
+      { tier: '3/8', label: '3/8 Truckload', price: 329 },
+      { tier: '1/2', label: '1/2 Truckload', price: 379 },
+      { tier: '5/8', label: '5/8 Truckload', price: 419 },
+      { tier: '2/3', label: '2/3 Truckload', price: 459 },
+      { tier: '3/4', label: '3/4 Truckload', price: 489 },
+      { tier: '5/6', label: '5/6 Truckload', price: 519 },
+      { tier: '7/8', label: '7/8 Truckload', price: 559 },
+      { tier: 'full', label: 'Full Truckload', price: 579 }
+    ]
   }
 };
 
