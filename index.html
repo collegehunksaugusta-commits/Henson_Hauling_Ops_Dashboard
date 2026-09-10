@@ -475,6 +475,10 @@
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Pre-Trip Inspection</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Complete your truck's daily checklist &mdash; includes Materials Checkout at the start</div>
       </button>
+      <button type="button" id="driverGoToJunkRemovalBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
+        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Junk Removal</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Upload photos on-site for a Claude volume estimate and quote range</div>
+      </button>
       <button type="button" id="driverGoToEodBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
         <div style="font-weight:700; font-size:16px; color:var(--charcoal);">End of Day Inspection</div>
         <div style="font-size:13px; color:var(--muted); margin-top:4px;">Photo of the truck and any unused supplies you're returning to the racks</div>
@@ -683,6 +687,25 @@
       <span class="status-msg" id="eod_submitStatus" style="text-align:center;"></span>
     </div>
   </div>
+<div id="driverJunkRemovalView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+    <button type="button" id="driverJunkRemovalBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
+    <h2 class="display" style="margin:0; font-size:20px;">Junk Removal</h2>
+    <button type="button" id="driverJunkRemovalLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+  </div>
+</div>
+
+
+  <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+    <label style="font-size:12.5px; display:block;">Your Name
+      <select id="jrd_driverNameSelect" style="width:100%; margin-top:4px;">
+        <option value="">Select your name...</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="jrd_jobsList"></div>
+  <p class="form-note" id="jrd_emptyNote" style="display:none;">No junk removal jobs assigned to you right now.</p>
 </div>
 
 <div id="damageClaimUploadGate" style="display:none; position:fixed; inset:0; background:var(--offwhite); z-index:9999; overflow-y:auto; padding:20px;">
@@ -823,6 +846,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverJunkRemovalView').style.display = 'none';
   }
 
   function showDriverMenu(){
@@ -834,6 +858,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverJunkRemovalView').style.display = 'none';
     loadDriverLeaderboard();
   }
 
@@ -846,6 +871,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
     renderPtiChecklist();
     ptiCapturedPhoto = null;
@@ -871,6 +897,7 @@
     document.getElementById('driverNbhdView').style.display = 'block';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
     document.getElementById('nbhd_visitPanel').style.display = 'none';
     document.getElementById('nbhd_manualAreaWrap').style.display = 'none';
@@ -887,7 +914,24 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'block';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverJunkRemovalView').style.display = 'none';
     loadDriverTruckDocsTrucks();
+  }
+
+  async function showDriverJunkRemoval(){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverCodeForm').style.display = 'none';
+    document.getElementById('driverMenuView').style.display = 'none';
+    document.getElementById('driverInspectionView').style.display = 'none';
+    document.getElementById('driverNbhdView').style.display = 'none';
+    document.getElementById('driverTruckDocsView').style.display = 'none';
+    document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverJunkRemovalView').style.display = 'block';
+    await fetchDriverRosterInto('jrd_driverNameSelect');
+    const otherOpt = document.querySelector('#jrd_driverNameSelect option[value="__other__"]');
+    if(otherOpt) otherOpt.remove();
+    await loadJunkRemovalDriverJobs();
   }
 
   function showDriverEod(){
@@ -1005,6 +1049,9 @@
   document.getElementById('driverGoToEodBtn').addEventListener('click', showDriverEod);
   document.getElementById('driverEodBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverEodLogoutBtn').addEventListener('click', driverLogout);
+  document.getElementById('driverGoToJunkRemovalBtn').addEventListener('click', showDriverJunkRemoval);
+  document.getElementById('driverJunkRemovalBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverJunkRemovalLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('driverInspectionBackBtn').addEventListener('click', ()=>{
     stopPtiDraftAutosave();
     showDriverMenu();
@@ -1373,6 +1420,218 @@
       statusEl.className = 'status-msg err';
     }
   });
+
+  // ---------- Junk Removal (driver) ----------
+  const JUNK_REMOVAL_TIER_OPTIONS = ['1/8','1/6','1/4','1/3','3/8','1/2','5/8','2/3','3/4','5/6','7/8','full'];
+  let jrdJobs = [];
+  let jrdPricing = null; // cached once per session so adjusting a tier recomputes the range instantly, no round trip
+  let jrdStagedPhotos = {}; // keyed by `${jobId}_${stage}` -> array of compressed data URIs
+
+  function jrdTierLabel(tier){ return tier === 'full' ? 'Full Truckload' : `${tier} Truckload`; }
+
+  function jrdPriceRangeFor(tier){
+    if(!jrdPricing) return null;
+    const entry = jrdPricing.find(p => p.tier === tier);
+    if(!entry) return null;
+    return { low: Math.max(0, entry.price - 40), high: entry.price + 40 };
+  }
+
+  async function loadJunkRemovalDriverJobs(){
+    const listEl = document.getElementById('jrd_jobsList');
+    const emptyNote = document.getElementById('jrd_emptyNote');
+    const captainName = readSelectedDriverName('jrd_driverNameSelect', null);
+    if(!captainName){
+      listEl.innerHTML = '';
+      emptyNote.style.display = 'none';
+      return;
+    }
+    try{
+      if(!jrdPricing){
+        const pricingRes = await fetch(API_BASE_AUTH + '/api/driver/junk-removal-pricing', {
+          headers: {'Authorization': 'Bearer ' + driverToken}
+        });
+        if(pricingRes.status === 401){ driverSessionExpired(); return; }
+        const pricingData = await pricingRes.json();
+        jrdPricing = pricingData.pricing || [];
+      }
+      const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal-jobs?captainName=${encodeURIComponent(captainName)}`, {
+        headers: {'Authorization': 'Bearer ' + driverToken}
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      jrdJobs = data.jobs || [];
+      renderJrdJobs();
+    }catch(err){
+      console.error('Load junk removal jobs failed:', err);
+      listEl.innerHTML = '';
+      emptyNote.textContent = 'Could not load jobs \u2014 check your connection.';
+      emptyNote.style.display = 'block';
+    }
+  }
+  document.getElementById('jrd_driverNameSelect').addEventListener('change', loadJunkRemovalDriverJobs);
+
+  function jrdJobCardHtml(job){
+    if(job.status === 'quoted'){
+      return `
+      <div class="jrd-job-card" data-id="${job.id}" data-stage="final" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+        <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}</div>
+        <p style="margin:10px 0 12px; font-size:13.5px; color:var(--brand-green-dark); font-weight:600;">Quoted: ${driverEsc(jrdTierLabel(job.initialConfirmedTier))}</p>
+        <p class="form-note" style="margin:0 0 12px;">Once the truck is loaded, upload a photo of the loaded truck bed to record the final volume.</p>
+        <input type="file" accept="image/*" multiple class="jrd-photo-input" data-id="${job.id}" data-stage="final" style="display:none;">
+        <button type="button" class="jrd-add-photos-btn" data-id="${job.id}" data-stage="final" style="width:100%; background:#fff; border:1px solid var(--line); padding:12px; border-radius:6px; cursor:pointer; font-weight:600;">Add Photos of Loaded Truck</button>
+        <div class="jrd-thumbs" data-id="${job.id}" data-stage="final" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;"></div>
+        <button type="button" class="jrd-estimate-btn btn-primary" data-id="${job.id}" data-stage="final" style="width:100%; margin-top:12px; padding:12px;">Get Final Estimate</button>
+        <span class="status-msg jrd-status" data-id="${job.id}"></span>
+      </div>`;
+    }
+    if(job.status === 'estimated'){
+      const tier = job.initialConfirmedTier || job.initialEstimate.tier;
+      return `
+      <div class="jrd-job-card" data-id="${job.id}" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+        <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}</div>
+        <p style="margin:10px 0 4px; font-size:13.5px;"><strong>Claude's estimate:</strong> ${driverEsc(jrdTierLabel(job.initialEstimate.tier))}</p>
+        <p class="form-note" style="margin:0 0 12px;">${driverEsc(job.initialEstimate.reasoning)}</p>
+        <label style="font-size:12.5px; display:block;">Adjust tier if needed
+          <select class="jrd-tier-select" data-id="${job.id}" style="width:100%; margin-top:4px; padding:8px;">
+            ${JUNK_REMOVAL_TIER_OPTIONS.map(t => `<option value="${t}"${t===tier?' selected':''}>${jrdTierLabel(t)}</option>`).join('')}
+          </select>
+        </label>
+        <p class="jrd-price-range" data-id="${job.id}" style="margin:10px 0 12px; font-size:16px; font-weight:700;"></p>
+        <button type="button" class="jrd-confirm-tier-btn btn-primary" data-id="${job.id}" style="width:100%; padding:12px;">Confirm &amp; Quote Client</button>
+        <span class="status-msg jrd-status" data-id="${job.id}"></span>
+      </div>`;
+    }
+    // 'assigned' -- nothing uploaded yet
+    return `
+    <div class="jrd-job-card" data-id="${job.id}" data-stage="initial" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}</div>
+      <p class="form-note" style="margin:8px 0 12px;">Upload a photo (or a few) of the items to be removed for a volume estimate.</p>
+      <input type="file" accept="image/*" multiple class="jrd-photo-input" data-id="${job.id}" data-stage="initial" style="display:none;">
+      <button type="button" class="jrd-add-photos-btn" data-id="${job.id}" data-stage="initial" style="width:100%; background:#fff; border:1px solid var(--line); padding:12px; border-radius:6px; cursor:pointer; font-weight:600;">Add Photos</button>
+      <div class="jrd-thumbs" data-id="${job.id}" data-stage="initial" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;"></div>
+      <button type="button" class="jrd-estimate-btn btn-primary" data-id="${job.id}" data-stage="initial" style="width:100%; margin-top:12px; padding:12px;">Get Estimate</button>
+      <span class="status-msg jrd-status" data-id="${job.id}"></span>
+    </div>`;
+  }
+
+  function jrdRenderThumbs(jobId, stage){
+    const wrap = document.querySelector(`.jrd-thumbs[data-id="${jobId}"][data-stage="${stage}"]`);
+    if(!wrap) return;
+    const photos = jrdStagedPhotos[`${jobId}_${stage}`] || [];
+    wrap.innerHTML = photos.map((p, i) => `
+      <div style="position:relative;">
+        <img src="${p}" style="width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--line);">
+        <button type="button" class="jrd-remove-photo" data-id="${jobId}" data-stage="${stage}" data-index="${i}" style="position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:#B3261E; color:#fff; border:none; font-size:12px; line-height:1; cursor:pointer;">&times;</button>
+      </div>`).join('');
+    wrap.querySelectorAll('.jrd-remove-photo').forEach(btn => btn.addEventListener('click', (e)=>{
+      const key = `${e.target.dataset.id}_${e.target.dataset.stage}`;
+      jrdStagedPhotos[key].splice(parseInt(e.target.dataset.index, 10), 1);
+      jrdRenderThumbs(e.target.dataset.id, e.target.dataset.stage);
+    }));
+  }
+
+  function renderJrdJobs(){
+    const listEl = document.getElementById('jrd_jobsList');
+    const emptyNote = document.getElementById('jrd_emptyNote');
+    if(jrdJobs.length === 0){
+      listEl.innerHTML = '';
+      emptyNote.textContent = 'No junk removal jobs assigned to you right now.';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    listEl.innerHTML = jrdJobs.map(jrdJobCardHtml).join('');
+
+    listEl.querySelectorAll('.jrd-add-photos-btn').forEach(btn => btn.addEventListener('click', ()=>{
+      const input = listEl.querySelector(`.jrd-photo-input[data-id="${btn.dataset.id}"][data-stage="${btn.dataset.stage}"]`);
+      if(input) input.click();
+    }));
+
+    listEl.querySelectorAll('.jrd-photo-input').forEach(input => input.addEventListener('change', async (e)=>{
+      const { id, stage } = e.target.dataset;
+      const key = `${id}_${stage}`;
+      const files = Array.from(e.target.files || []);
+      for(const file of files){
+        try{
+          const compressed = await window.compressImageForUpload(file, 1600, 0.85);
+          if(!jrdStagedPhotos[key]) jrdStagedPhotos[key] = [];
+          jrdStagedPhotos[key].push(compressed);
+        }catch(err){ console.error('Photo compression failed:', err); }
+      }
+      jrdRenderThumbs(id, stage);
+      e.target.value = '';
+    }));
+
+    listEl.querySelectorAll('.jrd-estimate-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const { id, stage } = e.currentTarget.dataset;
+      const statusEl = listEl.querySelector(`.jrd-status[data-id="${id}"]`);
+      const photos = jrdStagedPhotos[`${id}_${stage}`] || [];
+      if(photos.length === 0){
+        statusEl.textContent = 'Add at least one photo first.';
+        statusEl.className = 'status-msg jrd-status err';
+        return;
+      }
+      statusEl.textContent = 'Estimating volume...';
+      statusEl.className = 'status-msg jrd-status';
+      try{
+        const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal/${id}/estimate`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+          body: JSON.stringify({ stage, photos })
+        });
+        if(res.status === 401){ driverSessionExpired(); return; }
+        const data = await res.json();
+        if(!res.ok){
+          statusEl.textContent = data.error || 'Could not estimate that.';
+          statusEl.className = 'status-msg jrd-status err';
+          return;
+        }
+        delete jrdStagedPhotos[`${id}_${stage}`];
+        await loadJunkRemovalDriverJobs();
+      }catch(err){
+        console.error('Junk removal estimate failed:', err);
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+        statusEl.className = 'status-msg jrd-status err';
+      }
+    }));
+
+    listEl.querySelectorAll('.jrd-tier-select').forEach(sel => {
+      const updateRange = () => {
+        const range = jrdPriceRangeFor(sel.value);
+        const priceEl = listEl.querySelector(`.jrd-price-range[data-id="${sel.dataset.id}"]`);
+        if(priceEl) priceEl.textContent = range ? `$${range.low} \u2013 $${range.high}` : '';
+      };
+      updateRange();
+      sel.addEventListener('change', updateRange);
+    });
+
+    listEl.querySelectorAll('.jrd-confirm-tier-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const statusEl = listEl.querySelector(`.jrd-status[data-id="${id}"]`);
+      const sel = listEl.querySelector(`.jrd-tier-select[data-id="${id}"]`);
+      statusEl.textContent = 'Saving...';
+      statusEl.className = 'status-msg jrd-status';
+      try{
+        const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal/${id}/confirm-tier`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+          body: JSON.stringify({ stage: 'initial', tier: sel.value })
+        });
+        if(res.status === 401){ driverSessionExpired(); return; }
+        const data = await res.json();
+        if(!res.ok){
+          statusEl.textContent = data.error || 'Could not save that.';
+          statusEl.className = 'status-msg jrd-status err';
+          return;
+        }
+        await loadJunkRemovalDriverJobs();
+      }catch(err){
+        console.error('Junk removal tier confirm failed:', err);
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+        statusEl.className = 'status-msg jrd-status err';
+      }
+    }));
+  }
 
   // Proactive check (not the actual enforcement -- that's server-side in
   // /api/driver/pretrip) so a driver who's already checked out today sees a
@@ -2023,10 +2282,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
             <span>Operations</span>
-            <span class="dashSectionCount">(7)</span>
+            <span class="dashSectionCount">(8)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim, Junk Removal</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2067,6 +2326,12 @@
         <span class="icon">📸</span>
         <h3>Damage Claim</h3>
         <p>Send a client a link to upload photos of moving damage, and get notified when they do.</p>
+      </div>
+      <div class="tile" id="tile-junkremoval" tabindex="0" role="button" aria-label="Open Junk Removal">
+        <span class="badge" id="junkRemovalTileBadge" style="display:none;">Needs Captain</span>
+        <span class="icon">🗑️</span>
+        <h3>Junk Removal</h3>
+        <p>Assign Captains to junk removal jobs, and review Claude's photo-based volume estimates.</p>
       </div>
         </div>
       </div>
@@ -3052,6 +3317,20 @@
       <label>Search by Job # or Client <input type="text" id="dc_search" placeholder="Start typing..."></label>
       <div id="dc_claimRows" style="margin-top:10px;"></div>
       <p class="form-note" id="dc_emptyNote" style="display:none;">No damage claims yet.</p>
+    </div>
+  </div>
+
+  <!-- ============ JUNK REMOVAL DETAIL ============ -->
+  <div id="junkRemovalDetail" style="display:none;">
+    <button class="backlink" id="junkRemovalBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Junk Removal</h2>
+      <p>Jobs land here automatically when the morning work order batch in Job Paperwork identifies them. Assign a Captain to each one below &mdash; once assigned, it shows up in that Captain's Driver Portal for the on-site photo estimate.</p>
+    </div>
+    <div class="panel" id="junkRemovalJobsPanel">
+      <h3>Jobs</h3>
+      <div id="jr_jobRows"></div>
+      <p class="form-note" id="jr_emptyNote" style="display:none;">No junk removal jobs yet.</p>
     </div>
   </div>
 
@@ -4152,6 +4431,21 @@
           </div>
           <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from Ops Manager Metrics &mdash; currently Paperwork Close-Out. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
 
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Junk Removal Pricing</h4>
+          <p class="form-note" style="margin-top:0;">Target price per tier &mdash; Captains are shown this amount &plusmn; $40 as the range to quote on-site, based on Claude's photo estimate.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Tier</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Target Price</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Quoted Range</th>
+            </tr></thead>
+            <tbody id="appset_junkPricingRows"></tbody>
+          </table>
+          <div class="form-actions" style="margin-top:14px;">
+            <button type="button" id="appset_junkPricingSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Pricing</button>
+            <span class="status-msg" id="appset_junkPricingStatus"></span>
+          </div>
+
           <div class="form-actions" style="margin-top:16px;">
             <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
             <span class="status-msg" id="set_appSettingsStatus"></span>
@@ -4319,6 +4613,22 @@
     },
     opsManagerMetrics: {
       resetDate: ''
+    },
+    junkRemoval: {
+      pricing: [
+        { tier: '1/8', label: '1/8 Truckload', price: 119 },
+        { tier: '1/6', label: '1/6 Truckload', price: 179 },
+        { tier: '1/4', label: '1/4 Truckload', price: 239 },
+        { tier: '1/3', label: '1/3 Truckload', price: 289 },
+        { tier: '3/8', label: '3/8 Truckload', price: 329 },
+        { tier: '1/2', label: '1/2 Truckload', price: 379 },
+        { tier: '5/8', label: '5/8 Truckload', price: 419 },
+        { tier: '2/3', label: '2/3 Truckload', price: 459 },
+        { tier: '3/4', label: '3/4 Truckload', price: 489 },
+        { tier: '5/6', label: '5/6 Truckload', price: 519 },
+        { tier: '7/8', label: '7/8 Truckload', price: 559 },
+        { tier: 'full', label: 'Full Truckload', price: 579 }
+      ]
     }
   };
   let appSettingsLoaded = false;
@@ -4379,6 +4689,7 @@
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
+  const junkRemovalDetail = document.getElementById('junkRemovalDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -4396,6 +4707,7 @@
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
+    junkRemovalDetail.style.display = view === 'junkremoval' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -4430,6 +4742,9 @@
     }
     if(view === 'damageclaim'){
       window.loadDamageClaimsData();
+    }
+    if(view === 'junkremoval'){
+      window.loadJunkRemovalJobs();
     }
     if(view === 'tips'){
       loadTipsData();
@@ -4586,6 +4901,9 @@
   document.getElementById('materialsBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-damageclaim').addEventListener('click', ()=> navigateTo('damageclaim'));
   document.getElementById('tile-damageclaim').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('damageclaim'); }});
+  document.getElementById('tile-junkremoval').addEventListener('click', ()=> navigateTo('junkremoval'));
+  document.getElementById('tile-junkremoval').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('junkremoval'); }});
+  document.getElementById('junkRemovalBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
 
@@ -8448,7 +8766,7 @@
   // future badge-toggling function keeps working exactly as it does today --
   // nothing scattered elsewhere in this file needs to know sections exist.
   (function watchTileBadgesForAttentionSync(){
-    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge', 'damageClaimTileBadge'];
+    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge', 'damageClaimTileBadge', 'junkRemovalTileBadge'];
     const observer = new MutationObserver(updateDashSectionAttentionBadges);
     badgeIds.forEach(id => {
       const el = document.getElementById(id);
@@ -10846,6 +11164,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const damageClaims = s.damageClaims || {};
     const captainMetrics = s.captainMetrics || {};
     const opsManagerMetrics = s.opsManagerMetrics || {};
+    const junkRemoval = s.junkRemoval || {};
     document.getElementById('appset_redfinSouthCarolina').value = marketing.redfinSouthCarolina || '';
     document.getElementById('appset_redfinEvansMartinez').value = marketing.redfinEvansMartinez || '';
     document.getElementById('appset_redfinAugusta').value = marketing.redfinAugusta || '';
@@ -10863,8 +11182,60 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(captainMetrics.resetDate, 'Captain Metrics');
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
     document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
+    renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
     loadOverridePinStatus();
   }
+
+  function renderJunkPricingRows(pricing){
+    const tbody = document.getElementById('appset_junkPricingRows');
+    tbody.innerHTML = pricing.map((p, i) => `
+      <tr>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${p.label}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">
+          $<input type="number" min="0" step="1" class="appset-junk-price" data-tier="${p.tier}" data-label="${p.label}" value="${p.price}" style="width:80px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
+        </td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); color:var(--muted);" class="appset-junk-range" data-index="${i}">$${p.price-40}&ndash;$${p.price+40}</td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('.appset-junk-price').forEach(input => input.addEventListener('input', (e)=>{
+      const row = e.target.closest('tr');
+      const rangeCell = row.querySelector('.appset-junk-range');
+      const price = Number(e.target.value) || 0;
+      rangeCell.textContent = `$${Math.max(0, price-40)}\u2013$${price+40}`;
+    }));
+  }
+
+  document.getElementById('appset_junkPricingSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_junkPricingStatus');
+    const pricing = Array.from(document.querySelectorAll('.appset-junk-price')).map(input => ({
+      tier: input.dataset.tier,
+      label: input.dataset.label,
+      price: Math.max(0, Number(input.value) || 0)
+    }));
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { junkRemoval: { pricing } } })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save pricing.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.junkRemoval = { pricing };
+      statusEl.textContent = 'Pricing saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save junk removal pricing failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   // The PIN value itself is never sent to the frontend, even to an admin --
   // only whether one is currently set.
@@ -12853,6 +13224,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
         reason: 'Estimate'
       })));
+      await createJunkRemovalJobsFromExcluded(junkDocs);
 
       if(documents.length === 0){
         renderPwBatchExcluded();
@@ -12860,7 +13232,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
         if(estimateDocs.length > 0) excludedParts.push(`${estimateDocs.length} estimate${estimateDocs.length===1?'':'s'}`);
         statusEl.textContent = excludedParts.length > 0
-          ? `Found ${excludedParts.join(' and ')} \u2014 none need paperwork, so nothing to review.`
+          ? `Found ${excludedParts.join(' and ')} \u2014 none need paperwork.${junkDocs.length > 0 ? ' Junk removal jobs are now on the Junk Removal tile, ready to assign a Captain.' : ''}`
           : 'Could not read any work orders from those files.';
         statusEl.className = excludedParts.length > 0 ? 'status-msg ok' : 'status-msg err';
         pwBatchPastedImages = [];
@@ -12967,6 +13339,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const bytes = new Uint8Array(binary.length);
     for(let i = 0; i < binary.length; i++){ bytes[i] = binary.charCodeAt(i); }
     return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  }
+
+  const JUNK_REMOVAL_JOBS_KEY = 'junk-removal-jobs';
+
+  // Junk removal work orders never get a moving paperwork packet, but they
+  // still need to become a trackable job someone can assign a Captain to --
+  // this is where that job record first gets created, right as the morning
+  // batch upload identifies and excludes it from paperwork.
+  async function createJunkRemovalJobsFromExcluded(junkDocs){
+    if(junkDocs.length === 0) return;
+    try{
+      const existing = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []);
+      const jobs = existing || [];
+      const existingJobNumbers = new Set(jobs.map(j => j.jobNumber));
+      let added = 0;
+      junkDocs.forEach(d => {
+        const jobNumber = d.jobNumber || '';
+        if(!jobNumber || existingJobNumbers.has(jobNumber)) return; // skip unreadable or duplicate job numbers
+        jobs.push({
+          id: 'junk_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+          jobNumber,
+          clientName: d.clientName || '',
+          captainName: '',
+          assignmentDate: new Date().toISOString().slice(0,10),
+          status: 'assigned',
+          initialPhotoKeys: [], initialEstimate: null, initialConfirmedTier: null,
+          finalPhotoKeys: [], finalEstimate: null, finalConfirmedTier: null,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        });
+        existingJobNumbers.add(jobNumber);
+        added++;
+      });
+      if(added > 0) await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, jobs);
+    }catch(err){
+      console.error('Could not create junk removal job records:', err);
+    }
   }
 
   function renderPwBatchExcluded(){
@@ -15279,6 +15687,147 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.loadDamageClaimsData = loadDamageClaimsData;
 
+  // ---------- Junk Removal (admin) ----------
+  let junkRemovalJobs = [];
+  const JUNK_REMOVAL_STATUS_LABELS = {
+    assigned: { label: 'Assigned', color: '#8a6d00', bg: '#FDF6E3' },
+    estimated: { label: 'Estimate Ready', color: '#8a6d00', bg: '#FDF6E3' },
+    quoted: { label: 'Quoted', color: '#00612C', bg: '#EAF6EE' },
+    completed: { label: 'Completed', color: 'var(--muted)', bg: 'var(--offwhite)' }
+  };
+
+  async function loadJunkRemovalJobs(){
+    try{
+      junkRemovalJobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []) || [];
+      await renderJunkRemovalJobs();
+      updateJunkRemovalTileBadge();
+    }catch(err){ console.error('Junk removal jobs load failed:', err); }
+  }
+  window.loadJunkRemovalJobs = loadJunkRemovalJobs;
+
+  function updateJunkRemovalTileBadge(){
+    const needsCaptain = junkRemovalJobs.some(j => !j.captainName);
+    const tile = document.getElementById('tile-junkremoval');
+    const badge = document.getElementById('junkRemovalTileBadge');
+    if(needsCaptain){
+      tile.classList.add('attention');
+      badge.style.display = 'inline-block';
+    } else {
+      tile.classList.remove('attention');
+      badge.style.display = 'none';
+    }
+  }
+
+  async function renderJunkRemovalJobs(){
+    const rowsEl = document.getElementById('jr_jobRows');
+    const emptyNote = document.getElementById('jr_emptyNote');
+    if(junkRemovalJobs.length === 0){
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    let roster = [];
+    try{ roster = await window.getCurrentEmployeeRoster(); }catch(err){ console.error('Roster load failed:', err); }
+    const rosterOptions = roster.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
+
+    const sorted = [...junkRemovalJobs].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+    rowsEl.innerHTML = sorted.map(j => {
+      const status = JUNK_REMOVAL_STATUS_LABELS[j.status] || JUNK_REMOVAL_STATUS_LABELS.assigned;
+      const hasDetail = j.initialEstimate || j.finalEstimate;
+      return `
+      <div data-id="${j.id}" style="padding:14px 0; border-bottom:1px solid var(--line);">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700; font-size:14px;">${jrEsc(j.jobNumber)} ${j.clientName ? '\u2014 ' + jrEsc(j.clientName) : ''}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${jrEsc(j.assignmentDate)}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Captain
+              <select class="jr-captain-select" data-id="${j.id}" style="display:block; margin-top:3px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
+                <option value="">Unassigned</option>
+                ${rosterOptions}
+              </select>
+            </label>
+            <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
+          </div>
+        </div>
+        ${hasDetail ? `<div style="margin-top:10px;"><button type="button" class="jr-view-detail" data-id="${j.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">View Estimate${j.finalEstimate ? 's' : ''}</button></div>` : ''}
+      </div>`;
+    }).join('');
+
+    rowsEl.querySelectorAll('.jr-captain-select').forEach(sel => {
+      const job = junkRemovalJobs.find(j => j.id === sel.dataset.id);
+      if(job) sel.value = job.captainName || '';
+      sel.addEventListener('change', async (e)=>{
+        const j = junkRemovalJobs.find(x => x.id === e.target.dataset.id);
+        if(!j) return;
+        j.captainName = e.target.value;
+        j.updatedAt = new Date().toISOString();
+        try{ await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, junkRemovalJobs); }catch(err){ console.error(err); }
+        updateJunkRemovalTileBadge();
+      });
+    });
+
+    rowsEl.querySelectorAll('.jr-view-detail').forEach(btn => btn.addEventListener('click', (e)=> viewJunkRemovalDetail(e.target.dataset.id)));
+  }
+
+  function jrEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s === undefined || s === null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  async function viewJunkRemovalDetail(id){
+    const job = junkRemovalJobs.find(j => j.id === id);
+    if(!job) return;
+    // Opened synchronously, before any await, so it's never at risk of
+    // being blocked as a non-user-gesture popup -- filled in once ready.
+    const win = window.open();
+    if(!win) return;
+    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
+
+    async function loadPhotos(keys){
+      const uris = [];
+      for(const key of (keys || [])){
+        try{ const uri = await window.dashboardApi.get(key, null); if(uri) uris.push(uri); }catch(err){ console.error(err); }
+      }
+      return uris;
+    }
+    const initialPhotos = await loadPhotos(job.initialPhotoKeys);
+    const finalPhotos = await loadPhotos(job.finalPhotoKeys);
+
+    function stageHtml(title, estimate, confirmedTier, photos){
+      if(!estimate) return '';
+      const tierChanged = confirmedTier && confirmedTier !== estimate.tier;
+      return `
+        <h3 style="margin:22px 0 6px;">${title}</h3>
+        <p style="margin:0 0 10px; line-height:1.5;">
+          <strong>Claude's estimate:</strong> ${jrEsc(estimate.tier)} Truckload<br>
+          ${tierChanged ? `<strong>Captain's confirmed tier:</strong> ${jrEsc(confirmedTier)} Truckload<br>` : ''}
+          <span style="color:#555;">${jrEsc(estimate.reasoning)}</span>
+        </p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          ${photos.map(p => `<img src="${p}" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd;">`).join('')}
+        </div>`;
+    }
+
+    win.document.open();
+    win.document.write(`<!DOCTYPE html><html><head><title>Junk Removal \u2014 ${jrEsc(job.jobNumber)}</title></head>
+      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
+        <h2 style="margin-bottom:4px;">Junk Removal</h2>
+        <p style="margin-top:0; line-height:1.6;">
+          <strong>Job:</strong> ${jrEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + jrEsc(job.clientName) : ''}<br>
+          <strong>Captain:</strong> ${jrEsc(job.captainName || '\u2014')}<br>
+          <strong>Date:</strong> ${jrEsc(job.assignmentDate)}
+        </p>
+        ${stageHtml('On-Site Estimate', job.initialEstimate, job.initialConfirmedTier, initialPhotos)}
+        ${stageHtml('Loaded Truck (Final)', job.finalEstimate, job.finalConfirmedTier, finalPhotos)}
+      </body></html>`);
+    win.document.close();
+  }
+
   const CLAIM_LINK_VALID_DAYS = 7; // matches the backend's enforcement window
 
   function dcClaimStatus(claim){
@@ -16289,6 +16838,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   if(localStorage.getItem('henson_auth_token') && !window.__damageClaimToken && !window.__pendingSignHash){
     window.loadDamageClaimsData();
     window.checkMaterialsOrderDeadline();
+    window.loadJunkRemovalJobs();
   }
 
   recalc();
