@@ -1214,6 +1214,10 @@ const DEFAULT_APP_SETTINGS = {
       { tier: '7/8', label: '7/8 Truckload', price: 559 },
       { tier: 'full', label: 'Full Truckload', price: 579 }
     ]
+  },
+  longDistanceQuote: {
+    ccEmails: '',
+    emailBodyTemplate: 'Hi {{clientFirstName}}! It was a pleasure speaking with you and I appreciate the opportunity to serve you on your upcoming Move! Attached is our weight and distance quote based on an estimated weight of {{weight}} lbs. This quote includes Full Value Protection (FVP) which would reimburse for the full value of any item damaged beyond repair. There is a free option which would reimburse you at a rate of 60 cents per pound for any item damaged beyond repair. If the free option is chosen, the total cost would be reduced by {{valuationCost}}. Feel free to give me a call if you have any questions/concerns or want to book the HUNKS!\nThanks!'
   }
 };
 
