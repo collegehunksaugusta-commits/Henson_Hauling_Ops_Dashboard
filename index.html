@@ -1426,6 +1426,7 @@
   let jrdJobs = [];
   let jrdPricing = null; // cached once per session so adjusting a tier recomputes the range instantly, no round trip
   let jrdStagedPhotos = {}; // keyed by `${jobId}_${stage}` -> array of compressed data URIs
+  let jrdEditingInitial = new Set(); // job IDs currently editing/re-submitting their initial-stage photos
 
   function jrdTierLabel(tier){ return tier === 'full' ? 'Full Truckload' : `${tier} Truckload`; }
 
@@ -1470,12 +1471,32 @@
   }
   document.getElementById('jrd_driverNameSelect').addEventListener('change', loadJunkRemovalDriverJobs);
 
+  function jrdEditPhotosCardHtml(job){
+    return `
+    <div class="jrd-job-card" data-id="${job.id}" data-stage="initial" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}</div>
+      <p class="form-note" style="margin:8px 0 12px;">Add any photos you missed, or remove one, then get an updated estimate.</p>
+      <input type="file" accept="image/*" multiple class="jrd-photo-input" data-id="${job.id}" data-stage="initial" style="display:none;">
+      <button type="button" class="jrd-add-photos-btn" data-id="${job.id}" data-stage="initial" style="width:100%; background:#fff; border:1px solid var(--line); padding:12px; border-radius:6px; cursor:pointer; font-weight:600;">Add Photos</button>
+      <div class="jrd-thumbs" data-id="${job.id}" data-stage="initial" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;"></div>
+      <div style="display:flex; gap:10px; margin-top:12px;">
+        <button type="button" class="jrd-estimate-btn btn-primary" data-id="${job.id}" data-stage="initial" style="flex:1; padding:12px;">Get Updated Estimate</button>
+        <button type="button" class="jrd-cancel-edit-btn" data-id="${job.id}" style="background:#fff; border:1px solid var(--line); padding:12px 16px; border-radius:6px; cursor:pointer; font-weight:600;">Cancel</button>
+      </div>
+      <span class="status-msg jrd-status" data-id="${job.id}"></span>
+    </div>`;
+  }
+
   function jrdJobCardHtml(job){
+    if((job.status === 'estimated' || job.status === 'quoted') && jrdEditingInitial.has(job.id)){
+      return jrdEditPhotosCardHtml(job);
+    }
     if(job.status === 'quoted'){
       return `
       <div class="jrd-job-card" data-id="${job.id}" data-stage="final" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
         <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}</div>
-        <p style="margin:10px 0 12px; font-size:13.5px; color:var(--brand-green-dark); font-weight:600;">Quoted: ${driverEsc(jrdTierLabel(job.initialConfirmedTier))}</p>
+        <p style="margin:10px 0 4px; font-size:13.5px; color:var(--brand-green-dark); font-weight:600;">Quoted: ${driverEsc(jrdTierLabel(job.initialConfirmedTier))}</p>
+        <button type="button" class="jrd-edit-initial-btn" data-id="${job.id}" style="background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer; margin-bottom:12px;">Add more photos to the initial estimate</button>
         <p class="form-note" style="margin:0 0 12px;">Once the truck is loaded, upload a photo of the loaded truck bed to record the final volume.</p>
         <input type="file" accept="image/*" multiple class="jrd-photo-input" data-id="${job.id}" data-stage="final" style="display:none;">
         <button type="button" class="jrd-add-photos-btn" data-id="${job.id}" data-stage="final" style="width:100%; background:#fff; border:1px solid var(--line); padding:12px; border-radius:6px; cursor:pointer; font-weight:600;">Add Photos of Loaded Truck</button>
@@ -1490,7 +1511,8 @@
       <div class="jrd-job-card" data-id="${job.id}" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
         <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}</div>
         <p style="margin:10px 0 4px; font-size:13.5px;"><strong>Claude's estimate:</strong> ${driverEsc(jrdTierLabel(job.initialEstimate.tier))}</p>
-        <p class="form-note" style="margin:0 0 12px;">${driverEsc(job.initialEstimate.reasoning)}</p>
+        <p class="form-note" style="margin:0 0 8px;">${driverEsc(job.initialEstimate.reasoning)}</p>
+        <button type="button" class="jrd-edit-initial-btn" data-id="${job.id}" style="background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer; margin-bottom:12px;">Forgot a photo? Add more</button>
         <label style="font-size:12.5px; display:block;">Adjust tier if needed
           <select class="jrd-tier-select" data-id="${job.id}" style="width:100%; margin-top:4px; padding:8px;">
             ${JUNK_REMOVAL_TIER_OPTIONS.map(t => `<option value="${t}"${t===tier?' selected':''}>${jrdTierLabel(t)}</option>`).join('')}
@@ -1603,6 +1625,7 @@
           return;
         }
         delete jrdStagedPhotos[`${id}_${stage}`];
+        if(stage === 'initial') jrdEditingInitial.delete(id);
         if(stage === 'final'){
           // The job is now complete server-side and would drop off the next
           // fetched list -- update this card in place with a clear next
@@ -1654,6 +1677,32 @@
         statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
         statusEl.className = 'status-msg jrd-status err';
       }
+    }));
+
+    listEl.querySelectorAll('.jrd-edit-initial-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const key = `${id}_initial`;
+      try{
+        const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal/${id}/photos?stage=initial`, {
+          headers: {'Authorization': 'Bearer ' + driverToken}
+        });
+        if(res.status === 401){ driverSessionExpired(); return; }
+        const data = await res.json();
+        jrdStagedPhotos[key] = (res.ok && data.photos) ? data.photos.slice() : [];
+      }catch(err){
+        console.error('Could not load existing photos:', err);
+        jrdStagedPhotos[key] = [];
+      }
+      jrdEditingInitial.add(id);
+      renderJrdJobs();
+      jrdRenderThumbs(id, 'initial');
+    }));
+
+    listEl.querySelectorAll('.jrd-cancel-edit-btn').forEach(btn => btn.addEventListener('click', (e)=>{
+      const id = e.currentTarget.dataset.id;
+      jrdEditingInitial.delete(id);
+      delete jrdStagedPhotos[`${id}_initial`];
+      renderJrdJobs();
     }));
   }
 
@@ -3356,7 +3405,7 @@
     <button class="backlink" id="junkRemovalBackBtn">&larr; Dispatch</button>
     <div class="detail-head">
       <h2 class="display">Junk Removal</h2>
-      <p>Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. This tile is for review &mdash; each job's on-site and loaded-truck photos, and Claude's volume estimates for both.</p>
+      <p>Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. This tile is for review &mdash; each job's on-site and loaded-truck photos, and Claude's volume estimates for both. Photos are kept for 30 days, then removed automatically; the estimate itself is kept indefinitely.</p>
     </div>
     <div class="panel" id="junkRemovalJobsPanel">
       <h3>Jobs</h3>
@@ -16013,9 +16062,43 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     completed: { label: 'Completed', color: 'var(--muted)', bg: 'var(--offwhite)' }
   };
 
+  const JUNK_REMOVAL_PHOTO_RETENTION_DAYS = 30; // ~1 month
+
+  // Drops photo blobs -- not the job record itself, which stays indefinitely
+  // for the estimate-vs-actual record-keeping this tile is for -- once a
+  // stage's photos pass the retention window. Anchored to when that
+  // stage's photos were actually submitted; falls back to the job's
+  // assignment date for any older record from before this field existed.
+  // Returns true if anything was actually removed, so the caller knows
+  // whether a save is needed.
+  async function pruneOldJunkRemovalPhotos(){
+    const cutoff = new Date(Date.now() - JUNK_REMOVAL_PHOTO_RETENTION_DAYS*24*60*60*1000).toISOString();
+    let changed = false;
+    for(const job of junkRemovalJobs){
+      const initialAnchor = job.initialPhotosAt || job.assignmentDate;
+      if(job.initialPhotoKeys && job.initialPhotoKeys.length > 0 && initialAnchor && initialAnchor < cutoff){
+        for(const key of job.initialPhotoKeys){
+          try{ await window.dashboardApi.delete(key); }catch(err){ console.error('Junk removal photo delete failed:', err); }
+        }
+        job.initialPhotoKeys = [];
+        changed = true;
+      }
+      const finalAnchor = job.finalPhotosAt || job.assignmentDate;
+      if(job.finalPhotoKeys && job.finalPhotoKeys.length > 0 && finalAnchor && finalAnchor < cutoff){
+        for(const key of job.finalPhotoKeys){
+          try{ await window.dashboardApi.delete(key); }catch(err){ console.error('Junk removal photo delete failed:', err); }
+        }
+        job.finalPhotoKeys = [];
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   async function loadJunkRemovalJobs(){
     try{
       junkRemovalJobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []) || [];
+      if(await pruneOldJunkRemovalPhotos()) await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, junkRemovalJobs);
       await renderJunkRemovalJobs();
     }catch(err){ console.error('Junk removal jobs load failed:', err); }
   }
@@ -16086,9 +16169,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${tierChanged ? `<strong>Captain's confirmed tier:</strong> ${jrEsc(confirmedTier)} Truckload<br>` : ''}
           <span style="color:#555;">${jrEsc(estimate.reasoning)}</span>
         </p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          ${photos.map(p => `<img src="${p}" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd;">`).join('')}
-        </div>`;
+        ${photos.length > 0
+          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd;">`).join('')}</div>`
+          : `<p style="color:#999; font-size:13px; font-style:italic;">Photos were automatically removed after ${JUNK_REMOVAL_PHOTO_RETENTION_DAYS} days. The estimate above is preserved.</p>`}`;
     }
 
     win.document.open();
