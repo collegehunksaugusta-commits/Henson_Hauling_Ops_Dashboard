@@ -1591,7 +1591,7 @@
       const files = Array.from(e.target.files || []);
       for(const file of files){
         try{
-          const compressed = await window.compressImageForUpload(file, 1600, 0.85);
+          const compressed = await window.compressImageForUpload(file, 1280, 0.72);
           if(!jrdStagedPhotos[key]) jrdStagedPhotos[key] = [];
           jrdStagedPhotos[key].push(compressed);
         }catch(err){ console.error('Photo compression failed:', err); }
@@ -1770,7 +1770,7 @@
   async function handleTruckPhotoCapture(file, { previewImgId, previewWrapId, statusElId, captureBtnId }){
     const statusEl = document.getElementById(statusElId);
     try{
-      const compressed = await window.compressImageForUpload(file, 1600, 0.85);
+      const compressed = await window.compressImageForUpload(file, 1280, 0.72);
       document.getElementById(previewImgId).src = compressed;
       document.getElementById(previewWrapId).style.display = 'block';
       document.getElementById(captureBtnId).textContent = 'Retake Photo';
@@ -4494,6 +4494,14 @@
           <p class="form-note" style="margin-top:0;">Comma-separated. Every quote email sent from the Long Distance Estimates tile CC's these addresses.</p>
           <label>Email Body <textarea id="appset_ldQuoteEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
           <p class="form-note">Sent from the "Email Quote to Client" button, with the estimate PDF downloaded and ready to attach. Available merge fields: <span class="mono">{{clientName}}</span>, <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{weight}}</span>, <span class="mono">{{miles}}</span>, <span class="mono">{{total}}</span>, <span class="mono">{{valuationCost}}</span> (the Full Value Protection charge &mdash; what the total would drop by if the client chose the free 60&cent;/lb option instead) &mdash; each is swapped in automatically from the estimate on screen. Subject line is always fixed to "College Hunks - Weight and Distance Quote".</p>
+
+          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Photo Storage</h4>
+          <p class="form-note" id="appset_storageUsageNote" style="margin-top:0;"></p>
+          <p class="form-note">Re-compresses every stored Pre-Trip, End of Day, Damage Claim, and Junk Removal photo at today's tighter settings &mdash; smaller file, same photo, still clear. Estimates, reasoning, and every other record are never touched, and a photo already smaller than the new setting is left alone. New uploads already use the tighter setting automatically; this catches up everything already stored. Can take a few minutes depending on how many photos there are &mdash; leave this tab open until it finishes.</p>
+          <div class="form-actions">
+            <button type="button" id="appset_compressPhotosBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Compress Existing Photos</button>
+            <span class="status-msg" id="appset_compressPhotosStatus"></span>
+          </div>
 
           <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Captain Metrics</h4>
           <p class="form-note" id="appset_cmResetDateCurrent" style="margin-top:0;"></p>
@@ -11280,7 +11288,104 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
     loadOverridePinStatus();
+    updateStorageUsageNote();
   }
+
+  async function updateStorageUsageNote(){
+    const noteEl = document.getElementById('appset_storageUsageNote');
+    if(!noteEl) return;
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/storage-stats`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      if(!res.ok){ noteEl.textContent = ''; return; }
+      const data = await res.json();
+      noteEl.textContent = `Currently using ${window.fmtBytes(data.usedBytes)} of ${window.fmtBytes(data.maxBytes)} (${(data.percentUsed*100).toFixed(0)}%).`;
+    }catch(err){
+      console.error('Storage usage fetch failed:', err);
+      noteEl.textContent = '';
+    }
+  }
+
+  // Gathers every photo blob key this app knows about -- Pre-Trip, End of
+  // Day, Damage Claim, and Junk Removal -- by walking each feature's own
+  // record list rather than scanning storage directly, so it only ever
+  // touches photos the app's own data model still references.
+  async function collectAllStoredPhotoKeys(){
+    const keys = [];
+    try{
+      const ptiRecords = await window.dashboardApi.get('compliance-pretrip-inspections', []) || [];
+      ptiRecords.forEach(r => { if(r.backPhotoKey) keys.push(r.backPhotoKey); });
+    }catch(err){ console.error('Could not list PTI photos:', err); }
+    try{
+      const eodRecords = await window.dashboardApi.get('compliance-eod-inspections', []) || [];
+      eodRecords.forEach(r => { if(r.backPhotoKey) keys.push(r.backPhotoKey); });
+    }catch(err){ console.error('Could not list EOD photos:', err); }
+    try{
+      const claims = await window.dashboardApi.get('damage-claims', []) || [];
+      claims.forEach(c => (c.photos || []).forEach(p => keys.push(`damage-claim-photo-${c.id}-${p.id}`)));
+    }catch(err){ console.error('Could not list Damage Claim photos:', err); }
+    try{
+      const junkJobs = await window.dashboardApi.get('junk-removal-jobs', []) || [];
+      junkJobs.forEach(j => {
+        (j.initialPhotoKeys || []).forEach(k => keys.push(k));
+        (j.finalPhotoKeys || []).forEach(k => keys.push(k));
+      });
+    }catch(err){ console.error('Could not list Junk Removal photos:', err); }
+    return keys;
+  }
+
+  document.getElementById('appset_compressPhotosBtn').addEventListener('click', async (e)=>{
+    const btn = e.currentTarget;
+    if(btn.disabled) return;
+    const statusEl = document.getElementById('appset_compressPhotosStatus');
+    const origText = btn.textContent;
+    btn.disabled = true;
+    statusEl.textContent = 'Finding photos\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const keys = await collectAllStoredPhotoKeys();
+      if(keys.length === 0){
+        statusEl.textContent = 'No photos found to compress.';
+        statusEl.className = 'status-msg';
+        return;
+      }
+      let compressedCount = 0, bytesSaved = 0, failed = 0;
+      for(let i = 0; i < keys.length; i++){
+        btn.textContent = `Compressing ${i+1} of ${keys.length}\u2026`;
+        try{
+          const dataUri = await window.dashboardApi.get(keys[i], null);
+          if(!dataUri || !dataUri.startsWith('data:image/')) continue;
+          const originalSize = dataUriByteSize(dataUri);
+          const blob = await (await fetch(dataUri)).blob();
+          const recompressed = await compressImageForUpload(blob, 1280, 0.72);
+          const newSize = dataUriByteSize(recompressed);
+          // Only replace if meaningfully smaller -- an already-small or
+          // already-tightly-compressed photo isn't worth the churn or risk
+          // of a marginal or even slightly-larger re-encode.
+          if(newSize < originalSize * 0.9){
+            await window.dashboardApi.set(keys[i], recompressed);
+            compressedCount++;
+            bytesSaved += (originalSize - newSize);
+          }
+        }catch(err){
+          console.error('Could not compress photo', keys[i], err);
+          failed++;
+        }
+      }
+      statusEl.textContent = `Done \u2014 compressed ${compressedCount} of ${keys.length} photo${keys.length===1?'':'s'}, saving ${window.fmtBytes(bytesSaved)}.`
+        + (failed > 0 ? ` ${failed} could not be read and ${failed===1?'was':'were'} skipped.` : '');
+      statusEl.className = 'status-msg ok';
+      updateStorageUsageNote();
+      checkStorageUsage();
+    }catch(err){
+      console.error('Photo compression failed:', err);
+      statusEl.textContent = 'Something went wrong \u2014 check your connection and try again.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.textContent = origText;
+      btn.disabled = false;
+    }
+  });
 
   function renderJunkPricingRows(pricing){
     const tbody = document.getElementById('appset_junkPricingRows');
@@ -16158,6 +16263,40 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     const initialPhotos = await loadPhotos(job.initialPhotoKeys);
     const finalPhotos = await loadPhotos(job.finalPhotoKeys);
+    const totalPhotoCount = initialPhotos.length + finalPhotos.length;
+
+    // Attached to the popup's own window (not the main app's) so the
+    // popup's onclick can find it -- but as a closure defined here, it
+    // still resolves window.JSZip and the photo arrays against THIS
+    // (the main app's) scope, where they actually exist. The popup itself
+    // never had JSZip loaded in it.
+    win.downloadAllJunkRemovalPhotos = async () => {
+      const statusEl = win.document.getElementById('jr-download-status');
+      if(totalPhotoCount === 0) return;
+      if(!window.JSZip){
+        if(statusEl) statusEl.textContent = 'Download isn\u2019t available right now \u2014 check your connection and try again.';
+        return;
+      }
+      if(statusEl) statusEl.textContent = 'Preparing download\u2026';
+      try{
+        const zip = new window.JSZip();
+        initialPhotos.forEach((p, i) => zip.file(`${job.jobNumber}_initial_${i+1}.jpg`, p.split(',')[1] || '', { base64: true }));
+        finalPhotos.forEach((p, i) => zip.file(`${job.jobNumber}_final_${i+1}.jpg`, p.split(',')[1] || '', { base64: true }));
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(zipBlob);
+        const a = win.document.createElement('a');
+        a.href = url;
+        a.download = `${job.jobNumber}-photos.zip`;
+        win.document.body.appendChild(a);
+        a.click();
+        win.document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        if(statusEl) statusEl.textContent = `Downloaded ${totalPhotoCount} photo${totalPhotoCount===1?'':'s'} as ${job.jobNumber}-photos.zip`;
+      }catch(err){
+        console.error('Junk removal photo zip failed:', err);
+        if(statusEl) statusEl.textContent = 'Could not build the download \u2014 try again.';
+      }
+    };
 
     function stageHtml(title, estimate, confirmedTier, photos){
       if(!estimate) return '';
@@ -16183,6 +16322,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <strong>Captain:</strong> ${jrEsc(job.captainName || '\u2014')}<br>
           <strong>Date:</strong> ${jrEsc(job.assignmentDate)}
         </p>
+        ${totalPhotoCount > 0 ? `
+        <div style="margin:14px 0 20px;">
+          <button type="button" onclick="downloadAllJunkRemovalPhotos()" style="background:#00843D; border:none; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13.5px;">Download All Photos (${totalPhotoCount})</button>
+          <div id="jr-download-status" style="margin-top:8px; font-size:12.5px; color:#666;"></div>
+        </div>` : ''}
         ${stageHtml('On-Site Estimate', job.initialEstimate, job.initialConfirmedTier, initialPhotos)}
         ${stageHtml('Loaded Truck (Final)', job.finalEstimate, job.finalConfirmedTier, finalPhotos)}
         <div id="lightbox" onclick="this.style.display='none'" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out;">
@@ -17137,7 +17281,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       for(const file of files){
         try{
-          const dataUri = await compressImageForUpload(file, 1600, 0.8);
+          const dataUri = await compressImageForUpload(file, 1280, 0.72);
           dcuStagedFiles.push({ filename: file.name, dataUri });
         }catch(err){ console.error('Photo processing failed:', err); }
       }
