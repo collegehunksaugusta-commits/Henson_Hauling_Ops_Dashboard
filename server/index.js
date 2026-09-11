@@ -924,6 +924,33 @@ app.get('/api/driver/junk-removal-jobs', requireDriverAuth, async (req, res) => 
   }
 });
 
+// Lets a Captain pull up the photos already submitted for a stage, so they
+// can add ones they forgot (or remove one) and re-submit for a fresh
+// estimate, rather than being stuck with whatever they first uploaded.
+app.get('/api/driver/junk-removal/:jobId/photos', requireDriverAuth, async (req, res) => {
+  const stage = req.query.stage;
+  if (stage !== 'initial' && stage !== 'final') {
+    return res.status(400).json({ error: 'Invalid stage.' });
+  }
+  try {
+    const raw = await redis.get(JUNK_REMOVAL_JOBS_KEY);
+    const jobs = raw ? JSON.parse(raw) : [];
+    const job = jobs.find(j => j.id === req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    const keys = (stage === 'initial' ? job.initialPhotoKeys : job.finalPhotoKeys) || [];
+    const photos = [];
+    for (const key of keys) {
+      const photoRaw = await redis.get(key);
+      if (photoRaw) photos.push(JSON.parse(photoRaw));
+    }
+    res.json({ photos });
+  } catch (err) {
+    console.error('Driver junk removal photo fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load those photos.' });
+  }
+});
+
 app.post('/api/driver/junk-removal/:jobId/estimate', requireDriverAuth, async (req, res) => {
   const { stage, photos } = req.body || {};
   if (stage !== 'initial' && stage !== 'final') {
@@ -932,8 +959,9 @@ app.post('/api/driver/junk-removal/:jobId/estimate', requireDriverAuth, async (r
   if (!Array.isArray(photos) || photos.length === 0) {
     return res.status(400).json({ error: 'At least one photo is required.' });
   }
-  if (photos.length > 6) {
-    return res.status(400).json({ error: 'Please upload 6 photos or fewer at a time.' });
+  const MAX_JUNK_REMOVAL_PHOTOS = 20;
+  if (photos.length > MAX_JUNK_REMOVAL_PHOTOS) {
+    return res.status(400).json({ error: `Please upload ${MAX_JUNK_REMOVAL_PHOTOS} photos or fewer at a time.` });
   }
   for (const p of photos) {
     if (typeof p !== 'string' || !p.startsWith('data:image/')) {
@@ -961,19 +989,22 @@ app.post('/api/driver/junk-removal/:jobId/estimate', requireDriverAuth, async (r
 
     const pricing = await getJunkRemovalPricing();
     const range = junkRemovalPriceForTier(pricing, result.tier);
+    const now = new Date().toISOString();
 
     if (stage === 'initial') {
       job.initialPhotoKeys = photoKeys;
+      job.initialPhotosAt = now;
       job.initialEstimate = { tier: result.tier, reasoning: result.reasoning };
       job.initialConfirmedTier = result.tier; // defaults to Claude's read; Captain can adjust via the confirm endpoint
       job.status = 'estimated';
     } else {
       job.finalPhotoKeys = photoKeys;
+      job.finalPhotosAt = now;
       job.finalEstimate = { tier: result.tier, reasoning: result.reasoning };
       job.finalConfirmedTier = result.tier;
       job.status = 'completed';
     }
-    job.updatedAt = new Date().toISOString();
+    job.updatedAt = now;
     await redis.set(JUNK_REMOVAL_JOBS_KEY, JSON.stringify(jobs));
 
     res.json({ tier: result.tier, reasoning: result.reasoning, priceLow: range ? range.low : null, priceHigh: range ? range.high : null });
