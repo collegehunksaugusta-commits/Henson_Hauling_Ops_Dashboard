@@ -182,24 +182,40 @@ const TEMP_PASSWORD = 'Password123!';
 // or anything else even if it's passed around loosely.
 //
 // DRIVER_AUTH_LOOKUP_KEY holds { [last4]: employeeName }, rebuilt automatically
-// from the most recent payroll week's employee list every time one is saved
-// (see the labor-weeks write handler below). It is NOT in ALLOWED_KEYS, so it
-// has no HTTP-reachable read or write path at all -- not even for an admin --
-// it only exists for this file's own login-time lookup. Turnover is handled
-// naturally: an employee who no longer appears in the latest week's payroll
-// data simply isn't in the lookup built from it, with no separate
-// deprovisioning step needed.
+// from two sources every time either one is saved (see the labor-weeks and
+// compliance-drivers write handlers below): the most recent payroll week's
+// employee list (for the SSN data) crossed against compliance-drivers (for
+// who is actually checkmarked as a driver on the Compliance tile). Being on
+// payroll alone is never enough -- an office employee never gets Driver
+// Portal access just by having last-4 SSN data on file. It is NOT in
+// ALLOWED_KEYS, so it has no HTTP-reachable read or write path at all -- not
+// even for an admin -- it only exists for this file's own login-time lookup.
+// Turnover and role changes are both handled naturally: someone who drops
+// off the latest week's payroll, or gets unchecked as a driver, simply isn't
+// in the lookup rebuilt from either change, with no separate deprovisioning
+// step needed.
 const DRIVER_AUTH_LOOKUP_KEY = 'driver-auth-lookup';
 const DRIVER_SESSION_PREFIX = 'auth:driver-session:';
 const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 16; // 16 hours -- a work shift
 
-async function rebuildDriverAuthLookup(weeks) {
+async function rebuildDriverAuthLookup() {
   try {
-    const latest = (weeks || []).slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''))[0];
+    const [weeksRaw, driversRaw] = await Promise.all([
+      redis.get('labor-weeks'),
+      redis.get('compliance-drivers')
+    ]);
+    const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
+    const compDrivers = driversRaw ? JSON.parse(driversRaw) : [];
+    // Only names actively checkmarked as a driver on the Compliance tile --
+    // an office employee who happens to be on payroll never gets Driver
+    // Portal access just by having last-4 SSN data on file.
+    const activeDriverNames = new Set(compDrivers.filter(d => d && d.active).map(d => d.employeeName));
+
+    const latest = weeks.slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''))[0];
     const employees = (latest && latest.employees) || [];
     const lookup = {};
     employees.forEach(e => {
-      if (e && e.name && e.ssnLast4 && /^\d{4}$/.test(e.ssnLast4)) {
+      if (e && e.name && e.ssnLast4 && /^\d{4}$/.test(e.ssnLast4) && activeDriverNames.has(e.name)) {
         lookup[e.ssnLast4] = e.name;
       }
     });
@@ -2994,8 +3010,8 @@ app.put('/api/data/:key', requireAuth, async (req, res) => {
   if (!(await checkAdminWriteOnlyKey(req, res, key))) return;
   try {
     await redis.set(key, JSON.stringify(req.body.value));
-    if (key === 'labor-weeks' && Array.isArray(req.body.value)) {
-      await rebuildDriverAuthLookup(req.body.value);
+    if (key === 'labor-weeks' || key === 'compliance-drivers') {
+      await rebuildDriverAuthLookup();
     }
     res.json({ key, ok: true });
   } catch (err) {
@@ -3011,6 +3027,9 @@ app.delete('/api/data/:key', requireAuth, async (req, res) => {
   if (!(await checkAdminWriteOnlyKey(req, res, key))) return;
   try {
     await redis.del(key);
+    if (key === 'labor-weeks' || key === 'compliance-drivers') {
+      await rebuildDriverAuthLookup();
+    }
     res.json({ key, ok: true });
   } catch (err) {
     console.error(`DELETE /api/data/${key} failed:`, err.message);
