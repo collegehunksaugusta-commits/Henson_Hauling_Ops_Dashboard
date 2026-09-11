@@ -691,10 +691,7 @@
   </div>
 
   <div id="mv_jobsList"></div>
-  <div id="mv_emptyState" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:32px 20px; text-align:center;">
-    <div id="mv_emptyStateTitle" style="font-size:15px; font-weight:700; color:var(--charcoal); margin-bottom:8px;">No moving jobs assigned to you right now</div>
-    <p class="form-note" id="mv_emptyStateBody" style="margin:0 auto; max-width:380px;">Jobs show up here automatically once you're checkmarked as a driver and entered as captain on a job dated within about the last two weeks. If you're expecting to see one, check with the office.</p>
-  </div>
+  <p class="form-note" id="mv_emptyNote" style="display:none;">No Moving jobs assigned to you right now.</p>
 </div>
 </div>
 
@@ -1623,7 +1620,7 @@
 
   async function loadDriverMovingJobs(){
     const listEl = document.getElementById('mv_jobsList');
-    const emptyState = document.getElementById('mv_emptyState');
+    const emptyNote = document.getElementById('mv_emptyNote');
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/moving-jobs', {
         headers: {'Authorization': 'Bearer ' + driverToken}
@@ -1635,9 +1632,8 @@
     }catch(err){
       console.error('Moving jobs load failed:', err);
       listEl.innerHTML = '';
-      document.getElementById('mv_emptyStateTitle').textContent = 'Could not load your jobs';
-      document.getElementById('mv_emptyStateBody').textContent = 'Check your connection and try again.';
-      emptyState.style.display = 'block';
+      emptyNote.textContent = 'Could not load your jobs -- check your connection and try again.';
+      emptyNote.style.display = 'block';
     }
   }
 
@@ -1701,15 +1697,14 @@
 
   function renderMvJobs(){
     const listEl = document.getElementById('mv_jobsList');
-    const emptyState = document.getElementById('mv_emptyState');
+    const emptyNote = document.getElementById('mv_emptyNote');
     if(mvJobs.length === 0){
       listEl.innerHTML = '';
-      document.getElementById('mv_emptyStateTitle').textContent = 'No moving jobs assigned to you right now';
-      document.getElementById('mv_emptyStateBody').textContent = 'Jobs show up here automatically once you\u2019re checkmarked as a driver and entered as captain on a job dated within about the last two weeks. If you\u2019re expecting to see one, check with the office.';
-      emptyState.style.display = 'block';
+      emptyNote.textContent = 'No Moving jobs assigned to you right now.';
+      emptyNote.style.display = 'block';
       return;
     }
-    emptyState.style.display = 'none';
+    emptyNote.style.display = 'none';
     listEl.innerHTML = mvJobs.map(mvJobCardHtml).join('');
 
     // Any section currently in edit mode needs its thumbnails (re-)drawn
