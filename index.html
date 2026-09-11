@@ -15185,6 +15185,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Job archive lookup failed:', err); return null; }
   }
 
+  // Crew-submitted pre-existing/caused damage documentation from the Moving
+  // tile sits passively in moving-damage-reports until a Damage Claim is
+  // actually generated for that job number -- at that point it's snapshotted
+  // onto the claim (see the claim-generation handler below) so it surfaces
+  // right alongside the client's own submission, without needing a separate
+  // admin panel to browse it proactively.
+  async function lookupMovingDamageReport(jobNumber){
+    if(!jobNumber) return null;
+    try{
+      const reports = await window.dashboardApi.get('moving-damage-reports', []);
+      return reports.find(r => r.jobNumber === jobNumber) || null;
+    }catch(err){ console.error('Moving damage report lookup failed:', err); return null; }
+  }
+
   // ---------- Captain Metrics ----------
   function cmEsc(s){
     const d = document.createElement('div');
@@ -16136,6 +16150,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // ---------- Damage Claim ----------
   const DAMAGE_CLAIMS_KEY = 'damage-claims';
   const DAMAGE_CLAIM_RETENTION_DAYS = 92; // ~3 months, matching this app's other "about 3 months" retention windows
+  // Kept identical to DAMAGE_CLAIM_RETENTION_DAYS on purpose -- a Moving
+  // photo can end up snapshotted onto a Damage Claim generated well after
+  // the move, so the two retention windows need to move together rather
+  // than drift apart (see the cross-reference checks in both prune
+  // functions below, which stop either side from deleting a blob the
+  // other one still needs).
+  const MOVING_PHOTO_RETENTION_DAYS = DAMAGE_CLAIM_RETENTION_DAYS;
   let damageClaims = [];
   let dcSearchTerm = '';
 
@@ -16158,20 +16179,75 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   // Drops any claim -- and every photo blob it uploaded -- older than the
   // retention window, so old client photos don't sit in storage forever.
+  // Also cleans up any crew-documentation photo blobs snapshotted onto the
+  // claim, but only once the underlying moving-damage-reports record for
+  // that job has itself already expired (or never existed) -- if that
+  // record is still alive, the Moving tile may still need those exact
+  // blobs (e.g. a driver revisiting to add more photos), so this leaves
+  // them alone and lets the Moving side's own pruning take care of them
+  // once it's their turn.
   // Returns true if anything was actually removed, so the caller knows
   // whether a save is needed.
   async function pruneOldDamageClaims(){
     const cutoff = new Date(Date.now() - DAMAGE_CLAIM_RETENTION_DAYS*24*60*60*1000).toISOString();
     const toRemove = damageClaims.filter(c => (c.createdAt || '') < cutoff);
     if(toRemove.length === 0) return false;
+
+    const movingJobNumbersStillLive = new Set(
+      (await window.dashboardApi.get('moving-damage-reports', [])).map(r => r.jobNumber)
+    );
+
     for(const claim of toRemove){
       for(const photo of (claim.photos || [])){
         try{ await window.dashboardApi.delete(`damage-claim-photo-${claim.id}-${photo.id}`); }
         catch(err){ console.error('Damage claim photo delete failed:', err); }
       }
+      if(!movingJobNumbersStillLive.has(claim.jobNumber)){
+        const crewKeys = [...(claim.crewPreExistingPhotoKeys || []), ...(claim.crewCausedPhotoKeys || [])];
+        for(const key of crewKeys){
+          try{ await window.dashboardApi.delete(key); }
+          catch(err){ console.error('Crew documentation photo delete failed:', err); }
+        }
+      }
     }
     damageClaims = damageClaims.filter(c => (c.createdAt || '') >= cutoff);
     return true;
+  }
+
+  // Companion to pruneOldDamageClaims -- same retention window, same
+  // cross-reference safety in the other direction: never deletes a photo
+  // blob still referenced by a live (not-yet-expired) Damage Claim, since
+  // that claim was generated specifically to keep that documentation
+  // around for review. Returns true if anything changed, so the caller
+  // knows whether a save is needed.
+  async function pruneOldMovingDamageReports(){
+    try{
+      let reports = await window.dashboardApi.get('moving-damage-reports', []);
+      const cutoff = new Date(Date.now() - MOVING_PHOTO_RETENTION_DAYS*24*60*60*1000).toISOString();
+      const lastActivity = r => r.updatedAt || r.causedSubmittedAt || r.preExistingSubmittedAt || '';
+      const isExpired = r => { const a = lastActivity(r); return !!a && a < cutoff; };
+      const toRemove = reports.filter(isExpired);
+      if(toRemove.length === 0) return false;
+
+      const claims = await window.dashboardApi.get(DAMAGE_CLAIMS_KEY, []);
+      const claimedKeys = new Set();
+      claims.forEach(c => {
+        (c.crewPreExistingPhotoKeys || []).forEach(k => claimedKeys.add(k));
+        (c.crewCausedPhotoKeys || []).forEach(k => claimedKeys.add(k));
+      });
+
+      for(const report of toRemove){
+        const allKeys = [...(report.preExistingPhotoKeys || []), ...(report.causedPhotoKeys || [])];
+        for(const key of allKeys){
+          if(claimedKeys.has(key)) continue;
+          try{ await window.dashboardApi.delete(key); }
+          catch(err){ console.error('Moving photo delete failed:', err); }
+        }
+      }
+      reports = reports.filter(r => !isExpired(r));
+      await window.dashboardApi.set('moving-damage-reports', reports);
+      return true;
+    }catch(err){ console.error('Moving damage report prune failed:', err); return false; }
   }
 
   function updateDamageClaimTileBadge(){
@@ -16192,6 +16268,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     try{
       damageClaims = await window.dashboardApi.get(DAMAGE_CLAIMS_KEY, []) || [];
       if(await pruneOldDamageClaims()) await saveDamageClaims();
+      await pruneOldMovingDamageReports();
       renderDamageClaimsList();
       updateDamageClaimTileBadge();
     }catch(err){ console.error('Damage claims load failed:', err); }
@@ -16418,6 +16495,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     rowsEl.innerHTML = filtered.map(c => {
       const status = dcClaimStatus(c);
       const photoCount = (c.photos || []).length;
+      const crewPreCount = (c.crewPreExistingPhotoKeys || []).length;
+      const crewCausedCount = (c.crewCausedPhotoKeys || []).length;
+      const crewTotal = crewPreCount + crewCausedCount;
       return `
       <div data-id="${c.id}" style="padding:14px 0; border-bottom:1px solid var(--line);">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
@@ -16443,11 +16523,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
         </div>
         <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
-          ${photoCount > 0 ? `<button type="button" class="dc-view-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View ${photoCount} Photo${photoCount===1?'':'s'}</button>` : ''}
+          ${photoCount > 0 ? `<button type="button" class="dc-view-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View ${photoCount} Client Photo${photoCount===1?'':'s'}</button>` : ''}
+          ${crewTotal > 0 ? `<button type="button" class="dc-view-crew-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View Crew Documentation (${crewTotal})</button>` : ''}
           ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-acknowledge" data-id="${c.id}" style="background:var(--brand-green); border:none; color:#fff; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Mark Reviewed</button>` : ''}
           <button type="button" class="dc-delete" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Delete</button>
         </div>
         <div class="dc-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-wrap:wrap; gap:8px;"></div>
+        <div class="dc-crew-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-direction:column; gap:10px;"></div>
       </div>`;
     }).join('');
 
@@ -16490,6 +16572,54 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const win = window.open();
         if(!win) return;
         win.document.write(`<!DOCTYPE html><html><head><title>Damage Claim Photo</title></head><body style="margin:0; background:#1a1a1a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${ev.currentTarget.src}" style="max-width:100%; max-height:100vh; object-fit:contain;"></body></html>`);
+        win.document.close();
+      }));
+    }));
+
+    rowsEl.querySelectorAll('.dc-view-crew-photos').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const claim = damageClaims.find(c => c.id === id);
+      const wrap = rowsEl.querySelector(`.dc-crew-photos-wrap[data-id="${id}"]`);
+      if(!claim || !wrap) return;
+      if(wrap.style.display === 'flex'){ wrap.style.display = 'none'; return; }
+      wrap.style.display = 'flex';
+      wrap.innerHTML = '<span class="form-note" style="margin:0;">Loading crew documentation...</span>';
+
+      async function loadCrewSection(keys){
+        const imgs = await Promise.all((keys || []).map(async key => {
+          try{
+            const dataUri = await window.dashboardApi.get(key, null);
+            return dataUri ? `<img class="dc-photo-thumb" src="${dataUri}" style="width:90px; height:90px; object-fit:cover; border-radius:6px; border:1px solid var(--line); cursor:pointer;">` : '';
+          }catch(err){ console.error('Crew photo load failed:', err); return ''; }
+        }));
+        return imgs.filter(Boolean).join('');
+      }
+
+      const [preImgs, causedImgs] = await Promise.all([
+        loadCrewSection(claim.crewPreExistingPhotoKeys),
+        loadCrewSection(claim.crewCausedPhotoKeys)
+      ]);
+
+      let html = '';
+      if((claim.crewPreExistingPhotoKeys || []).length > 0){
+        html += `<div>
+          <div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Pre-Existing Damage (documented by crew before the move)</div>
+          ${claim.crewPreExistingNotes ? `<p class="form-note" style="margin:0 0 8px;">${dcEsc(claim.crewPreExistingNotes)}</p>` : ''}
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">${preImgs || '<span class="form-note" style="margin:0;">Could not load these photos.</span>'}</div>
+        </div>`;
+      }
+      if((claim.crewCausedPhotoKeys || []).length > 0){
+        html += `<div>
+          <div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Damage Caused By Crew (self-reported after the move)</div>
+          ${claim.crewCausedNotes ? `<p class="form-note" style="margin:0 0 8px;">${dcEsc(claim.crewCausedNotes)}</p>` : ''}
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">${causedImgs || '<span class="form-note" style="margin:0;">Could not load these photos.</span>'}</div>
+        </div>`;
+      }
+      wrap.innerHTML = html;
+      wrap.querySelectorAll('.dc-photo-thumb').forEach(img => img.addEventListener('click', (ev)=>{
+        const win = window.open();
+        if(!win) return;
+        win.document.write(`<!DOCTYPE html><html><head><title>Crew Documentation Photo</title></head><body style="margin:0; background:#1a1a1a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${ev.currentTarget.src}" style="max-width:100%; max-height:100vh; object-fit:contain;"></body></html>`);
         win.document.close();
       }));
     }));
@@ -16561,6 +16691,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     statusEl.className = 'status-msg';
 
     const match = await lookupArchivedJob(jobNumber);
+    const movingReport = await lookupMovingDamageReport(jobNumber);
     const token = dcGenerateToken();
     const claim = {
       id: 'claim_' + Date.now() + '_' + Math.floor(Math.random()*1000),
@@ -16574,7 +16705,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       photosUploadedAt: null,
       acknowledgedAt: null,
       resolution: 'pending',
-      totalCost: null
+      totalCost: null,
+      // Snapshotted at generation time from the crew's own Moving-tile
+      // documentation, if any exists for this job number -- references to
+      // the same photo blobs the crew already uploaded, not copies.
+      crewPreExistingPhotoKeys: (movingReport && movingReport.preExistingPhotoKeys) || [],
+      crewPreExistingNotes: (movingReport && movingReport.preExistingNotes) || '',
+      crewCausedPhotoKeys: (movingReport && movingReport.causedPhotoKeys) || [],
+      crewCausedNotes: (movingReport && movingReport.causedNotes) || ''
     };
 
     await ensureAppSettingsLoaded();
