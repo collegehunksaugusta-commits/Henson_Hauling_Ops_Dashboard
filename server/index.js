@@ -174,20 +174,39 @@ const SEED_USERS = [
 ];
 const TEMP_PASSWORD = 'Password123!';
 
-// ============ Auth: shared driver access code for Pre-Trip Inspections ============
+// ============ Auth: per-driver SSN-last-4 login for Pre-Trip Inspections ============
 // A completely separate, narrowly-scoped credential path -- deliberately NOT
 // part of the regular auth:users system. A driver session token only ever
 // satisfies requireDriverAuth (below), never the regular requireAuth used by
-// every other endpoint, so this shared code can never reach payroll, fleet
-// financials, or anything else even if it's passed around loosely.
-const DRIVER_CODE_KEY = 'auth:driver-code';
+// every other endpoint, so this can never reach payroll, fleet financials,
+// or anything else even if it's passed around loosely.
+//
+// DRIVER_AUTH_LOOKUP_KEY holds { [last4]: employeeName }, rebuilt automatically
+// from the most recent payroll week's employee list every time one is saved
+// (see the labor-weeks write handler below). It is NOT in ALLOWED_KEYS, so it
+// has no HTTP-reachable read or write path at all -- not even for an admin --
+// it only exists for this file's own login-time lookup. Turnover is handled
+// naturally: an employee who no longer appears in the latest week's payroll
+// data simply isn't in the lookup built from it, with no separate
+// deprovisioning step needed.
+const DRIVER_AUTH_LOOKUP_KEY = 'driver-auth-lookup';
 const DRIVER_SESSION_PREFIX = 'auth:driver-session:';
 const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 16; // 16 hours -- a work shift
-const DEFAULT_DRIVER_CODE = 'TruckCheck2026';
 
-async function getDriverCode() {
-  const raw = await redis.get(DRIVER_CODE_KEY);
-  return raw || DEFAULT_DRIVER_CODE;
+async function rebuildDriverAuthLookup(weeks) {
+  try {
+    const latest = (weeks || []).slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''))[0];
+    const employees = (latest && latest.employees) || [];
+    const lookup = {};
+    employees.forEach(e => {
+      if (e && e.name && e.ssnLast4 && /^\d{4}$/.test(e.ssnLast4)) {
+        lookup[e.ssnLast4] = e.name;
+      }
+    });
+    await redis.set(DRIVER_AUTH_LOOKUP_KEY, JSON.stringify(lookup));
+  } catch (err) {
+    console.error('Driver auth lookup rebuild failed:', err.message);
+  }
 }
 
 async function ensureUsersSeeded() {
@@ -335,17 +354,23 @@ app.post('/api/driver-login', async (req, res) => {
   if (isRateLimited(ip)) {
     return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
   }
-  const { code } = req.body || {};
-  if (!code) return res.status(400).json({ error: 'Access code is required.' });
+  const last4 = ((req.body || {}).last4 || '').toString().trim();
+  if (!/^\d{4}$/.test(last4)) {
+    return res.status(400).json({ error: 'Enter the last 4 digits of your SSN.' });
+  }
   try {
     recordLoginAttempt(ip);
-    const validCode = await getDriverCode();
-    if (code !== validCode) {
-      return res.status(401).json({ error: 'Incorrect access code.' });
+    const raw = await redis.get(DRIVER_AUTH_LOOKUP_KEY);
+    const lookup = raw ? JSON.parse(raw) : {};
+    const driverName = lookup[last4];
+    // Same generic message either way -- doesn't hint whether the digits
+    // simply don't match anyone, so there's nothing to learn from a wrong guess.
+    if (!driverName) {
+      return res.status(401).json({ error: 'Those digits don\u2019t match anyone on file.' });
     }
     const token = crypto.randomBytes(32).toString('hex');
-    await redis.set(DRIVER_SESSION_PREFIX + token, '1', 'EX', DRIVER_SESSION_TTL_SECONDS);
-    res.json({ token });
+    await redis.set(DRIVER_SESSION_PREFIX + token, driverName, 'EX', DRIVER_SESSION_TTL_SECONDS);
+    res.json({ token, driverName });
   } catch (err) {
     console.error('Driver login failed:', err.message);
     res.status(500).json({ error: 'Login failed.' });
@@ -362,7 +387,10 @@ app.post('/api/driver-logout', async (req, res) => {
 
 // Only ever satisfied by a driver-session token -- a driver token never
 // satisfies requireAuth above (different Redis key namespace entirely), so
-// it cannot be used against any other endpoint in this file.
+// it cannot be used against any other endpoint in this file. The session
+// value is the specific driver's name (verified at login against payroll
+// data), attached here so every downstream handler uses a server-verified
+// identity instead of trusting whatever name a client happens to send.
 async function requireDriverAuth(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -370,6 +398,7 @@ async function requireDriverAuth(req, res, next) {
   try {
     const valid = await redis.get(DRIVER_SESSION_PREFIX + token);
     if (!valid) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    req.driverName = valid;
     next();
   } catch (err) {
     console.error('Driver auth check failed:', err.message);
@@ -450,9 +479,10 @@ app.get('/api/driver/neighborhoods', requireDriverAuth, async (req, res) => {
 // pre-trip inspection log pattern) rather than overwriting a single
 // "last visited" field, so admins can see full coverage over time.
 app.post('/api/driver/neighborhood-visit', requireDriverAuth, async (req, res) => {
-  const { neighborhoodId, neighborhoodName, driverName } = req.body || {};
-  if (!neighborhoodId || !driverName) {
-    return res.status(400).json({ error: 'Neighborhood and driver name are required.' });
+  const { neighborhoodId, neighborhoodName } = req.body || {};
+  const driverName = req.driverName;
+  if (!neighborhoodId) {
+    return res.status(400).json({ error: 'Neighborhood is required.' });
   }
   try {
     const raw = await redis.get('mail-neighborhood-visits');
@@ -473,9 +503,10 @@ app.post('/api/driver/neighborhood-visit', requireDriverAuth, async (req, res) =
 });
 
 app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
-  const { truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes, backPhoto } = req.body || {};
-  if (!truckId || !driverName || !Array.isArray(checklist) || checklist.length === 0) {
-    return res.status(400).json({ error: 'Truck, driver name, and checklist are required.' });
+  const { truckId, truckNickname, date, odometer, checklist, additionalNotes, backPhoto } = req.body || {};
+  const driverName = req.driverName;
+  if (!truckId || !Array.isArray(checklist) || checklist.length === 0) {
+    return res.status(400).json({ error: 'Truck and checklist are required.' });
   }
   if (!backPhoto || typeof backPhoto !== 'string' || !backPhoto.startsWith('data:image/')) {
     return res.status(400).json({ error: 'A photo of the back of the truck is required.' });
@@ -541,9 +572,8 @@ app.get('/api/driver/materials-items', requireDriverAuth, async (req, res) => {
 // the PTI submission afterward. The actual enforcement lives in
 // /api/driver/pretrip itself; this is just for a better prompt.
 app.get('/api/driver/materials-checkout-status', requireDriverAuth, async (req, res) => {
-  const driverName = (req.query.driverName || '').toString().trim();
+  const driverName = req.driverName;
   const date = (req.query.date || new Date().toISOString().slice(0, 10)).toString();
-  if (!driverName) return res.status(400).json({ error: 'Driver name is required.' });
   try {
     const raw = await redis.get('materials-checkouts');
     const checkouts = raw ? JSON.parse(raw) : [];
@@ -556,10 +586,8 @@ app.get('/api/driver/materials-checkout-status', requireDriverAuth, async (req, 
 });
 
 app.post('/api/driver/materials-checkout', requireDriverAuth, async (req, res) => {
-  const { driverName, jobNumbers, items, date } = req.body || {};
-  if (!driverName || typeof driverName !== 'string') {
-    return res.status(400).json({ error: 'Driver name is required.' });
-  }
+  const { jobNumbers, items, date } = req.body || {};
+  const driverName = req.driverName;
   const cleanItems = Array.isArray(items)
     ? items.filter(i => i && i.itemId && Number(i.quantity) > 0).map(i => ({ itemId: String(i.itemId), quantity: Math.floor(Number(i.quantity)) }))
     : [];
@@ -783,9 +811,10 @@ async function getJunkRemovalPricing() {
 }
 
 app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
-  const { truckId, truckNickname, driverName, date, jobNumbers, returnedItems, backPhoto, additionalNotes } = req.body || {};
-  if (!truckId || !driverName) {
-    return res.status(400).json({ error: 'Truck and driver name are required.' });
+  const { truckId, truckNickname, date, jobNumbers, returnedItems, backPhoto, additionalNotes } = req.body || {};
+  const driverName = req.driverName;
+  if (!truckId) {
+    return res.status(400).json({ error: 'Truck is required.' });
   }
   if (!backPhoto || typeof backPhoto !== 'string' || !backPhoto.startsWith('data:image/')) {
     return res.status(400).json({ error: 'A photo of the back of the truck is required.' });
@@ -906,8 +935,7 @@ app.get('/api/driver/junk-removal-pricing', requireDriverAuth, async (req, res) 
 // Jobs assigned to a given Captain that aren't finished yet -- a completed
 // job (final photo + estimate already recorded) drops off this list.
 app.get('/api/driver/junk-removal-jobs', requireDriverAuth, async (req, res) => {
-  const captainName = (req.query.captainName || '').trim();
-  if (!captainName) return res.status(400).json({ error: 'Missing captainName.' });
+  const captainName = req.driverName;
   try {
     const raw = await redis.get(JUNK_REMOVAL_JOBS_KEY);
     const jobs = raw ? JSON.parse(raw) : [];
@@ -1149,13 +1177,18 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
   }
 });
 
-// Admin-only viewing/management of the shared driver access code.
-app.get('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
+// Admin-only visibility into who currently has driver-portal login access --
+// names only, never the SSN digits themselves, which live only in the
+// unexposed DRIVER_AUTH_LOOKUP_KEY used internally at login time.
+app.get('/api/admin/driver-login-status', requireAuth, requireAdmin, async (req, res) => {
   try {
-    res.json({ code: await getDriverCode() });
+    const raw = await redis.get(DRIVER_AUTH_LOOKUP_KEY);
+    const lookup = raw ? JSON.parse(raw) : {};
+    const names = Object.values(lookup).sort();
+    res.json({ names });
   } catch (err) {
-    console.error('Get driver code failed:', err.message);
-    res.status(500).json({ error: 'Could not load access code.' });
+    console.error('Get driver login status failed:', err.message);
+    res.status(500).json({ error: 'Could not load driver login status.' });
   }
 });
 
@@ -1178,21 +1211,6 @@ app.get('/api/admin/storage-stats', requireAuth, requireAdmin, async (req, res) 
   } catch (err) {
     console.error('Storage stats fetch failed:', err.message);
     res.status(500).json({ error: 'Could not check storage usage.' });
-  }
-});
-
-app.post('/api/admin/driver-code', requireAuth, requireAdmin, async (req, res) => {
-  const { code } = req.body || {};
-  const cleanCode = (code || '').trim();
-  if (cleanCode.length < 5) {
-    return res.status(400).json({ error: 'Access code must be at least 5 characters.' });
-  }
-  try {
-    await redis.set(DRIVER_CODE_KEY, cleanCode);
-    res.json({ ok: true, code: cleanCode });
-  } catch (err) {
-    console.error('Set driver code failed:', err.message);
-    res.status(500).json({ error: 'Could not save access code.' });
   }
 });
 
@@ -2976,6 +2994,9 @@ app.put('/api/data/:key', requireAuth, async (req, res) => {
   if (!(await checkAdminWriteOnlyKey(req, res, key))) return;
   try {
     await redis.set(key, JSON.stringify(req.body.value));
+    if (key === 'labor-weeks' && Array.isArray(req.body.value)) {
+      await rebuildDriverAuthLookup(req.body.value);
+    }
     res.json({ key, ok: true });
   } catch (err) {
     console.error(`PUT /api/data/${key} failed:`, err.message);
