@@ -425,7 +425,7 @@
   <div id="driverCodeForm" style="max-width:380px; width:100%; margin:60px auto 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:32px 28px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
     <h2 class="display" style="margin:0 0 4px; text-align:center; font-size:18px;">Pre-Trip Inspection</h2>
     <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 24px;">Driver Access</p>
-    <label>Access Code <input type="password" id="driver_code" autocomplete="off"></label>
+    <label>Last 4 of SSN <input type="password" id="driver_ssn4" autocomplete="off" maxlength="4" inputmode="numeric" pattern="[0-9]*"></label>
     <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
       <button class="btn-primary" id="driverLoginBtn" type="button" style="width:100%;">Continue</button>
       <span class="status-msg" id="driver_loginStatus" style="text-align:center;"></span>
@@ -445,19 +445,6 @@
         <span id="driverLbPanelChevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;">&#9656;</span>
       </button>
       <div id="driverLbPanelBody" style="display:none; margin-top:10px;">
-        <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
-          <button type="button" id="driverLbWhoAmIBtn" style="display:none; background:none; border:none; color:var(--muted); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;"></button>
-        </div>
-        <div id="driverLbWhoAmIPrompt" style="display:none; margin-bottom:8px;">
-          <label style="font-size:12.5px; display:block;">Who are you? (so we can show where you stand)
-            <div style="display:flex; gap:6px; margin-top:4px;">
-              <select id="driverLbNameSelect" style="flex:1;">
-                <option value="">Select your name...</option>
-              </select>
-              <button type="button" id="driverLbConfirmBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:0 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">Confirm</button>
-            </div>
-          </label>
-        </div>
         <div id="driverLbCategories"></div>
         <p class="form-note" id="driverLbEmptyNote" style="display:none; margin:0;">No leaderboard data yet.</p>
       </div>
@@ -511,15 +498,9 @@
         <label>Date <input type="date" id="pti_date"></label>
       </div>
       <div class="form-grid">
-        <label>Your Name
-          <select id="pti_driverNameSelect">
-            <option value="">Select your name...</option>
-            <option value="__other__">Not on the list (type your name)</option>
-          </select>
-        </label>
+        <label>Driver <div id="pti_driverNameDisplay" style="padding:9px 0; font-weight:600;"></div></label>
         <label>Odometer (optional) <input type="text" id="pti_odometer" inputmode="numeric" placeholder="e.g. 84213"></label>
       </div>
-      <label id="pti_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="pti_driverNameOther" placeholder="First and last name"></label>
       <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
     </div>
 
@@ -610,13 +591,6 @@
     <div id="nbhd_visitPanel" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <h3 style="margin-top:0;">Log Your Visit</h3>
       <p class="form-note" id="nbhd_visitingLabel"></p>
-      <label>Your Name
-        <select id="nbhd_driverNameSelect">
-          <option value="">Select your name...</option>
-          <option value="__other__">Not on the list (type your name)</option>
-        </select>
-      </label>
-      <label id="nbhd_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="nbhd_driverNameOther" placeholder="First and last name"></label>
       <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
         <button class="btn-primary" id="nbhd_logVisitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Mark Visited</button>
         <span class="status-msg" id="nbhd_visitStatus" style="text-align:center;"></span>
@@ -648,14 +622,8 @@
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <div class="form-grid">
         <label>Truck <select id="eod_truck"></select></label>
-        <label>Your Name
-          <select id="eod_driverNameSelect">
-            <option value="">Select your name...</option>
-            <option value="__other__">Not on the list (type your name)</option>
-          </select>
-        </label>
+        <label>Driver <div id="eod_driverNameDisplay" style="padding:9px 0; font-weight:600;"></div></label>
       </div>
-      <label id="eod_driverNameOtherWrap" style="display:none;">Type Your Name <input type="text" id="eod_driverNameOther" placeholder="First and last name"></label>
       <p class="form-note" id="eod_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
     </div>
 
@@ -697,10 +665,8 @@
 
 
   <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
-    <label style="font-size:12.5px; display:block;">Your Name
-      <select id="jrd_driverNameSelect" style="width:100%; margin-top:4px;">
-        <option value="">Select your name...</option>
-      </select>
+    <label style="font-size:12.5px; display:block; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Captain
+      <div id="jrd_driverNameDisplay" style="margin-top:4px; font-weight:600; font-size:15px; font-family:inherit; text-transform:none; letter-spacing:normal;"></div>
     </label>
   </div>
 
@@ -836,6 +802,7 @@
   ];
 
   let driverToken = localStorage.getItem('henson_driver_token');
+  let currentDriverName = localStorage.getItem('henson_driver_name');
 
   function showDriverCodeForm(){
     document.getElementById('loginGate').style.display = 'none';
@@ -879,10 +846,11 @@
     document.getElementById('pti_photoCaptureBtn').textContent = 'Take Photo';
     document.getElementById('pti_photoStatus').textContent = '';
 
-    // Restoring a draft needs every <select>'s options already populated,
+    document.getElementById('pti_driverNameDisplay').textContent = currentDriverName || '';
+    // Restoring a draft needs the truck <select>'s options already populated,
     // or setting .value on it silently does nothing -- so this waits for
-    // all three loads before attempting it.
-    await Promise.all([loadDriverTrucks(), loadDriverRoster(), loadDriverPtiMaterialsItems()]);
+    // both loads before attempting it.
+    await Promise.all([loadDriverTrucks(), loadDriverPtiMaterialsItems()]);
     checkPtiMaterialsGate();
     restorePtiDraftIfAny();
     startPtiDraftAutosave();
@@ -902,7 +870,6 @@
     document.getElementById('nbhd_visitPanel').style.display = 'none';
     document.getElementById('nbhd_manualAreaWrap').style.display = 'none';
     document.getElementById('nbhd_findStatus').textContent = '';
-    loadDriverRosterForNbhd();
   }
 
   function showDriverTruckDocs(){
@@ -928,9 +895,7 @@
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'block';
-    await fetchDriverRosterInto('jrd_driverNameSelect');
-    const otherOpt = document.querySelector('#jrd_driverNameSelect option[value="__other__"]');
-    if(otherOpt) otherOpt.remove();
+    document.getElementById('jrd_driverNameDisplay').textContent = currentDriverName || '';
     await loadJunkRemovalDriverJobs();
   }
 
@@ -948,7 +913,7 @@
     document.getElementById('eod_photoPreviewWrap').style.display = 'none';
     document.getElementById('eod_photoCaptureBtn').textContent = 'Take Photo';
     document.getElementById('eod_photoStatus').textContent = '';
-    fetchDriverRosterInto('eod_driverNameSelect');
+    document.getElementById('eod_driverNameDisplay').textContent = currentDriverName || '';
     loadDriverEodTrucks();
     loadDriverEodItems();
   }
@@ -1061,9 +1026,9 @@
 
   async function attemptDriverLogin(){
     const statusEl = document.getElementById('driver_loginStatus');
-    const code = document.getElementById('driver_code').value;
-    if(!code){
-      statusEl.textContent = 'Enter the access code.';
+    const last4 = document.getElementById('driver_ssn4').value.trim();
+    if(!/^\d{4}$/.test(last4)){
+      statusEl.textContent = 'Enter the last 4 digits of your SSN.';
       statusEl.className = 'status-msg err';
       return;
     }
@@ -1073,7 +1038,7 @@
       const res = await fetch(API_BASE_AUTH + '/api/driver-login', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({code})
+        body: JSON.stringify({last4})
       });
       const data = await res.json();
       if(!res.ok){
@@ -1082,8 +1047,10 @@
         return;
       }
       localStorage.setItem('henson_driver_token', data.token);
+      localStorage.setItem('henson_driver_name', data.driverName);
       driverToken = data.token;
-      document.getElementById('driver_code').value = '';
+      currentDriverName = data.driverName;
+      document.getElementById('driver_ssn4').value = '';
       statusEl.textContent = '';
       showDriverMenu();
     }catch(err){
@@ -1093,7 +1060,7 @@
     }
   }
   document.getElementById('driverLoginBtn').addEventListener('click', attemptDriverLogin);
-  document.getElementById('driver_code').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptDriverLogin(); });
+  document.getElementById('driver_ssn4').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptDriverLogin(); });
 
   async function driverLogout(){
     try{
@@ -1105,7 +1072,9 @@
     }catch(err){ console.error('Driver logout failed:', err); }
     stopPtiDraftAutosave();
     localStorage.removeItem('henson_driver_token');
+    localStorage.removeItem('henson_driver_name');
     driverToken = null;
+    currentDriverName = null;
     showDriverCodeForm();
   }
   document.getElementById('driverMenuLogoutBtn').addEventListener('click', driverLogout);
@@ -1116,7 +1085,9 @@
   function driverSessionExpired(){
     stopPtiDraftAutosave();
     localStorage.removeItem('henson_driver_token');
+    localStorage.removeItem('henson_driver_name');
     driverToken = null;
+    currentDriverName = null;
     showDriverCodeForm();
     const statusEl = document.getElementById('driver_loginStatus');
     statusEl.textContent = 'Your session expired \u2014 please log in again.';
@@ -1150,38 +1121,7 @@
   function loadDriverTrucks(){ return fetchDriverTrucksInto('pti_truck', 'pti_noTrucksNote'); }
   function loadDriverEodTrucks(){ return fetchDriverTrucksInto('eod_truck', 'eod_noTrucksNote'); }
 
-  async function fetchDriverRosterInto(selectId){
-    const sel = document.getElementById(selectId);
-    try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/roster', {
-        headers: {'Authorization': 'Bearer ' + driverToken}
-      });
-      if(res.status === 401){ driverSessionExpired(); return; }
-      const data = await res.json();
-      const names = data.names || [];
-      const otherOption = '<option value="__other__">Not on the list (type your name)</option>';
-      sel.innerHTML = '<option value="">Select your name...</option>'
-        + names.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('')
-        + otherOption;
-    }catch(err){
-      console.error('Load roster failed:', err);
-      // Roster failing to load shouldn't block the form -- fall back to just the manual-entry option.
-      sel.innerHTML = '<option value="">Select your name...</option><option value="__other__">Not on the list (type your name)</option>';
-    }
-  }
-  function loadDriverRoster(){ return fetchDriverRosterInto('pti_driverNameSelect'); }
-  function loadDriverRosterForNbhd(){ return fetchDriverRosterInto('nbhd_driverNameSelect'); }
-
   // ---------- Captain Leaderboard (driver portal) ----------
-  // The driver portal has no individual login -- one shared access code for
-  // everyone, and the session token itself is remembered across page loads,
-  // so a shared/handed-off device can land a *different* person straight on
-  // this screen without them typing anything. That means identity can never
-  // be silently trusted from a previous visit: confirmedThisPageLoad resets
-  // on every fresh load and is the only thing the UI gates on. localStorage
-  // still remembers the last name picked on this device, but only to
-  // pre-fill the dropdown as a convenience -- never to skip confirmation.
-  const DRIVER_LAST_NAME_KEY = 'henson_driver_last_name';
   let driverLbCategories = [];
 
   document.getElementById('driverLbPanelToggle').addEventListener('click', ()=>{
@@ -1191,8 +1131,6 @@
     body.style.display = expanded ? 'none' : 'block';
     chevron.style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
   });
-  let driverLbConfirmedThisPageLoad = false;
-  let driverLbConfirmedName = '';
 
   function driverLbEsc(s){
     const d = document.createElement('div');
@@ -1201,8 +1139,6 @@
   }
 
   async function loadDriverLeaderboard(){
-    await populateDriverLbNameSelect();
-    updateDriverLbWhoAmIUI();
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/leaderboard', { headers: {'Authorization': 'Bearer ' + driverToken} });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -1215,62 +1151,12 @@
     }
   }
 
-  async function populateDriverLbNameSelect(){
-    const sel = document.getElementById('driverLbNameSelect');
-    try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/roster', { headers: {'Authorization': 'Bearer ' + driverToken} });
-      if(res.status === 401){ driverSessionExpired(); return; }
-      const data = await res.json();
-      const names = data.names || [];
-      sel.innerHTML = '<option value="">Select your name...</option>' + names.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
-      // Pre-fill with the last name picked on this device, purely as a
-      // convenience default -- still requires an active tap to confirm.
-      const lastName = localStorage.getItem(DRIVER_LAST_NAME_KEY);
-      if(lastName && names.includes(lastName)) sel.value = lastName;
-    }catch(err){
-      console.error('Leaderboard roster load failed:', err);
-    }
-  }
-
-  function updateDriverLbWhoAmIUI(){
-    const promptEl = document.getElementById('driverLbWhoAmIPrompt');
-    const btnEl = document.getElementById('driverLbWhoAmIBtn');
-    if(driverLbConfirmedThisPageLoad){
-      promptEl.style.display = 'none';
-      btnEl.style.display = 'inline';
-      btnEl.textContent = `You: ${driverLbConfirmedName} (not you?)`;
-    } else {
-      promptEl.style.display = 'block';
-      btnEl.style.display = 'none';
-    }
-  }
-
-  function confirmDriverLbIdentity(name){
-    if(!name) return;
-    driverLbConfirmedThisPageLoad = true;
-    driverLbConfirmedName = name;
-    localStorage.setItem(DRIVER_LAST_NAME_KEY, name); // convenience pre-fill for next time only
-    updateDriverLbWhoAmIUI();
-    renderDriverLeaderboard();
-  }
-
-  document.getElementById('driverLbConfirmBtn').addEventListener('click', ()=>{
-    confirmDriverLbIdentity(document.getElementById('driverLbNameSelect').value);
-  });
-
-  document.getElementById('driverLbWhoAmIBtn').addEventListener('click', ()=>{
-    driverLbConfirmedThisPageLoad = false;
-    document.getElementById('driverLbWhoAmIPrompt').style.display = 'block';
-    document.getElementById('driverLbWhoAmIBtn').style.display = 'none';
-  });
-
   // Generic renderer -- iterates whatever categories the backend returns, so
   // adding a new metric later (e.g. door-hanger routes logged) means only a
   // backend change, not a frontend one.
   function renderDriverLeaderboard(){
     const container = document.getElementById('driverLbCategories');
     const emptyNote = document.getElementById('driverLbEmptyNote');
-    const identity = driverLbConfirmedThisPageLoad ? driverLbConfirmedName : '';
 
     if(driverLbCategories.length === 0){
       container.innerHTML = '';
@@ -1281,7 +1167,7 @@
 
     container.innerHTML = driverLbCategories.map(cat => {
       const rows = cat.entries.map((entry, i) => {
-        const isMe = identity && entry.name === identity;
+        const isMe = currentDriverName && entry.name === currentDriverName;
         return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-radius:6px; ${isMe ? 'background:#e8f5e9; font-weight:700;' : ''} font-size:13px;">
           <span>${i+1}. ${driverLbEsc(entry.name)}${isMe ? ' (you)' : ''}</span>
           <span>${entry.value}% <span style="color:var(--muted); font-weight:400; font-size:11.5px;">(${driverLbEsc(entry.detail)})</span></span>
@@ -1292,24 +1178,6 @@
         ${rows}
       </div>`;
     }).join('');
-  }
-
-  function wireOtherNameToggle(selectId, wrapId, otherInputId){
-    document.getElementById(selectId).addEventListener('change', (e)=>{
-      const otherWrap = document.getElementById(wrapId);
-      otherWrap.style.display = e.target.value === '__other__' ? 'block' : 'none';
-      if(e.target.value !== '__other__') document.getElementById(otherInputId).value = '';
-    });
-  }
-  wireOtherNameToggle('pti_driverNameSelect', 'pti_driverNameOtherWrap', 'pti_driverNameOther');
-  wireOtherNameToggle('nbhd_driverNameSelect', 'nbhd_driverNameOtherWrap', 'nbhd_driverNameOther');
-  wireOtherNameToggle('eod_driverNameSelect', 'eod_driverNameOtherWrap', 'eod_driverNameOther');
-
-  function readSelectedDriverName(selectId, otherInputId){
-    const sel = document.getElementById(selectId);
-    return sel.value === '__other__'
-      ? document.getElementById(otherInputId).value.trim()
-      : sel.value.trim();
   }
 
   // ---------- Materials Checkout ----------
@@ -1364,14 +1232,8 @@
     const truckSel = document.getElementById('eod_truck');
     const truckId = truckSel.value;
     const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
-    const driverName = readSelectedDriverName('eod_driverNameSelect', 'eod_driverNameOther');
     if(!truckId){
       statusEl.textContent = 'Select a truck.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    if(!driverName){
-      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
       statusEl.className = 'status-msg err';
       return;
     }
@@ -1398,7 +1260,7 @@
       const res = await fetch(API_BASE_AUTH + '/api/driver/eod-inspection', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-        body: JSON.stringify({ truckId, truckNickname, driverName, jobNumbers, returnedItems, backPhoto: eodCapturedPhoto, date: new Date().toISOString().slice(0,10) })
+        body: JSON.stringify({ truckId, truckNickname, jobNumbers, returnedItems, backPhoto: eodCapturedPhoto, date: new Date().toISOString().slice(0,10) })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -1440,12 +1302,6 @@
   async function loadJunkRemovalDriverJobs(){
     const listEl = document.getElementById('jrd_jobsList');
     const emptyNote = document.getElementById('jrd_emptyNote');
-    const captainName = readSelectedDriverName('jrd_driverNameSelect', null);
-    if(!captainName){
-      listEl.innerHTML = '';
-      emptyNote.style.display = 'none';
-      return;
-    }
     try{
       if(!jrdPricing){
         const pricingRes = await fetch(API_BASE_AUTH + '/api/driver/junk-removal-pricing', {
@@ -1455,7 +1311,7 @@
         const pricingData = await pricingRes.json();
         jrdPricing = pricingData.pricing || [];
       }
-      const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal-jobs?captainName=${encodeURIComponent(captainName)}`, {
+      const res = await fetch(API_BASE_AUTH + '/api/driver/junk-removal-jobs', {
         headers: {'Authorization': 'Bearer ' + driverToken}
       });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -1469,7 +1325,6 @@
       emptyNote.style.display = 'block';
     }
   }
-  document.getElementById('jrd_driverNameSelect').addEventListener('change', loadJunkRemovalDriverJobs);
 
   function jrdEditPhotosCardHtml(job){
     return `
@@ -1714,15 +1569,9 @@
   async function checkPtiMaterialsGate(){
     const section = document.getElementById('pti_materialsSection');
     const alreadyDoneNote = document.getElementById('pti_materialsAlreadyDoneNote');
-    const driverName = readSelectedDriverName('pti_driverNameSelect', 'pti_driverNameOther');
-    if(!driverName){
-      section.style.display = 'block';
-      alreadyDoneNote.style.display = 'none';
-      return;
-    }
     try{
       const today = new Date().toISOString().slice(0,10);
-      const res = await fetch(API_BASE_AUTH + `/api/driver/materials-checkout-status?driverName=${encodeURIComponent(driverName)}&date=${today}`, {
+      const res = await fetch(API_BASE_AUTH + `/api/driver/materials-checkout-status?date=${today}`, {
         headers: {'Authorization': 'Bearer ' + driverToken}
       });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -1737,8 +1586,6 @@
       alreadyDoneNote.style.display = 'none';
     }
   }
-  document.getElementById('pti_driverNameSelect').addEventListener('change', checkPtiMaterialsGate);
-  document.getElementById('pti_driverNameOther').addEventListener('input', checkPtiMaterialsGate);
 
   function renderPtiChecklist(){
     const container = document.getElementById('pti_checklist');
@@ -1806,8 +1653,6 @@
       const matcoItems = Array.from(document.querySelectorAll('.pti-matco-qty')).map(input => ({ itemId: input.dataset.itemId, quantity: input.value }));
       const draft = {
         truckId: document.getElementById('pti_truck').value,
-        driverNameSelect: document.getElementById('pti_driverNameSelect').value,
-        driverNameOther: document.getElementById('pti_driverNameOther').value,
         odometer: document.getElementById('pti_odometer').value,
         additionalNotes: document.getElementById('pti_additionalNotes').value,
         matcoJobNumbers: document.getElementById('pti_matco_jobNumbers').value,
@@ -1850,11 +1695,6 @@
     }
 
     if(draft.truckId) document.getElementById('pti_truck').value = draft.truckId;
-    if(draft.driverNameSelect) document.getElementById('pti_driverNameSelect').value = draft.driverNameSelect;
-    if(draft.driverNameOther){
-      document.getElementById('pti_driverNameOther').value = draft.driverNameOther;
-      document.getElementById('pti_driverNameOtherWrap').style.display = 'block';
-    }
     document.getElementById('pti_odometer').value = draft.odometer || '';
     document.getElementById('pti_additionalNotes').value = draft.additionalNotes || '';
     document.getElementById('pti_matco_jobNumbers').value = draft.matcoJobNumbers || '';
@@ -1915,21 +1755,12 @@
     const truckSel = document.getElementById('pti_truck');
     const truckId = truckSel.value;
     const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
-    const nameSel = document.getElementById('pti_driverNameSelect');
-    const driverName = nameSel.value === '__other__'
-      ? document.getElementById('pti_driverNameOther').value.trim()
-      : nameSel.value.trim();
     const date = document.getElementById('pti_date').value;
     const odometer = document.getElementById('pti_odometer').value.trim();
     const additionalNotes = document.getElementById('pti_additionalNotes').value.trim();
 
     if(!truckId){
       statusEl.textContent = 'Select a truck.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    if(!driverName){
-      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
       statusEl.className = 'status-msg err';
       return;
     }
@@ -1977,7 +1808,7 @@
         const matcoRes = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
           method: 'POST',
           headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-          body: JSON.stringify({ driverName, jobNumbers: matcoJobNumbers, items: matcoItems, date: new Date().toISOString().slice(0,10) })
+          body: JSON.stringify({ jobNumbers: matcoJobNumbers, items: matcoItems, date: new Date().toISOString().slice(0,10) })
         });
         if(matcoRes.status === 401){ driverSessionExpired(); return; }
         const matcoData = await matcoRes.json();
@@ -2000,7 +1831,7 @@
       const res = await fetch(API_BASE_AUTH + '/api/driver/pretrip', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-        body: JSON.stringify({ truckId, truckNickname, driverName, date, odometer, checklist, additionalNotes, backPhoto: ptiCapturedPhoto })
+        body: JSON.stringify({ truckId, truckNickname, date, odometer, checklist, additionalNotes, backPhoto: ptiCapturedPhoto })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -2011,9 +1842,6 @@
       }
       statusEl.textContent = 'Inspection submitted. Thank you!';
       statusEl.className = 'status-msg ok';
-      document.getElementById('pti_driverNameSelect').value = '';
-      document.getElementById('pti_driverNameOther').value = '';
-      document.getElementById('pti_driverNameOtherWrap').style.display = 'none';
       document.getElementById('pti_odometer').value = '';
       document.getElementById('pti_additionalNotes').value = '';
       document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
@@ -2218,19 +2046,13 @@
       statusEl.className = 'status-msg err';
       return;
     }
-    const driverName = readSelectedDriverName('nbhd_driverNameSelect', 'nbhd_driverNameOther');
-    if(!driverName){
-      statusEl.textContent = 'Select your name, or choose "Not on the list" and type it in.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
     statusEl.textContent = 'Logging visit...';
     statusEl.className = 'status-msg';
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/neighborhood-visit', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-        body: JSON.stringify({ neighborhoodId: driverSelectedNbhd.id, neighborhoodName: driverSelectedNbhd.name, driverName })
+        body: JSON.stringify({ neighborhoodId: driverSelectedNbhd.id, neighborhoodName: driverSelectedNbhd.name })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -2241,9 +2063,6 @@
       }
       statusEl.textContent = `Logged! Thanks for hitting ${driverSelectedNbhd.name}.`;
       statusEl.className = 'status-msg ok';
-      document.getElementById('nbhd_driverNameSelect').value = '';
-      document.getElementById('nbhd_driverNameOther').value = '';
-      document.getElementById('nbhd_driverNameOtherWrap').style.display = 'none';
       driverSelectedNbhd = null;
     }catch(err){
       console.error('Log visit failed:', err);
@@ -4421,14 +4240,9 @@
         </div>
 
         <div class="panel" id="set_driverCodePanel">
-          <h3>Driver Access Code</h3>
-          <p class="form-note">Shared code drivers use on the login screen to submit Pre-Trip Inspections electronically. It's a separate, restricted access path &mdash; whoever has this code can only submit inspection forms, nothing else in the dashboard. Give it to any employee who needs to complete inspections.</p>
-          <div id="set_driverCodeDisplay" style="font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:700; padding:12px 16px; background:var(--offwhite); border:1px solid var(--line); border-radius:6px; margin-bottom:14px;">Loading...</div>
-          <label>New Access Code (min 6 characters) <input type="text" id="set_newDriverCode" autocomplete="off"></label>
-          <div class="form-actions">
-            <button class="btn-primary" id="set_saveDriverCodeBtn" type="button">Update Access Code</button>
-            <span class="status-msg" id="set_driverCodeStatus"></span>
-          </div>
+          <h3>Driver Portal Access</h3>
+          <p class="form-note">Each employee logs into the Driver Portal with the last 4 digits of their own Social Security Number, matched automatically against the most recent weekly ADP Payroll Detail upload &mdash; nothing to set up or hand out here. Access updates itself the next time payroll is uploaded; someone who leaves the company simply stops appearing in that file and loses access on their own.</p>
+          <div id="set_driverAccessList" style="font-size:13px; color:var(--charcoal); line-height:1.7;">Loading...</div>
         </div>
       </div>
 
@@ -5463,6 +5277,11 @@
       if(TOTAL_EARNINGS_COL === -1 || TOTAL_ER_LIABILITY_COL === -1){
         throw new Error('This file\'s column layout doesn\'t match what\'s expected \u2014 couldn\'t find "Total Earnings" and "Total Employer Liability" columns. Ask Claude to update the parser.');
       }
+      // SSN column name varies by ADP report vintage ("SSN", "Social Security
+      // Number", "SSN (Last 4)", etc.) -- match loosely by substring rather
+      // than an exact header string. Only the last 4 digits are ever kept,
+      // even if the source column happens to contain the full number.
+      const SSN_COL = header.findIndex(h => /ssn|social security/i.test((h||'').toString()));
       // Earning slots run in groups of 4 (label, hours, rate, amount) starting at column 5,
       // up through the "Total Hours" column right before Total Earnings. ADP reports have
       // used both 5 and 6 slots across different report vintages, so this is computed
@@ -5473,6 +5292,7 @@
       let employeeCount = 0;
       const skippedNoRegRate = [];
       const employees = [];
+      const missingSsn = [];
 
       for(let i = headerIdx+1; i < rows.length; i++){
         const row = rows[i];
@@ -5487,6 +5307,16 @@
         if(isAdmin){ adminGross += totalEarnings; } else { fieldGross += totalEarnings; }
         const erTaxThis = row[TOTAL_ER_LIABILITY_COL] || 0;
         erTaxTotal += erTaxThis;
+
+        // Only the last 4 digits are ever kept, whatever format the source
+        // column uses (e.g. "XXX-XX-1234", "1234", or the full 9 digits).
+        let ssnLast4 = null;
+        if(SSN_COL !== -1){
+          const rawSsn = (row[SSN_COL] || '').toString();
+          const digits = rawSsn.replace(/\D/g, '');
+          if(digits.length >= 4) ssnLast4 = digits.slice(-4);
+        }
+        if(!ssnLast4) missingSsn.push(String(name).trim());
 
         let regRate = null, regHrs = 0, otHrs = 0;
         for(let slot = 0; slot < numEarningSlots; slot++){
@@ -5511,7 +5341,7 @@
             tipsField += amount || 0;
           }
         }
-        employees.push({ name: String(name).trim(), role: isAdmin ? 'Admin' : 'Field', regHrs, otHrs, totalEarnings, erTax: erTaxThis });
+        employees.push({ name: String(name).trim(), role: isAdmin ? 'Admin' : 'Field', regHrs, otHrs, totalEarnings, erTax: erTaxThis, ssnLast4 });
       }
 
       if(employeeCount === 0) throw new Error('No employee rows found in this file.');
@@ -11183,7 +11013,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     showSetSection('users');
     await renderUserList();
     setupAddUserGate();
-    await loadDriverCode();
+    await loadDriverAccessList();
     await loadAppSettings();
     await renderConfigFilesList();
     await loadHandoffGuide();
@@ -11206,54 +11036,24 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('set_appSettingsPanel').style.display = isAdmin ? 'block' : 'none';
   }
 
-  async function loadDriverCode(){
+  async function loadDriverAccessList(){
     if(!isCurrentUserAdmin()) return;
-    const displayEl = document.getElementById('set_driverCodeDisplay');
+    const listEl = document.getElementById('set_driverAccessList');
     try{
-      const res = await fetch(`${API_BASE}/api/admin/driver-code`, { headers: authHeaders() });
+      const res = await fetch(`${API_BASE}/api/admin/driver-login-status`, { headers: authHeaders() });
       if(handleAuthFailure(res)) return;
       if(!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      displayEl.textContent = data.code;
+      const names = data.names || [];
+      const escName = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+      listEl.innerHTML = names.length > 0
+        ? names.map(n => `\u2022 ${escName(n)}`).join('<br>')
+        : '<span class="form-note" style="margin:0;">No one currently has access \u2014 upload this week\'s ADP Payroll Detail on the Labor Cost tile to populate this.</span>';
     }catch(err){
-      console.error('Load driver code failed:', err);
-      displayEl.textContent = 'Could not load \u2014 check your connection.';
+      console.error('Load driver access list failed:', err);
+      listEl.textContent = 'Could not load \u2014 check your connection.';
     }
   }
-
-  document.getElementById('set_saveDriverCodeBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('set_driverCodeStatus');
-    const newCode = document.getElementById('set_newDriverCode').value.trim();
-    if(newCode.length < 5){
-      statusEl.textContent = 'Access code must be at least 5 characters.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    statusEl.textContent = 'Saving...';
-    statusEl.className = 'status-msg';
-    try{
-      const res = await fetch(`${API_BASE}/api/admin/driver-code`, {
-        method: 'POST',
-        headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({code: newCode})
-      });
-      if(handleAuthFailure(res)) return;
-      const data = await res.json();
-      if(!res.ok){
-        statusEl.textContent = data.error || 'Could not save access code.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      document.getElementById('set_driverCodeDisplay').textContent = data.code;
-      document.getElementById('set_newDriverCode').value = '';
-      statusEl.textContent = 'Access code updated. Anyone with the old code will need the new one to log in.';
-      statusEl.className = 'status-msg ok';
-    }catch(err){
-      console.error('Save driver code failed:', err);
-      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
-      statusEl.className = 'status-msg err';
-    }
-  });
 
   async function loadAppSettings(){
     if(!isCurrentUserAdmin()) return;
