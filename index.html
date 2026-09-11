@@ -16284,10 +16284,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const imgs = await Promise.all((claim.photos || []).map(async p => {
         try{
           const dataUri = await window.dashboardApi.get(`damage-claim-photo-${claim.id}-${p.id}`, null);
-          return dataUri ? `<a href="${dataUri}" target="_blank" rel="noopener noreferrer"><img src="${dataUri}" style="width:90px; height:90px; object-fit:cover; border-radius:6px; border:1px solid var(--line);"></a>` : '';
+          return dataUri ? `<img class="dc-photo-thumb" src="${dataUri}" style="width:90px; height:90px; object-fit:cover; border-radius:6px; border:1px solid var(--line); cursor:pointer;">` : '';
         }catch(err){ console.error('Photo load failed:', err); return ''; }
       }));
       wrap.innerHTML = imgs.join('') || '<span class="form-note" style="margin:0;">Could not load these photos.</span>';
+      wrap.querySelectorAll('.dc-photo-thumb').forEach(img => img.addEventListener('click', (ev)=>{
+        // Opens a real, writable HTML document with the image embedded as
+        // content, rather than navigating a new tab directly to the
+        // data: URI itself -- modern Chrome increasingly blocks that kind
+        // of top-level navigation outright (a phishing-prevention measure),
+        // which is exactly what was producing the blank tab.
+        const win = window.open();
+        if(!win) return;
+        win.document.write(`<!DOCTYPE html><html><head><title>Damage Claim Photo</title></head><body style="margin:0; background:#1a1a1a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${ev.currentTarget.src}" style="max-width:100%; max-height:100vh; object-fit:contain;"></body></html>`);
+        win.document.close();
+      }));
     }));
 
     rowsEl.querySelectorAll('.dc-acknowledge').forEach(btn => btn.addEventListener('click', async (e)=>{
