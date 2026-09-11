@@ -219,6 +219,13 @@ async function rebuildDriverAuthLookup() {
         lookup[e.ssnLast4] = e.name;
       }
     });
+    // TEMPORARY diagnostic logging -- names and counts only, never SSN
+    // digits -- to pinpoint exactly where a specific person's access is
+    // coming from. Safe to remove once the current issue is resolved.
+    console.log('[driver-auth-lookup] latest week:', latest ? latest.weekStart : '(none)');
+    console.log('[driver-auth-lookup] payroll employee names:', employees.map(e => e && e.name).filter(Boolean));
+    console.log('[driver-auth-lookup] checkmarked active driver names:', [...activeDriverNames]);
+    console.log('[driver-auth-lookup] final lookup names:', Object.values(lookup));
     await redis.set(DRIVER_AUTH_LOOKUP_KEY, JSON.stringify(lookup));
   } catch (err) {
     console.error('Driver auth lookup rebuild failed:', err.message);
@@ -3128,4 +3135,11 @@ app.listen(PORT, async () => {
     ? `MOTIVE_API_KEY is set (starts with "${process.env.MOTIVE_API_KEY.slice(0, 6)}...")`
     : 'MOTIVE_API_KEY is NOT set \u2014 truck locations will not work until it is added.');
   await ensureUsersSeeded();
+  // Always re-sync the driver login lookup against current payroll and
+  // Compliance-tile data on boot -- not just on the next write to either
+  // source. Without this, a deploy that changes the matching rules (e.g.
+  // adding the active-driver cross-check) would leave whatever the OLD
+  // rules had already computed sitting untouched in Redis until someone
+  // happened to re-save one of the two source keys.
+  await rebuildDriverAuthLookup();
 });
