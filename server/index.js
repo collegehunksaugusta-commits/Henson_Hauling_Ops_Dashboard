@@ -73,9 +73,10 @@ const ALLOWED_KEYS = new Set([
   'materials-checkouts',
   'compliance-eod-inspections',
   'damage-claims',
-  'junk-removal-jobs'
+  'junk-removal-jobs',
+  'moving-damage-reports'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-'];
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -1100,7 +1101,162 @@ app.post('/api/driver/junk-removal/:jobId/confirm-tier', requireDriverAuth, asyn
   }
 });
 
-// Captain leaderboard for the driver portal. Computes rankings server-side
+// ============ Moving: driver-facing damage documentation ============
+// Job assignment is automatically detected from the same job-entry data
+// already captured for every Move/Move Labor via Job Paperwork -- there is
+// no separate "assign a moving job" step. paperwork-job-archive is the
+// source of truth for which jobs exist and who's assigned; moving-damage-
+// reports holds the actual submitted photos/notes, one record per job
+// number, created the first time either category is submitted.
+const JOB_ARCHIVE_KEY = 'paperwork-job-archive';
+const MOVING_DAMAGE_REPORTS_KEY = 'moving-damage-reports';
+const MOVING_JOB_LOOKBACK_DAYS = 14; // how far back an assignment date can be and still show as active for the driver
+const MOVING_JOB_LOOKAHEAD_DAYS = 7; // lets a job entered a few days ahead of the move already show up
+const MAX_MOVING_PHOTOS = 20;
+const MOVING_JOB_TYPES = ['move', 'movelabor']; // Moves and Move Labors are treated identically throughout
+
+function sanitizeMovingJobKey(jobNumber) {
+  return String(jobNumber).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+// Jobs assigned to this driver as either a Move or Move Labor, whose
+// assignment date falls in a relevant recent/upcoming window -- merged with
+// whatever damage-report state (photo counts, submission timestamps)
+// already exists for each one. Photo blobs themselves are never included
+// here, only counts -- the list stays lightweight, and photos are fetched
+// per-job only when a driver actually opens that job's detail view.
+app.get('/api/driver/moving-jobs', requireDriverAuth, async (req, res) => {
+  const driverName = req.driverName;
+  try {
+    const [archiveRaw, reportsRaw] = await Promise.all([
+      redis.get(JOB_ARCHIVE_KEY),
+      redis.get(MOVING_DAMAGE_REPORTS_KEY)
+    ]);
+    const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+    const reports = reportsRaw ? JSON.parse(reportsRaw) : [];
+    const reportsByJobNumber = new Map(reports.map(r => [r.jobNumber, r]));
+
+    const today = new Date();
+    const windowStart = new Date(today); windowStart.setDate(windowStart.getDate() - MOVING_JOB_LOOKBACK_DAYS);
+    const windowStartStr = windowStart.toISOString().slice(0, 10);
+    const windowEnd = new Date(today); windowEnd.setDate(windowEnd.getDate() + MOVING_JOB_LOOKAHEAD_DAYS);
+    const windowEndStr = windowEnd.toISOString().slice(0, 10);
+
+    const mine = archive
+      .filter(j => j.captainName === driverName && MOVING_JOB_TYPES.includes(j.jobType)
+        && j.assignmentDate && j.assignmentDate >= windowStartStr && j.assignmentDate <= windowEndStr)
+      .map(j => {
+        const report = reportsByJobNumber.get(j.jobNumber);
+        return {
+          jobNumber: j.jobNumber,
+          clientName: j.clientName,
+          jobType: j.jobType,
+          assignmentDate: j.assignmentDate,
+          preExistingPhotoCount: (report && report.preExistingPhotoKeys && report.preExistingPhotoKeys.length) || 0,
+          preExistingSubmittedAt: (report && report.preExistingSubmittedAt) || null,
+          causedPhotoCount: (report && report.causedPhotoKeys && report.causedPhotoKeys.length) || 0,
+          causedSubmittedAt: (report && report.causedSubmittedAt) || null
+        };
+      })
+      .sort((a, b) => (b.assignmentDate || '').localeCompare(a.assignmentDate || ''));
+    res.json({ jobs: mine });
+  } catch (err) {
+    console.error('Driver moving jobs load failed:', err.message);
+    res.status(500).json({ error: 'Could not load jobs.' });
+  }
+});
+
+// Lets a driver pull up the photos already submitted for a category, so
+// they can add ones they forgot and re-submit -- same edit pattern as
+// Junk Removal's photo flow.
+app.get('/api/driver/moving/:jobNumber/photos', requireDriverAuth, async (req, res) => {
+  const category = req.query.category;
+  if (category !== 'preexisting' && category !== 'caused') {
+    return res.status(400).json({ error: 'Invalid category.' });
+  }
+  try {
+    const raw = await redis.get(MOVING_DAMAGE_REPORTS_KEY);
+    const reports = raw ? JSON.parse(raw) : [];
+    const report = reports.find(r => r.jobNumber === req.params.jobNumber);
+    if (!report) return res.json({ photos: [], notes: '' });
+
+    const keys = (category === 'preexisting' ? report.preExistingPhotoKeys : report.causedPhotoKeys) || [];
+    const photos = [];
+    for (const key of keys) {
+      const photoRaw = await redis.get(key);
+      if (photoRaw) photos.push(JSON.parse(photoRaw));
+    }
+    res.json({ photos, notes: (category === 'preexisting' ? report.preExistingNotes : report.causedNotes) || '' });
+  } catch (err) {
+    console.error('Driver moving photo fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load those photos.' });
+  }
+});
+
+app.post('/api/driver/moving/:jobNumber/photos', requireDriverAuth, async (req, res) => {
+  const driverName = req.driverName;
+  const jobNumber = req.params.jobNumber;
+  const { category, photos, notes } = req.body || {};
+  if (category !== 'preexisting' && category !== 'caused') {
+    return res.status(400).json({ error: 'Invalid category.' });
+  }
+  if (!Array.isArray(photos) || photos.length === 0) {
+    return res.status(400).json({ error: 'At least one photo is required.' });
+  }
+  if (photos.length > MAX_MOVING_PHOTOS) {
+    return res.status(400).json({ error: `Please upload ${MAX_MOVING_PHOTOS} photos or fewer at a time.` });
+  }
+  for (const p of photos) {
+    if (typeof p !== 'string' || !p.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'One of those files doesn\'t look like a photo.' });
+    }
+  }
+  try {
+    // Confirms this job is actually assigned to the requesting driver
+    // before accepting anything -- the archive's captainName is the
+    // server-verified source of truth, never trusted from the client.
+    const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
+    const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+    const archivedJob = archive.find(j => j.jobNumber === jobNumber && MOVING_JOB_TYPES.includes(j.jobType));
+    if (!archivedJob) return res.status(404).json({ error: 'Job not found.' });
+    if (archivedJob.captainName !== driverName) return res.status(403).json({ error: 'This job isn\'t assigned to you.' });
+
+    const raw = await redis.get(MOVING_DAMAGE_REPORTS_KEY);
+    const reports = raw ? JSON.parse(raw) : [];
+    let report = reports.find(r => r.jobNumber === jobNumber);
+    if (!report) {
+      report = { jobNumber, clientName: archivedJob.clientName, jobType: archivedJob.jobType, captainName: driverName };
+      reports.push(report);
+    }
+
+    const jobKey = sanitizeMovingJobKey(jobNumber);
+    const photoKeys = [];
+    for (const p of photos) {
+      const photoId = crypto.randomBytes(8).toString('hex');
+      const key = `moving-photo-${jobKey}-${category}-${photoId}`;
+      await redis.set(key, JSON.stringify(p));
+      photoKeys.push(key);
+    }
+
+    const now = new Date().toISOString();
+    if (category === 'preexisting') {
+      report.preExistingPhotoKeys = photoKeys;
+      report.preExistingNotes = (notes || '').toString().slice(0, 2000);
+      report.preExistingSubmittedAt = now;
+    } else {
+      report.causedPhotoKeys = photoKeys;
+      report.causedNotes = (notes || '').toString().slice(0, 2000);
+      report.causedSubmittedAt = now;
+    }
+    report.updatedAt = now;
+    await redis.set(MOVING_DAMAGE_REPORTS_KEY, JSON.stringify(reports));
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Moving photo submission failed:', err.message);
+    res.status(500).json({ error: 'Could not save those photos.' });
+  }
+});
 // from the same admin-side records Captain Metrics uses, and returns only
 // the aggregated results -- drivers never get raw access to
 // compliance-pretrip-inspections, paperwork-job-archive, or paperwork-uploads
