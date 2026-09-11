@@ -16170,7 +16170,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <span style="color:#555;">${jrEsc(estimate.reasoning)}</span>
         </p>
         ${photos.length > 0
-          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd;">`).join('')}</div>`
+          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" onclick="showLightbox(this.src)" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:zoom-in;">`).join('')}</div>`
           : `<p style="color:#999; font-size:13px; font-style:italic;">Photos were automatically removed after ${JUNK_REMOVAL_PHOTO_RETENTION_DAYS} days. The estimate above is preserved.</p>`}`;
     }
 
@@ -16185,6 +16185,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </p>
         ${stageHtml('On-Site Estimate', job.initialEstimate, job.initialConfirmedTier, initialPhotos)}
         ${stageHtml('Loaded Truck (Final)', job.finalEstimate, job.finalConfirmedTier, finalPhotos)}
+        <div id="lightbox" onclick="this.style.display='none'" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out;">
+          <img id="lightboxImg" style="max-width:92vw; max-height:92vh; object-fit:contain; border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,0.5);">
+        </div>
+        <script>
+          function showLightbox(src){
+            document.getElementById('lightboxImg').src = src;
+            document.getElementById('lightbox').style.display = 'flex';
+          }
+        <\/script>
       </body></html>`);
     win.document.close();
   }
