@@ -5358,8 +5358,16 @@
       if(skippedNoRegRate.length > 0){
         msg += ` Note: couldn't compute OT premium for ${skippedNoRegRate.join(', ')} (no Regular rate on file) \u2014 check that OT premium total manually.`;
       }
+      let statusIsWarning = false;
+      if(SSN_COL === -1){
+        msg += ` \u26a0\ufe0f No SSN column was found in this file at all \u2014 nobody will be able to log into the Driver Portal until a file with SSN data is uploaded.`;
+        statusIsWarning = true;
+      } else if(missingSsn.length > 0){
+        msg += ` \u26a0\ufe0f Couldn't read a valid SSN for ${missingSsn.join(', ')} \u2014 ${missingSsn.length === 1 ? 'that person' : 'those people'} won't be able to log into the Driver Portal from this upload.`;
+        statusIsWarning = true;
+      }
       statusEl.textContent = msg;
-      statusEl.className = 'status-msg ok';
+      statusEl.className = statusIsWarning ? 'status-msg err' : 'status-msg ok';
     }catch(err){
       console.error('Payroll parse error:', err);
       statusEl.textContent = 'Could not parse that file: ' + (err && err.message ? err.message : String(err));
