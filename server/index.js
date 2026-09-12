@@ -3032,9 +3032,10 @@ function extractSquareJobNumber(payment) {
 // order_id -> jobNumber for every order that actually had one, so callers
 // can look up by the order_id already on hand.
 async function fetchJobNumbersFromOrders(orderIds, token) {
-  const result = new Map();
+  const found = new Map();       // order_id -> jobNumber, for orders that had one
+  const fetchedOrderIds = new Set(); // order_id -> successfully retrieved, whether or not it had a reference_id
   const uniqueIds = [...new Set(orderIds)].filter(Boolean);
-  if (uniqueIds.length === 0) return result;
+  if (uniqueIds.length === 0) return { found, fetchedOrderIds };
   try {
     for (let i = 0; i < uniqueIds.length; i += 100) { // BatchRetrieveOrders caps at 100 IDs per call
       const chunk = uniqueIds.slice(i, i + 100);
@@ -3053,14 +3054,15 @@ async function fetchJobNumbersFromOrders(orderIds, token) {
       }
       const orderData = await orderRes.json();
       (orderData.orders || []).forEach(o => {
+        fetchedOrderIds.add(o.id);
         const match = (o.reference_id || '').match(SQUARE_JOB_NUMBER_RE);
-        if (match) result.set(o.id, match[0]);
+        if (match) found.set(o.id, match[0]);
       });
     }
   } catch (err) {
     console.error('Square order lookup failed:', err.message);
   }
-  return result;
+  return { found, fetchedOrderIds };
 }
 
 // ============ Square: Tip Allocation ============
@@ -3142,13 +3144,22 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
     // reference_id recovers the rest.
     const stillMissing = withTips.filter(p => !p.jobNumber && p.orderId);
     if (stillMissing.length > 0) {
-      const orderJobNumbers = await fetchJobNumbersFromOrders(stillMissing.map(p => p.orderId), token);
+      const { found, fetchedOrderIds } = await fetchJobNumbersFromOrders(stillMissing.map(p => p.orderId), token);
       stillMissing.forEach(p => {
-        const found = orderJobNumbers.get(p.orderId);
-        if (found) p.jobNumber = found;
+        const jobNumber = found.get(p.orderId);
+        if (jobNumber) {
+          p.jobNumber = jobNumber;
+        } else if (fetchedOrderIds.has(p.orderId)) {
+          p.debugReason = 'Linked order has no reference_id set';
+        } else {
+          p.debugReason = 'Could not retrieve the linked order from Square';
+        }
       });
     }
-    withTips.forEach(p => { delete p.orderId; }); // internal only, not part of the response shape
+    withTips.forEach(p => {
+      if (!p.jobNumber && !p.orderId) p.debugReason = 'Payment has no linked order to check';
+      delete p.orderId; // internal only, not part of the response shape
+    });
 
     // Safety net: if the same job number shows an identical tip amount on
     // the same day more than once, it's almost certainly an accidental
@@ -3250,13 +3261,22 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
     // separately from the Order that originally carried the job number.
     const stillMissingTx = transactions.filter(t => !t.jobNumber && t.orderId);
     if (stillMissingTx.length > 0) {
-      const orderJobNumbers = await fetchJobNumbersFromOrders(stillMissingTx.map(t => t.orderId), token);
+      const { found, fetchedOrderIds } = await fetchJobNumbersFromOrders(stillMissingTx.map(t => t.orderId), token);
       stillMissingTx.forEach(t => {
-        const found = orderJobNumbers.get(t.orderId);
-        if (found) t.jobNumber = found;
+        const jobNumber = found.get(t.orderId);
+        if (jobNumber) {
+          t.jobNumber = jobNumber;
+        } else if (fetchedOrderIds.has(t.orderId)) {
+          t.debugReason = 'Linked order has no reference_id set';
+        } else {
+          t.debugReason = 'Could not retrieve the linked order from Square';
+        }
       });
     }
-    transactions.forEach(t => { delete t.orderId; });
+    transactions.forEach(t => {
+      if (!t.jobNumber && !t.orderId) t.debugReason = 'Payment has no linked order to check';
+      delete t.orderId;
+    });
 
     res.json({ transactions });
   } catch (err) {
