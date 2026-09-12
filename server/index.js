@@ -3023,6 +3023,46 @@ function extractSquareJobNumber(payment) {
   return noteMatch ? noteMatch[0] : null;
 }
 
+// Fallback for payments where extractSquareJobNumber found nothing: the
+// Order linked via payment.order_id has its own, separate reference_id
+// field. Adding a tip via a terminal's tip-collection screen appears to
+// finalize the Payment through a step that doesn't carry over whatever was
+// set on the Payment directly, while the original Order (created before
+// the tip step) still has the job number Square-side. Returns a Map of
+// order_id -> jobNumber for every order that actually had one, so callers
+// can look up by the order_id already on hand.
+async function fetchJobNumbersFromOrders(orderIds, token) {
+  const result = new Map();
+  const uniqueIds = [...new Set(orderIds)].filter(Boolean);
+  if (uniqueIds.length === 0) return result;
+  try {
+    for (let i = 0; i < uniqueIds.length; i += 100) { // BatchRetrieveOrders caps at 100 IDs per call
+      const chunk = uniqueIds.slice(i, i + 100);
+      const orderRes = await fetch('https://connect.squareup.com/v2/orders/batch-retrieve', {
+        method: 'POST',
+        headers: {
+          'Square-Version': '2026-07-15',
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ order_ids: chunk })
+      });
+      if (!orderRes.ok) {
+        console.error('Square order batch-retrieve failed:', orderRes.status, await orderRes.text().catch(() => ''));
+        continue; // one failed chunk shouldn't block job numbers found from other chunks
+      }
+      const orderData = await orderRes.json();
+      (orderData.orders || []).forEach(o => {
+        const match = (o.reference_id || '').match(SQUARE_JOB_NUMBER_RE);
+        if (match) result.set(o.id, match[0]);
+      });
+    }
+  } catch (err) {
+    console.error('Square order lookup failed:', err.message);
+  }
+  return result;
+}
+
 // ============ Square: Tip Allocation ============
 // Pulls recent Square payments, filters to ones with a tip, and extracts the
 // 8-digit job number the crew enters in the payment note at checkout. This
@@ -3088,11 +3128,27 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
           totalAmount: p.total_money ? p.total_money.amount / 100 : null,
           note,
           jobNumber,
+          orderId: p.order_id || null,
           receiptNumber: p.receipt_number || null,
           cardBrand: card ? card.card_brand : null,
           last4: card ? card.last_4 : null
         };
       });
+
+    // Tips added via a terminal's tip-collection screen tend to finalize
+    // the Payment separately from the Order that originally carried the
+    // job number, so the Payment's own note/reference_id often comes back
+    // empty for exactly these -- falling back to the linked Order's own
+    // reference_id recovers the rest.
+    const stillMissing = withTips.filter(p => !p.jobNumber && p.orderId);
+    if (stillMissing.length > 0) {
+      const orderJobNumbers = await fetchJobNumbersFromOrders(stillMissing.map(p => p.orderId), token);
+      stillMissing.forEach(p => {
+        const found = orderJobNumbers.get(p.orderId);
+        if (found) p.jobNumber = found;
+      });
+    }
+    withTips.forEach(p => { delete p.orderId; }); // internal only, not part of the response shape
 
     // Safety net: if the same job number shows an identical tip amount on
     // the same day more than once, it's almost certainly an accidental
@@ -3181,11 +3237,26 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
           tipAmount: p.tip_money ? p.tip_money.amount / 100 : 0,
           note,
           jobNumber,
+          orderId: p.order_id || null,
           receiptNumber: p.receipt_number || null,
           cardBrand: card ? card.card_brand : null,
           last4: card ? card.last_4 : null
         };
       });
+
+    // Same Orders fallback as the tips endpoint above -- tipped
+    // transactions are exactly the ones whose Payment-level note/reference_id
+    // tends to come back empty, since the tip step finalizes the Payment
+    // separately from the Order that originally carried the job number.
+    const stillMissingTx = transactions.filter(t => !t.jobNumber && t.orderId);
+    if (stillMissingTx.length > 0) {
+      const orderJobNumbers = await fetchJobNumbersFromOrders(stillMissingTx.map(t => t.orderId), token);
+      stillMissingTx.forEach(t => {
+        const found = orderJobNumbers.get(t.orderId);
+        if (found) t.jobNumber = found;
+      });
+    }
+    transactions.forEach(t => { delete t.orderId; });
 
     res.json({ transactions });
   } catch (err) {
