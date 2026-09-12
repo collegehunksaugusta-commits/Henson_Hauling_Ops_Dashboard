@@ -74,9 +74,10 @@ const ALLOWED_KEYS = new Set([
   'compliance-eod-inspections',
   'damage-claims',
   'junk-removal-jobs',
-  'moving-damage-reports'
+  'moving-damage-reports',
+  'manager-review-items'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-'];
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -922,6 +923,33 @@ app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
       visionStatus, visionIssues, visionSummary,
       submittedAt: new Date().toISOString()
     });
+
+    // Feeds Manager Review's Truck Conditions tab -- a discrete, reviewable
+    // record separate from the EOD record itself, since it needs its own
+    // independent reviewed/open state that a live re-scan of eodRecords
+    // couldn't track.
+    if (visionStatus === 'issues_found' && Array.isArray(visionIssues) && visionIssues.length > 0) {
+      try {
+        const reviewRaw = await redis.get('manager-review-items');
+        const reviewItems = reviewRaw ? JSON.parse(reviewRaw) : [];
+        reviewItems.push({
+          id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+          type: 'truck-condition',
+          createdAt: new Date().toISOString(),
+          reviewedAt: null,
+          reviewedBy: null,
+          eodRecordId: id,
+          driverName: String(driverName).slice(0, 100),
+          truckNickname: truckNickname || '',
+          date: inspectionDate,
+          visionSummary,
+          visionIssues
+        });
+        await redis.set('manager-review-items', JSON.stringify(reviewItems));
+      } catch (err) {
+        console.error('Manager review truck-condition write failed:', err.message);
+      }
+    }
 
     await Promise.all([
       redis.set('materials-items', JSON.stringify(materialsItems)),
@@ -2435,15 +2463,16 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
 // endpoints.
 const EXTRACT_JOB_NUMBERS_TOOL = {
   name: 'extract_job_numbers',
-  description: 'Extract the job number and client name from a completed moving-job paperwork scan.',
+  description: 'Extract the job number, client name, and invoice total from a completed moving-job paperwork scan.',
   input_schema: {
     type: 'object',
     properties: {
       jobNumber: { type: 'string', description: 'The job number for this document (often an 8-digit HunkWare job number). It may appear on any page -- check all of them, not just the first. Empty string if not found or not legible on any page.' },
       clientName: { type: 'string', description: 'The client/customer\u2019s name, if visible anywhere on any page (e.g. next to "Name:" on a Bill of Lading or Liability Waiver, or a signature). Empty string if not found.' },
+      invoiceTotal: { type: 'number', description: 'The total dollar amount billed/invoiced for this job, if a total appears anywhere on the document (e.g. a line labeled "Total", "Amount Due", "Total Charges", or similar). Use 0 if no such total is visible.' },
       confident: { type: 'boolean', description: 'True if the job number was read clearly. False if every page was too blurry, cut off, or no job number was visible anywhere.' }
     },
-    required: ['jobNumber', 'clientName', 'confident']
+    required: ['jobNumber', 'clientName', 'invoiceTotal', 'confident']
   }
 };
 
@@ -2496,7 +2525,7 @@ app.post('/api/admin/extract-job-numbers', requireAuth, async (req, res) => {
             role: 'user',
             content: [
               ...imageBlocks,
-              { type: 'text', text: `These are ${imageBlocks.length} page(s), in order, from a single scanned completed-paperwork document from a moving company (Bill of Lading, Liability Waiver, and related signed forms for one job). Find the job number -- check every page, since it isn't always on the first one (for example, if a copy of the original work order was printed ahead of the signed forms). Also note the client's name if it's visible anywhere.` }
+              { type: 'text', text: `These are ${imageBlocks.length} page(s), in order, from a single scanned completed-paperwork document from a moving company (Bill of Lading, Liability Waiver, and related signed forms for one job). Find the job number -- check every page, since it isn't always on the first one (for example, if a copy of the original work order was printed ahead of the signed forms). Also note the client's name if it's visible anywhere, and the invoice/billed total if a total dollar amount appears anywhere on the document.` }
             ]
           }]
         })
@@ -3076,6 +3105,80 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
     res.json({ payments: deduped });
   } catch (err) {
     console.error('Square tips fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not reach Square: ' + err.message });
+  }
+});
+
+// Every completed payment (not just tipped ones) for Manager Review's Credit
+// Card Transactions tab. Read-only, same as the tips endpoint above -- never
+// creates, modifies, refunds, or voids anything in Square.
+app.get('/api/square-transactions', requireAuth, async (req, res) => {
+  const token = process.env.SQUARE_ACCESS_TOKEN;
+  const locationId = process.env.SQUARE_LOCATION_ID;
+  if (!token || !locationId) {
+    console.error('Square transactions requested but SQUARE_ACCESS_TOKEN/SQUARE_LOCATION_ID is not set.');
+    return res.status(500).json({ error: 'Square is not configured on the server yet.' });
+  }
+  const days = Math.min(Math.max(parseInt(req.query.days) || 60, 1), 365);
+  const beginTime = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const allPayments = [];
+    let cursor = null;
+    let pageCount = 0;
+    do {
+      const params = new URLSearchParams({
+        location_id: locationId,
+        begin_time: beginTime,
+        sort_order: 'DESC'
+      });
+      if (cursor) params.set('cursor', cursor);
+
+      const sqRes = await fetch(`https://connect.squareup.com/v2/payments?${params.toString()}`, {
+        headers: {
+          'Square-Version': '2026-07-15',
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!sqRes.ok) {
+        const errBody = await sqRes.text().catch(() => '');
+        console.error('Square API request failed:', sqRes.status, errBody);
+        let detail = '';
+        try { detail = ((JSON.parse(errBody).errors || [])[0] || {}).detail || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        return res.status(502).json({ error: `Square request failed (HTTP ${sqRes.status})${detail ? ': ' + detail : ''}` });
+      }
+      const data = await sqRes.json();
+      allPayments.push(...(data.payments || []));
+      cursor = data.cursor || null;
+      pageCount++;
+    } while (cursor && pageCount < 20);
+
+    const JOB_NUMBER_RE = /\b\d{8}\b/;
+    // Square's own dashboard only shows COMPLETED payments, so this keeps
+    // this view consistent with what a manager sees there.
+    const transactions = allPayments
+      .filter(p => p.status === 'COMPLETED')
+      .map(p => {
+        const note = p.note || '';
+        const match = note.match(JOB_NUMBER_RE);
+        const card = p.card_details && p.card_details.card ? p.card_details.card : null;
+        return {
+          id: p.id,
+          date: (p.created_at || '').slice(0, 10),
+          totalAmount: p.total_money ? p.total_money.amount / 100 : null,
+          tipAmount: p.tip_money ? p.tip_money.amount / 100 : 0,
+          note,
+          jobNumber: match ? match[0] : null,
+          receiptNumber: p.receipt_number || null,
+          cardBrand: card ? card.card_brand : null,
+          last4: card ? card.last_4 : null
+        };
+      });
+
+    res.json({ transactions });
+  } catch (err) {
+    console.error('Square transactions fetch failed:', err.message);
     res.status(500).json({ error: 'Could not reach Square: ' + err.message });
   }
 });
