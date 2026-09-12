@@ -6795,7 +6795,7 @@
     renderTipsPrevWeekTotals();
     renderTipsSummaryWeekOptions();
     renderTipsSummary();
-    updateManagerReviewTileBadge();
+    if(window.updateManagerReviewTileBadge) window.updateManagerReviewTileBadge();
   }
 
   function renderTipsNeedsAttention(){
@@ -17063,6 +17063,37 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const { kept, changed } = pruneOldManagerReviewItems(items);
       managerReviewItems = kept;
       if(changed) await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
+
+      // Both syncs below normally piggyback on the Materials and Captain
+      // Metrics tiles' own loads -- but a manager opening this tile
+      // directly, without having visited either of those first this
+      // session, should still see current data, not an empty list. So
+      // this fetches the same underlying records those tiles use and
+      // runs both syncs here too. Harmless to run twice in the same
+      // session -- both syncs are idempotent upserts.
+      const [matItemsRaw, matCheckoutsRaw, uploadsRaw, archiveRaw, eodRaw] = await Promise.all([
+        window.dashboardApi.get(MATERIALS_ITEMS_KEY, []),
+        window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []),
+        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.dashboardApi.get('compliance-eod-inspections', [])
+      ]);
+      materialsItems = matItemsRaw || [];
+      materialsCheckouts = matCheckoutsRaw || [];
+      const eodRecords = eodRaw || [];
+
+      const problems = computeMaterialsUnderbilledProblems(uploadsRaw || [], archiveRaw || [], eodRecords);
+      await syncMaterialsUnderbilledToManagerReview(problems);
+
+      const flaggedTruckIssues = eodRecords
+        .filter(e => e.visionStatus === 'issues_found' && Array.isArray(e.visionIssues) && e.visionIssues.length > 0);
+      await syncTruckConditionsToManagerReview(flaggedTruckIssues);
+
+      // Re-read once more since both syncs above may have just changed
+      // what's actually stored.
+      items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
+      managerReviewItems = items;
+
       renderMgrReviewTabCounts();
       renderMgrReviewUnderbilled();
       renderMgrReviewTruckConditions();
@@ -17088,6 +17119,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       tile.classList.remove('attention');
     }
   }
+  window.updateManagerReviewTileBadge = updateManagerReviewTileBadge;
 
   function renderMgrReviewTabCounts(){
     const underbilledCount = managerReviewItems.filter(i => i.type === 'underbilled' && !i.reviewedAt).length;
