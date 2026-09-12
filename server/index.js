@@ -3010,6 +3010,19 @@ Two exceptions -- exclude these from totalFieldsFound entirely (not counted as b
   }
 });
 
+const SQUARE_JOB_NUMBER_RE = /\b\d{8}\b/;
+// Checks reference_id before note: reference_id is Square's dedicated field
+// for associating a payment with an external system's record (an 8-digit
+// HunkWare job number here), and -- if the checkout flow sets it
+// automatically -- is far more reliable than a free-text note that depends
+// on whoever's taking the payment remembering to type the job number in.
+function extractSquareJobNumber(payment) {
+  const refMatch = (payment.reference_id || '').match(SQUARE_JOB_NUMBER_RE);
+  if (refMatch) return refMatch[0];
+  const noteMatch = (payment.note || '').match(SQUARE_JOB_NUMBER_RE);
+  return noteMatch ? noteMatch[0] : null;
+}
+
 // ============ Square: Tip Allocation ============
 // Pulls recent Square payments, filters to ones with a tip, and extracts the
 // 8-digit job number the crew enters in the payment note at checkout. This
@@ -3057,7 +3070,6 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
       pageCount++;
     } while (cursor && pageCount < 20); // safety cap against runaway pagination
 
-    const JOB_NUMBER_RE = /\b\d{8}\b/;
     const withTips = allPayments
       // Only COMPLETED payments actually earned revenue -- a connectivity
       // glitch during checkout can leave a FAILED or CANCELED attempt in
@@ -3067,7 +3079,7 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
       .filter(p => p.status === 'COMPLETED' && p.tip_money && p.tip_money.amount > 0)
       .map(p => {
         const note = p.note || '';
-        const match = note.match(JOB_NUMBER_RE);
+        const jobNumber = extractSquareJobNumber(p);
         const card = p.card_details && p.card_details.card ? p.card_details.card : null;
         return {
           id: p.id,
@@ -3075,7 +3087,7 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
           tipAmount: p.tip_money.amount / 100,
           totalAmount: p.total_money ? p.total_money.amount / 100 : null,
           note,
-          jobNumber: match ? match[0] : null,
+          jobNumber,
           receiptNumber: p.receipt_number || null,
           cardBrand: card ? card.card_brand : null,
           last4: card ? card.last_4 : null
@@ -3154,14 +3166,13 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
       pageCount++;
     } while (cursor && pageCount < 20);
 
-    const JOB_NUMBER_RE = /\b\d{8}\b/;
     // Square's own dashboard only shows COMPLETED payments, so this keeps
     // this view consistent with what a manager sees there.
     const transactions = allPayments
       .filter(p => p.status === 'COMPLETED')
       .map(p => {
         const note = p.note || '';
-        const match = note.match(JOB_NUMBER_RE);
+        const jobNumber = extractSquareJobNumber(p);
         const card = p.card_details && p.card_details.card ? p.card_details.card : null;
         return {
           id: p.id,
@@ -3169,7 +3180,7 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
           totalAmount: p.total_money ? p.total_money.amount / 100 : null,
           tipAmount: p.tip_money ? p.tip_money.amount / 100 : 0,
           note,
-          jobNumber: match ? match[0] : null,
+          jobNumber,
           receiptNumber: p.receipt_number || null,
           cardBrand: card ? card.card_brand : null,
           last4: card ? card.last_4 : null
