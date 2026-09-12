@@ -3055,8 +3055,20 @@ async function fetchJobNumbersFromOrders(orderIds, token) {
       const orderData = await orderRes.json();
       (orderData.orders || []).forEach(o => {
         fetchedOrderIds.add(o.id);
-        const match = (o.reference_id || '').match(SQUARE_JOB_NUMBER_RE);
-        if (match) found.set(o.id, match[0]);
+        const refMatch = (o.reference_id || '').match(SQUARE_JOB_NUMBER_RE);
+        if (refMatch) {
+          found.set(o.id, refMatch[0]);
+          return;
+        }
+        // No reference_id -- check each line item's name and note, since a
+        // custom (non-catalog) line item is often just named or noted with
+        // the job number directly at checkout.
+        for (const item of (o.line_items || [])) {
+          const nameMatch = (item.name || '').match(SQUARE_JOB_NUMBER_RE);
+          if (nameMatch) { found.set(o.id, nameMatch[0]); return; }
+          const itemNoteMatch = (item.note || '').match(SQUARE_JOB_NUMBER_RE);
+          if (itemNoteMatch) { found.set(o.id, itemNoteMatch[0]); return; }
+        }
       });
     }
   } catch (err) {
@@ -3150,7 +3162,7 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
         if (jobNumber) {
           p.jobNumber = jobNumber;
         } else if (fetchedOrderIds.has(p.orderId)) {
-          p.debugReason = 'Linked order has no reference_id set';
+          p.debugReason = 'Linked order has no reference_id or line item note with a job number';
         } else {
           p.debugReason = 'Could not retrieve the linked order from Square';
         }
@@ -3267,7 +3279,7 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
         if (jobNumber) {
           t.jobNumber = jobNumber;
         } else if (fetchedOrderIds.has(t.orderId)) {
-          t.debugReason = 'Linked order has no reference_id set';
+          t.debugReason = 'Linked order has no reference_id or line item note with a job number';
         } else {
           t.debugReason = 'Could not retrieve the linked order from Square';
         }
