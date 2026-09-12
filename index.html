@@ -849,6 +849,31 @@
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
     loadDriverLeaderboard();
+    updateDriverTileVisibility();
+  }
+
+  // Hides the Junk Removal and Moving tiles entirely when a driver
+  // currently has zero jobs assigned in that category, rather than
+  // showing an empty "no jobs assigned" screen after they tap in. Runs
+  // fresh every time the menu loads, since assignments change day to day.
+  // Fails safe: if either check can't complete, tiles are left as-is
+  // (visible) rather than risking hiding one that actually has jobs.
+  async function updateDriverTileVisibility(){
+    try{
+      const [jrRes, mvRes] = await Promise.all([
+        fetch(API_BASE_AUTH + '/api/driver/junk-removal-jobs', { headers: {'Authorization': 'Bearer ' + driverToken} }),
+        fetch(API_BASE_AUTH + '/api/driver/moving-jobs', { headers: {'Authorization': 'Bearer ' + driverToken} })
+      ]);
+      if(jrRes.status === 401 || mvRes.status === 401){ driverSessionExpired(); return; }
+      const jrData = await jrRes.json();
+      const mvData = await mvRes.json();
+      const jrJobs = jrData.jobs || [];
+      const movingJobs = mvData.jobs || [];
+      document.getElementById('driverGoToJunkRemovalBtn').style.display = jrJobs.length > 0 ? '' : 'none';
+      document.getElementById('driverGoToMovingBtn').style.display = movingJobs.length > 0 ? '' : 'none';
+    }catch(err){
+      console.error('Driver tile visibility check failed:', err);
+    }
   }
 
   async function showDriverInspection(){
