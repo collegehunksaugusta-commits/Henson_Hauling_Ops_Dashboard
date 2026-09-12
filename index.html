@@ -17182,7 +17182,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     rowsEl.innerHTML = transactions.map(t => `
       <tr>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${window.fmtDate(t.date)}</td>
-        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(t.jobNumber || '\u2014')}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(t.jobNumber || '\u2014')}${!t.jobNumber && t.debugReason ? `<div style="font-size:10.5px; color:#B3261E; font-weight:400; margin-top:2px;">${mgrReviewEsc(t.debugReason)}</div>` : ''}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.totalAmount !== null ? '$' + t.totalAmount.toFixed(2) : '\u2014'}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.tipAmount > 0 ? '$' + t.tipAmount.toFixed(2) : ''}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(t.cardBrand || '')}${t.last4 ? ' \u2022\u2022\u2022\u2022' + mgrReviewEsc(t.last4) : ''}</td>
