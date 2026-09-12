@@ -2430,10 +2430,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
             <span>Operations</span>
-            <span class="dashSectionCount">(8)</span>
+            <span class="dashSectionCount">(9)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim, Junk Removal</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim, Junk Removal, Manager Review</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2480,6 +2480,12 @@
         <h3>Junk Removal</h3>
         <p>Review each junk removal job's photos and Claude's volume estimates. Captains are assigned during the morning batch upload in Job Paperwork.</p>
       </div>
+      <div class="tile" id="tile-managerreview" tabindex="0" role="button" aria-label="Open Manager Review">
+        <span class="badge" id="managerReviewTileBadge" style="display:none;"></span>
+        <span class="icon">🧾</span>
+        <h3>Manager Review</h3>
+        <p>Credit card transactions, underbilled jobs, and flagged truck conditions pulled in from across the app for close-out.</p>
+      </div>
         </div>
       </div>
     </div>
@@ -2518,10 +2524,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">💰</span>
             <span>Pay</span>
-            <span class="dashSectionCount">(3)</span>
+            <span class="dashSectionCount">(2)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-pay">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">ADP, Labor Cost, Tip Allocation</div>
+          <div class="dashSectionTileList">ADP, Labor Cost</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2535,12 +2541,6 @@
         <span class="icon">💲</span>
         <h3>Labor Cost</h3>
         <p>Weekly labor cost vs. revenue, overtime exposure, and per-employee OT detail.</p>
-      </div>
-      <div class="tile" id="tile-tips" tabindex="0" role="button" aria-label="Open Tip Allocation">
-        <span class="badge" id="tipsTileBadge" style="display:none;">Needs Attention</span>
-        <span class="icon">💵</span>
-        <h3>Tip Allocation</h3>
-        <p>Split Square tips among the crew on each job, totaled automatically by pay period.</p>
       </div>
         </div>
       </div>
@@ -3208,6 +3208,31 @@
         </div>
       </div>
 
+      <div class="panel" id="jrCloseoutPanel">
+        <h3>Junk Removal Closeout</h3>
+        <p class="form-note">Upload the invoice for each completed Junk Removal job &mdash; no work package scan or client email needed here, just billing. Claude reads the job number and invoice total off each file, matches it to the job, and checks it against the price point set by that job's final photo. Review everything before saving.</p>
+        <div id="jrCloseout_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
+          <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop invoices here, or click to paste (Ctrl+V or Cmd+V)</p>
+          <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="jrCloseout_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
+          <input type="file" id="jrCloseout_files" accept=".jpg,.jpeg,.png,.pdf,.heic" multiple style="display:none;">
+        </div>
+        <div id="jrCloseout_thumbnails" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;"></div>
+        <div class="form-actions">
+          <button class="btn-primary" id="jrCloseout_extractBtn" type="button">Match to Jobs</button>
+          <span class="status-msg" id="jrCloseout_extractStatus"></span>
+        </div>
+
+        <div id="jrCloseout_reviewWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Review Before Saving</h4>
+          <p class="form-note">Correct the job number or invoice total for anything that looks off before saving. A job that couldn't be matched needs its job number filled in by hand.</p>
+          <div id="jrCloseout_reviewRows"></div>
+          <div class="form-actions">
+            <button class="btn-primary" id="jrCloseout_saveBtn" type="button">Save All</button>
+            <span class="status-msg" id="jrCloseout_saveStatus"></span>
+          </div>
+        </div>
+      </div>
+
       <div class="panel" id="paperworkUploadPanel">
         <button type="button" id="pu_panelToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
           <h3 style="margin:0;">Paperwork on File <span id="pu_panelCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
@@ -3486,6 +3511,162 @@
       <h3>Jobs</h3>
       <div id="jr_jobRows"></div>
       <p class="form-note" id="jr_emptyNote" style="display:none;">No junk removal jobs yet.</p>
+    </div>
+  </div>
+
+  <!-- ============ MANAGER REVIEW DETAIL ============ -->
+  <div id="managerReviewDetail" style="display:none;">
+    <button class="backlink" id="managerReviewBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Manager Review</h2>
+      <p>Credit card transactions from Square, underbilled jobs, and flagged truck conditions, pulled in from across the app. Underbilled Jobs and Truck Conditions items are removed automatically once they're 6 months old.</p>
+    </div>
+
+    <div style="display:flex; gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
+      <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_ccard">
+      <h3>Credit Card Transactions</h3>
+      <p class="form-note">Pulls tipped transactions from Square to allocate among crew, summarizes tips by pay period, and lists every completed transaction.</p>
+      <div class="mail-layout">
+        <div class="panel mail-sidebar" id="tipsSectionPanel">
+          <button type="button" class="tips-section-btn" data-section="allocate" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Allocate Tips</button>
+          <button type="button" class="tips-section-btn" data-section="summary" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Pay Period Summary</button>
+          <button type="button" class="tips-section-btn" data-section="all" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">All Transactions</button>
+        </div>
+
+        <div class="mail-content">
+        <div id="tips_section_allocate" class="mail-section">
+          <div class="panel" id="tipsFetchPanel">
+            <p class="form-note" id="tips_rangeNote">Pulling from Square starting the most recent complete pay period forward.</p>
+            <div class="form-actions">
+              <button class="btn-primary" id="tips_refreshBtn" type="button">Refresh From Square</button>
+              <span class="status-msg" id="tips_fetchStatus"></span>
+            </div>
+          </div>
+
+          <div class="panel" id="tipsNeedsAttentionPanel" style="display:none;">
+            <h3>Needs a Job Number</h3>
+            <p class="form-note">These tips didn't have a clean 8-digit job number in the Square note. Enter one manually to allocate them.</p>
+            <table style="min-width:560px;">
+              <thead><tr>
+                <th>Date</th>
+                <th>Square Note</th>
+                <th>Tip</th>
+                <th>Job Number</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="tips_needsAttentionRows"></tbody>
+            </table>
+          </div>
+
+          <div class="panel" id="tipsAllocatePanel">
+            <h3>Allocate</h3>
+            <table style="min-width:600px;">
+              <thead><tr>
+                <th>Date</th>
+                <th>Job #</th>
+                <th>Tip</th>
+                <th>Employees</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="tips_allocateRows"></tbody>
+            </table>
+            <p class="form-note" id="tips_allocateEmptyNote" style="display:none;">No tipped transactions to allocate right now.</p>
+          </div>
+
+          <div class="panel" id="tipsAllocatedPanel">
+            <h3>Already Allocated</h3>
+            <table style="min-width:560px;">
+              <thead><tr>
+                <th>Date</th>
+                <th>Job #</th>
+                <th>Tip</th>
+                <th>Employees</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="tips_allocatedRows"></tbody>
+            </table>
+            <p class="form-note" id="tips_allocatedEmptyNote" style="display:none;">Nothing allocated yet.</p>
+          </div>
+
+          <div class="panel" id="tipsPrevWeekPanel">
+            <h3>Pay Week History</h3>
+            <p class="form-note">The most recent complete week, plus a rolling 3-month log of weeks already marked paid.</p>
+            <div id="tips_prevWeekList"></div>
+            <p class="form-note" id="tips_prevWeekEmptyNote" style="display:none;">No allocated tips for the previous pay week yet.</p>
+          </div>
+        </div>
+
+        <div id="tips_section_summary" class="mail-section" style="display:none;">
+          <div class="panel" id="tipsSummaryPanel">
+            <h3>Pay Period Summary</h3>
+            <label>Week <select id="tips_summaryWeek"></select></label>
+            <table>
+              <thead><tr>
+                <th>Employee</th>
+                <th style="text-align:right;">Jobs</th>
+                <th style="text-align:right;">Total Tips</th>
+              </tr></thead>
+              <tbody id="tips_summaryRows"></tbody>
+            </table>
+            <p class="form-note" id="tips_summaryEmptyNote" style="display:none;">No allocated tips for this week yet.</p>
+            <div id="tips_summaryUnassignedNote"></div>
+          </div>
+        </div>
+
+        <div id="tips_section_all" class="mail-section" style="display:none;">
+          <div class="panel" id="mgrreview_allTransactionsPanel">
+            <h3>All Transactions</h3>
+            <p class="form-note">Every completed Square payment in the last 60 days.</p>
+            <span class="status-msg" id="mgrreview_ccardStatus"></span>
+            <div style="overflow-x:auto;">
+              <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px;">
+                <thead><tr>
+                  <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
+                  <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Job #</th>
+                  <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
+                  <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Tip</th>
+                  <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Card</th>
+                  <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Note</th>
+                </tr></thead>
+                <tbody id="mgrreview_ccardRows"></tbody>
+              </table>
+            </div>
+            <p class="form-note" id="mgrreview_ccardEmptyNote" style="display:none;">No transactions in this window.</p>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_underbilled" style="display:none;">
+      <h3>Underbilled Jobs</h3>
+      <p class="form-note">Jobs where billing came in under the expected amount &mdash; from Junk Removal closeout (invoice vs. the final-photo price point) and Materials reconciliation (billed vs. what was actually used).</p>
+      <div id="mgrreview_underbilledOpenRows"></div>
+      <p class="form-note" id="mgrreview_underbilledEmptyNote" style="display:none;">Nothing needs review right now.</p>
+
+      <button type="button" id="mgrreview_underbilledReviewedToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; margin-top:20px; cursor:pointer; text-align:left;">
+        <h4 style="margin:0;">Reviewed <span id="mgrreview_underbilledReviewedCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h4>
+        <span id="mgrreview_underbilledReviewedChevron" style="font-size:13px; color:var(--muted); transition:transform .15s;">&#9656;</span>
+      </button>
+      <div id="mgrreview_underbilledReviewedRows" style="display:none; margin-top:10px;"></div>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_truckconditions" style="display:none;">
+      <h3>Truck Conditions</h3>
+      <p class="form-note">AI-flagged truck condition issues from End of Day Inspection photo comparisons.</p>
+      <div id="mgrreview_truckOpenRows"></div>
+      <p class="form-note" id="mgrreview_truckEmptyNote" style="display:none;">Nothing needs review right now.</p>
+
+      <button type="button" id="mgrreview_truckReviewedToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; margin-top:20px; cursor:pointer; text-align:left;">
+        <h4 style="margin:0;">Reviewed <span id="mgrreview_truckReviewedCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h4>
+        <span id="mgrreview_truckReviewedChevron" style="font-size:13px; color:var(--muted); transition:transform .15s;">&#9656;</span>
+      </button>
+      <div id="mgrreview_truckReviewedRows" style="display:none; margin-top:10px;"></div>
     </div>
   </div>
 
@@ -4344,105 +4525,6 @@
     </div>
   </div>
 
-  <!-- ============ TIP ALLOCATION DETAIL ============ -->
-  <div id="tipsDetail" style="display:none;">
-    <button class="backlink" id="tipsBackBtn">&larr; Dispatch</button>
-    <div class="wrap">
-      <div class="detail-head">
-        <h2 class="display">Tip Allocation</h2>
-        <p>Pulls tipped transactions from Square, reads the job number from the payment note, and splits each tip evenly among whichever crew members worked that job.</p>
-      </div>
-
-      <div class="mail-layout">
-        <div class="panel mail-sidebar" id="tipsSectionPanel">
-          <button type="button" class="tips-section-btn" data-section="allocate" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Allocate Tips</button>
-          <button type="button" class="tips-section-btn" data-section="summary" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Pay Period Summary</button>
-        </div>
-
-        <div class="mail-content">
-        <div id="tips_section_allocate" class="mail-section">
-          <div class="panel" id="tipsFetchPanel">
-            <p class="form-note" id="tips_rangeNote">Pulling from Square starting the most recent complete pay period forward.</p>
-            <div class="form-actions">
-              <button class="btn-primary" id="tips_refreshBtn" type="button">Refresh From Square</button>
-              <span class="status-msg" id="tips_fetchStatus"></span>
-            </div>
-          </div>
-
-          <div class="panel" id="tipsNeedsAttentionPanel" style="display:none;">
-            <h3>Needs a Job Number</h3>
-            <p class="form-note">These tips didn't have a clean 8-digit job number in the Square note. Enter one manually to allocate them.</p>
-            <table style="min-width:560px;">
-              <thead><tr>
-                <th>Date</th>
-                <th>Square Note</th>
-                <th>Tip</th>
-                <th>Job Number</th>
-                <th></th>
-              </tr></thead>
-              <tbody id="tips_needsAttentionRows"></tbody>
-            </table>
-          </div>
-
-          <div class="panel" id="tipsAllocatePanel">
-            <h3>Allocate</h3>
-            <table style="min-width:600px;">
-              <thead><tr>
-                <th>Date</th>
-                <th>Job #</th>
-                <th>Tip</th>
-                <th>Employees</th>
-                <th></th>
-              </tr></thead>
-              <tbody id="tips_allocateRows"></tbody>
-            </table>
-            <p class="form-note" id="tips_allocateEmptyNote" style="display:none;">No tipped transactions to allocate right now.</p>
-          </div>
-
-          <div class="panel" id="tipsAllocatedPanel">
-            <h3>Already Allocated</h3>
-            <table style="min-width:560px;">
-              <thead><tr>
-                <th>Date</th>
-                <th>Job #</th>
-                <th>Tip</th>
-                <th>Employees</th>
-                <th></th>
-              </tr></thead>
-              <tbody id="tips_allocatedRows"></tbody>
-            </table>
-            <p class="form-note" id="tips_allocatedEmptyNote" style="display:none;">Nothing allocated yet.</p>
-          </div>
-
-          <div class="panel" id="tipsPrevWeekPanel">
-            <h3>Pay Week History</h3>
-            <p class="form-note">The most recent complete week, plus a rolling 3-month log of weeks already marked paid.</p>
-            <div id="tips_prevWeekList"></div>
-            <p class="form-note" id="tips_prevWeekEmptyNote" style="display:none;">No allocated tips for the previous pay week yet.</p>
-          </div>
-        </div>
-
-        <div id="tips_section_summary" class="mail-section" style="display:none;">
-          <div class="panel" id="tipsSummaryPanel">
-            <h3>Pay Period Summary</h3>
-            <label>Week <select id="tips_summaryWeek"></select></label>
-            <table>
-              <thead><tr>
-                <th>Employee</th>
-                <th style="text-align:right;">Jobs</th>
-                <th style="text-align:right;">Total Tips</th>
-              </tr></thead>
-              <tbody id="tips_summaryRows"></tbody>
-            </table>
-            <p class="form-note" id="tips_summaryEmptyNote" style="display:none;">No allocated tips for this week yet.</p>
-            <div id="tips_summaryUnassignedNote"></div>
-          </div>
-        </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- ============ SETTINGS DETAIL ============ -->
   <div id="settingsDetail" style="display:none;">
     <button class="backlink" id="settingsBackBtn">&larr; Dispatch</button>
@@ -4852,12 +4934,12 @@
   const settingsDetail = document.getElementById('settingsDetail');
   const mailListDetail = document.getElementById('mailListDetail');
   const mailRouteDetail = document.getElementById('mailRouteDetail');
-  const tipsDetail = document.getElementById('tipsDetail');
   const captainDetail = document.getElementById('captainDetail');
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
   const junkRemovalDetail = document.getElementById('junkRemovalDetail');
+  const managerReviewDetail = document.getElementById('managerReviewDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -4870,12 +4952,12 @@
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
     mailListDetail.style.display = view === 'maillist' ? 'block' : 'none';
     mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
-    tipsDetail.style.display = view === 'tips' ? 'block' : 'none';
     captainDetail.style.display = view === 'captain' ? 'block' : 'none';
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
     junkRemovalDetail.style.display = view === 'junkremoval' ? 'block' : 'none';
+    managerReviewDetail.style.display = view === 'managerreview' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -4914,12 +4996,13 @@
     if(view === 'junkremoval'){
       window.loadJunkRemovalJobs();
     }
-    if(view === 'paperwork'){
-      window.loadPwBatchJunkRemovalPersistent();
-    }
-    if(view === 'tips'){
+    if(view === 'managerreview'){
+      window.loadManagerReviewData();
       loadTipsData();
       showTipsSection(tipsCurrentSection);
+    }
+    if(view === 'paperwork'){
+      window.loadPwBatchJunkRemovalPersistent();
     }
     if(view === 'captain'){
       window.loadCaptainMetricsData();
@@ -5057,10 +5140,6 @@
   document.getElementById('mailListBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('mailRouteBackBtn').addEventListener('click', ()=> history.back());
 
-  document.getElementById('tile-tips').addEventListener('click', ()=> navigateTo('tips'));
-  document.getElementById('tile-tips').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('tips'); }});
-  document.getElementById('tipsBackBtn').addEventListener('click', ()=> history.back());
-
   document.getElementById('tile-captain').addEventListener('click', ()=> navigateTo('captain'));
   document.getElementById('tile-captain').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('captain'); }});
   document.getElementById('captainBackBtn').addEventListener('click', ()=> history.back());
@@ -5074,7 +5153,10 @@
   document.getElementById('tile-damageclaim').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('damageclaim'); }});
   document.getElementById('tile-junkremoval').addEventListener('click', ()=> navigateTo('junkremoval'));
   document.getElementById('tile-junkremoval').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('junkremoval'); }});
+  document.getElementById('tile-managerreview').addEventListener('click', ()=> navigateTo('managerreview'));
+  document.getElementById('tile-managerreview').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('managerreview'); }});
   document.getElementById('junkRemovalBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('managerReviewBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
 
@@ -6557,6 +6639,10 @@
   let tipsPaidWeeks = [];      // frozen snapshots: [{weekStart, weekEnd, paidAt, totalAmount, employees: [{name, jobs, total}]}]
   let tipsExpandedPaidWeeks = new Set(); // which paid weeks are currently expanded in the UI (local, not persisted)
   let tipsCurrentSection = 'allocate';
+  // Exposed globally since Manager Review's badge (a different <script>
+  // block) needs this count, and tipsPayments itself -- a plain `let` --
+  // isn't visible there as a bare identifier the way a function would be.
+  window.getTipsNeedsAttentionCount = () => tipsPayments.filter(p => !p.jobNumber).length;
 
   function tipsEsc(s){
     const d = document.createElement('div');
@@ -6702,11 +6788,6 @@
   }
   document.getElementById('tips_refreshBtn').addEventListener('click', tipsRefreshFromSquare);
 
-  function updateTipsTileBadge(){
-    const needsAttentionCount = tipsPayments.filter(p => !p.jobNumber).length;
-    document.getElementById('tipsTileBadge').style.display = needsAttentionCount > 0 ? 'inline-block' : 'none';
-  }
-
   function renderTipsAll(){
     renderTipsNeedsAttention();
     renderTipsAllocate();
@@ -6714,7 +6795,7 @@
     renderTipsPrevWeekTotals();
     renderTipsSummaryWeekOptions();
     renderTipsSummary();
-    updateTipsTileBadge();
+    updateManagerReviewTileBadge();
   }
 
   function renderTipsNeedsAttention(){
@@ -7066,9 +7147,11 @@
     tipsCurrentSection = section;
     document.getElementById('tips_section_allocate').style.display = section === 'allocate' ? 'block' : 'none';
     document.getElementById('tips_section_summary').style.display = section === 'summary' ? 'block' : 'none';
+    document.getElementById('tips_section_all').style.display = section === 'all' ? 'block' : 'none';
     document.querySelectorAll('.tips-section-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.section === section);
     });
+    if(section === 'all') window.loadMgrReviewSquareTransactions();
   }
   document.querySelectorAll('.tips-section-btn').forEach(btn => btn.addEventListener('click', ()=> showTipsSection(btn.dataset.section)));
 
@@ -8961,7 +9044,7 @@
   // future badge-toggling function keeps working exactly as it does today --
   // nothing scattered elsewhere in this file needs to know sections exist.
   (function watchTileBadgesForAttentionSync(){
-    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'tipsTileBadge', 'materialsTileBadge', 'damageClaimTileBadge'];
+    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'materialsTileBadge', 'damageClaimTileBadge', 'managerReviewTileBadge'];
     const observer = new MutationObserver(updateDashSectionAttentionBadges);
     badgeIds.forEach(id => {
       const el = document.getElementById(id);
@@ -15408,6 +15491,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       .filter(e => e.visionStatus === 'issues_found' && Array.isArray(e.visionIssues) && e.visionIssues.length > 0)
       .sort((a,b) => (b.date || '').localeCompare(a.date || ''));
 
+    syncTruckConditionsToManagerReview(flagged);
+
     if(flagged.length === 0){
       rowsEl.innerHTML = '';
       emptyNote.style.display = 'block';
@@ -15426,6 +15511,40 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${e.visionIssues.map(issue => `<li>${cmEsc(issue.issue)}${issue.severity === 'moderate' ? ' <span style="color:#B3261E; font-weight:600;">(moderate)</span>' : ''}</li>`).join('')}
         </ul>
       </div>`).join('');
+  }
+
+  // Keeps Manager Review's Truck Conditions tab in sync with the current
+  // AI-flagged EOD history, upserting by eodRecordId so this both backfills
+  // the full existing backlog the first time it runs and stays current
+  // after -- never duplicates an entry, and never touches one already
+  // reviewed (an EOD record's own flag doesn't change after the fact, so
+  // unlike materials there's nothing here that would need un-flagging).
+  async function syncTruckConditionsToManagerReview(flagged){
+    try{
+      let reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
+      const existingByEodId = new Map(
+        reviewItems.filter(item => item.type === 'truck-condition').map(item => [item.eodRecordId, item])
+      );
+      let changed = false;
+      flagged.forEach(e => {
+        if(existingByEodId.has(e.id)) return;
+        reviewItems.push({
+          id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + e.id,
+          type: 'truck-condition',
+          createdAt: new Date().toISOString(),
+          reviewedAt: null,
+          reviewedBy: null,
+          eodRecordId: e.id,
+          driverName: e.driverName,
+          truckNickname: e.truckNickname || '',
+          date: e.date,
+          visionSummary: e.visionSummary,
+          visionIssues: e.visionIssues
+        });
+        changed = true;
+      });
+      if(changed) await window.dashboardApi.set('manager-review-items', reviewItems);
+    }catch(err){ console.error('Truck conditions sync to Manager Review failed:', err); }
   }
 
   function renderCaptainCompleteness(archive, uploads){
@@ -16045,10 +16164,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // what was actually billed for that job (materialsBilled on the matching
   // Completed Paperwork record) -- flags any job where more was pulled than
   // was billed, including jobs that haven't been billed for materials at all yet.
-  function renderMaterialsUnderbilled(uploads, archive, eodRecords){
-    const rowsEl = document.getElementById('mat_underbilledRows');
-    const emptyNote = document.getElementById('mat_underbilledEmptyNote');
-
+  function computeMaterialsUnderbilledProblems(uploads, archive, eodRecords){
     // Free consumables (tape, shrink wrap, etc.) are never billed by
     // design, so checking them out should never be flagged as underbilled.
     const billableItemIds = new Set(materialsItems.filter(i => !i.neverBilled).map(i => i.id));
@@ -16104,7 +16220,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
     });
 
-    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
     const problems = [];
     Object.keys(checkedOutByJob).forEach(jobNumber => {
       const checkedOutItems = checkedOutByJob[jobNumber];
@@ -16123,6 +16238,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems });
       });
     });
+    return problems;
+  }
+
+  function renderMaterialsUnderbilled(uploads, archive, eodRecords){
+    const rowsEl = document.getElementById('mat_underbilledRows');
+    const emptyNote = document.getElementById('mat_underbilledEmptyNote');
+    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
+    const problems = computeMaterialsUnderbilledProblems(uploads, archive, eodRecords);
+    syncMaterialsUnderbilledToManagerReview(problems);
 
     if(problems.length === 0){
       rowsEl.innerHTML = '';
@@ -16149,6 +16273,58 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           }).join('')}
         </div>`;
     }).join('');
+  }
+
+  // Keeps Manager Review's Underbilled Jobs tab in sync with this live
+  // check every time it runs: adds a new entry for a newly-detected
+  // problem, refreshes the detail on an existing unreviewed one (in case
+  // the numbers changed), and quietly drops an unreviewed entry whose
+  // underlying job is no longer a problem (billing got corrected) --
+  // nothing left there for a manager to act on. Already-reviewed history
+  // is never touched by this sync.
+  async function syncMaterialsUnderbilledToManagerReview(problems){
+    try{
+      let reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
+      const byJob = {};
+      problems.forEach(p => { (byJob[p.jobNumber] = byJob[p.jobNumber] || []).push(p); });
+      const currentJobNumbers = new Set(Object.keys(byJob));
+
+      const beforeCount = reviewItems.length;
+      reviewItems = reviewItems.filter(item => {
+        if(item.source !== 'materials' || item.type !== 'underbilled') return true;
+        if(item.reviewedAt) return true;
+        return currentJobNumbers.has(item.jobNumber);
+      });
+      let changed = reviewItems.length !== beforeCount;
+
+      Object.keys(byJob).forEach(jobNumber => {
+        const existing = reviewItems.find(item => item.source === 'materials' && item.type === 'underbilled' && item.jobNumber === jobNumber && !item.reviewedAt);
+        const itemsDetail = byJob[jobNumber].map(p => {
+          const item = materialsItems.find(mi => mi.id === p.itemId);
+          return {
+            description: item ? item.description : '(item no longer on file)',
+            quoted: p.quoted, checkedOut: p.checkedOut, returned: p.returned,
+            netUsed: p.netUsed, billed: p.billed, hasBillingRecord: p.hasBillingRecord
+          };
+        });
+        if(existing){
+          if(JSON.stringify(existing.items) !== JSON.stringify(itemsDetail)){
+            existing.items = itemsDetail;
+            changed = true;
+          }
+        } else {
+          reviewItems.push({
+            id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + jobNumber,
+            type: 'underbilled', source: 'materials',
+            createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null,
+            jobNumber, items: itemsDetail
+          });
+          changed = true;
+        }
+      });
+
+      if(changed) await window.dashboardApi.set('manager-review-items', reviewItems);
+    }catch(err){ console.error('Materials underbilled sync to Manager Review failed:', err); }
   }
 
   async function loadMaterialsData(){
@@ -16858,6 +17034,246 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }).join('') + '</tbody></table>';
   }
 
+  // ---------- Manager Review ----------
+  const MANAGER_REVIEW_ITEMS_KEY = 'manager-review-items';
+  const MANAGER_REVIEW_RETENTION_DAYS = 182; // ~6 months
+  let managerReviewItems = [];
+  let mgrReviewCurrentTab = 'ccard';
+  let mgrReviewSquareTransactions = null;
+
+  function mgrReviewEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  // Drops anything -- reviewed or not -- older than 6 months. Returns the
+  // surviving list and whether anything was actually removed, so the
+  // caller knows whether a save is needed.
+  function pruneOldManagerReviewItems(items){
+    const cutoff = new Date(Date.now() - MANAGER_REVIEW_RETENTION_DAYS*24*60*60*1000).toISOString();
+    const before = items.length;
+    const kept = items.filter(item => (item.createdAt || '') >= cutoff);
+    return { kept, changed: kept.length !== before };
+  }
+
+  async function loadManagerReviewData(){
+    try{
+      let items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
+      const { kept, changed } = pruneOldManagerReviewItems(items);
+      managerReviewItems = kept;
+      if(changed) await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
+      renderMgrReviewTabCounts();
+      renderMgrReviewUnderbilled();
+      renderMgrReviewTruckConditions();
+      updateManagerReviewTileBadge();
+      if(mgrReviewCurrentTab === 'ccard') loadMgrReviewSquareTransactions();
+    }catch(err){
+      console.error('Manager Review load failed:', err);
+    }
+  }
+  window.loadManagerReviewData = loadManagerReviewData;
+
+  function updateManagerReviewTileBadge(){
+    const openCount = managerReviewItems.filter(i => !i.reviewedAt).length
+      + (window.getTipsNeedsAttentionCount ? window.getTipsNeedsAttentionCount() : 0);
+    const badge = document.getElementById('managerReviewTileBadge');
+    const tile = document.getElementById('tile-managerreview');
+    if(openCount > 0){
+      badge.textContent = openCount === 1 ? '1 Needs Review' : `${openCount} Need Review`;
+      badge.style.display = 'inline-block';
+      tile.classList.add('attention');
+    } else {
+      badge.style.display = 'none';
+      tile.classList.remove('attention');
+    }
+  }
+
+  function renderMgrReviewTabCounts(){
+    const underbilledCount = managerReviewItems.filter(i => i.type === 'underbilled' && !i.reviewedAt).length;
+    const truckCount = managerReviewItems.filter(i => i.type === 'truck-condition' && !i.reviewedAt).length;
+    document.getElementById('mgrreview_underbilledTabCount').textContent = underbilledCount > 0 ? `(${underbilledCount})` : '';
+    document.getElementById('mgrreview_truckConditionsTabCount').textContent = truckCount > 0 ? `(${truckCount})` : '';
+  }
+
+  function mgrReviewSwitchTab(tab){
+    mgrReviewCurrentTab = tab;
+    ['ccard','underbilled','truckconditions'].forEach(t => {
+      const btn = document.getElementById(`mgrreview_tab_${t}`);
+      const panel = document.getElementById(`mgrreview_panel_${t}`);
+      const active = t === tab;
+      panel.style.display = active ? 'block' : 'none';
+      btn.style.borderBottomColor = active ? 'var(--brand-orange)' : 'transparent';
+      btn.style.color = active ? 'var(--charcoal)' : 'var(--muted)';
+      btn.style.fontWeight = active ? '700' : '600';
+    });
+    if(tab === 'ccard' && mgrReviewSquareTransactions === null) loadMgrReviewSquareTransactions();
+  }
+  document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
+
+  // ---- Credit Card Transactions ----
+  async function loadMgrReviewSquareTransactions(){
+    const statusEl = document.getElementById('mgrreview_ccardStatus');
+    statusEl.textContent = 'Loading transactions...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/square-transactions?days=60`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not load transactions.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      mgrReviewSquareTransactions = data.transactions || [];
+      renderMgrReviewCcard();
+      statusEl.textContent = '';
+      statusEl.className = 'status-msg';
+    }catch(err){
+      console.error('Square transactions load failed:', err);
+      statusEl.textContent = 'Could not reach Square \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+  window.loadMgrReviewSquareTransactions = loadMgrReviewSquareTransactions;
+
+  function renderMgrReviewCcard(){
+    const rowsEl = document.getElementById('mgrreview_ccardRows');
+    const emptyNote = document.getElementById('mgrreview_ccardEmptyNote');
+    const transactions = mgrReviewSquareTransactions || [];
+    if(transactions.length === 0){
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    rowsEl.innerHTML = transactions.map(t => `
+      <tr>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${window.fmtDate(t.date)}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(t.jobNumber || '\u2014')}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.totalAmount !== null ? '$' + t.totalAmount.toFixed(2) : '\u2014'}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.tipAmount > 0 ? '$' + t.tipAmount.toFixed(2) : ''}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(t.cardBrand || '')}${t.last4 ? ' \u2022\u2022\u2022\u2022' + mgrReviewEsc(t.last4) : ''}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line); color:var(--muted); font-size:11.5px;">${mgrReviewEsc(t.note || '')}</td>
+      </tr>`).join('');
+  }
+
+  // ---- Shared close-out action ----
+  async function mgrReviewCloseOut(id){
+    const item = managerReviewItems.find(i => i.id === id);
+    if(!item) return;
+    item.reviewedAt = new Date().toISOString();
+    item.reviewedBy = localStorage.getItem('henson_auth_email') || '';
+    const ok = await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
+    if(ok){
+      renderMgrReviewTabCounts();
+      renderMgrReviewUnderbilled();
+      renderMgrReviewTruckConditions();
+      updateManagerReviewTileBadge();
+    }
+  }
+
+  // ---- Underbilled Jobs ----
+  function mgrReviewUnderbilledCardHtml(item, showCloseOut){
+    const sourceLabel = item.source === 'junk-removal' ? 'Junk Removal' : 'Materials';
+    let detailHtml;
+    if(item.source === 'junk-removal'){
+      detailHtml = `<div style="font-size:12.5px;">Expected at least $${(item.expectedAmount||0).toFixed(2)}, billed $${(item.billedAmount||0).toFixed(2)} \u2014 short by $${(item.shortfall||0).toFixed(2)}.</div>`;
+    } else {
+      detailHtml = (item.items || []).map(d => {
+        const returnedNote = d.returned > 0 ? `, returned ${d.returned}, net used ${d.netUsed}` : '';
+        return `<div style="font-size:12.5px;">${mgrReviewEsc(d.description)}: pulled ${d.checkedOut}${returnedNote}, billed ${d.billed}${!d.hasBillingRecord ? ' (materials not yet entered)' : ''}</div>`;
+      }).join('');
+    }
+    return `
+      <div style="border:1px solid var(--line); background:var(--offwhite); border-radius:8px; padding:12px 14px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;">
+          <div style="font-weight:700;">Job # ${mgrReviewEsc(item.jobNumber)} ${item.clientName ? '\u2014 ' + mgrReviewEsc(item.clientName) : ''}</div>
+          <span style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">${sourceLabel}</span>
+        </div>
+        ${detailHtml}
+        ${showCloseOut ? `<button type="button" class="mgrreview-closeout-btn btn-primary" data-id="${item.id}" style="margin-top:8px; padding:6px 14px; font-size:12.5px;">Close Out</button>` : `<div class="form-note" style="margin-top:6px;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</div>`}
+      </div>`;
+  }
+
+  function renderMgrReviewUnderbilled(){
+    const openRowsEl = document.getElementById('mgrreview_underbilledOpenRows');
+    const emptyNote = document.getElementById('mgrreview_underbilledEmptyNote');
+    const reviewedCountEl = document.getElementById('mgrreview_underbilledReviewedCount');
+    const reviewedRowsEl = document.getElementById('mgrreview_underbilledReviewedRows');
+
+    const all = managerReviewItems.filter(i => i.type === 'underbilled');
+    const open = all.filter(i => !i.reviewedAt).sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+    const reviewed = all.filter(i => i.reviewedAt).sort((a,b) => (b.reviewedAt||'').localeCompare(a.reviewedAt||''));
+
+    if(open.length === 0){
+      openRowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+    } else {
+      emptyNote.style.display = 'none';
+      openRowsEl.innerHTML = open.map(i => mgrReviewUnderbilledCardHtml(i, true)).join('');
+    }
+    reviewedCountEl.textContent = `(${reviewed.length})`;
+    reviewedRowsEl.innerHTML = reviewed.map(i => mgrReviewUnderbilledCardHtml(i, false)).join('');
+
+    document.querySelectorAll('#mgrreview_panel_underbilled .mgrreview-closeout-btn').forEach(btn => btn.addEventListener('click', (e)=> mgrReviewCloseOut(e.currentTarget.dataset.id)));
+  }
+
+  document.getElementById('mgrreview_underbilledReviewedToggle').addEventListener('click', ()=>{
+    const body = document.getElementById('mgrreview_underbilledReviewedRows');
+    const chevron = document.getElementById('mgrreview_underbilledReviewedChevron');
+    const expanded = body.style.display !== 'none';
+    body.style.display = expanded ? 'none' : 'block';
+    chevron.style.transform = expanded ? '' : 'rotate(90deg)';
+  });
+
+  // ---- Truck Conditions ----
+  function mgrReviewTruckCardHtml(item, showCloseOut){
+    return `
+      <div style="border:1px solid #E8A69C; background:#FDEDEA; border-radius:8px; padding:12px 14px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+          <strong>${mgrReviewEsc(item.driverName)} \u2014 ${mgrReviewEsc(item.truckNickname || 'Truck')}</strong>
+          <span class="form-note" style="margin:0;">${window.fmtDate(item.date)}</span>
+        </div>
+        ${item.visionSummary ? `<div style="font-size:12.5px; color:var(--muted); margin-bottom:6px;">${mgrReviewEsc(item.visionSummary)}</div>` : ''}
+        <ul style="margin:0; padding-left:18px; font-size:12.5px;">
+          ${(item.visionIssues||[]).map(issue => `<li>${mgrReviewEsc(issue.issue)}${issue.severity === 'moderate' ? ' <span style="color:#B3261E; font-weight:600;">(moderate)</span>' : ''}</li>`).join('')}
+        </ul>
+        ${showCloseOut ? `<button type="button" class="mgrreview-closeout-btn btn-primary" data-id="${item.id}" style="margin-top:8px; padding:6px 14px; font-size:12.5px;">Close Out</button>` : `<div class="form-note" style="margin-top:6px;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</div>`}
+      </div>`;
+  }
+
+  function renderMgrReviewTruckConditions(){
+    const openRowsEl = document.getElementById('mgrreview_truckOpenRows');
+    const emptyNote = document.getElementById('mgrreview_truckEmptyNote');
+    const reviewedCountEl = document.getElementById('mgrreview_truckReviewedCount');
+    const reviewedRowsEl = document.getElementById('mgrreview_truckReviewedRows');
+
+    const all = managerReviewItems.filter(i => i.type === 'truck-condition');
+    const open = all.filter(i => !i.reviewedAt).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    const reviewed = all.filter(i => i.reviewedAt).sort((a,b) => (b.reviewedAt||'').localeCompare(a.reviewedAt||''));
+
+    if(open.length === 0){
+      openRowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+    } else {
+      emptyNote.style.display = 'none';
+      openRowsEl.innerHTML = open.map(i => mgrReviewTruckCardHtml(i, true)).join('');
+    }
+    reviewedCountEl.textContent = `(${reviewed.length})`;
+    reviewedRowsEl.innerHTML = reviewed.map(i => mgrReviewTruckCardHtml(i, false)).join('');
+
+    document.querySelectorAll('#mgrreview_panel_truckconditions .mgrreview-closeout-btn').forEach(btn => btn.addEventListener('click', (e)=> mgrReviewCloseOut(e.currentTarget.dataset.id)));
+  }
+
+  document.getElementById('mgrreview_truckReviewedToggle').addEventListener('click', ()=>{
+    const body = document.getElementById('mgrreview_truckReviewedRows');
+    const chevron = document.getElementById('mgrreview_truckReviewedChevron');
+    const expanded = body.style.display !== 'none';
+    body.style.display = expanded ? 'none' : 'block';
+    chevron.style.transform = expanded ? '' : 'rotate(90deg)';
+  });
+
   // ---------- Completed Paperwork: Batch Upload ----------
   // Same shape as the Job Paperwork batch flow (paste/drop zone, thumbnails,
   // extract, review, save) but simpler: each document is one job (no
@@ -17264,6 +17680,297 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       : `Saved ${successCount} record(s). ${failures.length} failed: ${failures.join('; ')}`;
     statusEl.className = failures.length === 0 ? 'status-msg ok' : 'status-msg err';
     document.getElementById('puBatch_saveBtn').disabled = false;
+  });
+
+  // ---------- Junk Removal Closeout ----------
+  // Simpler cousin of the batch flow above: no client email, no materials
+  // billing -- just an invoice total checked against the price point set by
+  // that job's final photo (the low end of its confirmed tier's range).
+  let jrCloseoutFiles = [];
+  let jrCloseoutReview = [];
+  let jrCloseoutJobsCache = null;
+
+  function jrCloseoutRenderThumbnails(){
+    const wrap = document.getElementById('jrCloseout_thumbnails');
+    wrap.innerHTML = jrCloseoutFiles.map(f => `
+      <div style="position:relative; width:80px; height:80px;">
+        <img src="${f.allPageDataUris[0]}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        ${f.allPageDataUris.length > 1 ? `<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">${f.allPageDataUris.length} pages</span>` : (f.isPdf ? '<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">PDF</span>' : '')}
+        <button type="button" class="jrCloseout-remove-file" data-id="${f.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
+      </div>`).join('');
+    wrap.querySelectorAll('.jrCloseout-remove-file').forEach(btn => btn.addEventListener('click', (e)=>{
+      jrCloseoutFiles = jrCloseoutFiles.filter(f => f.id !== e.target.dataset.id);
+      jrCloseoutRenderThumbnails();
+    }));
+  }
+
+  async function addJrCloseoutFile(file){
+    const statusEl = document.getElementById('jrCloseout_extractStatus');
+    if(file.size > 30*1024*1024){
+      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    try{
+      let allPageDataUris, isPdf = false;
+      if(file.type === 'application/pdf'){
+        allPageDataUris = await window.getImagesForAssessment(file);
+        if(allPageDataUris.length === 0) throw new Error('Could not read that PDF.');
+        isPdf = true;
+      } else if(file.type.startsWith('image/')){
+        allPageDataUris = [await window.compressImageForUpload(file, 2000, 0.92)];
+      } else {
+        throw new Error('Unsupported file type.');
+      }
+      if(allPageDataUris.length > 24){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      jrCloseoutFiles.push({ id: 'jrcloseout_' + Date.now() + '_' + Math.floor(Math.random()*1000), allPageDataUris, isPdf, originalFile: file });
+      jrCloseoutRenderThumbnails();
+    }catch(err){
+      console.error('Junk removal invoice file processing failed:', err);
+      statusEl.textContent = 'Could not process that file \u2014 try a different document.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+
+  const jrCloseoutPasteZone = document.getElementById('jrCloseout_pasteZone');
+  jrCloseoutPasteZone.addEventListener('click', ()=> jrCloseoutPasteZone.focus());
+  jrCloseoutPasteZone.addEventListener('focus', ()=>{ jrCloseoutPasteZone.style.borderColor = 'var(--brand-orange)'; jrCloseoutPasteZone.style.background = '#fff'; });
+  jrCloseoutPasteZone.addEventListener('blur', ()=>{ jrCloseoutPasteZone.style.borderColor = 'var(--line)'; jrCloseoutPasteZone.style.background = '#fafafa'; });
+  jrCloseoutPasteZone.addEventListener('paste', async (e)=>{
+    e.preventDefault();
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && (item.type.startsWith('image/') || item.type === 'application/pdf'));
+    if(items.length === 0){
+      const statusEl = document.getElementById('jrCloseout_extractStatus');
+      statusEl.textContent = 'That paste didn\u2019t contain an image or PDF.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const item of items){
+      const blob = item.getAsFile();
+      if(blob) await addJrCloseoutFile(blob);
+    }
+  });
+  jrCloseoutPasteZone.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    jrCloseoutPasteZone.style.borderColor = 'var(--brand-orange)';
+    jrCloseoutPasteZone.style.background = '#fff';
+  });
+  jrCloseoutPasteZone.addEventListener('dragleave', ()=>{
+    jrCloseoutPasteZone.style.borderColor = 'var(--line)';
+    jrCloseoutPasteZone.style.background = '#fafafa';
+  });
+  jrCloseoutPasteZone.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    jrCloseoutPasteZone.style.borderColor = 'var(--line)';
+    jrCloseoutPasteZone.style.background = '#fafafa';
+    for(const file of Array.from(e.dataTransfer ? e.dataTransfer.files : [])) await addJrCloseoutFile(file);
+  });
+  document.getElementById('jrCloseout_chooseFilesBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('jrCloseout_files').click();
+  });
+  document.getElementById('jrCloseout_files').addEventListener('change', async (e)=>{
+    for(const file of Array.from(e.target.files)) await addJrCloseoutFile(file);
+    e.target.value = '';
+  });
+
+  // The price point checked against: the low end of the confirmed final
+  // tier's range, not the tier's base price -- billing anywhere within the
+  // expected range (even at its low end) is not underbilling, only billing
+  // that falls short of the whole range is.
+  function jrCloseoutPriceLow(job){
+    if(!job || !job.finalConfirmedTier) return null;
+    const pricing = (window.appSettings && window.appSettings.junkRemoval && window.appSettings.junkRemoval.pricing) || [];
+    const entry = pricing.find(p => p.tier === job.finalConfirmedTier);
+    if(!entry) return null;
+    return entry.price - 40;
+  }
+
+  function renderJrCloseoutReview(){
+    const wrap = document.getElementById('jrCloseout_reviewWrap');
+    const container = document.getElementById('jrCloseout_reviewRows');
+    if(jrCloseoutReview.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    container.innerHTML = jrCloseoutReview.map((r, i) => {
+      const priceLow = jrCloseoutPriceLow(r.matchedJob);
+      const willFlagUnderbilled = priceLow !== null && Number(r.invoiceTotal) > 0 && Number(r.invoiceTotal) < priceLow;
+      return `
+      <div style="display:flex; gap:12px; align-items:flex-start; border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px;">
+        ${r.thumbnail ? `<img class="jrCloseout-thumb" data-index="${i}" src="${r.thumbnail}" style="width:56px; height:56px; object-fit:cover; border-radius:6px; cursor:pointer; flex-shrink:0;">` : ''}
+        <div style="flex:1; min-width:0;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:6px;">
+            <label style="font-size:11px; color:var(--muted);">Job Number
+              <input type="text" class="jrCloseout-jobnumber" data-index="${i}" value="${pwBatchEsc(r.jobNumber)}" style="display:block; width:100%; margin-top:2px; padding:6px 8px; border:1px solid var(--line); border-radius:4px; font-size:13px;">
+            </label>
+            <label style="font-size:11px; color:var(--muted);">Invoice Total
+              <input type="number" step="0.01" min="0" class="jrCloseout-total" data-index="${i}" value="${r.invoiceTotal || ''}" style="display:block; width:100%; margin-top:2px; padding:6px 8px; border:1px solid var(--line); border-radius:4px; font-size:13px;">
+            </label>
+          </div>
+          ${!r.matchedJob ? '<div style="font-size:12px; color:#B3261E;">No matching Junk Removal job found for this job number.</div>' : `
+            <div style="font-size:12px; color:var(--muted);">${pwBatchEsc(r.matchedJob.clientName)} \u2014 Captain: ${pwBatchEsc(r.matchedJob.captainName || '(none)')} \u2014 Price point: ${priceLow !== null ? '$' + priceLow.toFixed(2) : 'not yet set (no confirmed final tier)'}</div>
+          `}
+          ${willFlagUnderbilled ? `<div style="font-size:12px; font-weight:600; color:#B3261E; margin-top:4px;">\u26a0 Will be flagged as underbilled \u2014 invoice is below the $${priceLow.toFixed(2)} price point.</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    container.querySelectorAll('.jrCloseout-thumb').forEach(img => img.addEventListener('click', (e)=>{
+      const r = jrCloseoutReview[parseInt(e.currentTarget.dataset.index, 10)];
+      if(r && r.thumbnail) window.open(pwBatchDataUriToBlobUrl(r.thumbnail), '_blank');
+    }));
+    container.querySelectorAll('.jrCloseout-jobnumber').forEach(inp => inp.addEventListener('input', (e)=>{
+      const idx = parseInt(e.target.dataset.index, 10);
+      jrCloseoutReview[idx].jobNumber = e.target.value.trim();
+      jrCloseoutReview[idx].matchedJob = (jrCloseoutJobsCache || []).find(j => j.jobNumber === jrCloseoutReview[idx].jobNumber) || null;
+      renderJrCloseoutReview();
+    }));
+    container.querySelectorAll('.jrCloseout-total').forEach(inp => inp.addEventListener('input', (e)=>{
+      const idx = parseInt(e.target.dataset.index, 10);
+      jrCloseoutReview[idx].invoiceTotal = e.target.value;
+      renderJrCloseoutReview();
+    }));
+  }
+
+  document.getElementById('jrCloseout_extractBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('jrCloseout_extractStatus');
+    if(jrCloseoutFiles.length === 0){
+      statusEl.textContent = 'Add at least one file first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(jrCloseoutFiles.length > 20){
+      statusEl.textContent = 'Please upload 20 documents or fewer at a time.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = `Reading ${jrCloseoutFiles.length} document(s) and matching to jobs...`;
+    statusEl.className = 'status-msg';
+    document.getElementById('jrCloseout_extractBtn').disabled = true;
+    try{
+      const files = jrCloseoutFiles.map(f => ({ images: f.allPageDataUris }));
+      const res = await fetch(`${API_BASE}/api/admin/extract-job-numbers`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ files })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Extraction failed.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      const documents = data.documents || [];
+      jrCloseoutJobsCache = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []) || [];
+
+      jrCloseoutReview = documents.map(d => {
+        const jobNumber = (d.jobNumber || '').trim();
+        const file = jrCloseoutFiles[d.fileIndex];
+        const matchedJob = jobNumber ? jrCloseoutJobsCache.find(j => j.jobNumber === jobNumber) || null : null;
+        return {
+          jobNumber,
+          invoiceTotal: d.invoiceTotal || '',
+          matchedJob,
+          thumbnail: file ? file.allPageDataUris[0] : null,
+          originalFile: file ? file.originalFile : null
+        };
+      });
+      jrCloseoutFiles = [];
+      jrCloseoutRenderThumbnails();
+      renderJrCloseoutReview();
+      statusEl.textContent = `Matched ${jrCloseoutReview.filter(r=>r.matchedJob).length} of ${jrCloseoutReview.length} document(s) to a Junk Removal job.`;
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Junk removal invoice extraction failed:', err);
+      statusEl.textContent = 'Could not reach the extraction service \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      document.getElementById('jrCloseout_extractBtn').disabled = false;
+    }
+  });
+
+  document.getElementById('jrCloseout_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('jrCloseout_saveStatus');
+    if(jrCloseoutReview.some(r => !r.jobNumber)){
+      statusEl.textContent = 'Every row needs a job number before saving.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    document.getElementById('jrCloseout_saveBtn').disabled = true;
+    try{
+      let jobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []) || [];
+      let reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
+      let savedCount = 0, flaggedCount = 0;
+
+      for(const r of jrCloseoutReview){
+        const job = jobs.find(j => j.jobNumber === r.jobNumber);
+        if(!job) continue; // unmatched rows are skipped -- nowhere to attach the invoice
+        const invoiceTotal = Number(r.invoiceTotal) || 0;
+
+        let invoiceFileKey = job.invoiceFileKey || null;
+        if(r.originalFile){
+          invoiceFileKey = `junk-removal-invoice-${job.id}`;
+          const compressed = r.originalFile.type.startsWith('image/')
+            ? await window.compressImageForUpload(r.originalFile, 2000, 0.92)
+            : await puReadFileAsDataUri(r.originalFile);
+          await window.dashboardApi.set(invoiceFileKey, compressed);
+        }
+
+        job.invoiceTotal = invoiceTotal;
+        job.invoiceUploadedAt = new Date().toISOString();
+        job.invoiceFileKey = invoiceFileKey;
+
+        const priceLow = jrCloseoutPriceLow(job);
+        const isUnderbilled = priceLow !== null && invoiceTotal > 0 && invoiceTotal < priceLow;
+        job.underbilled = isUnderbilled;
+        savedCount++;
+
+        if(isUnderbilled){
+          reviewItems.push({
+            id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+            type: 'underbilled',
+            source: 'junk-removal',
+            createdAt: new Date().toISOString(),
+            reviewedAt: null,
+            reviewedBy: null,
+            jobNumber: job.jobNumber,
+            clientName: job.clientName,
+            captainName: job.captainName,
+            expectedAmount: priceLow,
+            billedAmount: invoiceTotal,
+            shortfall: priceLow - invoiceTotal
+          });
+          flaggedCount++;
+        }
+      }
+
+      const ok1 = await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, jobs);
+      const ok2 = await window.dashboardApi.set('manager-review-items', reviewItems);
+      if(ok1 && ok2){
+        statusEl.textContent = `Saved ${savedCount} invoice(s).${flaggedCount > 0 ? ` ${flaggedCount} flagged as underbilled for Manager Review.` : ''}`;
+        statusEl.className = 'status-msg ok';
+        jrCloseoutReview = [];
+        renderJrCloseoutReview();
+      } else {
+        statusEl.textContent = 'Could not save \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+      }
+    }catch(err){
+      console.error('Junk removal closeout save failed:', err);
+      statusEl.textContent = 'Could not save \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      document.getElementById('jrCloseout_saveBtn').disabled = false;
+    }
   });
 
   async function assessPaperworkCompleteness(uploadRecord, file){
