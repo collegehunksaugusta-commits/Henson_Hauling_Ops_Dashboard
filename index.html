@@ -3085,7 +3085,7 @@
 
       <div class="panel" id="pwBatchPanel">
         <h3>Batch Upload &mdash; Work Orders</h3>
-        <p class="form-note">Drop in a day's worth of work orders (images or PDFs) and Claude will read each one, estimate whether it crosses 50 miles (switching to Long Distance Move if so), and build a ready-to-print paperwork packet for every job. Captain isn't on the work order, so that's always a manual pick per job. Review everything before generating.</p>
+        <p class="form-note">Drop in a day's worth of work orders (images or PDFs) and Claude will read each one, estimate whether it crosses 50 miles (switching to Long Distance Move if so), and build a ready-to-print paperwork packet for every booked job. Captain isn't on the work order, so that's always a manual pick per job. Review everything before generating. Estimates (not yet booked) never get paperwork, but any estimate over 50 miles is automatically pre-filled as a draft on the Long Distance Estimates tile, ready for a quote.</p>
         <div id="pwBatch_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
           <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop work orders here, or click to paste (Ctrl+V or Cmd+V)</p>
           <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="pwBatch_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
@@ -13329,9 +13329,98 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const clients = await getClientsAsync();
     const current = sel.value;
     sel.innerHTML = '<option value="">-- Select --</option>' +
-      clients.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
+      clients.map(c => `<option value="${c.id}">${c.draft ? '\u26a0 Needs weight \u2014 ' : ''}${c.label}</option>`).join('');
     if(clients.some(c => String(c.id) === current)) sel.value = current;
   }
+
+  // Pre-fills a Saved Client entry from a confirmed long-distance work
+  // order in the Job Paperwork morning batch -- everything a work order
+  // actually states (client contact info, addresses, estimated mileage,
+  // the move date) gets carried over automatically, so the only fields
+  // left for the ops manager are the ones no work order states at all:
+  // weight and the actual rate/charge calculations. Marked as a draft so
+  // it's excluded from the BOL auto-include lookup until someone opens it,
+  // fills those in, and saves a completed version through the normal flow.
+  function ldMilesFromDistanceInfo(distanceInfo){
+    if(!distanceInfo || typeof distanceInfo.estimatedDrivingMiles !== 'number') return '';
+    return String(Math.round(distanceInfo.estimatedDrivingMiles));
+  }
+  function ldDateToMMDDYYYY(isoDate){
+    if(!isoDate) return '';
+    const parts = isoDate.split('-'); // work order dates come through as YYYY-MM-DD
+    if(parts.length !== 3) return '';
+    const [y, m, d] = parts;
+    return `${m}/${d}/${y}`;
+  }
+  function ldDayType(isoDate){
+    if(!isoDate) return 'weekday';
+    const parsed = new Date(isoDate + 'T12:00:00'); // noon avoids timezone rollover onto the wrong day
+    if(isNaN(parsed.getTime())) return 'weekday';
+    const day = parsed.getDay(); // 0 = Sunday, 6 = Saturday
+    return (day === 0 || day === 6) ? 'weekend' : 'weekday';
+  }
+  async function autoSaveLongDistanceDraft(r){
+    try{
+      const clients = await getClientsAsync();
+      // Skip if this exact job already has a saved entry (draft or
+      // completed), so re-generating paperwork for the same job doesn't
+      // clutter the list with duplicate drafts.
+      if(r.jobNumber && clients.some(c => c.jobNumber === r.jobNumber)) return;
+      const dateForLabel = ldDateToMMDDYYYY(r.jobDate) || new Date().toLocaleDateString();
+      const baseLabel = `${r.clientName || 'Client'} \u2014 ${dateForLabel}`;
+      // Two Estimates can share a client and a date (e.g. a revised quote)
+      // without sharing a job number, so the dedupe check above doesn't
+      // catch this -- both are legitimately kept, but need distinct labels
+      // or they're indistinguishable in the dropdown. City parsed from the
+      // destination address is the most useful disambiguator; a numbered
+      // suffix is the fallback if that's not available or still collides.
+      let label = baseLabel;
+      if(clients.some(c => c.label === label)){
+        const destParts = (r.destAddress || '').split(',').map(s => s.trim()).filter(Boolean);
+        const city = destParts.length >= 2 ? destParts[destParts.length - 2] : '';
+        if(city && !clients.some(c => c.label === `${baseLabel} (${city})`)){
+          label = `${baseLabel} (${city})`;
+        } else {
+          let n = 2;
+          while(clients.some(c => c.label === `${baseLabel} (${n})`)) n++;
+          label = `${baseLabel} (${n})`;
+        }
+      }
+      const entry = {
+        id: Date.now(),
+        label,
+        savedAt: new Date().toISOString(),
+        jobNumber: r.jobNumber || '',
+        draft: true,
+        data: {
+          shipperName: r.clientName || '',
+          shipperPhone: r.clientPhone || '',
+          shipperEmail: r.clientEmail || '',
+          originAddress: r.originAddress || '',
+          destAddress: r.destAddress || '',
+          miles: ldMilesFromDistanceInfo(r.distanceInfo),
+          issueDate: dateForLabel,
+          dayType: ldDayType(r.jobDate),
+          bolNo: r.jobNumber || ''
+        }
+      };
+      clients.push(entry);
+      await setClientsAsync(clients);
+      await refreshClientSelect();
+    }catch(err){
+      // Never let a draft-save failure interrupt paperwork generation --
+      // the packet itself is the primary output of this action.
+      console.error('Auto-saving Long Distance Estimate draft failed:', err);
+    }
+  }
+  window.autoSaveLongDistanceDraft = autoSaveLongDistanceDraft;
+  window.refreshLdClientSelect = refreshClientSelect;
+  window.ldDateToMMDDYYYY = ldDateToMMDDYYYY;
+  window.ldDayType = ldDayType;
+  window.ldMilesFromDistanceInfo = ldMilesFromDistanceInfo;
+  window.findMatchingSavedClient = findMatchingSavedClient;
+  window.getLdClientsAsync = getClientsAsync;
+  window.setLdClientsAsync = setClientsAsync;
 
   document.getElementById('saveClientBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('clientStatus');
@@ -13433,7 +13522,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const target = (clientName || '').trim().toLowerCase();
     if(!target) return null;
     const clients = await getClientsAsync();
-    const matches = clients.filter(c => ((c.data && c.data.shipperName) || '').trim().toLowerCase() === target);
+    // Drafts (auto-created from a work order, before weight/charges are
+    // filled in) are deliberately excluded here -- only a complete,
+    // manager-saved estimate should ever get pulled into a printed BOL.
+    const matches = clients.filter(c => !c.draft && ((c.data && c.data.shipperName) || '').trim().toLowerCase() === target);
     if(matches.length === 0) return null;
     return matches.reduce((a, b) => (a.id > b.id ? a : b)); // most recently saved
   }
@@ -13747,12 +13839,58 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const junkDocs = allDocuments.filter(d => d.serviceType === 'junkremoval');
       const estimateDocs = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType === 'estimate');
       const documents = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType !== 'estimate');
-      pwBatchExcluded = estimateDocs.map(d => ({
-        jobNumber: d.jobNumber || '(no job # read)',
-        clientName: d.clientName || '(no client name read)',
-        thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
-        reason: 'Estimate'
-      }));
+
+      // An Estimate never gets a job number or paperwork -- it's not booked
+      // yet -- so without this, a potential long-distance move's mileage
+      // and client details would go entirely unrecorded once this batch
+      // screen is cleared. Anything over 50 miles gets auto-registered as
+      // a draft on the Long Distance Estimates tile instead, ready for a
+      // quote to be worked up immediately.
+      const estimateDistancePromises = estimateDocs.map(async d => {
+        if(!d.originAddress || !d.destAddress) return null;
+        try{
+          const distRes = await fetch(`${API_BASE}/api/estimate-move-distance`, {
+            method: 'POST',
+            headers: authHeaders({'Content-Type': 'application/json'}),
+            body: JSON.stringify({ originAddress: d.originAddress, destAddress: d.destAddress })
+          });
+          if(!distRes.ok) return null;
+          return await distRes.json();
+        }catch(err){ return null; }
+      });
+      const estimateDistances = await Promise.all(estimateDistancePromises);
+      // Sequential, not Promise.all/map -- autoSaveLongDistanceDraft does a
+      // read-modify-write against one shared list. Running multiple of
+      // these concurrently risks one save silently clobbering another's
+      // (a real prospect's estimate vanishing with no error, no trace).
+      // Awaiting each one fully before starting the next removes that risk
+      // entirely, regardless of network timing.
+      pwBatchExcluded = [];
+      for(let i = 0; i < estimateDocs.length; i++){
+        const d = estimateDocs[i];
+        const dist = estimateDistances[i];
+        const isLongDistance = !!(dist && dist.ok && dist.estimatedDrivingMiles > 50);
+        let reason = 'Estimate';
+        if(isLongDistance){
+          await autoSaveLongDistanceDraft({
+            jobNumber: d.jobNumber || '',
+            clientName: d.clientName || '',
+            clientPhone: d.clientPhone || '',
+            clientEmail: d.clientEmail || '',
+            originAddress: d.originAddress || '',
+            destAddress: d.destAddress || '',
+            jobDate: d.jobDate || '',
+            distanceInfo: dist
+          });
+          reason = `Estimate \u2014 ~${dist.estimatedDrivingMiles} mi, pre-filled on the Long Distance Estimates tile`;
+        }
+        pwBatchExcluded.push({
+          jobNumber: d.jobNumber || '(no job # read)',
+          clientName: d.clientName || '(no client name read)',
+          thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
+          reason
+        });
+      }
       const junkRemovalRecords = await createJunkRemovalJobsFromExcluded(junkDocs);
       // Attach a thumbnail to each returned record by matching back to this
       // batch's source doc, purely for display in the assignment cards below.
