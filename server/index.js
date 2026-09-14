@@ -2314,7 +2314,7 @@ const EXTRACT_WORK_ORDER_TOOL = {
           properties: {
             firstPageIndex: { type: 'number', description: 'The 0-based index, among the pages provided in this call, of this work order\u2019s first page.' },
             lastPageIndex: { type: 'number', description: 'The 0-based index, among the pages provided in this call, of this work order\u2019s LAST page (inclusive). Equal to firstPageIndex if it\u2019s a single page. This defines the exact page range that belongs to this specific work order -- do not include pages that belong to a different work order or are blank/unrelated.' },
-            jobNumber: { type: 'string', description: 'The Job ID / Job Number as printed on the work order. Empty string if not found.' },
+            jobNumber: { type: 'string', description: 'The Job ID / Job Number as printed on the work order -- look for it regardless of whether the document\u2019s Type field says JOB or ESTIMATE. Estimates carry this field too, even though the move itself isn\u2019t booked yet. Empty string only if genuinely not printed anywhere on the document.' },
             clientName: { type: 'string', description: 'The client\u2019s full name. Empty string if not found.' },
             clientPhone: { type: 'string', description: 'The client\u2019s phone number as printed. Empty string if not found.' },
             clientEmail: { type: 'string', description: 'The client\u2019s email address. Empty string if not found.' },
