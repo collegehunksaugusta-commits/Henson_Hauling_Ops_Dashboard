@@ -3317,7 +3317,7 @@ app.get('/api/motive-locations', requireAuth, async (req, res) => {
       const params = new URLSearchParams({ per_page: String(perPage), page_no: String(pageNo) });
       const mvRes = await fetch(`https://api.gomotive.com/v3/vehicle_locations?${params.toString()}`, {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          'X-Api-Key': apiKey, // Motive's own docs: simple API keys go in this header, NOT Authorization: Bearer
           'X-Metric-Units': 'false', // request speed in mph, not kph
           'Content-Type': 'application/json'
         }
