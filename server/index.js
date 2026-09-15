@@ -3495,6 +3495,58 @@ app.post('/api/claim/:token/photos', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Temporary diagnostic endpoint -- groups every Redis key by a normalized
+// prefix (trailing IDs/timestamps stripped) and sums actual memory usage
+// per group, so the real biggest consumers can be identified directly
+// instead of guessed at from code structure. Read-only; deletes nothing.
+app.get('/api/admin/storage-audit', requireAuth, async (req, res) => {
+  try {
+    const groups = {}; // normalized prefix -> { count, bytes }
+    let cursor = '0';
+    let totalBytes = 0;
+    let totalKeys = 0;
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'COUNT', 500);
+      cursor = nextCursor;
+      for (const key of keys) {
+        let bytes = 0;
+        try {
+          bytes = await redis.memory('USAGE', key);
+          bytes = typeof bytes === 'number' ? bytes : 0;
+        } catch (e) {
+          // MEMORY USAGE unsupported on this Redis build -- fall back to
+          // raw string length as a reasonable approximation.
+          try { bytes = await redis.strlen(key); } catch (e2) { bytes = 0; }
+        }
+        // Strip a trailing id/timestamp/hash-looking segment so keys like
+        // "paperwork-upload-upload_123_456" and "compliance-eod-photo-eod_1"
+        // roll up into one group instead of one row per record.
+        const normalized = key.replace(/[-_](?:[A-Za-z0-9]{6,}|\d+)$/, '').replace(/[-_](?:[A-Za-z0-9]{6,}|\d+)$/, '');
+        if (!groups[normalized]) groups[normalized] = { count: 0, bytes: 0 };
+        groups[normalized].count++;
+        groups[normalized].bytes += bytes;
+        totalBytes += bytes;
+        totalKeys++;
+      }
+    } while (cursor !== '0');
+
+    const breakdown = Object.entries(groups)
+      .map(([prefix, v]) => ({ prefix, count: v.count, bytes: v.bytes, mb: +(v.bytes / (1024*1024)).toFixed(2) }))
+      .sort((a, b) => b.bytes - a.bytes);
+
+    res.json({
+      totalKeys,
+      totalBytes,
+      totalMB: +(totalBytes / (1024*1024)).toFixed(2),
+      breakdown
+    });
+  } catch (err) {
+    console.error('Storage audit failed:', err.message);
+    res.status(500).json({ error: 'Storage audit failed: ' + err.message });
+  }
+});
+
 app.listen(PORT, async () => {
   console.log(`Henson dashboard backend listening on port ${PORT}`);
   console.log(process.env.LOB_API_KEY
