@@ -7460,6 +7460,7 @@
   let compCurrentSection = 'business';
   let compSelectedTruckId = null;
   let compSelectedDriverName = null;
+  const INSPECTION_PHOTO_RETENTION_DAYS = 90; // FMCSA 49 CFR 396.11/396.13: DVIR records minimum 3 months
 
   function compReadFileAsDataUri(file){
     return new Promise((resolve, reject) => {
@@ -7468,6 +7469,56 @@
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
+  }
+
+  // Deletes just the photo blob for PTI/EOD records past the federal
+  // 90-day floor -- the inspection record itself (driver, date, vision
+  // findings) is the actual DVIR required by law and is always kept, only
+  // the much larger photo is pruned once it's no longer needed. An EOD
+  // flagged with an issue that hasn't been closed out in Manager Review
+  // yet is held past 90 days until it actually is, so a manager never
+  // loses the evidence for something still unresolved. A PTI's photo is
+  // kept for as long as its matching EOD (same truck + date) still needs
+  // it as the "before" side of the comparison.
+  async function pruneOldInspectionPhotos(){
+    const cutoff = new Date(Date.now() - INSPECTION_PHOTO_RETENTION_DAYS*24*60*60*1000).toISOString().slice(0, 10);
+    let changed = false;
+
+    const reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
+    const openTruckConditionEodIds = new Set(
+      reviewItems.filter(i => i.type === 'truck-condition' && !i.reviewedAt).map(i => i.eodRecordId)
+    );
+
+    for(const e of compEodInspections){
+      if(!e.backPhotoKey) continue;
+      const pastFloor = (e.date || '') < cutoff;
+      const stillOpenIssue = e.visionStatus === 'issues_found' && openTruckConditionEodIds.has(e.id);
+      if(pastFloor && !stillOpenIssue){
+        try{ await window.dashboardApi.delete(e.backPhotoKey); }
+        catch(err){ console.error('EOD photo delete failed:', err); }
+        e.backPhotoKey = null;
+        changed = true;
+      }
+    }
+
+    // Re-checked AFTER the EOD loop above, so a PTI whose matching EOD photo
+    // was just deleted in this same pass is correctly treated as no longer needed.
+    const eodStillNeedsPtiPhoto = new Set(
+      compEodInspections.filter(e => e.backPhotoKey).map(e => `${e.truckId}|${e.date}`)
+    );
+    for(const p of compPretripInspections){
+      if(!p.backPhotoKey) continue;
+      const pastFloor = (p.date || '') < cutoff;
+      const eodNeedsIt = eodStillNeedsPtiPhoto.has(`${p.truckId}|${p.date}`);
+      if(pastFloor && !eodNeedsIt){
+        try{ await window.dashboardApi.delete(p.backPhotoKey); }
+        catch(err){ console.error('PTI photo delete failed:', err); }
+        p.backPhotoKey = null;
+        changed = true;
+      }
+    }
+
+    return changed;
   }
 
   function seedComplianceAuthorizations(){
@@ -7501,6 +7552,10 @@
       compDotInspections = dot; compIncidents = inc; compViolations = vio; compDrivers = drv;
       compPretripInspections = pti || [];
       compEodInspections = eod || [];
+      if(await pruneOldInspectionPhotos()){
+        await window.dashboardApi.set(COMP_PTI_KEY, compPretripInspections);
+        await window.dashboardApi.set(COMP_EOD_KEY, compEodInspections);
+      }
     }catch(err){ console.error('Compliance data load failed:', err); }
 
     renderCompAuthTable();
@@ -7510,6 +7565,7 @@
     showCompSection(compCurrentSection);
     updateComplianceTileBadge();
   }
+  window.loadComplianceData = loadComplianceData;
 
   function showCompSection(section){
     compCurrentSection = section;
@@ -14784,6 +14840,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   // ---------- Completed Paperwork Storage ----------
   const PAPERWORK_UPLOADS_KEY = 'paperwork-uploads';
+  const PAPERWORK_UPLOAD_RETENTION_DAYS = 180; // Georgia law: Move paperwork must be kept at least 6 months
   let paperworkUploads = [];
   let puSort = { field: 'uploadedAt', dir: 'desc' };
 
@@ -14796,11 +14853,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     });
   }
 
+  // Drops any completed paperwork upload -- and its file blob -- past the
+  // legal retention floor. Nothing shorter than 180 days: Georgia law
+  // requires Move paperwork be kept a minimum of 6 months, so this window
+  // is set to exactly that, not a day less.
+  async function pruneOldPaperworkUploads(){
+    const cutoff = new Date(Date.now() - PAPERWORK_UPLOAD_RETENTION_DAYS*24*60*60*1000).toISOString();
+    const toRemove = paperworkUploads.filter(u => (u.uploadedAt || '') < cutoff);
+    if(toRemove.length === 0) return false;
+    for(const upload of toRemove){
+      try{ await window.dashboardApi.delete('paperwork-upload-' + upload.id); }
+      catch(err){ console.error('Paperwork upload blob delete failed:', err); }
+    }
+    paperworkUploads = paperworkUploads.filter(u => (u.uploadedAt || '') >= cutoff);
+    return true;
+  }
+
   async function loadPaperworkUploads(){
-    try{ paperworkUploads = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []); }
+    try{
+      paperworkUploads = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []);
+      if(await pruneOldPaperworkUploads()) await savePaperworkUploadsList();
+    }
     catch(err){ console.error('Paperwork uploads load failed:', err); paperworkUploads = paperworkUploads || []; }
     renderPaperworkUploadsList();
   }
+  window.loadPaperworkUploads = loadPaperworkUploads;
   loadPaperworkUploads();
 
   // Collapsed by default -- this list can get long, and it's mostly
