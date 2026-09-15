@@ -3935,21 +3935,6 @@
           <p class="form-note" id="comp_pti_emptyNote" style="display:none; margin-top:10px;">No pre-trip inspections submitted yet for this truck.</p>
         </div>
 
-        <div class="panel" id="comp_eodPanel">
-          <h3>End of Day Inspections</h3>
-          <p class="form-note">Submitted electronically by drivers at the end of their shift. Vision Check compares this photo against the same day's Pre-Trip photo and flags equipment issues automatically.</p>
-          <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
-            <thead><tr>
-              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
-              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Driver</th>
-              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Vision Check</th>
-              <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
-            </tr></thead>
-            <tbody id="comp_eod_rows"></tbody>
-          </table>
-          <p class="form-note" id="comp_eod_emptyNote" style="display:none; margin-top:10px;">No end of day inspections submitted yet for this truck.</p>
-        </div>
-
         <div class="panel" id="comp_dotInspectionPanel">
           <h3>DOT Inspections</h3>
           <div class="form-grid">
@@ -7708,11 +7693,11 @@
       sel.innerHTML = list.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
       compSelectedTruckId = sel.value;
     }
-    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows(); renderCompEodRows();
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows();
   }
   document.getElementById('comp_truckSelect').addEventListener('change', (e)=>{
     compSelectedTruckId = e.target.value;
-    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows(); renderCompEodRows();
+    renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows();
   });
 
   function renderCompPtiRows(){
@@ -7804,97 +7789,6 @@
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${rec.additionalNotes ? `<p style="margin-top:18px;"><strong>Additional Notes:</strong><br>${fleetEsc(rec.additionalNotes)}</p>` : ''}
-      </body></html>`);
-    win.document.close();
-  }
-
-  function renderCompEodRows(){
-    const tbody = document.getElementById('comp_eod_rows');
-    const emptyNote = document.getElementById('comp_eod_emptyNote');
-    const rows = compEodInspections.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.submittedAt||'').localeCompare(a.submittedAt||''));
-    emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
-    const visionLabels = {
-      ok: '<span style="color:#00612C;">No Issues</span>',
-      issues_found: '<span style="color:#B3261E; font-weight:600;">Issues Found</span>',
-      failed: '<span style="color:var(--muted);">Check Failed</span>',
-      no_pti_photo: '<span style="color:var(--muted);">No PTI Photo to Compare</span>'
-    };
-    tbody.innerHTML = rows.map(r => `
-      <tr>
-        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
-        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.driverName)}</td>
-        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${visionLabels[r.visionStatus] || '\u2014'}</td>
-        <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
-          <button type="button" class="comp-eod-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>
-          <button type="button" class="comp-eod-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
-        </td>
-      </tr>`).join('');
-
-    tbody.querySelectorAll('.comp-eod-view').forEach(btn => btn.addEventListener('click', (e)=> viewEodDetails(e.target.dataset.id)));
-    tbody.querySelectorAll('.comp-eod-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
-      const id = e.target.dataset.id;
-      if(!confirm('Delete this end of day inspection record?')) return;
-      compEodInspections = compEodInspections.filter(r => r.id !== id);
-      try{ await window.dashboardApi.set(COMP_EOD_KEY, compEodInspections); }catch(err){ console.error(err); }
-      renderCompEodRows();
-    }));
-  }
-
-  async function viewEodDetails(id){
-    const rec = compEodInspections.find(r => r.id === id);
-    if(!rec) return;
-    // Opened synchronously, before any await, so it's never at risk of
-    // being blocked as a non-user-gesture popup -- filled in once ready.
-    const win = window.open();
-    if(!win) return;
-    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
-
-    let photoDataUri = null;
-    if(rec.backPhotoKey){
-      try{ photoDataUri = await window.dashboardApi.get(rec.backPhotoKey, null); }
-      catch(err){ console.error('EOD photo load failed:', err); }
-    }
-    const returnedRows = (rec.returnedItems || []).map(i => `
-      <tr>
-        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(i.description)}</td>
-        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(i.supplierItemNumber)}</td>
-        <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(i.quantity)}</td>
-      </tr>`).join('');
-    const visionLabels2 = {
-      ok: '<span style="color:#00612C;">No Issues Found</span>',
-      issues_found: '<span style="color:#B3261E; font-weight:600;">Issues Found</span>',
-      failed: '<span style="color:#666;">Comparison Failed</span>',
-      no_pti_photo: '<span style="color:#666;">No Pre-Trip Photo Available to Compare</span>'
-    };
-    const visionIssuesHtml = (rec.visionStatus === 'issues_found' && Array.isArray(rec.visionIssues) && rec.visionIssues.length > 0)
-      ? `<ul style="margin:6px 0 0; padding-left:20px;">${rec.visionIssues.map(issue => `<li>${fleetEsc(issue.issue)}${issue.severity === 'moderate' ? ' <span style="color:#B3261E; font-weight:600;">(moderate)</span>' : ''}</li>`).join('')}</ul>`
-      : '';
-    win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><title>End of Day Inspection \u2014 ${fleetEsc(rec.truckNickname)} \u2014 ${fleetEsc(rec.date)}</title></head>
-      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
-        <h2 style="margin-bottom:4px;">End of Day Inspection</h2>
-        <p style="margin-top:0; line-height:1.6;">
-          <strong>Truck:</strong> ${fleetEsc(rec.truckNickname)}<br>
-          <strong>Date:</strong> ${fleetEsc(rec.date)}<br>
-          <strong>Driver:</strong> ${fleetEsc(rec.driverName)}<br>
-          ${(rec.jobNumbers && rec.jobNumbers.length > 0) ? `<strong>Job Number(s):</strong> ${fleetEsc(rec.jobNumbers.join(', '))}<br>` : ''}
-        </p>
-        <p style="margin:14px 0 18px; padding:10px 14px; background:#f5f5f5; border-radius:6px;">
-          <strong>Vision Check:</strong> ${visionLabels2[rec.visionStatus] || '\u2014'}
-          ${rec.visionSummary ? `<br><span style="color:#555;">${fleetEsc(rec.visionSummary)}</span>` : ''}
-          ${visionIssuesHtml}
-        </p>
-        ${photoDataUri ? `<p style="margin:14px 0 6px;"><strong>Truck Photo:</strong></p><img src="${photoDataUri}" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block; margin-bottom:18px;">` : (rec.backPhotoKey ? `<p style="margin:14px 0 18px; color:#B3261E;">Could not load the truck photo \u2014 check your connection and try again.</p>` : '')}
-        ${returnedRows ? `<p style="margin:14px 0 6px;"><strong>Materials Returned:</strong></p>
-        <table style="border-collapse:collapse; width:100%; margin-bottom:18px;">
-          <thead><tr>
-            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Item</th>
-            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Item #</th>
-            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Qty</th>
-          </tr></thead>
-          <tbody>${returnedRows}</tbody>
-        </table>` : '<p style="margin:14px 0 18px; color:#666;">No materials returned.</p>'}
         ${rec.additionalNotes ? `<p style="margin-top:18px;"><strong>Additional Notes:</strong><br>${fleetEsc(rec.additionalNotes)}</p>` : ''}
       </body></html>`);
     win.document.close();
@@ -17481,7 +17375,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <ul style="margin:0; padding-left:18px; font-size:12.5px;">
           ${(item.visionIssues||[]).map(issue => `<li>${mgrReviewEsc(issue.issue)}${issue.severity === 'moderate' ? ' <span style="color:#B3261E; font-weight:600;">(moderate)</span>' : ''}</li>`).join('')}
         </ul>
-        ${showCloseOut ? `<button type="button" class="mgrreview-closeout-btn btn-primary" data-id="${item.id}" style="margin-top:8px; padding:6px 14px; font-size:12.5px;">Close Out</button>` : `<div class="form-note" style="margin-top:6px;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</div>`}
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button type="button" class="mgrreview-viewphotos-btn btn-secondary" data-eod-id="${mgrReviewEsc(item.eodRecordId)}" style="padding:6px 14px; font-size:12.5px;">View Photos</button>
+          ${showCloseOut ? `<button type="button" class="mgrreview-closeout-btn btn-primary" data-id="${item.id}" style="padding:6px 14px; font-size:12.5px;">Close Out</button>` : ''}
+        </div>
+        ${!showCloseOut ? `<div class="form-note" style="margin-top:6px;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</div>` : ''}
       </div>`;
   }
 
@@ -17506,6 +17404,78 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     reviewedRowsEl.innerHTML = reviewed.map(i => mgrReviewTruckCardHtml(i, false)).join('');
 
     document.querySelectorAll('#mgrreview_panel_truckconditions .mgrreview-closeout-btn').forEach(btn => btn.addEventListener('click', (e)=> mgrReviewCloseOut(e.currentTarget.dataset.id)));
+    document.querySelectorAll('#mgrreview_panel_truckconditions .mgrreview-viewphotos-btn').forEach(btn => btn.addEventListener('click', (e)=> viewMgrReviewTruckPhotos(e.currentTarget.dataset.eodId)));
+  }
+
+  // Fetches the EOD and PTI records fresh, rather than relying on
+  // Compliance's own cached state -- Manager Review may be opened first,
+  // before that tile has ever loaded anything this session. Shows the
+  // "before" (PTI) and "after" (EOD) photos side by side so a human can
+  // actually verify the AI's flagged finding, not just the after photo
+  // alone with no baseline to compare it against.
+  async function viewMgrReviewTruckPhotos(eodRecordId){
+    if(!eodRecordId) return;
+    const win = window.open(); // opened synchronously, before any await
+    if(!win) return;
+    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading\u2026</p>');
+
+    try{
+      const [eodRaw, ptiRaw] = await Promise.all([
+        window.dashboardApi.get('compliance-eod-inspections', []),
+        window.dashboardApi.get('compliance-pretrip-inspections', [])
+      ]);
+      const eodRecords = eodRaw || [];
+      const ptiRecords = ptiRaw || [];
+      const eod = eodRecords.find(r => r.id === eodRecordId);
+      if(!eod){
+        win.document.open();
+        win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#B3261E;">Could not find this inspection record \u2014 it may have aged out.</p>');
+        win.document.close();
+        return;
+      }
+      // Same matching rule the backend uses when it originally ran the
+      // comparison: same truck, same date, and it actually has a photo.
+      const pti = ptiRecords.find(p => p.truckId === eod.truckId && p.date === eod.date && p.backPhotoKey);
+
+      const [eodPhoto, ptiPhoto] = await Promise.all([
+        eod.backPhotoKey ? window.dashboardApi.get(eod.backPhotoKey, null).catch(() => null) : Promise.resolve(null),
+        pti && pti.backPhotoKey ? window.dashboardApi.get(pti.backPhotoKey, null).catch(() => null) : Promise.resolve(null)
+      ]);
+
+      const visionIssuesHtml = (eod.visionStatus === 'issues_found' && Array.isArray(eod.visionIssues) && eod.visionIssues.length > 0)
+        ? `<ul style="margin:6px 0 0; padding-left:20px;">${eod.visionIssues.map(issue => `<li>${mgrReviewEsc(issue.issue)}${issue.severity === 'moderate' ? ' <span style="color:#B3261E; font-weight:600;">(moderate)</span>' : ''}</li>`).join('')}</ul>`
+        : '';
+
+      const photoBlock = (label, photo, missingNote) => `
+        <div style="flex:1; min-width:260px;">
+          <p style="margin:0 0 6px; font-weight:600;">${label}</p>
+          ${photo
+            ? `<img src="${photo}" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block;">`
+            : `<p style="color:#888; font-style:italic;">${missingNote}</p>`}
+        </div>`;
+
+      win.document.open();
+      win.document.write(`<!DOCTYPE html><html><head><title>Truck Condition \u2014 ${mgrReviewEsc(eod.truckNickname)} \u2014 ${mgrReviewEsc(eod.date)}</title></head>
+        <body style="font-family:Arial,sans-serif; padding:24px; max-width:900px; margin:0 auto; color:#1a1a1a;">
+          <h2 style="margin-bottom:4px;">Truck Condition</h2>
+          <p style="margin-top:0; line-height:1.6;">
+            <strong>Truck:</strong> ${mgrReviewEsc(eod.truckNickname)}<br>
+            <strong>Date:</strong> ${mgrReviewEsc(eod.date)}<br>
+            <strong>Driver:</strong> ${mgrReviewEsc(eod.driverName)}
+          </p>
+          ${eod.visionSummary ? `<p style="margin:14px 0 18px; padding:10px 14px; background:#FDEDEA; border-radius:6px;"><strong>AI Finding:</strong> ${mgrReviewEsc(eod.visionSummary)}${visionIssuesHtml}</p>` : ''}
+          <div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:10px;">
+            ${photoBlock('Before (Pre-Trip)', ptiPhoto, pti ? 'Could not load this photo.' : 'No matching Pre-Trip Inspection on file for this truck/date.')}
+            ${photoBlock('After (End of Day)', eodPhoto, 'Could not load this photo.')}
+          </div>
+        </body></html>`);
+      win.document.close();
+    }catch(err){
+      console.error('Truck condition photo load failed:', err);
+      win.document.open();
+      win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#B3261E;">Could not load this inspection \u2014 check your connection and try again.</p>');
+      win.document.close();
+    }
   }
 
   document.getElementById('mgrreview_truckReviewedToggle').addEventListener('click', ()=>{
