@@ -3535,11 +3535,74 @@ app.get('/api/admin/storage-audit', requireAuth, async (req, res) => {
       .map(([prefix, v]) => ({ prefix, count: v.count, bytes: v.bytes, mb: +(v.bytes / (1024*1024)).toFixed(2) }))
       .sort((a, b) => b.bytes - a.bytes);
 
+    // Growth analysis: unlike the breakdown above (a snapshot), this looks
+    // at the two categories that grow continuously and can't be pruned
+    // below their legal floor -- Move paperwork (180 days) and PTI/EOD
+    // photos (90 days, longer if an issue is still open). Real record
+    // dates and measured per-record sizes, not an estimate.
+    async function analyzeGrowth(listKey, dateField, blobKeyFn, retentionDays){
+      const list = await redis.get(listKey);
+      const records = list ? JSON.parse(list) : [];
+      const withDates = records.filter(r => r[dateField]);
+      if (withDates.length < 2) return { recordCount: records.length, insufficientData: true };
+
+      let totalBytes = 0;
+      for (const r of records) {
+        const blobKey = blobKeyFn(r);
+        if (!blobKey) continue;
+        try {
+          const b = await redis.memory('USAGE', blobKey);
+          if (typeof b === 'number') totalBytes += b;
+        } catch (e) { /* record may have no photo/file -- skip */ }
+      }
+
+      const dates = withDates.map(r => new Date(r[dateField]).getTime()).filter(t => !isNaN(t));
+      const oldest = Math.min(...dates);
+      const newest = Math.max(...dates);
+      const daySpan = Math.max(1, (newest - oldest) / (1000*60*60*24));
+
+      const bytesPerDay = totalBytes / daySpan;
+      const recordsPerDay = records.length / daySpan;
+      const steadyStateBytes = bytesPerDay * retentionDays;
+
+      return {
+        recordCount: records.length,
+        currentBytes: totalBytes,
+        currentMB: +(totalBytes / (1024*1024)).toFixed(2),
+        daySpanObserved: +daySpan.toFixed(1),
+        mbPerDay: +(bytesPerDay / (1024*1024)).toFixed(3),
+        recordsPerDay: +recordsPerDay.toFixed(2),
+        retentionDays,
+        projectedSteadyStateMB: +(steadyStateBytes / (1024*1024)).toFixed(1)
+      };
+    }
+
+    const paperworkGrowth = await analyzeGrowth(
+      'paperwork-uploads', 'uploadedAt',
+      r => 'paperwork-upload-' + r.id,
+      180
+    );
+    const eodGrowth = await analyzeGrowth(
+      'compliance-eod-inspections', 'date',
+      r => r.backPhotoKey || null,
+      90
+    );
+    const ptiGrowth = await analyzeGrowth(
+      'compliance-pretrip-inspections', 'date',
+      r => r.backPhotoKey || null,
+      90
+    );
+
     res.json({
       totalKeys,
       totalBytes,
       totalMB: +(totalBytes / (1024*1024)).toFixed(2),
-      breakdown
+      breakdown,
+      growth: {
+        paperworkUploads: paperworkGrowth,
+        eodPhotos: eodGrowth,
+        ptiPhotos: ptiGrowth
+      }
     });
   } catch (err) {
     console.error('Storage audit failed:', err.message);
