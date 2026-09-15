@@ -3337,19 +3337,8 @@ app.get('/api/motive-locations', requireAuth, async (req, res) => {
       pageNo++;
     }
 
-    // Temporary diagnostic: shows exactly what Motive returned, so an empty
-    // result can be told apart from "Motive has vehicles but their shape
-    // doesn't match what this code expects."
-    console.log(`Motive returned ${allVehicles.length} total vehicle(s).`);
-    if (allVehicles.length > 0) {
-      const sample = allVehicles[0];
-      console.log('Sample vehicle (first one):', JSON.stringify(sample).slice(0, 1000));
-      const withLocation = allVehicles.filter(v => v.current_location).length;
-      const withValidLatLon = allVehicles.filter(v => v.current_location && typeof v.current_location.lat === 'number' && typeof v.current_location.lon === 'number').length;
-      console.log(`Of those, ${withLocation} have a current_location object, ${withValidLatLon} have valid numeric lat/lon.`);
-    }
-
     const trucks = allVehicles
+      .map(v => v.vehicle || v) // Motive wraps each entry as { vehicle: {...} }
       .filter(v => v.current_location && typeof v.current_location.lat === 'number' && typeof v.current_location.lon === 'number')
       .map(v => {
         const loc = v.current_location;
