@@ -4529,6 +4529,7 @@
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button type="button" class="set-section-btn" data-section="users" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">User Settings</button>
           <button type="button" class="set-section-btn" data-section="config" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Configuration</button>
+          <button type="button" class="set-section-btn" data-section="storage" style="padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">Storage</button>
         </div>
       </div>
 
@@ -4737,6 +4738,29 @@
           <div class="form-actions">
             <button class="btn-primary" id="set_saveHandoffBtn" type="button">Save Guide</button>
             <span class="status-msg" id="set_handoffStatus"></span>
+          </div>
+        </div>
+      </div>
+
+      <div id="set_storage" class="set-section" style="display:none;">
+        <div class="panel">
+          <h3>Storage Audit</h3>
+          <p class="form-note">Scans everything stored on the backend and reports actual memory usage grouped by data type, largest first. Read-only \u2014 nothing is changed or deleted.</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="set_storageAuditBtn" type="button">Run Storage Audit</button>
+            <span class="status-msg" id="set_storageAuditStatus"></span>
+          </div>
+          <div id="set_storageAuditResults" style="display:none; margin-top:14px;">
+            <p style="font-weight:700; font-size:15px; margin-bottom:10px;" id="set_storageAuditTotal"></p>
+            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+              <thead><tr>
+                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Data Type</th>
+                <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Records</th>
+                <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Size</th>
+                <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">% of Total</th>
+              </tr></thead>
+              <tbody id="set_storageAuditRows"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -11349,11 +11373,55 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function showSetSection(section){
     document.getElementById('set_users').style.display = section === 'users' ? 'block' : 'none';
     document.getElementById('set_config').style.display = section === 'config' ? 'block' : 'none';
+    document.getElementById('set_storage').style.display = section === 'storage' ? 'block' : 'none';
     document.querySelectorAll('.set-section-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.section === section);
     });
   }
   document.querySelectorAll('.set-section-btn').forEach(btn => btn.addEventListener('click', ()=> showSetSection(btn.dataset.section)));
+
+  function settingsEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  document.getElementById('set_storageAuditBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('set_storageAuditBtn');
+    const statusEl = document.getElementById('set_storageAuditStatus');
+    const resultsEl = document.getElementById('set_storageAuditResults');
+    btn.disabled = true;
+    statusEl.textContent = 'Scanning \u2014 this can take a moment...';
+    statusEl.className = 'status-msg';
+    resultsEl.style.display = 'none';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/storage-audit`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Audit failed.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      document.getElementById('set_storageAuditTotal').textContent =
+        `${data.totalMB} MB total across ${data.totalKeys} records.`;
+      document.getElementById('set_storageAuditRows').innerHTML = data.breakdown.map(row => `
+        <tr>
+          <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${settingsEsc(row.prefix)}</td>
+          <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${row.count.toLocaleString()}</td>
+          <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${row.mb} MB</td>
+          <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${data.totalBytes > 0 ? ((row.bytes / data.totalBytes) * 100).toFixed(1) : '0.0'}%</td>
+        </tr>`).join('');
+      resultsEl.style.display = 'block';
+      statusEl.textContent = '';
+    }catch(err){
+      console.error('Storage audit failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.disabled = false;
+    }
+  });
 
   function setupAddUserGate(){
     const isAdmin = isCurrentUserAdmin();
