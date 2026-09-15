@@ -10080,11 +10080,13 @@
             ? `<span style="flex:1; text-align:center; background:#EAF6EE; color:var(--brand-green-dark); padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700;">\u2713 Arrived Today</span>`
             : `<button type="button" class="mailApt-arrive-btn" data-id="${rec.id}" style="flex:1; background:var(--brand-green); color:#fff; border:none; padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer;">Mark Arrived</button>`}
         </div>
+        ${visited ? `<div style="padding-left:46px; margin-top:6px;"><button type="button" class="mailApt-undo-btn" data-id="${rec.id}" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:0;">Undo \u2014 couldn't actually make contact</button></div>` : ''}
         <p class="status-msg mailApt-stop-status" data-id="${rec.id}" style="margin:8px 0 0 46px; font-size:13px;"></p>
       </div>`;
     }).join('');
 
     listEl.querySelectorAll('.mailApt-arrive-btn').forEach(btn => btn.addEventListener('click', (e)=> mailAptCheckArrival(e.target.dataset.id)));
+    listEl.querySelectorAll('.mailApt-undo-btn').forEach(btn => btn.addEventListener('click', (e)=> mailAptUndoArrival(e.target.dataset.id)));
   }
 
   function mailAptCheckArrival(recId){
@@ -10163,12 +10165,34 @@
     const cfg = MAIL_ROUTE_SOURCES[mailCurrentRouteSource];
     const rec = cfg.getRecords().find(r => r.id === recId);
     if(!rec) return;
+    // Kept so "undo" can restore this exactly, rather than just clearing
+    // dateContacted outright -- which would wrongly erase a genuine earlier
+    // contact if this was a repeat visit, not a first-ever one.
+    rec.dateContactedBeforeThisMark = rec.dateContacted || null;
     rec.dateContacted = todayStr();
     const ok = await cfg.save();
     renderMailAptRoute(mailCurrentRouteSource, mailCurrentRouteTier);
     cfg.renderTable();
     const statusEl = document.getElementById('mailApt_routeStatus');
     statusEl.textContent = ok ? `Marked "${rec.name}" as arrived.` : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  }
+
+  // Reverses a mistaken "Mark Arrived" -- arrived at the lot but never
+  // actually made contact or dropped materials. Restores whatever
+  // dateContacted held before this mark (a genuine earlier visit stays on
+  // record) rather than just wiping it blank.
+  async function mailAptUndoArrival(recId){
+    const cfg = MAIL_ROUTE_SOURCES[mailCurrentRouteSource];
+    const rec = cfg.getRecords().find(r => r.id === recId);
+    if(!rec) return;
+    rec.dateContacted = rec.dateContactedBeforeThisMark || null;
+    delete rec.dateContactedBeforeThisMark;
+    const ok = await cfg.save();
+    renderMailAptRoute(mailCurrentRouteSource, mailCurrentRouteTier);
+    cfg.renderTable();
+    const statusEl = document.getElementById('mailApt_routeStatus');
+    statusEl.textContent = ok ? `Unmarked "${rec.name}" \u2014 no contact made.` : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   }
 
