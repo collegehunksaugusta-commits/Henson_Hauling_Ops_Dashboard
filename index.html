@@ -3113,6 +3113,12 @@
           <div id="pwBatch_excludedRows"></div>
         </div>
 
+        <div id="pwBatch_unclearWrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:6px;">Couldn't Confirm Job vs. Estimate</h4>
+          <p class="form-note">No legible "Type:" field was found, so this wasn't guessed either way. Open the thumbnail to check the document, then add it to the review list below if it's actually a booked job.</p>
+          <div id="pwBatch_unclearRows"></div>
+        </div>
+
         <div id="pwBatch_junkRemovalWrap" style="display:none; margin-top:20px;">
           <h4 style="margin-bottom:6px;">Junk Removal &mdash; Assign a Captain</h4>
           <p class="form-note">Every junk removal job that isn't finished yet, from any day &mdash; assign or change the Captain here anytime, including mid-day if plans change. Changing it here updates what shows in that Captain's Driver Portal right away.</p>
@@ -13649,6 +13655,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let pwBatchReview = [];       // review rows before generation
   let pwBatchPackages = [];     // generated work packages {jobNumber, clientName, jobType, html, extraNote}
   let pwBatchExcluded = [];     // estimates found but excluded (no paperwork needed until booked)
+  let pwBatchUnclear = [];      // orderType came back 'unclear' -- never silently treated as Job or Estimate; a human confirms
   let pwBatchJunkRemoval = [];  // all active junk removal jobs (any day), available here for Captain assignment/reassignment
   let pwBatchRosterCache = null;
 
@@ -13797,6 +13804,63 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     e.target.value = '';
   });
 
+  function buildPwReviewRow(d, dist, reviewId){
+    const isLongDistance = !!(dist && dist.ok && dist.estimatedDrivingMiles > 50);
+    let jobType = '';
+    if(isLongDistance) jobType = 'longdistance';
+    else if(d.serviceType === 'move' || d.serviceType === 'movelabor') jobType = d.serviceType;
+    const file = pwBatchPastedImages[d.fileIndex];
+    const totalPages = file ? file.allPageDataUris.length : 0;
+    const firstIdx = totalPages > 0 ? Math.max(0, Math.min(d.firstPageIndex || 0, totalPages - 1)) : 0;
+    const lastIdxRaw = typeof d.lastPageIndex === 'number' ? d.lastPageIndex : firstIdx;
+    const lastIdx = totalPages > 0 ? Math.max(firstIdx, Math.min(lastIdxRaw, totalPages - 1)) : 0;
+    // Captured now, before pwBatchPastedImages gets cleared below -- these
+    // are the exact original work order pages for this job, later
+    // prepended to its printed packet.
+    const workOrderPages = file ? file.allPageDataUris.slice(firstIdx, lastIdx + 1) : [];
+    const thumbnail = file ? file.allPageDataUris[firstIdx] : null;
+
+    const scheduledHours = d.scheduledHours || 0;
+    const quotedHours = d.quotedHours || 0;
+    const quotedHourlyRate = d.quotedHourlyRate || 0;
+    const quotedCrewSize = d.quotedCrewSize || 0;
+    const quotedOtherFees = d.quotedOtherFees || 0;
+    const quoteGap = classifyQuoteGap(scheduledHours, quotedHours);
+    let estimateSummary = d.estimateSummary || '';
+    let quoteResolution = 'original';
+    let extrapolatedTotal = null;
+    // A mismatch with enough info to extrapolate gets a corrected estimate
+    // by default (never leaving the stale, wrong-duration quote in
+    // place) -- the admin can still swap in a real corrected quote instead.
+    if(quoteGap === 'mismatch' && quotedHourlyRate > 0 && quotedCrewSize > 0){
+      const { laborCost, totalCost } = computeExtrapolatedEstimate(scheduledHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees);
+      estimateSummary = buildEstimateSummaryNarrative(scheduledHours, quotedHourlyRate, quotedCrewSize, laborCost, totalCost, quotedOtherFees);
+      quoteResolution = 'extrapolated';
+      extrapolatedTotal = totalCost;
+    }
+
+    return {
+      reviewId,
+      jobNumber: d.jobNumber || '',
+      clientName: d.clientName || '',
+      clientPhone: d.clientPhone || '',
+      clientEmail: d.clientEmail || '',
+      originAddress: d.originAddress || '',
+      destAddress: d.destAddress || '',
+      jobDate: d.jobDate || '',
+      estimateSummary,
+      confident: !!d.confident,
+      distanceInfo: dist && dist.ok ? dist : null,
+      jobType,
+      captainName: '',
+      thumbnail,
+      workOrderPages,
+      scheduledHours, quotedHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees,
+      quoteGap, quoteResolution, extrapolatedTotal,
+      packingMaterials: Array.isArray(d.packingMaterials) ? d.packingMaterials : []
+    };
+  }
+
   document.getElementById('pwBatch_extractBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pwBatch_extractStatus');
     if(pwBatchPastedImages.length === 0){
@@ -13838,7 +13902,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // them from the review list with no explanation.
       const junkDocs = allDocuments.filter(d => d.serviceType === 'junkremoval');
       const estimateDocs = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType === 'estimate');
-      const documents = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType !== 'estimate');
+      const unclearDocs = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType === 'unclear');
+      const documents = allDocuments.filter(d => d.serviceType !== 'junkremoval' && d.orderType === 'job');
 
       // An Estimate never gets a job number or paperwork -- it's not booked
       // yet -- so without this, a potential long-distance move's mileage
@@ -13908,16 +13973,32 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         .filter(existing => !thisBatchById.has(existing.id))
         .concat(thisBatchWithThumbnails);
 
+      // The AI couldn't find a legible "Type:" field on these -- never
+      // guessed "job" or "estimate" for them, per its own instructions.
+      // Keeping the full source doc lets "Add to Review" build a real,
+      // complete review row on demand, without asking for a re-upload.
+      pwBatchUnclear = unclearDocs.map((d, i) => ({
+        unclearId: 'pwunclear_' + i,
+        jobNumber: d.jobNumber || '(no job # read)',
+        clientName: d.clientName || '(no client name read)',
+        thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
+        sourceDoc: d
+      }));
+
       if(documents.length === 0){
         renderPwBatchExcluded();
+        renderPwBatchUnclear();
         await renderPwBatchJunkRemoval();
         const excludedParts = [];
         if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
         if(estimateDocs.length > 0) excludedParts.push(`${estimateDocs.length} estimate${estimateDocs.length===1?'':'s'}`);
-        statusEl.textContent = excludedParts.length > 0
+        const unclearNote = unclearDocs.length > 0
+          ? ` Couldn\u2019t confirm Job vs. Estimate on ${unclearDocs.length} document${unclearDocs.length===1?'':'s'} \u2014 check ${unclearDocs.length===1?'it':'them'} below.`
+          : '';
+        statusEl.textContent = (excludedParts.length > 0
           ? `Found ${excludedParts.join(' and ')} \u2014 none need paperwork.${junkDocs.length > 0 ? ' Assign a Captain to the junk removal job(s) below.' : ''}`
-          : 'Could not read any work orders from those files.';
-        statusEl.className = excludedParts.length > 0 ? 'status-msg ok' : 'status-msg err';
+          : (unclearDocs.length > 0 ? '' : 'Could not read any work orders from those files.')) + unclearNote;
+        statusEl.className = (excludedParts.length > 0 || unclearDocs.length > 0) ? 'status-msg ok' : 'status-msg err';
         pwBatchPastedImages = [];
         renderPwBatchThumbnails();
         return;
@@ -13939,70 +14020,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
       const distances = await Promise.all(distancePromises);
 
-      pwBatchReview = documents.map((d, i) => {
-        const dist = distances[i];
-        const isLongDistance = !!(dist && dist.ok && dist.estimatedDrivingMiles > 50);
-        let jobType = '';
-        if(isLongDistance) jobType = 'longdistance';
-        else if(d.serviceType === 'move' || d.serviceType === 'movelabor') jobType = d.serviceType;
-        const file = pwBatchPastedImages[d.fileIndex];
-        const totalPages = file ? file.allPageDataUris.length : 0;
-        const firstIdx = totalPages > 0 ? Math.max(0, Math.min(d.firstPageIndex || 0, totalPages - 1)) : 0;
-        const lastIdxRaw = typeof d.lastPageIndex === 'number' ? d.lastPageIndex : firstIdx;
-        const lastIdx = totalPages > 0 ? Math.max(firstIdx, Math.min(lastIdxRaw, totalPages - 1)) : 0;
-        // Captured now, before pwBatchPastedImages gets cleared below -- these
-        // are the exact original work order pages for this job, later
-        // prepended to its printed packet.
-        const workOrderPages = file ? file.allPageDataUris.slice(firstIdx, lastIdx + 1) : [];
-        const thumbnail = file ? file.allPageDataUris[firstIdx] : null;
-
-        const scheduledHours = d.scheduledHours || 0;
-        const quotedHours = d.quotedHours || 0;
-        const quotedHourlyRate = d.quotedHourlyRate || 0;
-        const quotedCrewSize = d.quotedCrewSize || 0;
-        const quotedOtherFees = d.quotedOtherFees || 0;
-        const quoteGap = classifyQuoteGap(scheduledHours, quotedHours);
-        let estimateSummary = d.estimateSummary || '';
-        let quoteResolution = 'original';
-        let extrapolatedTotal = null;
-        // A mismatch with enough info to extrapolate gets a corrected estimate
-        // by default (never leaving the stale, wrong-duration quote in
-        // place) -- the admin can still swap in a real corrected quote instead.
-        if(quoteGap === 'mismatch' && quotedHourlyRate > 0 && quotedCrewSize > 0){
-          const { laborCost, totalCost } = computeExtrapolatedEstimate(scheduledHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees);
-          estimateSummary = buildEstimateSummaryNarrative(scheduledHours, quotedHourlyRate, quotedCrewSize, laborCost, totalCost, quotedOtherFees);
-          quoteResolution = 'extrapolated';
-          extrapolatedTotal = totalCost;
-        }
-
-        return {
-          reviewId: 'pwrev_' + i,
-          jobNumber: d.jobNumber || '',
-          clientName: d.clientName || '',
-          clientPhone: d.clientPhone || '',
-          clientEmail: d.clientEmail || '',
-          originAddress: d.originAddress || '',
-          destAddress: d.destAddress || '',
-          jobDate: d.jobDate || '',
-          estimateSummary,
-          confident: !!d.confident,
-          distanceInfo: dist && dist.ok ? dist : null,
-          jobType,
-          captainName: '',
-          thumbnail,
-          workOrderPages,
-          scheduledHours, quotedHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees,
-          quoteGap, quoteResolution, extrapolatedTotal,
-          packingMaterials: Array.isArray(d.packingMaterials) ? d.packingMaterials : []
-        };
-      });
+      pwBatchReview = documents.map((d, i) => buildPwReviewRow(d, distances[i], 'pwrev_' + i));
 
       await renderPwBatchReview();
       renderPwBatchExcluded();
+      renderPwBatchUnclear();
       await renderPwBatchJunkRemoval();
       const excludedParts = [];
       if(estimateDocs.length > 0) excludedParts.push(`${estimateDocs.length} estimate${estimateDocs.length===1?'':'s'}`);
       if(junkDocs.length > 0) excludedParts.push(`${junkDocs.length} junk removal job${junkDocs.length===1?'':'s'}`);
+      if(unclearDocs.length > 0) excludedParts.push(`${unclearDocs.length} unclear \u2014 check below`);
       const junkNote = excludedParts.length > 0 ? ` (${excludedParts.join(' and ')} shown below)` : '';
       statusEl.textContent = `${pwBatchReview.length} job${pwBatchReview.length===1?'':'s'} read and ready to review.${junkNote}`;
       statusEl.className = 'status-msg ok';
@@ -14069,6 +14096,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const container = document.getElementById('pwBatch_excludedRows');
     if(pwBatchExcluded.length === 0){
       wrap.style.display = 'none';
+      container.innerHTML = '';
       return;
     }
     wrap.style.display = 'block';
@@ -14080,6 +14108,50 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     container.querySelectorAll('.pwBatch-excluded-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = pwBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
       if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+    }));
+  }
+
+  function renderPwBatchUnclear(){
+    const wrap = document.getElementById('pwBatch_unclearWrap');
+    const container = document.getElementById('pwBatch_unclearRows');
+    if(pwBatchUnclear.length === 0){
+      wrap.style.display = 'none';
+      container.innerHTML = '';
+      return;
+    }
+    wrap.style.display = 'block';
+    container.innerHTML = pwBatchUnclear.map((x, i) => `
+      <div style="display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+        ${x.thumbnail ? `<img class="pwBatch-unclear-thumb" data-index="${i}" src="${x.thumbnail}" style="width:44px; height:44px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;">` : ''}
+        <div style="flex:1;"><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)}</div>
+        <button type="button" class="btn-secondary pwBatch-unclear-promote" data-index="${i}" style="flex-shrink:0;">This Is a Job \u2014 Add to Review</button>
+      </div>`).join('');
+    container.querySelectorAll('.pwBatch-unclear-thumb').forEach(img => img.addEventListener('click', (e)=>{
+      const x = pwBatchUnclear[parseInt(e.currentTarget.dataset.index, 10)];
+      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+    }));
+    container.querySelectorAll('.pwBatch-unclear-promote').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const idx = parseInt(e.currentTarget.dataset.index, 10);
+      const x = pwBatchUnclear[idx];
+      if(!x) return;
+      e.currentTarget.disabled = true;
+      e.currentTarget.textContent = 'Adding\u2026';
+      const d = x.sourceDoc;
+      let dist = null;
+      if(d.originAddress && d.destAddress){
+        try{
+          const distRes = await fetch(`${API_BASE}/api/estimate-move-distance`, {
+            method: 'POST',
+            headers: authHeaders({'Content-Type': 'application/json'}),
+            body: JSON.stringify({ originAddress: d.originAddress, destAddress: d.destAddress })
+          });
+          if(distRes.ok) dist = await distRes.json();
+        }catch(err){ /* fall through with no distance info -- the review row is still editable */ }
+      }
+      pwBatchReview.push(buildPwReviewRow(d, dist, x.unclearId));
+      pwBatchUnclear = pwBatchUnclear.filter(u => u.unclearId !== x.unclearId);
+      await renderPwBatchReview();
+      renderPwBatchUnclear();
     }));
   }
 
