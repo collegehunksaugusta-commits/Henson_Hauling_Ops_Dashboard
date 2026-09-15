@@ -4761,6 +4761,18 @@
               </tr></thead>
               <tbody id="set_storageAuditRows"></tbody>
             </table>
+
+            <h4 style="margin:20px 0 6px;">Growth Analysis \u2014 Categories That Can't Be Pruned Below Their Legal Floor</h4>
+            <p class="form-note" style="margin-top:0;">Based on actual record dates and measured file sizes, not an estimate. These two categories are the ones that keep growing no matter what \u2014 everything else found above is now compressed and largely static.</p>
+            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+              <thead><tr>
+                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Category</th>
+                <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Growth Rate</th>
+                <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Legal Floor</th>
+                <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Projected Steady-State</th>
+              </tr></thead>
+              <tbody id="set_storageGrowthRows"></tbody>
+            </table>
           </div>
         </div>
 
@@ -11512,6 +11524,28 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${row.mb} MB</td>
           <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${data.totalBytes > 0 ? ((row.bytes / data.totalBytes) * 100).toFixed(1) : '0.0'}%</td>
         </tr>`).join('');
+
+      const growthLabels = {
+        paperworkUploads: 'Move Paperwork',
+        eodPhotos: 'End of Day Photos',
+        ptiPhotos: 'Pre-Trip Photos'
+      };
+      const growthRows = Object.entries(data.growth || {}).map(([key, g]) => {
+        if(!g || g.insufficientData){
+          return `<tr>
+            <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${growthLabels[key] || key}</td>
+            <td colspan="3" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:var(--muted);">Not enough date-spread yet to project \u2014 check again in a few weeks.</td>
+          </tr>`;
+        }
+        return `<tr>
+          <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${growthLabels[key] || key}</td>
+          <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${g.mbPerDay} MB/day (${g.recordsPerDay}/day)</td>
+          <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${g.retentionDays} days</td>
+          <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:700;">${g.projectedSteadyStateMB} MB</td>
+        </tr>`;
+      }).join('');
+      document.getElementById('set_storageGrowthRows').innerHTML = growthRows;
+
       resultsEl.style.display = 'block';
       statusEl.textContent = '';
     }catch(err){
