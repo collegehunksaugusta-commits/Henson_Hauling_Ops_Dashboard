@@ -4745,7 +4745,7 @@
       <div id="set_storage" class="set-section" style="display:none;">
         <div class="panel">
           <h3>Storage Audit</h3>
-          <p class="form-note">Scans everything stored on the backend and reports actual memory usage grouped by data type, largest first. Read-only \u2014 nothing is changed or deleted.</p>
+          <p class="form-note">Scans everything stored on the backend and reports actual memory usage grouped by data type, largest first. Read-only &mdash; nothing is changed or deleted.</p>
           <div class="form-actions">
             <button class="btn-primary" id="set_storageAuditBtn" type="button">Run Storage Audit</button>
             <span class="status-msg" id="set_storageAuditStatus"></span>
@@ -4762,8 +4762,8 @@
               <tbody id="set_storageAuditRows"></tbody>
             </table>
 
-            <h4 style="margin:20px 0 6px;">Growth Analysis \u2014 Categories That Can't Be Pruned Below Their Legal Floor</h4>
-            <p class="form-note" style="margin-top:0;">Based on actual record dates and measured file sizes, not an estimate. These two categories are the ones that keep growing no matter what \u2014 everything else found above is now compressed and largely static.</p>
+            <h4 style="margin:20px 0 6px;">Growth Analysis &mdash; Categories That Can't Be Pruned Below Their Legal Floor</h4>
+            <p class="form-note" style="margin-top:0;">Based on actual record dates and measured file sizes, not an estimate. These three categories are the ones that keep growing no matter what &mdash; everything else found above is now compressed and largely static.</p>
             <table style="width:100%; border-collapse:collapse; font-size:13px;">
               <thead><tr>
                 <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Category</th>
@@ -4778,7 +4778,7 @@
 
         <div class="panel">
           <h3>Re-Compress Existing Files</h3>
-          <p class="form-note">Some files were uploaded before this app compressed uploads automatically \u2014 this re-runs that same compression against every existing Configuration doc, Marketing Material, EIN letter, DOT inspection file, and driver document already on file, and saves the smaller version wherever it actually helps. Nothing is deleted; a file only gets replaced if the recompressed version is genuinely smaller. This can take a few minutes for a lot of files.</p>
+          <p class="form-note">Re-runs compression against every existing Configuration doc, Marketing Material, EIN letter, DOT inspection file, driver document, and Move Paperwork upload already on file, and saves the smaller version wherever it actually helps. Move Paperwork specifically gets recompressed at a tighter setting than it was originally saved at &mdash; visually confirmed to stay fully legible &mdash; since it's the single largest, continuously-growing category. Nothing is deleted; a file only gets replaced if the recompressed version is genuinely smaller. This can take a while for a lot of files.</p>
           <div class="form-actions">
             <button class="btn-primary" id="set_recompressBtn" type="button">Re-Compress Existing Files</button>
             <span class="status-msg" id="set_recompressStatus"></span>
@@ -6275,7 +6275,9 @@
     return images;
   }
 
-  async function compressPdfFile(file){
+  async function compressPdfFile(file, targetWidth, jpegQuality){
+    targetWidth = targetWidth || 1600;
+    jpegQuality = jpegQuality || 0.75;
     try{
       const typedArray = new Uint8Array(await file.arrayBuffer());
       const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
@@ -6287,7 +6289,6 @@
         // using it directly for the output page size preserves the original physical
         // page dimensions exactly, with no unit-conversion ambiguity.
         const baseViewport = page.getViewport({ scale: 1 });
-        const targetWidth = 1600;
         const renderScale = Math.min(targetWidth / baseViewport.width, 2); // never upscale beyond 2x native resolution
         const renderViewport = page.getViewport({ scale: renderScale });
         const canvas = document.createElement('canvas');
@@ -6295,7 +6296,7 @@
         canvas.height = renderViewport.height;
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-        const jpegDataUri = canvas.toDataURL('image/jpeg', 0.75);
+        const jpegDataUri = canvas.toDataURL('image/jpeg', jpegQuality);
 
         // Page format and addImage both use the original point dimensions, so the
         // physical page size matches the source PDF exactly. The image itself is
@@ -6324,16 +6325,23 @@
 
   // Single entry point for compressing an upload before it's stored --
   // used wherever legibility (not print/visual fidelity) is the goal:
-  // Completed Paperwork Storage, Fleet Maintenance invoices. Never returns
-  // something larger than the original; if compression doesn't actually
-  // help (or the library isn't loaded, or the file type isn't PDF/image),
-  // the original file is used untouched. Returns
-  // {dataUri, wasCompressed, originalSize, finalSize}.
-  async function compressUploadedFile(file){
+  // Completed Paperwork Storage, Fleet Maintenance invoices, Configuration
+  // docs, Marketing Materials, and several Compliance uploads. Never
+  // returns something larger than the original; if compression doesn't
+  // actually help (or the library isn't loaded, or the file type isn't
+  // PDF/image), the original file is used untouched. Optional width/quality
+  // let a specific caller compress more aggressively than the default --
+  // used for Move Paperwork specifically, since it's the single largest,
+  // continuously-growing category and visually confirmed to stay fully
+  // legible at these tighter settings. Every other caller is unaffected.
+  // Returns {dataUri, wasCompressed, originalSize, finalSize}.
+  async function compressUploadedFile(file, imageMaxDimension, imageQuality, pdfTargetWidth, pdfQuality){
+    imageMaxDimension = imageMaxDimension || 1600;
+    imageQuality = imageQuality || 0.8;
     const originalSize = file.size;
     try{
       if(file.type === 'application/pdf' && window.pdfjsLib && window.jspdf){
-        const compressedDataUri = await compressPdfFile(file);
+        const compressedDataUri = await compressPdfFile(file, pdfTargetWidth, pdfQuality);
         if(compressedDataUri){
           const finalSize = dataUriByteSize(compressedDataUri);
           if(finalSize < originalSize){
@@ -6341,7 +6349,7 @@
           }
         }
       } else if(file.type.startsWith('image/')){
-        const compressedDataUri = await compressImageForUpload(file, 1600, 0.8);
+        const compressedDataUri = await compressImageForUpload(file, imageMaxDimension, imageQuality);
         const finalSize = dataUriByteSize(compressedDataUri);
         if(finalSize < originalSize){
           return { dataUri: compressedDataUri, wasCompressed: true, originalSize, finalSize };
@@ -11429,7 +11437,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function recompressExistingFiles(onProgress){
     let filesChecked = 0, filesShrunk = 0, savedBytes = 0;
 
-    async function tryRecompressKey(key, isWrapped){
+    async function tryRecompressKey(key, isWrapped, compressionArgs){
       let existing;
       try{ existing = await window.dashboardApi.get(key, null); }
       catch(err){ return; }
@@ -11440,7 +11448,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const originalBytes = dataUriByteSize(dataUri);
       try{
         const blob = settingsDataUriToBlob(dataUri);
-        const compressed = await window.compressUploadedFile(blob);
+        const args = compressionArgs || [];
+        const compressed = await window.compressUploadedFile(blob, ...args);
         if(compressed.wasCompressed && compressed.finalSize < originalBytes){
           const toSave = isWrapped ? Object.assign({}, existing, { dataUri: compressed.dataUri }) : compressed.dataUri;
           const ok = await window.dashboardApi.set(key, toSave);
@@ -11471,13 +11480,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
     }
 
+    // Move Paperwork -- the single largest, continuously-growing category.
+    // Uses the same tighter settings (1400px/65%) new uploads already get,
+    // visually confirmed to stay fully legible. Everything above still uses
+    // the default settings, unchanged.
+    const paperworkUploadsList = await window.dashboardApi.get('paperwork-uploads', []) || [];
+    for(const u of paperworkUploadsList) await tryRecompressKey('paperwork-upload-' + u.id, false, [1400, 0.65, 1400, 0.65]);
+
     return { filesChecked, filesShrunk, savedBytes };
   }
 
   document.getElementById('set_recompressBtn').addEventListener('click', async ()=>{
     const btn = document.getElementById('set_recompressBtn');
     const statusEl = document.getElementById('set_recompressStatus');
-    if(!confirm('This will check every Configuration doc, Marketing Material, EIN letter, DOT inspection file, and driver document already on file, and replace any that shrink with a smaller version. Nothing is deleted, and a file is only replaced if the result is genuinely smaller. Continue?')) return;
+    if(!confirm('This will check every Configuration doc, Marketing Material, EIN letter, DOT inspection file, driver document, and Move Paperwork upload already on file, and replace any that shrink with a smaller version. Move Paperwork specifically will be recompressed at a tighter setting than it was originally saved at (visually confirmed to stay fully legible) to meaningfully reduce long-term storage. Nothing is deleted, and a file is only replaced if the result is genuinely smaller. Continue?')) return;
     btn.disabled = true;
     statusEl.textContent = 'Starting\u2026';
     statusEl.className = 'status-msg';
@@ -18543,7 +18559,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     const uploadId = 'upload_' + Date.now() + '_' + Math.floor(Math.random()*1000);
     try{
-      const compressed = await window.compressUploadedFile(file);
+      // Tighter settings than this function's default -- Move Paperwork is
+      // the single largest, continuously-growing category subject to
+      // Georgia's 6-month retention floor, so it's the one place a more
+      // aggressive compression trade-off actually changes what storage tier
+      // is needed. Visually confirmed at these settings to stay fully
+      // legible (text, numbers, and signatures all still crisp).
+      const compressed = await window.compressUploadedFile(file, 1400, 0.65, 1400, 0.65);
       if(compressed.finalSize > 10 * 1024 * 1024){
         return { ok: false, message: 'That file is still over 10MB after compression \u2014 please use a smaller file.' };
       }
