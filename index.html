@@ -4763,6 +4763,15 @@
             </table>
           </div>
         </div>
+
+        <div class="panel">
+          <h3>Re-Compress Existing Files</h3>
+          <p class="form-note">Some files were uploaded before this app compressed uploads automatically \u2014 this re-runs that same compression against every existing Configuration doc, Marketing Material, EIN letter, DOT inspection file, and driver document already on file, and saves the smaller version wherever it actually helps. Nothing is deleted; a file only gets replaced if the recompressed version is genuinely smaller. This can take a few minutes for a lot of files.</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="set_recompressBtn" type="button">Re-Compress Existing Files</button>
+            <span class="status-msg" id="set_recompressStatus"></span>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -7634,8 +7643,8 @@
     statusEl.textContent = 'Uploading...';
     statusEl.className = 'status-msg';
     try{
-      const dataUri = await compReadFileAsDataUri(file);
-      const ok = await window.dashboardApi.set('compliance-doc-ein-letter', { dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
+      const compressed = await window.compressUploadedFile(file);
+      const ok = await window.dashboardApi.set('compliance-doc-ein-letter', { dataUri: compressed.dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
       if(ok){
         statusEl.textContent = `Uploaded "${file.name}".`;
         statusEl.className = 'status-msg ok';
@@ -7925,8 +7934,8 @@
     let hasFile = false;
     if(file){
       try{
-        const dataUri = await compReadFileAsDataUri(file);
-        hasFile = await window.dashboardApi.set('compliance-doc-' + recId, dataUri);
+        const compressed = await window.compressUploadedFile(file);
+        hasFile = await window.dashboardApi.set('compliance-doc-' + recId, compressed.dataUri);
       }catch(err){ console.error('Inspection file upload failed:', err); }
     }
     compDotInspections.push({ id: recId, truckId: compSelectedTruckId, date, result, location, notes, hasFile });
@@ -8303,8 +8312,8 @@
       const key = e.target.dataset.key;
       if(file.size > 10*1024*1024){ alert('That file is over 10MB.'); e.target.value = ''; return; }
       try{
-        const dataUri = await compReadFileAsDataUri(file);
-        const ok = await window.dashboardApi.set(driverDocKey(name, key), { dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
+        const compressed = await window.compressUploadedFile(file);
+        const ok = await window.dashboardApi.set(driverDocKey(name, key), { dataUri: compressed.dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
         if(ok){ renderDriverDocUploads(name); }
         else { alert('Save failed \u2014 check your connection.'); }
       }catch(err){ console.error('Driver doc upload failed:', err); alert('Upload failed \u2014 check your connection.'); }
@@ -11292,8 +11301,8 @@
     let thumbnailDataUri = null;
     if(file){
       try{
-        const dataUri = await readFileAsDataUri(file);
-        hasFile = await window.dashboardApi.set('marketing-material-doc-' + recId, dataUri);
+        const compressed = await window.compressUploadedFile(file);
+        hasFile = await window.dashboardApi.set('marketing-material-doc-' + recId, compressed.dataUri);
         thumbnailDataUri = await generateMaterialThumbnail(file);
       }catch(err){ console.error('Material file upload failed:', err); }
     }
@@ -11385,6 +11394,97 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     d.textContent = s == null ? '' : String(s);
     return d.innerHTML;
   }
+
+  function settingsDataUriToBlob(dataUri){
+    const [header, base64] = dataUri.split(',');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i++){ bytes[i] = binary.charCodeAt(i); }
+    return new Blob([bytes], { type: mime });
+  }
+
+  // Re-runs the existing, proven compression pipeline against files that
+  // were uploaded before that pipeline was wired into their upload path
+  // (fixed separately, but that only affects new uploads from here on).
+  // Covers every category the storage audit found storing raw,
+  // uncompressed files: Configuration docs, Marketing Materials, the EIN
+  // letter, DOT inspection files, and driver documents. Only overwrites a
+  // stored file if the recompressed version actually turns out smaller.
+  // onProgress(checked, shrunk, savedBytes) is called after every file, so
+  // the UI can show live progress on what may be a slow, multi-file pass.
+  async function recompressExistingFiles(onProgress){
+    let filesChecked = 0, filesShrunk = 0, savedBytes = 0;
+
+    async function tryRecompressKey(key, isWrapped){
+      let existing;
+      try{ existing = await window.dashboardApi.get(key, null); }
+      catch(err){ return; }
+      if(!existing) return;
+      const dataUri = isWrapped ? existing.dataUri : existing;
+      if(!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:')) return;
+      filesChecked++;
+      const originalBytes = dataUriByteSize(dataUri);
+      try{
+        const blob = settingsDataUriToBlob(dataUri);
+        const compressed = await window.compressUploadedFile(blob);
+        if(compressed.wasCompressed && compressed.finalSize < originalBytes){
+          const toSave = isWrapped ? Object.assign({}, existing, { dataUri: compressed.dataUri }) : compressed.dataUri;
+          const ok = await window.dashboardApi.set(key, toSave);
+          if(ok){
+            savedBytes += (originalBytes - compressed.finalSize);
+            filesShrunk++;
+          }
+        }
+      }catch(err){ console.error('Re-compress failed for', key, err); }
+      if(onProgress) onProgress(filesChecked, filesShrunk, savedBytes);
+    }
+
+    const configFiles = await window.dashboardApi.get(SETTINGS_CONFIG_FILES_KEY, []) || [];
+    for(const f of configFiles) await tryRecompressKey('settings-config-doc-' + f.id, false);
+
+    const matRecords = await window.dashboardApi.get('mail-marketing-materials', []) || [];
+    for(const m of matRecords){ if(m.hasFile) await tryRecompressKey('marketing-material-doc-' + m.id, false); }
+
+    await tryRecompressKey('compliance-doc-ein-letter', true);
+
+    const dotInspections = await window.dashboardApi.get('compliance-truck-dot-inspections', []) || [];
+    for(const d of dotInspections){ if(d.hasFile) await tryRecompressKey('compliance-doc-' + d.id, false); }
+
+    const drivers = await window.dashboardApi.get('compliance-drivers', []) || [];
+    for(const driver of drivers){
+      for(const dt of DRIVER_DOC_TYPES){
+        await tryRecompressKey(driverDocKey(driver.employeeName, dt.key), true);
+      }
+    }
+
+    return { filesChecked, filesShrunk, savedBytes };
+  }
+
+  document.getElementById('set_recompressBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('set_recompressBtn');
+    const statusEl = document.getElementById('set_recompressStatus');
+    if(!confirm('This will check every Configuration doc, Marketing Material, EIN letter, DOT inspection file, and driver document already on file, and replace any that shrink with a smaller version. Nothing is deleted, and a file is only replaced if the result is genuinely smaller. Continue?')) return;
+    btn.disabled = true;
+    statusEl.textContent = 'Starting\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const result = await recompressExistingFiles((checked, shrunk, savedBytes) => {
+        statusEl.textContent = `Checked ${checked} \u2014 ${shrunk} shrunk so far, ${window.fmtBytes(savedBytes)} saved\u2026`;
+      });
+      statusEl.textContent = result.filesShrunk > 0
+        ? `Done. Checked ${result.filesChecked} files, shrank ${result.filesShrunk}, saved ${window.fmtBytes(result.savedBytes)}.`
+        : `Done. Checked ${result.filesChecked} files \u2014 nothing needed shrinking.`;
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Re-compress existing files failed:', err);
+      statusEl.textContent = 'Something went wrong partway through \u2014 check your connection and try again. Files already shrunk are saved; nothing is lost by re-running this.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.disabled = false;
+    }
+  });
 
   document.getElementById('set_storageAuditBtn').addEventListener('click', async ()=>{
     const btn = document.getElementById('set_storageAuditBtn');
@@ -12001,8 +12101,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const notes = document.getElementById('set_configNotes').value.trim();
     const fileId = 'config_' + Date.now() + '_' + Math.floor(Math.random()*1000);
     try{
-      const dataUri = await setReadFileAsDataUri(file);
-      const blobOk = await window.dashboardApi.set('settings-config-doc-' + fileId, dataUri);
+      const compressed = await window.compressUploadedFile(file);
+      const blobOk = await window.dashboardApi.set('settings-config-doc-' + fileId, compressed.dataUri);
       if(!blobOk) throw new Error('Blob save failed');
       const files = await window.dashboardApi.get(SETTINGS_CONFIG_FILES_KEY, []);
       files.push({ id: fileId, fileType, fileName: file.name, notes, uploadedAt: new Date().toISOString() });
@@ -18300,10 +18400,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         let invoiceFileKey = job.invoiceFileKey || null;
         if(r.originalFile){
           invoiceFileKey = `junk-removal-invoice-${job.id}`;
-          const compressed = r.originalFile.type.startsWith('image/')
-            ? await window.compressImageForUpload(r.originalFile, 2000, 0.92)
-            : await puReadFileAsDataUri(r.originalFile);
-          await window.dashboardApi.set(invoiceFileKey, compressed);
+          const compressed = await window.compressUploadedFile(r.originalFile);
+          await window.dashboardApi.set(invoiceFileKey, compressed.dataUri);
         }
 
         job.invoiceTotal = invoiceTotal;
