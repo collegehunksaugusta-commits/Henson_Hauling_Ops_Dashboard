@@ -3302,6 +3302,7 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
 // fleet API. Read-only -- never creates, updates, or dispatches anything
 // in Motive.
 app.get('/api/motive-locations', requireAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store'); // live GPS data -- never serve a stale/cached copy
   const apiKey = process.env.MOTIVE_API_KEY;
   if (!apiKey) {
     console.error('Motive locations requested but MOTIVE_API_KEY is not set.');
@@ -3334,6 +3335,18 @@ app.get('/api/motive-locations', requireAuth, async (req, res) => {
       allVehicles.push(...vehicles);
       hasMore = vehicles.length === perPage; // a full page means there could be more
       pageNo++;
+    }
+
+    // Temporary diagnostic: shows exactly what Motive returned, so an empty
+    // result can be told apart from "Motive has vehicles but their shape
+    // doesn't match what this code expects."
+    console.log(`Motive returned ${allVehicles.length} total vehicle(s).`);
+    if (allVehicles.length > 0) {
+      const sample = allVehicles[0];
+      console.log('Sample vehicle (first one):', JSON.stringify(sample).slice(0, 1000));
+      const withLocation = allVehicles.filter(v => v.current_location).length;
+      const withValidLatLon = allVehicles.filter(v => v.current_location && typeof v.current_location.lat === 'number' && typeof v.current_location.lon === 'number').length;
+      console.log(`Of those, ${withLocation} have a current_location object, ${withValidLatLon} have valid numeric lat/lon.`);
     }
 
     const trucks = allVehicles
