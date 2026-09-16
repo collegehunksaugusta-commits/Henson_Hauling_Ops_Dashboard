@@ -505,7 +505,7 @@
         <label>Driver <div id="pti_driverNameDisplay" style="padding:9px 0; font-weight:600;"></div></label>
         <label>Odometer (optional) <input type="text" id="pti_odometer" inputmode="numeric" placeholder="e.g. 84213"></label>
       </div>
-      <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
+      <p class="form-note" id="pti_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Regulatory Compliance tile, under Trucks.</p>
     </div>
 
     <div id="pti_materialsSection" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
@@ -611,7 +611,7 @@
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px;">
       <label>Truck <select id="tdocs_truck"></select></label>
-      <p class="form-note" id="tdocs_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
+      <p class="form-note" id="tdocs_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Regulatory Compliance tile, under Trucks.</p>
       <div id="tdocs_docList" style="margin-top:14px;"></div>
     </div>
   </div>
@@ -628,7 +628,7 @@
         <label>Truck <select id="eod_truck"></select></label>
         <label>Driver <div id="eod_driverNameDisplay" style="padding:9px 0; font-weight:600;"></div></label>
       </div>
-      <p class="form-note" id="eod_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Fleet Maintenance tile.</p>
+      <p class="form-note" id="eod_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Regulatory Compliance tile, under Trucks.</p>
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
@@ -1010,7 +1010,7 @@
       const trucksList = data.trucks || [];
       if(trucksList.length === 0){
         sel.innerHTML = '';
-        noTrucksNote.textContent = 'No trucks are set up yet \u2014 ask your administrator to add one on the Fleet Maintenance tile.';
+        noTrucksNote.textContent = 'No trucks are set up yet \u2014 ask your administrator to add one on the Regulatory Compliance tile, under Trucks.';
         noTrucksNote.style.display = 'block';
         document.getElementById('tdocs_docList').innerHTML = '';
       } else {
@@ -1186,7 +1186,7 @@
       const trucks = data.trucks || [];
       if(trucks.length === 0){
         sel.innerHTML = '';
-        noTrucksNote.textContent = 'No trucks are set up yet \u2014 ask your administrator to add one on the Fleet Maintenance tile.';
+        noTrucksNote.textContent = 'No trucks are set up yet \u2014 ask your administrator to add one on the Regulatory Compliance tile, under Trucks.';
         noTrucksNote.style.display = 'block';
       } else {
         noTrucksNote.style.display = 'none';
@@ -2582,7 +2582,7 @@
             <span class="dashSectionCount">(3)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-trucks">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Motive, Fleet Maintenance, Regulatory Compliance</div>
+          <div class="dashSectionTileList">Motive, Regulatory Compliance</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2592,17 +2592,11 @@
         <h3>Motive</h3>
         <p>Fleet tracking and ELD dashboard</p>
       </a>
-      <div class="tile" id="tile-fleet" tabindex="0" role="button" aria-label="Open Fleet Maintenance">
-        <span class="badge" id="fleetTileBadge" style="display:none;">Service Due</span>
-        <span class="icon">🚚</span>
-        <h3>Fleet Maintenance</h3>
-        <p>Truck inventory and maintenance log, with reminders when service is due.</p>
-      </div>
       <div class="tile" id="tile-compliance" tabindex="0" role="button" aria-label="Open Regulatory Compliance">
         <span class="badge" id="complianceTileBadge" style="display:none;">Attention Needed</span>
         <span class="icon">🛡️</span>
         <h3>Regulatory Compliance</h3>
-        <p>Business authorizations, truck safety records, and driver qualification files.</p>
+        <p>Business authorizations, truck inventory and maintenance, safety records, and driver qualification files.</p>
       </div>
         </div>
       </div>
@@ -3703,108 +3697,6 @@
     </div>
   </div>
 
-  <!-- ============ FLEET MAINTENANCE DETAIL ============ -->
-  <div id="fleetDetail" style="display:none;">
-    <button class="backlink" id="fleetBackBtn">&larr; Dispatch</button>
-    <div class="wrap">
-      <div class="detail-head">
-        <h2 class="display">Fleet Maintenance</h2>
-        <p>Truck inventory and maintenance log.</p>
-      </div>
-
-      <div class="panel" id="truckInventoryPanel">
-        <h3>Truck Inventory</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
-          <thead><tr>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">VIN</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Year</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Make</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Model</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Style</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
-            <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
-          </tr></thead>
-          <tbody id="truckRows"></tbody>
-        </table>
-
-        <button class="addweek-toggle" id="addTruckToggle" style="margin-top:14px;">+ Add Truck</button>
-        <div id="addTruckForm" class="panel" style="display:none; margin-top:12px;">
-          <div class="form-grid">
-            <label>Nickname <input type="text" id="t_nickname"></label>
-            <label>VIN <input type="text" id="t_vin"></label>
-            <label>Year <input type="number" id="t_year" step="1"></label>
-            <label>Make <input type="text" id="t_make"></label>
-            <label>Model <input type="text" id="t_model"></label>
-            <label>Style
-              <select id="t_style">
-                <option value="Box Truck">Box Truck</option>
-                <option value="Dump Truck">Dump Truck</option>
-                <option value="Pickup Truck">Pickup Truck</option>
-                <option value="Car">Car</option>
-                <option value="Other">Other</option>
-              </select>
-            </label>
-            <label>Length (ft, if applicable) <input type="number" id="t_length" step="0.1"></label>
-          </div>
-          <div class="form-actions">
-            <button class="btn-primary" id="saveTruckBtn" type="button">Save Truck</button>
-            <span class="status-msg" id="truckStatus"></span>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel" id="maintenanceLogPanel">
-        <h3 id="maintenanceLogHeading">Log Maintenance</h3>
-        <div class="form-grid">
-          <label>Truck
-            <select id="m_truck"></select>
-          </label>
-          <label>Date of Maintenance <input type="date" id="m_date"></label>
-          <label>Next Required Maintenance (date) <input type="date" id="m_nextDue"></label>
-          <label>Mileage at Time of Maintenance <input type="number" id="m_mileage" step="1" min="0"></label>
-        </div>
-        <label>Description of Maintenance <textarea id="m_description" rows="3" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
-        <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:12px;">
-          Invoice (optional, PDF or photo, up to 10MB)
-          <input type="file" id="m_invoice" accept=".pdf,.jpg,.jpeg,.png,.heic" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
-        </label>
-        <p class="form-note" id="m_invoiceNote" style="display:none;">
-          This entry already has an invoice attached. Leave the field above blank to keep it, choose a new file to replace it, or
-          <button type="button" id="m_removeInvoiceBtn" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; padding:0; font-size:inherit; font-family:inherit;">remove it</button>.
-        </p>
-        <p class="form-note" id="m_invoiceRemovePendingNote" style="display:none; color:#b3261e;">
-          Invoice will be removed when you save.
-          <button type="button" id="m_undoRemoveInvoiceBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:inherit; font-family:inherit;">Undo</button>
-        </p>
-        <div class="form-actions">
-          <button class="btn-primary" id="saveMaintenanceBtn" type="button">Save Maintenance Entry</button>
-          <button id="cancelEditBtn" type="button" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel Edit</button>
-          <span class="status-msg" id="maintenanceStatus"></span>
-        </div>
-      </div>
-
-      <div class="panel" id="maintenanceHistoryPanel">
-        <h3>Maintenance History</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
-          <thead><tr>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Truck</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Next Due</th>
-            <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Invoice</th>
-            <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
-          </tr></thead>
-          <tbody id="maintenanceRows"></tbody>
-        </table>
-      </div>
-
-    </div>
-  </div>
-
   <!-- ============ ATTENDANCE TRACKING DETAIL ============ -->
   <div id="attendanceDetail" style="display:none;">
     <button class="backlink" id="attendanceBackBtn">&larr; Dispatch</button>
@@ -3940,10 +3832,54 @@
 
       <!-- ---- TRUCKS ---- -->
       <div id="comp_trucks" class="comp-section" style="display:none;">
+        <div class="panel" id="truckInventoryPanel">
+          <h3>Truck Inventory</h3>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">VIN</th>
+              <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Year</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Make</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Model</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Style</th>
+              <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th>
+              <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
+              <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="truckRows"></tbody>
+          </table>
+
+          <button class="addweek-toggle" id="addTruckToggle" style="margin-top:14px;">+ Add Truck</button>
+          <div id="addTruckForm" class="panel" style="display:none; margin-top:12px;">
+            <div class="form-grid">
+              <label>Nickname <input type="text" id="t_nickname"></label>
+              <label>VIN <input type="text" id="t_vin"></label>
+              <label>Year <input type="number" id="t_year" step="1"></label>
+              <label>Make <input type="text" id="t_make"></label>
+              <label>Model <input type="text" id="t_model"></label>
+              <label>Style
+                <select id="t_style">
+                  <option value="Box Truck">Box Truck</option>
+                  <option value="Dump Truck">Dump Truck</option>
+                  <option value="Pickup Truck">Pickup Truck</option>
+                  <option value="Car">Car</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+              <label>Length (ft, if applicable) <input type="number" id="t_length" step="0.1"></label>
+            </div>
+            <div class="form-actions">
+              <button class="btn-primary" id="saveTruckBtn" type="button">Save Truck</button>
+              <span class="status-msg" id="truckStatus"></span>
+            </div>
+          </div>
+        </div>
+
         <div class="panel" id="comp_truckSelectPanel">
           <h3>Select a Truck</h3>
           <label>Truck <select id="comp_truckSelect"></select></label>
-          <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found &mdash; add one on the Fleet Maintenance tile first.</p>
+          <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found &mdash; add one above first.</p>
         </div>
 
         <div class="panel" id="comp_ptiPanel">
@@ -4051,6 +3987,52 @@
             <tbody id="comp_vio_rows"></tbody>
           </table>
         </div>
+
+        <div class="panel" id="maintenanceLogPanel">
+          <h3 id="maintenanceLogHeading">Log Maintenance</h3>
+          <div class="form-grid">
+            <label>Truck
+              <select id="m_truck"></select>
+            </label>
+            <label>Date of Maintenance <input type="date" id="m_date"></label>
+            <label>Next Required Maintenance (date) <input type="date" id="m_nextDue"></label>
+            <label>Mileage at Time of Maintenance <input type="number" id="m_mileage" step="1" min="0"></label>
+          </div>
+          <label>Description of Maintenance <textarea id="m_description" rows="3" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:12px;">
+            Invoice (optional, PDF or photo, up to 10MB)
+            <input type="file" id="m_invoice" accept=".pdf,.jpg,.jpeg,.png,.heic" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
+          </label>
+          <p class="form-note" id="m_invoiceNote" style="display:none;">
+            This entry already has an invoice attached. Leave the field above blank to keep it, choose a new file to replace it, or
+            <button type="button" id="m_removeInvoiceBtn" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; padding:0; font-size:inherit; font-family:inherit;">remove it</button>.
+          </p>
+          <p class="form-note" id="m_invoiceRemovePendingNote" style="display:none; color:#b3261e;">
+            Invoice will be removed when you save.
+            <button type="button" id="m_undoRemoveInvoiceBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:inherit; font-family:inherit;">Undo</button>
+          </p>
+          <div class="form-actions">
+            <button class="btn-primary" id="saveMaintenanceBtn" type="button">Save Maintenance Entry</button>
+            <button id="cancelEditBtn" type="button" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel Edit</button>
+            <span class="status-msg" id="maintenanceStatus"></span>
+          </div>
+        </div>
+
+        <div class="panel" id="maintenanceHistoryPanel">
+          <h3>Maintenance History</h3>
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Truck</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
+              <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Next Due</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Invoice</th>
+              <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="maintenanceRows"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- ---- DRIVERS ---- -->
@@ -4105,7 +4087,7 @@
         <div class="panel" id="comp_insTruckSelectPanel">
           <h3>Vehicle Registration &amp; Insurance Cards</h3>
           <label>Truck <select id="comp_insTruckSelect"></select></label>
-          <p class="form-note" id="comp_insNoTrucksNote" style="display:none;">No trucks found &mdash; add one on the Fleet Maintenance tile first.</p>
+          <p class="form-note" id="comp_insNoTrucksNote" style="display:none;">No trucks found &mdash; add one on the Trucks tab above first.</p>
           <div id="comp_insTruckDocUploads" style="margin-top:14px;"></div>
         </div>
 
@@ -5024,7 +5006,6 @@
   const detail = document.getElementById('detail');
   const calcDetail = document.getElementById('calcDetail');
   const paperworkDetail = document.getElementById('paperworkDetail');
-  const fleetDetail = document.getElementById('fleetDetail');
   const attendanceDetail = document.getElementById('attendanceDetail');
   const complianceDetail = document.getElementById('complianceDetail');
   const settingsDetail = document.getElementById('settingsDetail');
@@ -5042,7 +5023,6 @@
     detail.style.display = view === 'labor' ? 'block' : 'none';
     calcDetail.style.display = view === 'calc' ? 'block' : 'none';
     paperworkDetail.style.display = view === 'paperwork' ? 'block' : 'none';
-    fleetDetail.style.display = view === 'fleet' ? 'block' : 'none';
     attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
     complianceDetail.style.display = view === 'compliance' ? 'block' : 'none';
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
@@ -5057,13 +5037,11 @@
     if(view === 'labor'){
       loadWeeks();
     }
-    if(view === 'fleet'){
-      loadFleetData();
-    }
     if(view === 'attendance'){
       loadAttendanceData();
     }
     if(view === 'compliance'){
+      loadFleetData();
       loadComplianceData();
     }
     if(view === 'settings'){
@@ -5218,10 +5196,6 @@
   document.getElementById('tile-paperwork').addEventListener('click', ()=> navigateTo('paperwork'));
   document.getElementById('tile-paperwork').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('paperwork'); }});
   document.getElementById('paperworkBackBtn').addEventListener('click', ()=> history.back());
-
-  document.getElementById('tile-fleet').addEventListener('click', ()=> navigateTo('fleet'));
-  document.getElementById('tile-fleet').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('fleet'); }});
-  document.getElementById('fleetBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('tile-attendance').addEventListener('click', ()=> navigateTo('attendance'));
   document.getElementById('tile-attendance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('attendance'); }});
@@ -6075,23 +6049,13 @@
     catch(err){ console.error('Save logs failed:', err); return false; }
   }
 
+  // Fleet Maintenance no longer has its own tile -- overdue/due-soon
+  // maintenance now feeds into the Regulatory Compliance tile's badge
+  // instead. Kept as a wrapper (rather than renaming every call site) since
+  // callers throughout this file still call updateFleetTileBadge() after
+  // any truck/maintenance change.
   function updateFleetTileBadge(){
-    const anyOverdue = trucks.some(t => getTruckStatus(t.id) === 'overdue');
-    const anyWarning = trucks.some(t => getTruckStatus(t.id) === 'warning');
-    const tile = document.getElementById('tile-fleet');
-    const badge = document.getElementById('fleetTileBadge');
-    tile.classList.remove('attention', 'warning');
-    if(anyOverdue){
-      tile.classList.add('attention');
-      badge.textContent = 'Service Due';
-      badge.style.display = 'inline-block';
-    } else if(anyWarning){
-      tile.classList.add('warning');
-      badge.textContent = 'Service Due Soon';
-      badge.style.display = 'inline-block';
-    } else {
-      badge.style.display = 'none';
-    }
+    updateComplianceTileBadge();
   }
 
   function renderTruckTable(){
@@ -6674,8 +6638,9 @@
     document.getElementById('m_invoiceNote').style.display = 'block';
   });
 
-  // Check fleet status on initial page load so the home tile reflects it immediately,
-  // even before the user opens the Fleet Maintenance tile.
+  // Check truck/maintenance status on initial page load so the Regulatory
+  // Compliance tile's badge reflects it immediately, even before the user
+  // opens that tile.
   (async ()=>{
     try{
       const [t, l] = await Promise.all([
@@ -7710,7 +7675,10 @@
     const authDue = compAuthorizations.some(a => a.applies && a.dueDate && a.dueDate <= warnStr);
     const driverDue = compDrivers.some(d => d.active && d.physicalExpiration && d.physicalExpiration <= warnStr);
     const ptiDefects = compPretripInspections.some(r => r.overallStatus === 'defects' && !r.resolved);
-    const anyDue = authDue || driverDue || ptiDefects;
+    // Trucks moved here from the old standalone Fleet Maintenance tile --
+    // overdue or due-soon maintenance now shows on this tile's badge too.
+    const maintenanceDue = trucks.some(t => { const s = getTruckStatus(t.id); return s === 'overdue' || s === 'warning'; });
+    const anyDue = authDue || driverDue || ptiDefects || maintenanceDue;
     const tile = document.getElementById('tile-compliance');
     const badge = document.getElementById('complianceTileBadge');
     if(anyDue){
@@ -9123,7 +9091,7 @@
   // future badge-toggling function keeps working exactly as it does today --
   // nothing scattered elsewhere in this file needs to know sections exist.
   (function watchTileBadgesForAttentionSync(){
-    const badgeIds = ['fleetTileBadge', 'complianceTileBadge', 'mailListTileBadge', 'materialsTileBadge', 'damageClaimTileBadge', 'managerReviewTileBadge'];
+    const badgeIds = ['complianceTileBadge', 'mailListTileBadge', 'materialsTileBadge', 'damageClaimTileBadge', 'managerReviewTileBadge'];
     const observer = new MutationObserver(updateDashSectionAttentionBadges);
     badgeIds.forEach(id => {
       const el = document.getElementById(id);
@@ -11430,7 +11398,7 @@
   const DEFAULT_HANDOFF_GUIDE = `COLLEGE HUNKS-AUGUSTA OPS DASHBOARD \u2014 BUSINESS HANDOFF GUIDE
 
 WHAT THIS IS
-A web-based operations dashboard covering Labor Cost tracking, Long Distance Move estimates, Paperwork (including digital signing), Fleet Maintenance, Attendance Tracking, Regulatory Compliance, and user logins. Built specifically for the College Hunks Hauling Junk & Moving franchise in Augusta, GA.
+A web-based operations dashboard covering Labor Cost tracking, Long Distance Move estimates, Paperwork (including digital signing), Attendance Tracking, Regulatory Compliance (including truck inventory and maintenance), and user logins. Built specifically for the College Hunks Hauling Junk & Moving franchise in Augusta, GA.
 
 HOW IT'S BUILT
 - Frontend: a single static HTML file (index.html) with embedded CSS/JavaScript. No build step, no framework -- just open it in a browser.
