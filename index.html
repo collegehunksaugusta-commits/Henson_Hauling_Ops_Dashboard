@@ -440,6 +440,18 @@
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Truck Locations</h3>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="status-msg" id="driverTruckMapStatus" style="font-size:11px;"></span>
+          <button type="button" id="driverTruckMapRefreshBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:11px; cursor:pointer;">Refresh</button>
+        </div>
+      </div>
+      <div id="driverTruckMapContainer" style="height:220px; border-radius:6px; background:var(--offwhite);"></div>
+      <p class="form-note" id="driverTruckMapEmptyNote" style="display:none; margin:8px 0 0;">No truck locations available right now.</p>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
       <button type="button" id="driverLbPanelToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
         <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Captain Leaderboard</h3>
         <span id="driverLbPanelChevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;">&#9656;</span>
@@ -868,7 +880,95 @@
     document.getElementById('driverMovingView').style.display = 'none';
     loadDriverLeaderboard();
     updateDriverTileVisibility();
+    driverLoadTruckMap();
   }
+
+  // Mirrors the admin loadTruckMap() function, but authenticated via the
+  // driver's own session token against the separate /api/driver/... endpoint
+  // -- a driver token can't be used against the admin-only one.
+  let driverTruckMapInstance = null;
+  async function driverLoadTruckMap(){
+    const statusEl = document.getElementById('driverTruckMapStatus');
+    const containerEl = document.getElementById('driverTruckMapContainer');
+    const emptyNote = document.getElementById('driverTruckMapEmptyNote');
+
+    if(typeof L === 'undefined'){
+      statusEl.textContent = '';
+      containerEl.style.display = 'none';
+      emptyNote.style.display = 'block';
+      emptyNote.textContent = 'Map library failed to load \u2014 check your connection and refresh the page.';
+      return;
+    }
+
+    statusEl.textContent = 'Loading\u2026';
+    statusEl.className = 'status-msg';
+
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/motive-locations', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = '';
+        emptyNote.style.display = 'block';
+        emptyNote.textContent = data.error || 'Could not reach Motive.';
+        containerEl.style.display = 'none';
+        if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
+        return;
+      }
+      const trucks = data.trucks || [];
+
+      if(trucks.length === 0){
+        statusEl.textContent = '';
+        containerEl.style.display = 'none';
+        emptyNote.style.display = 'block';
+        emptyNote.textContent = 'No truck locations available right now.';
+        if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
+        return;
+      }
+
+      emptyNote.style.display = 'none';
+      containerEl.style.display = 'block';
+      statusEl.textContent = `${trucks.length} truck${trucks.length===1?'':'s'}`;
+      statusEl.className = 'status-msg ok';
+
+      // Rebuild the map fresh each refresh -- simpler and more robust than diffing markers.
+      if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
+      driverTruckMapInstance = L.map('driverTruckMapContainer');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19
+      }).addTo(driverTruckMapInstance);
+
+      const bounds = [];
+      trucks.forEach(t => {
+        const marker = L.marker([t.lat, t.lon]).addTo(driverTruckMapInstance);
+        const onOff = t.vehicleState === 'on' ? 'Moving' : (t.vehicleState === 'off' ? 'Parked' : '');
+        marker.bindPopup(`
+          <strong>${driverEsc(t.number)}</strong>${(t.make || t.model) ? `<br>${driverEsc([t.make, t.model].filter(Boolean).join(' '))}` : ''}
+          ${t.address ? `<br>${driverEsc(t.address)}` : ''}
+          ${onOff ? `<br>${onOff}` : ''}
+        `);
+        bounds.push([t.lat, t.lon]);
+      });
+
+      if(bounds.length === 1){
+        driverTruckMapInstance.setView(bounds[0], 12);
+      } else {
+        driverTruckMapInstance.fitBounds(bounds, { padding: [20, 20] });
+      }
+    }catch(err){
+      console.error('Driver truck map load failed:', err);
+      statusEl.textContent = '';
+      emptyNote.style.display = 'block';
+      emptyNote.textContent = 'Could not reach the server \u2014 check your connection.';
+      containerEl.style.display = 'none';
+      if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
+    }
+  }
+  document.getElementById('driverTruckMapRefreshBtn').addEventListener('click', driverLoadTruckMap);
+  setInterval(()=>{
+    if(document.getElementById('driverMenuView').style.display !== 'none') driverLoadTruckMap();
+  }, 2 * 60 * 1000); // keep it "live" while the driver menu is actually visible
 
   // Hides the Junk Removal and Moving tiles entirely when a driver
   // currently has zero jobs assigned in that category, rather than
