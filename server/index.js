@@ -3313,12 +3313,17 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
 // Pulls current GPS locations for every company vehicle from Motive's
 // fleet API. Read-only -- never creates, updates, or dispatches anything
 // in Motive.
-app.get('/api/motive-locations', requireAuth, async (req, res) => {
-  res.set('Cache-Control', 'no-store'); // live GPS data -- never serve a stale/cached copy
+// Shared by both the admin (/api/motive-locations) and driver
+// (/api/driver/motive-locations) endpoints below -- same underlying data,
+// but each endpoint gated by its own, separate auth check so a driver
+// session can never be used against any admin-only endpoint, and vice
+// versa. Returns { trucks } on success, or { error, status } on failure so
+// each caller can respond in its own route.
+async function fetchMotiveTruckLocations() {
   const apiKey = process.env.MOTIVE_API_KEY;
   if (!apiKey) {
     console.error('Motive locations requested but MOTIVE_API_KEY is not set.');
-    return res.status(500).json({ error: 'Motive is not configured on the server yet.' });
+    return { error: 'Motive is not configured on the server yet.', status: 500 };
   }
 
   try {
@@ -3340,7 +3345,7 @@ app.get('/api/motive-locations', requireAuth, async (req, res) => {
         console.error('Motive API request failed:', mvRes.status, errBody);
         let detail = '';
         try { detail = JSON.parse(errBody).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
-        return res.status(502).json({ error: `Motive request failed (HTTP ${mvRes.status})${detail ? ': ' + detail : ''}` });
+        return { error: `Motive request failed (HTTP ${mvRes.status})${detail ? ': ' + detail : ''}`, status: 502 };
       }
       const data = await mvRes.json();
       const vehicles = data.vehicles || [];
@@ -3370,11 +3375,30 @@ app.get('/api/motive-locations', requireAuth, async (req, res) => {
         };
       });
 
-    res.json({ trucks });
+    return { trucks };
   } catch (err) {
     console.error('Motive locations fetch failed:', err.message);
-    res.status(500).json({ error: 'Could not reach Motive: ' + err.message });
+    return { error: 'Could not reach Motive: ' + err.message, status: 500 };
   }
+}
+
+app.get('/api/motive-locations', requireAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store'); // live GPS data -- never serve a stale/cached copy
+  const result = await fetchMotiveTruckLocations();
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json({ trucks: result.trucks });
+});
+
+// Same data as above, but gated by requireDriverAuth instead of requireAuth
+// -- a driver's shared-code session can never satisfy the admin auth check
+// (separate Redis namespace entirely), so this exists specifically to let
+// the Driver Portal show live truck locations without weakening that
+// isolation.
+app.get('/api/driver/motive-locations', requireDriverAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const result = await fetchMotiveTruckLocations();
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json({ trucks: result.trucks });
 });
 
 app.get('/api/data/:key', requireAuth, async (req, res) => {
