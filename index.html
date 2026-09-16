@@ -824,6 +824,24 @@
   let driverToken = localStorage.getItem('henson_driver_token');
   let currentDriverName = localStorage.getItem('henson_driver_name');
 
+  // Defined here (not down with the rest of the PTI draft-persistence code)
+  // specifically so they're available before the initial-load routing
+  // check below runs -- that check needs hasValidPtiDraft() immediately,
+  // and referencing a later-declared const at this point in the script
+  // would throw a temporal-dead-zone error.
+  const PTI_DRAFT_KEY = 'henson_pti_draft';
+  const PTI_DRAFT_MAX_AGE_MS = 12 * 60 * 60 * 1000; // one shift's worth -- old enough drafts are just noise, not help
+  function hasValidPtiDraft(){
+    try{
+      const raw = localStorage.getItem(PTI_DRAFT_KEY);
+      if(!raw) return false;
+      const draft = JSON.parse(raw);
+      return !!(draft && draft.savedAt && (Date.now() - new Date(draft.savedAt).getTime()) <= PTI_DRAFT_MAX_AGE_MS);
+    }catch(err){
+      return false;
+    }
+  }
+
   function showDriverCodeForm(){
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block';
@@ -1046,7 +1064,15 @@
   }
 
   if(driverToken){
-    showDriverMenu();
+    if(hasValidPtiDraft()){
+      // showDriverInspection() depends on several variables declared later
+      // in this script (e.g. ptiCapturedPhoto) -- deferred so it runs after
+      // the full script has finished initializing, avoiding a
+      // temporal-dead-zone error from calling it this early.
+      setTimeout(showDriverInspection, 0);
+    } else {
+      showDriverMenu();
+    }
   } else if(location.hash === '#driver'){
     // The installed PWA's start_url points here so a fresh install never
     // shows the admin login screen at all -- only ever the driver code form
@@ -1896,9 +1922,10 @@
   // everything typed so far. Saved to localStorage (survives a reload,
   // unlike anything held only in JS variables) and restored automatically
   // the next time this screen opens, so a dropped photo costs a driver a
-  // few seconds, not the whole inspection.
-  const PTI_DRAFT_KEY = 'henson_pti_draft';
-  const PTI_DRAFT_MAX_AGE_MS = 12 * 60 * 60 * 1000; // one shift's worth -- old enough drafts are just noise, not help
+  // few seconds, not the whole inspection. (PTI_DRAFT_KEY and
+  // PTI_DRAFT_MAX_AGE_MS are declared earlier in the file, alongside
+  // hasValidPtiDraft(), since the initial-load routing check needs them
+  // immediately.)
 
   function savePtiDraft(){
     try{
