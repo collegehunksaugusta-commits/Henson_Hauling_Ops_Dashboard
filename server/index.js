@@ -1709,6 +1709,16 @@ app.post('/api/admin/tile-order', requireAuth, requireAdmin, async (req, res) =>
 // export) still shows up as a selectable option everywhere the roster is
 // used. Manually-added names (for someone new enough that no payroll run
 // has included them yet) are merged in on top of that.
+// Order-independent so "Gilbert Holland" and "Holland, Gilbert" compare
+// equal regardless of which format a manual roster addition was typed in --
+// ADP payroll reports use "Last, First", but a manual entry is easy to type
+// as "First Last" instead, and without this the same person shows up twice
+// once they actually appear on a payroll report. Mirrors the identical
+// nameDedupKey() in the frontend.
+function nameDedupKey(name){
+  return name.replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+}
+
 function computeRosterNames(weeks, manualAdditions){
   const sorted = [...(weeks || [])].sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
   const recentTwo = sorted.slice(0, 2);
@@ -1717,10 +1727,12 @@ function computeRosterNames(weeks, manualAdditions){
   const seen = new Set();
   const deduped = [];
   combined.forEach(name => {
-    const key = name.trim().toLowerCase();
-    if(!key || seen.has(key)) return;
+    const trimmed = (name || '').trim();
+    if(!trimmed) return;
+    const key = nameDedupKey(trimmed);
+    if(seen.has(key)) return;
     seen.add(key);
-    deduped.push(name.trim());
+    deduped.push(trimmed);
   });
   return deduped.sort((a, b) => a.localeCompare(b));
 }
