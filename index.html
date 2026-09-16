@@ -7236,13 +7236,23 @@
     return d.innerHTML;
   }
 
+  // Order-independent so "Gilbert Holland" and "Holland, Gilbert" compare
+  // equal regardless of which format someone typed a manual addition in --
+  // ADP payroll reports use "Last, First", but a manual entry is easy to
+  // type as "First Last" instead, and without this the same person would
+  // show up twice once they actually appear on a payroll report.
+  function nameDedupKey(name){
+    return name.replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+  }
+
   function dedupeAndSortNames(names){
     const seen = new Set();
     const out = [];
     names.forEach(name => {
       const trimmed = (name || '').trim();
-      const key = trimmed.toLowerCase();
-      if(!trimmed || seen.has(key)) return;
+      if(!trimmed) return;
+      const key = nameDedupKey(trimmed);
+      if(seen.has(key)) return;
       seen.add(key);
       out.push(trimmed);
     });
