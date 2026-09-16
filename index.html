@@ -10198,25 +10198,30 @@
     }
     listEl.innerHTML = mailCurrentRoute.map((s, i) => {
       const rec = s.rec;
-      const visited = rec.dateContacted === todayStr();
+      const visitedToday = rec.dateContacted === todayStr();
+      const hasPriorContact = !!rec.dateContacted && !visitedToday;
+      const lastContactedLabel = hasPriorContact ? window.fmtDate(rec.dateContacted) : '';
       const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.coords.lat},${s.coords.lng}`;
+      let btnLabel;
+      if(visitedToday) btnLabel = '\u2713 Marked Arrived Today';
+      else if(hasPriorContact) btnLabel = `Mark Arrived \u2014 Last: ${lastContactedLabel}`;
+      else btnLabel = 'Mark Arrived';
       return `
       <div data-id="${rec.id}" style="padding:16px 0; border-bottom:1px solid var(--line);">
         <div style="display:flex; gap:12px; align-items:flex-start; margin-bottom:12px;">
-          <div style="flex-shrink:0; width:34px; height:34px; border-radius:50%; background:${visited ? 'var(--brand-green)' : 'var(--charcoal)'}; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;">${visited ? '\u2713' : (i+1)}</div>
+          <div style="flex-shrink:0; width:34px; height:34px; border-radius:50%; background:${visitedToday ? 'var(--brand-green)' : 'var(--charcoal)'}; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;">${visitedToday ? '\u2713' : (i+1)}</div>
           <div style="flex:1; min-width:0;">
             <div style="font-weight:700; font-size:16px;">${mailEsc(rec.name)}</div>
             <div style="font-size:13.5px; color:var(--muted); margin-top:2px;">${mailEsc(rec.address)}, ${mailEsc(rec.city)}, ${mailEsc(rec.state)} ${mailEsc(rec.zip)}</div>
             <div style="font-size:12.5px; color:var(--muted); margin-top:3px;">${i===0 ? 'From office' : 'From previous stop'}: ${s.distanceFromPrev.toFixed(1)} mi</div>
+            ${hasPriorContact ? `<div style="font-size:12.5px; color:#B3761E; font-weight:600; margin-top:4px;">\u26a0 Last contacted ${lastContactedLabel}</div>` : ''}
           </div>
         </div>
         <div style="display:flex; gap:10px; padding-left:46px;">
           <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="flex:1; text-align:center; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:11px 10px; border-radius:6px; font-size:14px; font-weight:600; text-decoration:none;">Directions</a>
-          ${visited
-            ? `<span style="flex:1; text-align:center; background:#EAF6EE; color:var(--brand-green-dark); padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700;">\u2713 Arrived Today</span>`
-            : `<button type="button" class="mailApt-arrive-btn" data-id="${rec.id}" style="flex:1; background:var(--brand-green); color:#fff; border:none; padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer;">Mark Arrived</button>`}
+          <button type="button" class="mailApt-arrive-btn" data-id="${rec.id}" style="flex:1; background:${visitedToday ? '#EAF6EE' : 'var(--brand-green)'}; color:${visitedToday ? 'var(--brand-green-dark)' : '#fff'}; border:none; padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer;">${btnLabel}</button>
         </div>
-        ${visited ? `<div style="padding-left:46px; margin-top:6px;"><button type="button" class="mailApt-undo-btn" data-id="${rec.id}" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:0;">Undo \u2014 couldn't actually make contact</button></div>` : ''}
+        ${visitedToday ? `<div style="padding-left:46px; margin-top:6px;"><button type="button" class="mailApt-undo-btn" data-id="${rec.id}" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:0;">Undo \u2014 couldn't actually make contact</button></div>` : ''}
         <p class="status-msg mailApt-stop-status" data-id="${rec.id}" style="margin:8px 0 0 46px; font-size:13px;"></p>
       </div>`;
     }).join('');
@@ -10224,6 +10229,10 @@
     listEl.querySelectorAll('.mailApt-arrive-btn').forEach(btn => btn.addEventListener('click', (e)=> mailAptCheckArrival(e.target.dataset.id)));
     listEl.querySelectorAll('.mailApt-undo-btn').forEach(btn => btn.addEventListener('click', (e)=> mailAptUndoArrival(e.target.dataset.id)));
   }
+  window.renderMailAptRoute = renderMailAptRoute;
+  window.getMailCurrentRoute = () => mailCurrentRoute;
+  window.getMailCurrentRouteSource = () => mailCurrentRouteSource;
+  window.getMailCurrentRouteTier = () => mailCurrentRouteTier;
 
   function mailAptCheckArrival(recId){
     const stop = mailCurrentRoute.find(s => s.rec.id === recId);
