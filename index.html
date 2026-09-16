@@ -4607,21 +4607,35 @@
       <div id="set_config" class="set-section" style="display:none;">
         <div class="panel" id="set_appSettingsPanel">
           <h3>App Settings</h3>
-          <p class="form-note">Settings used elsewhere in the dashboard, grouped by which tile they belong to. Change these here instead of asking Claude to edit the code each time &mdash; helpful as things like search sources or contact emails change over time, and for handing this off to a future owner.</p>
+          <p class="form-note">Settings used elsewhere in the dashboard, grouped by which tile they belong to. Change these here instead of asking Claude to edit the code each time &mdash; helpful as things like search sources or contact emails change over time, and for handing this off to a future owner. Each section below saves independently, so saving one never depends on any other section being filled in.</p>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Marketing</h4>
+        <div class="panel" id="set_marketingPanel">
+          <h3>Marketing</h3>
           <label>South Carolina Search URL <input type="url" id="appset_redfinSouthCarolina"></label>
           <label>Evans and Martinez Search URL <input type="url" id="appset_redfinEvansMartinez"></label>
           <label>Augusta Search URL <input type="url" id="appset_redfinAugusta"></label>
           <p class="form-note">These are the URLs behind the three quick-search buttons in Marketing &rarr; Residential. If you switch from Redfin to Zillow or another source, update the URLs here.</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="appset_marketingSaveBtn" type="button">Save</button>
+            <span class="status-msg" id="appset_marketingStatus"></span>
+          </div>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Job Paperwork</h4>
+        <div class="panel" id="set_paperworkPanel">
+          <h3>Job Paperwork</h3>
           <label>Completed Paperwork Email CC List <input type="text" id="appset_completedPaperworkCc" placeholder="email1@example.com, email2@example.com"></label>
           <p class="form-note">Comma-separated. These addresses get CC'd whenever the "Email Client" button is used after uploading completed paperwork.</p>
           <label>Google Review Link <input type="url" id="appset_googleReviewLink"></label>
           <p class="form-note">Included in the thank-you email sent to clients. Update if your Google Business listing ever changes.</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="appset_paperworkSaveBtn" type="button">Save</button>
+            <span class="status-msg" id="appset_paperworkStatus"></span>
+          </div>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Materials</h4>
+        <div class="panel" id="set_materialsPanel">
+          <h3>Materials</h3>
           <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
             <label>Supplier Phone Number <input type="text" id="appset_supplierPhone" placeholder="e.g. (706) 555-0100"></label>
             <label>Supplier Account Number <input type="text" id="appset_supplierAccountNumber" placeholder="e.g. 12345-A"></label>
@@ -4655,26 +4669,46 @@
             <label>Order Deadline Time <input type="time" id="appset_orderDeadlineTime"></label>
           </div>
           <p class="form-note">The Materials tile flashes red on the deadline day to remind whoever's ordering to get it submitted on time &mdash; e.g. ship days Tuesday, deadline Monday at 12:00 PM.</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="appset_materialsSaveBtn" type="button">Save</button>
+            <span class="status-msg" id="appset_materialsStatus"></span>
+          </div>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Damage Claims</h4>
+        <div class="panel" id="set_damageClaimsPanel">
+          <h3>Damage Claims</h3>
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
           <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim.</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="appset_damageClaimsSaveBtn" type="button">Save</button>
+            <span class="status-msg" id="appset_damageClaimsStatus"></span>
+          </div>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Long Distance Quote Email</h4>
+        <div class="panel" id="set_ldQuotePanel">
+          <h3>Long Distance Quote Email</h3>
           <label>CC Recipients <input type="text" id="appset_ldQuoteCc" placeholder="name@chhj.com, name2@chhj.com"></label>
           <p class="form-note" style="margin-top:0;">Comma-separated. Every quote email sent from the Long Distance Estimates tile CC's these addresses.</p>
           <label>Email Body <textarea id="appset_ldQuoteEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
           <p class="form-note">Sent from the "Email Quote to Client" button, with the estimate PDF downloaded and ready to attach. Available merge fields: <span class="mono">{{clientName}}</span>, <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{weight}}</span>, <span class="mono">{{miles}}</span>, <span class="mono">{{total}}</span>, <span class="mono">{{valuationCost}}</span> (the Full Value Protection charge &mdash; what the total would drop by if the client chose the free 60&cent;/lb option instead) &mdash; each is swapped in automatically from the estimate on screen. Subject line is always fixed to "College Hunks - Weight and Distance Quote".</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="appset_ldQuoteSaveBtn" type="button">Save</button>
+            <span class="status-msg" id="appset_ldQuoteStatus"></span>
+          </div>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Photo Storage</h4>
+        <div class="panel" id="set_photoStoragePanel">
+          <h3>Photo Storage</h3>
           <p class="form-note" id="appset_storageUsageNote" style="margin-top:0;"></p>
           <p class="form-note">Re-compresses every stored Pre-Trip, End of Day, Damage Claim, and Junk Removal photo at today's tighter settings &mdash; smaller file, same photo, still clear. Estimates, reasoning, and every other record are never touched, and a photo already smaller than the new setting is left alone. New uploads already use the tighter setting automatically; this catches up everything already stored. Can take a few minutes depending on how many photos there are &mdash; leave this tab open until it finishes.</p>
           <div class="form-actions">
             <button type="button" id="appset_compressPhotosBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Compress Existing Photos</button>
             <span class="status-msg" id="appset_compressPhotosStatus"></span>
           </div>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Captain Metrics</h4>
+        <div class="panel" id="set_captainMetricsPanel">
+          <h3>Captain Metrics</h3>
           <p class="form-note" id="appset_cmResetDateCurrent" style="margin-top:0;"></p>
           <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
             <label>Metrics Reset Date <input type="date" id="appset_cmResetDate"></label>
@@ -4684,8 +4718,10 @@
             </div>
           </div>
           <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from every section of Captain Metrics &mdash; Pre-Trip/End of Day Compliance, Truck Condition Issues, and Paperwork Quality &mdash; for every Captain. Nothing is deleted; it's just left out of the scoring. Since this changes how every Captain's performance is measured, it requires your Override PIN to change.</p>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Ops Manager Metrics</h4>
+        <div class="panel" id="set_opsManagerMetricsPanel">
+          <h3>Ops Manager Metrics</h3>
           <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
           <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
             <label>Metrics Reset Date <input type="date" id="appset_omResetDate"></label>
@@ -4695,8 +4731,10 @@
             </div>
           </div>
           <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from Ops Manager Metrics &mdash; currently Paperwork Close-Out. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
+        </div>
 
-          <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Junk Removal Pricing</h4>
+        <div class="panel" id="set_junkPricingPanel">
+          <h3>Junk Removal Pricing</h3>
           <p class="form-note" style="margin-top:0;">Target price per tier &mdash; Captains are shown this amount &plusmn; $40 as the range to quote on-site, based on Claude's photo estimate.</p>
           <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
             <thead><tr>
@@ -4709,11 +4747,6 @@
           <div class="form-actions" style="margin-top:14px;">
             <button type="button" id="appset_junkPricingSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Pricing</button>
             <span class="status-msg" id="appset_junkPricingStatus"></span>
-          </div>
-
-          <div class="form-actions" style="margin-top:16px;">
-            <button class="btn-primary" id="set_saveAppSettingsBtn" type="button">Save Settings</button>
-            <span class="status-msg" id="set_appSettingsStatus"></span>
           </div>
         </div>
 
@@ -11987,37 +12020,50 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   });
 
-  document.getElementById('set_saveAppSettingsBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('set_appSettingsStatus');
+  document.getElementById('appset_marketingSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_marketingStatus');
     const marketing = {
       redfinSouthCarolina: document.getElementById('appset_redfinSouthCarolina').value.trim(),
       redfinEvansMartinez: document.getElementById('appset_redfinEvansMartinez').value.trim(),
       redfinAugusta: document.getElementById('appset_redfinAugusta').value.trim()
-    };
-    const paperwork = {
-      completedPaperworkCc: document.getElementById('appset_completedPaperworkCc').value.trim(),
-      googleReviewLink: document.getElementById('appset_googleReviewLink').value.trim()
-    };
-    const materials = {
-      supplierPhone: document.getElementById('appset_supplierPhone').value.trim(),
-      supplierAccountNumber: document.getElementById('appset_supplierAccountNumber').value.trim(),
-      supplierEmail: document.getElementById('appset_supplierEmail').value.trim(),
-      shipDays: Array.from(document.querySelectorAll('.appset-shipday:checked')).map(cb => Number(cb.value)),
-      orderDeadlineDay: document.getElementById('appset_orderDeadlineDay').value === '' ? '' : Number(document.getElementById('appset_orderDeadlineDay').value),
-      orderDeadlineTime: document.getElementById('appset_orderDeadlineTime').value
-    };
-    const damageClaims = {
-      emailBodyTemplate: document.getElementById('appset_damageClaimEmailBody').value
-    };
-    const longDistanceQuote = {
-      ccEmails: document.getElementById('appset_ldQuoteCc').value.trim(),
-      emailBodyTemplate: document.getElementById('appset_ldQuoteEmailBody').value
     };
     if(!marketing.redfinSouthCarolina || !marketing.redfinEvansMartinez || !marketing.redfinAugusta){
       statusEl.textContent = 'All three search URLs are required.';
       statusEl.className = 'status-msg err';
       return;
     }
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { marketing } })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings = data.settings;
+      applyMarketingLinkSettings();
+      statusEl.textContent = 'Saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save marketing settings failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_paperworkSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_paperworkStatus');
+    const paperwork = {
+      completedPaperworkCc: document.getElementById('appset_completedPaperworkCc').value.trim(),
+      googleReviewLink: document.getElementById('appset_googleReviewLink').value.trim()
+    };
     if(!paperwork.completedPaperworkCc){
       statusEl.textContent = 'The CC list can\u2019t be empty \u2014 remove the field content only if you want no one CC\u2019d.';
       statusEl.className = 'status-msg err';
@@ -12029,21 +12075,116 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { marketing, paperwork, materials, damageClaims, longDistanceQuote } })
+        body: JSON.stringify({ settings: { paperwork } })
       });
       if(handleAuthFailure(res)) return;
       const data = await res.json();
       if(!res.ok){
-        statusEl.textContent = data.error || 'Could not save settings.';
+        statusEl.textContent = data.error || 'Could not save.';
         statusEl.className = 'status-msg err';
         return;
       }
       window.appSettings = data.settings;
-      applyMarketingLinkSettings();
-      statusEl.textContent = 'Settings saved.';
+      statusEl.textContent = 'Saved.';
       statusEl.className = 'status-msg ok';
     }catch(err){
-      console.error('Save app settings failed:', err);
+      console.error('Save paperwork settings failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_materialsSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_materialsStatus');
+    const materials = {
+      supplierPhone: document.getElementById('appset_supplierPhone').value.trim(),
+      supplierAccountNumber: document.getElementById('appset_supplierAccountNumber').value.trim(),
+      supplierEmail: document.getElementById('appset_supplierEmail').value.trim(),
+      shipDays: Array.from(document.querySelectorAll('.appset-shipday:checked')).map(cb => Number(cb.value)),
+      orderDeadlineDay: document.getElementById('appset_orderDeadlineDay').value === '' ? '' : Number(document.getElementById('appset_orderDeadlineDay').value),
+      orderDeadlineTime: document.getElementById('appset_orderDeadlineTime').value
+    };
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { materials } })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings = data.settings;
+      statusEl.textContent = 'Saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save materials settings failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_damageClaimsSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_damageClaimsStatus');
+    const damageClaims = {
+      emailBodyTemplate: document.getElementById('appset_damageClaimEmailBody').value
+    };
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { damageClaims } })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings = data.settings;
+      statusEl.textContent = 'Saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save damage claims settings failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_ldQuoteSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_ldQuoteStatus');
+    const longDistanceQuote = {
+      ccEmails: document.getElementById('appset_ldQuoteCc').value.trim(),
+      emailBodyTemplate: document.getElementById('appset_ldQuoteEmailBody').value
+    };
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { longDistanceQuote } })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings = data.settings;
+      statusEl.textContent = 'Saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save long distance quote settings failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
