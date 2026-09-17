@@ -13060,6 +13060,44 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const subject = 'College Hunks - Weight and Distance Quote';
     const cc = ldQuote.ccEmails || '';
 
+    // Auto-saves the client so a quote can never go out without a record of
+    // it in the system -- same save mechanism as the manual "Save Current
+    // Entry" button. If this exact entry was already saved or loaded this
+    // session (savedClientSelect already points at it), updates that entry
+    // in place with the latest form data rather than creating a duplicate;
+    // otherwise saves a new one.
+    let autoSaveNote = '';
+    try{
+      const clients = await getClientsAsync();
+      const existingId = document.getElementById('savedClientSelect').value;
+      const existingIdx = existingId ? clients.findIndex(c => String(c.id) === String(existingId)) : -1;
+      if(existingIdx > -1){
+        clients[existingIdx].data = collectFormData();
+        clients[existingIdx].savedAt = new Date().toISOString();
+        if(await setClientsAsync(clients)){
+          await refreshClientSelect();
+          document.getElementById('savedClientSelect').value = existingId;
+          autoSaveNote = ' Client entry updated in Saved Clients.';
+        } else {
+          autoSaveNote = ' (Could not update the saved client entry \u2014 save it manually below.)';
+        }
+      } else {
+        const label = fullName ? `${fullName} \u2014 ${document.getElementById('issueDate').value || ''}`.trim() : `Client \u2014 ${new Date().toLocaleDateString()}`;
+        const entry = { id: Date.now(), label, savedAt: new Date().toISOString(), data: collectFormData() };
+        clients.push(entry);
+        if(await setClientsAsync(clients)){
+          await refreshClientSelect();
+          document.getElementById('savedClientSelect').value = entry.id;
+          autoSaveNote = ' Client saved to Saved Clients.';
+        } else {
+          autoSaveNote = ' (Could not save the client entry \u2014 save it manually below.)';
+        }
+      }
+    }catch(err){
+      console.error('Auto-save on email quote failed:', err);
+      autoSaveNote = ' (Could not save the client entry \u2014 save it manually below.)';
+    }
+
     // Downloads the estimate as an actual PDF file first -- mailto: links
     // cannot attach files (a hard limitation of the protocol itself, true
     // in every browser and every mail client), so this is as close to
@@ -13077,9 +13115,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const mailto = `mailto:${encodeURIComponent(clientEmail)}${cc ? '?cc=' + encodeURIComponent(cc) + '&' : '?'}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
 
-    statusEl.textContent = pdfFilename
+    statusEl.textContent = (pdfFilename
       ? `"${pdfFilename}" downloaded and your email is open with the message filled in \u2014 attach the downloaded file, review, then send.`
-      : 'Your email is open with the message filled in \u2014 review, then send. (The PDF download failed \u2014 attach the estimate manually.)';
+      : 'Your email is open with the message filled in \u2014 review, then send. (The PDF download failed \u2014 attach the estimate manually.)') + autoSaveNote;
     statusEl.className = 'hint';
   });
 
