@@ -2560,7 +2560,7 @@
             <span class="dashSectionCount">(9)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim, Junk Removal, Manager Review</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim, Manager Review</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2602,16 +2602,11 @@
         <h3>Damage Claim</h3>
         <p>Send a client a link to upload photos of moving damage, and get notified when they do.</p>
       </div>
-      <div class="tile" id="tile-junkremoval" tabindex="0" role="button" aria-label="Open Junk Removal">
-        <span class="icon">🗑️</span>
-        <h3>Junk Removal</h3>
-        <p>Review each junk removal job's photos and Claude's volume estimates. Captains are assigned during the morning batch upload in Job Paperwork.</p>
-      </div>
       <div class="tile" id="tile-managerreview" tabindex="0" role="button" aria-label="Open Manager Review">
         <span class="badge" id="managerReviewTileBadge" style="display:none;"></span>
         <span class="icon">🧾</span>
         <h3>Manager Review</h3>
-        <p>Credit card transactions, underbilled jobs, and flagged truck conditions pulled in from across the app for close-out.</p>
+        <p>Credit card transactions, underbilled jobs, flagged truck conditions, junk removal jobs, and moving damage documentation, pulled in from across the app for close-out.</p>
       </div>
         </div>
       </div>
@@ -3627,20 +3622,6 @@
     </div>
   </div>
 
-  <!-- ============ JUNK REMOVAL DETAIL ============ -->
-  <div id="junkRemovalDetail" style="display:none;">
-    <button class="backlink" id="junkRemovalBackBtn">&larr; Dispatch</button>
-    <div class="detail-head">
-      <h2 class="display">Junk Removal</h2>
-      <p>Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. This tile is for review &mdash; each job's on-site and loaded-truck photos, and Claude's volume estimates for both. Photos are kept for 30 days, then removed automatically; the estimate itself is kept indefinitely.</p>
-    </div>
-    <div class="panel" id="junkRemovalJobsPanel">
-      <h3>Jobs</h3>
-      <div id="jr_jobRows"></div>
-      <p class="form-note" id="jr_emptyNote" style="display:none;">No junk removal jobs yet.</p>
-    </div>
-  </div>
-
   <!-- ============ MANAGER REVIEW DETAIL ============ -->
   <div id="managerReviewDetail" style="display:none;">
     <button class="backlink" id="managerReviewBackBtn">&larr; Dispatch</button>
@@ -3652,7 +3633,9 @@
     <div style="display:flex; gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
       <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
-      <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving</button>
     </div>
 
     <div class="panel" id="mgrreview_panel_ccard">
@@ -3794,6 +3777,20 @@
         <span id="mgrreview_truckReviewedChevron" style="font-size:13px; color:var(--muted); transition:transform .15s;">&#9656;</span>
       </button>
       <div id="mgrreview_truckReviewedRows" style="display:none; margin-top:10px;"></div>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_junkremoval" style="display:none;">
+      <h3>Junk Removal</h3>
+      <p class="form-note">Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. Each job's on-site and loaded-truck photos, and Claude's volume estimates for both. Photos are kept for 30 days, then removed automatically; the estimate itself is kept indefinitely.</p>
+      <div id="jr_jobRows"></div>
+      <p class="form-note" id="jr_emptyNote" style="display:none;">No junk removal jobs yet.</p>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_moving" style="display:none;">
+      <h3>Moving</h3>
+      <p class="form-note">Pre-existing and crew-caused damage photos drivers document for Move and Move Labor jobs. Photos are kept for 92 days, then removed automatically (except any already pulled into a live Damage Claim).</p>
+      <div id="mv_jobRows"></div>
+      <p class="form-note" id="mv_emptyNote" style="display:none;">No moving damage reports yet.</p>
     </div>
   </div>
 
@@ -5120,7 +5117,6 @@
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
-  const junkRemovalDetail = document.getElementById('junkRemovalDetail');
   const managerReviewDetail = document.getElementById('managerReviewDetail');
 
   function showView(view){
@@ -5137,7 +5133,6 @@
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
-    junkRemovalDetail.style.display = view === 'junkremoval' ? 'block' : 'none';
     managerReviewDetail.style.display = view === 'managerreview' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
@@ -5172,11 +5167,10 @@
     if(view === 'damageclaim'){
       window.loadDamageClaimsData();
     }
-    if(view === 'junkremoval'){
-      window.loadJunkRemovalJobs();
-    }
     if(view === 'managerreview'){
       window.loadManagerReviewData();
+      window.loadJunkRemovalJobs();
+      window.loadMovingReports();
       loadTipsData();
       showTipsSection(tipsCurrentSection);
     }
@@ -5326,11 +5320,8 @@
   document.getElementById('materialsBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-damageclaim').addEventListener('click', ()=> navigateTo('damageclaim'));
   document.getElementById('tile-damageclaim').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('damageclaim'); }});
-  document.getElementById('tile-junkremoval').addEventListener('click', ()=> navigateTo('junkremoval'));
-  document.getElementById('tile-junkremoval').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('junkremoval'); }});
   document.getElementById('tile-managerreview').addEventListener('click', ()=> navigateTo('managerreview'));
   document.getElementById('tile-managerreview').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('managerreview'); }});
-  document.getElementById('junkRemovalBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('managerReviewBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
@@ -17358,7 +17349,149 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     win.document.close();
   }
 
-  const CLAIM_LINK_VALID_DAYS = 7; // matches the backend's enforcement window
+  // ---------- Moving (damage documentation review, under Manager Review) ----------
+  const MOVING_DAMAGE_REPORTS_KEY = 'moving-damage-reports';
+  let movingReports = [];
+
+  function mvEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s === undefined || s === null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  async function loadMovingReports(){
+    try{
+      movingReports = await window.dashboardApi.get(MOVING_DAMAGE_REPORTS_KEY, []) || [];
+      renderMovingReports();
+    }catch(err){ console.error('Moving reports load failed:', err); }
+  }
+  window.loadMovingReports = loadMovingReports;
+
+  function renderMovingReports(){
+    const rowsEl = document.getElementById('mv_jobRows');
+    const emptyNote = document.getElementById('mv_emptyNote');
+    if(movingReports.length === 0){
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const jobTypeLabels = { move: 'Move', movelabor: 'Move Labor' };
+    const sorted = [...movingReports].sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
+    rowsEl.innerHTML = sorted.map(r => {
+      const hasAny = (r.preExistingPhotoKeys && r.preExistingPhotoKeys.length) || (r.causedPhotoKeys && r.causedPhotoKeys.length);
+      const preStatus = r.preExistingSubmittedAt
+        ? `<span style="color:var(--brand-green-dark);">Pre-Existing \u2713</span>`
+        : `<span style="color:var(--muted);">Pre-Existing \u2014 not submitted</span>`;
+      const causedStatus = r.causedSubmittedAt
+        ? `<span style="color:var(--brand-green-dark);">Crew-Caused \u2713</span>`
+        : `<span style="color:var(--muted);">Crew-Caused \u2014 not submitted</span>`;
+      return `
+      <div data-job="${mvEsc(r.jobNumber)}" style="padding:14px 0; border-bottom:1px solid var(--line);">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700; font-size:14px;">${mvEsc(r.jobNumber)} ${r.clientName ? '\u2014 ' + mvEsc(r.clientName) : ''}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${jobTypeLabels[r.jobType] || mvEsc(r.jobType)} &middot; Captain: ${r.captainName ? mvEsc(r.captainName) : 'Unassigned'}</div>
+          </div>
+          <div style="font-size:11.5px; text-align:right;">${preStatus}<br>${causedStatus}</div>
+        </div>
+        ${hasAny ? `<div style="margin-top:10px;"><button type="button" class="mv-view-detail" data-job="${mvEsc(r.jobNumber)}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">View Photos</button></div>` : ''}
+      </div>`;
+    }).join('');
+
+    rowsEl.querySelectorAll('.mv-view-detail').forEach(btn => btn.addEventListener('click', (e)=> viewMovingDetail(e.target.dataset.job)));
+  }
+
+  async function viewMovingDetail(jobNumber){
+    const report = movingReports.find(r => r.jobNumber === jobNumber);
+    if(!report) return;
+    // Opened synchronously, before any await, so it's never at risk of
+    // being blocked as a non-user-gesture popup -- filled in once ready.
+    const win = window.open();
+    if(!win) return;
+    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
+
+    async function loadPhotos(keys){
+      const uris = [];
+      for(const key of (keys || [])){
+        try{ const uri = await window.dashboardApi.get(key, null); if(uri) uris.push(uri); }catch(err){ console.error(err); }
+      }
+      return uris;
+    }
+    const preExistingPhotos = await loadPhotos(report.preExistingPhotoKeys);
+    const causedPhotos = await loadPhotos(report.causedPhotoKeys);
+    const totalPhotoCount = preExistingPhotos.length + causedPhotos.length;
+
+    win.downloadAllMovingPhotos = async () => {
+      const statusEl = win.document.getElementById('mv-download-status');
+      if(totalPhotoCount === 0) return;
+      if(!window.JSZip){
+        if(statusEl) statusEl.textContent = 'Download isn\u2019t available right now \u2014 check your connection and try again.';
+        return;
+      }
+      if(statusEl) statusEl.textContent = 'Preparing download\u2026';
+      try{
+        const zip = new window.JSZip();
+        preExistingPhotos.forEach((p, i) => zip.file(`${report.jobNumber}_preexisting_${i+1}.jpg`, p.split(',')[1] || '', { base64: true }));
+        causedPhotos.forEach((p, i) => zip.file(`${report.jobNumber}_crewcaused_${i+1}.jpg`, p.split(',')[1] || '', { base64: true }));
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(zipBlob);
+        const a = win.document.createElement('a');
+        a.href = url;
+        a.download = `${report.jobNumber}-moving-photos.zip`;
+        win.document.body.appendChild(a);
+        a.click();
+        win.document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        if(statusEl) statusEl.textContent = `Downloaded ${totalPhotoCount} photo${totalPhotoCount===1?'':'s'} as ${report.jobNumber}-moving-photos.zip`;
+      }catch(err){
+        console.error('Moving photo zip failed:', err);
+        if(statusEl) statusEl.textContent = 'Could not build the download \u2014 try again.';
+      }
+    };
+
+    function categoryHtml(title, notes, submittedAt, photos){
+      if(!submittedAt) return '';
+      return `
+        <h3 style="margin:22px 0 6px;">${title}</h3>
+        <p style="margin:0 0 10px; line-height:1.5; color:#555;">
+          ${notes ? mvEsc(notes) + '<br>' : ''}
+          <span style="font-size:12px; color:#999;">Submitted ${mvEsc(new Date(submittedAt).toLocaleString())}</span>
+        </p>
+        ${photos.length > 0
+          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" onclick="showLightbox(this.src)" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:zoom-in;">`).join('')}</div>`
+          : `<p style="color:#999; font-size:13px; font-style:italic;">Photos were automatically removed after ${MOVING_PHOTO_RETENTION_DAYS} days.</p>`}`;
+    }
+
+    win.document.open();
+    win.document.write(`<!DOCTYPE html><html><head><title>Moving \u2014 ${mvEsc(report.jobNumber)}</title></head>
+      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
+        <h2 style="margin-bottom:4px;">Moving</h2>
+        <p style="margin-top:0; line-height:1.6;">
+          <strong>Job:</strong> ${mvEsc(report.jobNumber)} ${report.clientName ? '\u2014 ' + mvEsc(report.clientName) : ''}<br>
+          <strong>Captain:</strong> ${mvEsc(report.captainName || '\u2014')}
+        </p>
+        ${totalPhotoCount > 0 ? `
+        <div style="margin:14px 0 20px;">
+          <button type="button" onclick="downloadAllMovingPhotos()" style="background:#00843D; border:none; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13.5px;">Download All Photos (${totalPhotoCount})</button>
+          <div id="mv-download-status" style="margin-top:8px; font-size:12.5px; color:#666;"></div>
+        </div>` : ''}
+        ${categoryHtml('Pre-Existing Damage', report.preExistingNotes, report.preExistingSubmittedAt, preExistingPhotos)}
+        ${categoryHtml('Crew-Caused Damage', report.causedNotes, report.causedSubmittedAt, causedPhotos)}
+        <div id="lightbox" onclick="this.style.display='none'" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out;">
+          <img id="lightboxImg" style="max-width:92vw; max-height:92vh; object-fit:contain; border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,0.5);">
+        </div>
+        <script>
+          function showLightbox(src){
+            document.getElementById('lightboxImg').src = src;
+            document.getElementById('lightbox').style.display = 'flex';
+          }
+        <\/script>
+      </body></html>`);
+    win.document.close();
+  }
+
 
   function dcClaimStatus(claim){
     if(claim.photosUploadedAt && !claim.acknowledgedAt) return { label: 'Photos Uploaded', color: '#B3261E', bg: '#FDEDEA' };
@@ -17828,7 +17961,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['ccard','underbilled','truckconditions'].forEach(t => {
+    ['ccard','underbilled','truckconditions','junkremoval','moving'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
