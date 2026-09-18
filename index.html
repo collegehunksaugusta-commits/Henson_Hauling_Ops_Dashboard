@@ -4035,6 +4035,7 @@
           <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
             <thead><tr>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th id="comp_pti_truckColHead" style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line); display:none;">Truck</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Driver</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Odometer</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Status</th>
@@ -4047,29 +4048,33 @@
 
         <div class="panel" id="comp_dotInspectionPanel">
           <h3>DOT Inspections</h3>
-          <div class="form-grid">
-            <label>Date <input type="date" id="comp_dot_date"></label>
-            <label>Result
-              <select id="comp_dot_result">
-                <option value="pass">Pass</option>
-                <option value="pass-defects">Pass with Defects Noted</option>
-                <option value="oos">Out of Service</option>
-              </select>
+          <p class="form-note" id="comp_dot_selectTruckNote" style="display:none;">Select a specific truck above to log a new inspection.</p>
+          <div id="comp_dot_logForm">
+            <div class="form-grid">
+              <label>Date <input type="date" id="comp_dot_date"></label>
+              <label>Result
+                <select id="comp_dot_result">
+                  <option value="pass">Pass</option>
+                  <option value="pass-defects">Pass with Defects Noted</option>
+                  <option value="oos">Out of Service</option>
+                </select>
+              </label>
+            </div>
+            <label>Location / Inspector <input type="text" id="comp_dot_location"></label>
+            <label>Notes <textarea id="comp_dot_notes" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">
+              Inspection Report (optional)
+              <input type="file" id="comp_dot_file" accept=".pdf,.jpg,.jpeg,.png" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
             </label>
-          </div>
-          <label>Location / Inspector <input type="text" id="comp_dot_location"></label>
-          <label>Notes <textarea id="comp_dot_notes" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
-          <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">
-            Inspection Report (optional)
-            <input type="file" id="comp_dot_file" accept=".pdf,.jpg,.jpeg,.png" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
-          </label>
-          <div class="form-actions">
-            <button class="btn-primary" id="comp_dot_saveBtn" type="button">Save Inspection</button>
-            <span class="status-msg" id="comp_dot_status"></span>
+            <div class="form-actions">
+              <button class="btn-primary" id="comp_dot_saveBtn" type="button">Save Inspection</button>
+              <span class="status-msg" id="comp_dot_status"></span>
+            </div>
           </div>
           <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;">
             <thead><tr>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th id="comp_dot_truckColHead" style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line); display:none;">Truck</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Result</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Location</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Notes</th>
@@ -4082,24 +4087,28 @@
 
         <div class="panel" id="comp_incidentPanel">
           <h3>Safety Incidents</h3>
-          <div class="form-grid">
-            <label>Date <input type="date" id="comp_inc_date"></label>
-            <label>Severity
-              <select id="comp_inc_severity">
-                <option value="minor">Minor</option>
-                <option value="moderate">Moderate</option>
-                <option value="severe">Severe</option>
-              </select>
-            </label>
-          </div>
-          <label>Description <textarea id="comp_inc_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
-          <div class="form-actions">
-            <button class="btn-primary" id="comp_inc_saveBtn" type="button">Save Incident</button>
-            <span class="status-msg" id="comp_inc_statusMsg"></span>
+          <p class="form-note" id="comp_inc_selectTruckNote" style="display:none;">Select a specific truck above to log a new incident.</p>
+          <div id="comp_inc_logForm">
+            <div class="form-grid">
+              <label>Date <input type="date" id="comp_inc_date"></label>
+              <label>Severity
+                <select id="comp_inc_severity">
+                  <option value="minor">Minor</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="severe">Severe</option>
+                </select>
+              </label>
+            </div>
+            <label>Description <textarea id="comp_inc_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+            <div class="form-actions">
+              <button class="btn-primary" id="comp_inc_saveBtn" type="button">Save Incident</button>
+              <span class="status-msg" id="comp_inc_statusMsg"></span>
+            </div>
           </div>
           <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;">
             <thead><tr>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th id="comp_inc_truckColHead" style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line); display:none;">Truck</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Severity</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
               <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
@@ -4110,23 +4119,27 @@
 
         <div class="panel" id="comp_violationPanel">
           <h3>Violations</h3>
-          <div class="form-grid">
-            <label>Date <input type="date" id="comp_vio_date"></label>
-            <label>Status
-              <select id="comp_vio_status">
-                <option value="open">Open</option>
-                <option value="resolved">Resolved</option>
-              </select>
-            </label>
-          </div>
-          <label>Description <textarea id="comp_vio_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
-          <div class="form-actions">
-            <button class="btn-primary" id="comp_vio_saveBtn" type="button">Save Violation</button>
-            <span class="status-msg" id="comp_vio_statusMsg"></span>
+          <p class="form-note" id="comp_vio_selectTruckNote" style="display:none;">Select a specific truck above to log a new violation.</p>
+          <div id="comp_vio_logForm">
+            <div class="form-grid">
+              <label>Date <input type="date" id="comp_vio_date"></label>
+              <label>Status
+                <select id="comp_vio_status">
+                  <option value="open">Open</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </label>
+            </div>
+            <label>Description <textarea id="comp_vio_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+            <div class="form-actions">
+              <button class="btn-primary" id="comp_vio_saveBtn" type="button">Save Violation</button>
+              <span class="status-msg" id="comp_vio_statusMsg"></span>
+            </div>
           </div>
           <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;">
             <thead><tr>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
+              <th id="comp_vio_truckColHead" style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line); display:none;">Truck</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Status</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
               <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
@@ -7948,7 +7961,7 @@
       compSelectedTruckId = null;
     } else {
       noTrucksNote.style.display = 'none';
-      sel.innerHTML = list.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
+      sel.innerHTML = '<option value="">All Trucks</option>' + list.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
       compSelectedTruckId = sel.value;
     }
     renderCompDotRows(); renderCompIncidentRows(); renderCompViolationRows(); renderCompPtiRows();
@@ -7961,8 +7974,12 @@
   function renderCompPtiRows(){
     const tbody = document.getElementById('comp_pti_rows');
     const emptyNote = document.getElementById('comp_pti_emptyNote');
-    const rows = compPretripInspections.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.submittedAt||'').localeCompare(a.submittedAt||''));
+    const showAllTrucks = !compSelectedTruckId;
+    const rows = (showAllTrucks ? compPretripInspections : compPretripInspections.filter(r => r.truckId === compSelectedTruckId))
+      .sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.submittedAt||'').localeCompare(a.submittedAt||''));
     emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
+    emptyNote.textContent = showAllTrucks ? 'No pre-trip inspections submitted yet.' : 'No pre-trip inspections submitted yet for this truck.';
+    const truckName = id => (trucks.find(t=>t.id===id) || {}).nickname || '(removed truck)';
     tbody.innerHTML = rows.map(r => {
       const hasDefects = r.overallStatus === 'defects';
       const isResolved = hasDefects && !!r.resolved;
@@ -7973,6 +7990,7 @@
       return `
       <tr>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.driverName)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.odometer || '\u2014')}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${statusHtml}</td>
@@ -7983,6 +8001,9 @@
         </td>
       </tr>`;
     }).join('');
+
+    const headTruckCol = document.getElementById('comp_pti_truckColHead');
+    if(headTruckCol) headTruckCol.style.display = showAllTrucks ? '' : 'none';
 
     tbody.querySelectorAll('.comp-pti-view').forEach(btn => btn.addEventListener('click', (e)=> viewPtiDetails(e.target.dataset.id)));
     tbody.querySelectorAll('.comp-pti-resolve').forEach(btn => btn.addEventListener('click', async (e)=>{
@@ -8054,17 +8075,27 @@
 
   function renderCompDotRows(){
     const tbody = document.getElementById('comp_dot_rows');
-    const rows = compDotInspections.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> b.date.localeCompare(a.date));
+    const showAllTrucks = !compSelectedTruckId;
+    const rows = (showAllTrucks ? compDotInspections : compDotInspections.filter(r => r.truckId === compSelectedTruckId)).sort((a,b)=> b.date.localeCompare(a.date));
     const resultLabels = {pass:'Pass', 'pass-defects':'Pass w/ Defects', oos:'Out of Service'};
+    const truckName = id => (trucks.find(t=>t.id===id) || {}).nickname || '(removed truck)';
     tbody.innerHTML = rows.map(r => `
       <tr>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.result==='oos'?'color:#B3261E; font-weight:600;':''}">${resultLabels[r.result]||fleetEsc(r.result)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.location)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.notes)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${r.hasFile ? `<button type="button" class="comp-dot-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>` : '\u2014'}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-dot-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`).join('');
+
+    const headTruckCol = document.getElementById('comp_dot_truckColHead');
+    if(headTruckCol) headTruckCol.style.display = showAllTrucks ? '' : 'none';
+    const logForm = document.getElementById('comp_dot_logForm');
+    const logNote = document.getElementById('comp_dot_selectTruckNote');
+    if(logForm) logForm.style.display = showAllTrucks ? 'none' : '';
+    if(logNote) logNote.style.display = showAllTrucks ? 'block' : 'none';
 
     tbody.querySelectorAll('.comp-dot-view').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.target.dataset.id;
@@ -8119,15 +8150,26 @@
 
   function renderCompIncidentRows(){
     const tbody = document.getElementById('comp_inc_rows');
-    const rows = compIncidents.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> b.date.localeCompare(a.date));
+    const showAllTrucks = !compSelectedTruckId;
+    const rows = (showAllTrucks ? compIncidents : compIncidents.filter(r => r.truckId === compSelectedTruckId)).sort((a,b)=> b.date.localeCompare(a.date));
     const sevLabels = {minor:'Minor', moderate:'Moderate', severe:'Severe'};
+    const truckName = id => (trucks.find(t=>t.id===id) || {}).nickname || '(removed truck)';
     tbody.innerHTML = rows.map(r => `
       <tr>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.severity==='severe'?'color:#B3261E; font-weight:600;':''}">${sevLabels[r.severity]||fleetEsc(r.severity)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.description)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-inc-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`).join('');
+
+    const headTruckCol = document.getElementById('comp_inc_truckColHead');
+    if(headTruckCol) headTruckCol.style.display = showAllTrucks ? '' : 'none';
+    const logForm = document.getElementById('comp_inc_logForm');
+    const logNote = document.getElementById('comp_inc_selectTruckNote');
+    if(logForm) logForm.style.display = showAllTrucks ? 'none' : '';
+    if(logNote) logNote.style.display = showAllTrucks ? 'block' : 'none';
+
     tbody.querySelectorAll('.comp-inc-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
       if(!confirm('Delete this incident record?')) return;
       compIncidents = compIncidents.filter(r => r.id !== e.target.dataset.id);
@@ -8152,15 +8194,26 @@
 
   function renderCompViolationRows(){
     const tbody = document.getElementById('comp_vio_rows');
-    const rows = compViolations.filter(r => r.truckId === compSelectedTruckId).sort((a,b)=> b.date.localeCompare(a.date));
+    const showAllTrucks = !compSelectedTruckId;
+    const rows = (showAllTrucks ? compViolations : compViolations.filter(r => r.truckId === compSelectedTruckId)).sort((a,b)=> b.date.localeCompare(a.date));
     const statusLabels = {open:'Open', resolved:'Resolved'};
+    const truckName = id => (trucks.find(t=>t.id===id) || {}).nickname || '(removed truck)';
     tbody.innerHTML = rows.map(r => `
       <tr>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
+        ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.status==='open'?'color:#B3261E; font-weight:600;':''}">${statusLabels[r.status]||fleetEsc(r.status)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.description)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-vio-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`).join('');
+
+    const headTruckCol = document.getElementById('comp_vio_truckColHead');
+    if(headTruckCol) headTruckCol.style.display = showAllTrucks ? '' : 'none';
+    const logForm = document.getElementById('comp_vio_logForm');
+    const logNote = document.getElementById('comp_vio_selectTruckNote');
+    if(logForm) logForm.style.display = showAllTrucks ? 'none' : '';
+    if(logNote) logNote.style.display = showAllTrucks ? 'block' : 'none';
+
     tbody.querySelectorAll('.comp-vio-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
       if(!confirm('Delete this violation record?')) return;
       compViolations = compViolations.filter(r => r.id !== e.target.dataset.id);
