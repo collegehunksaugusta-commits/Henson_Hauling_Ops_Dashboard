@@ -8510,7 +8510,7 @@
         const rec = await window.dashboardApi.get(driverDocKey(name, dt.key), null);
         const el = document.getElementById('driverDocStatus_' + dt.key);
         if(rec){
-          el.innerHTML = `On file: <b>${fleetEsc(rec.fileName)}</b> (${new Date(rec.uploadedAt).toLocaleDateString()}) <button type="button" class="driver-doc-view" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer;">View</button>`;
+          el.innerHTML = `On file: <b>${fleetEsc(rec.fileName)}</b> (${new Date(rec.uploadedAt).toLocaleDateString()}) <button type="button" class="driver-doc-view" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer;">View</button> <button type="button" class="driver-doc-remove" data-key="${dt.key}" style="margin-left:4px; background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer;">Remove</button>`;
         } else {
           el.innerHTML = '<span style="color:var(--muted);">Not uploaded yet.</span>';
         }
@@ -8526,6 +8526,17 @@
         if(isPdf){ window.open(fleetDataUriToBlobUrl(rec.dataUri), '_blank'); }
         else { const win = window.open(); if(win) win.document.write(`<title>${fleetEsc(rec.fileName)}</title><body style="margin:0;"><img src="${rec.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
       }catch(err){ console.error('Driver doc view failed:', err); }
+    }));
+
+    container.querySelectorAll('.driver-doc-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const key = e.target.dataset.key;
+      const dt = DRIVER_DOC_TYPES.find(d => d.key === key);
+      if(!confirm(`Remove the ${dt ? dt.label : 'uploaded'} document on file for ${name}? You'll need to upload a replacement.`)) return;
+      try{
+        const ok = await window.dashboardApi.delete(driverDocKey(name, key));
+        if(ok){ renderDriverDocUploads(name); }
+        else { alert('Remove failed \u2014 check your connection.'); }
+      }catch(err){ console.error('Driver doc remove failed:', err); alert('Remove failed \u2014 check your connection.'); }
     }));
 
     container.querySelectorAll('.driver-doc-input').forEach(input => input.addEventListener('change', async (e)=>{
