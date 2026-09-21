@@ -2923,6 +2923,224 @@ app.post('/api/admin/extract-invoice', requireAuth, async (req, res) => {
   }
 });
 
+// ============ Compliance: DOT Inspection / Incident / Violation Document Extraction ============
+// Same pattern as extract-invoice above: a photographed/scanned document,
+// read by Claude, with a confidence flag so the admin can tell when to
+// trust the auto-fill versus fill the form in by hand.
+const EXTRACT_DOT_INSPECTION_TOOL = {
+  name: 'extract_dot_inspection',
+  description: 'Extract structured details from a DOT roadside inspection report.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'Date of the inspection in YYYY-MM-DD format, or empty string if not legible.' },
+      result: { type: 'string', enum: ['pass', 'pass-defects', 'oos'], description: 'Overall result: "pass" (no defects noted), "pass-defects" (passed but defects were noted), or "oos" (vehicle or driver placed out of service). Omit this field entirely if the result cannot be determined.' },
+      location: { type: 'string', description: 'Inspection location and/or inspecting officer/agency name if shown, e.g. "I-20 Weigh Station, Augusta GA" or the inspector\u2019s name.' },
+      notes: { type: 'string', description: 'A brief summary of any defects, violations, or notes listed on the report. Empty string if none.' },
+      confident: { type: 'boolean', description: 'True if this clearly looks like a DOT/roadside inspection report. False if the image is unreadable or does not look like one.' }
+    },
+    required: ['confident']
+  }
+};
+
+app.post('/api/admin/extract-dot-inspection', requireAuth, async (req, res) => {
+  const { image } = req.body || {};
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('DOT inspection extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Document extraction is not configured on the server yet.' });
+  }
+  const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(image || '');
+  if (!match) {
+    return res.status(400).json({ error: 'A valid image is required.' });
+  }
+
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [EXTRACT_DOT_INSPECTION_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_dot_inspection' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+            { type: 'text', text: `This is a photo or scan of a DOT roadside vehicle inspection report. Extract the inspection date, the overall result, the location/inspector, and a brief note on any defects or violations listed.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('DOT inspection extraction request failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_dot_inspection');
+    if (!toolUseBlock) {
+      console.error('DOT inspection extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('DOT inspection extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
+const EXTRACT_INCIDENT_TOOL = {
+  name: 'extract_incident',
+  description: 'Extract structured details from a vehicle safety incident report, accident report, or police report.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'Date of the incident in YYYY-MM-DD format, or empty string if not legible.' },
+      severity: { type: 'string', enum: ['minor', 'moderate', 'severe'], description: 'Your best assessment of severity based on the described damage/injuries: "minor" (little to no damage, no injuries), "moderate" (notable vehicle damage, no serious injuries), or "severe" (significant damage and/or injuries). Omit this field entirely if severity cannot reasonably be assessed.' },
+      description: { type: 'string', description: 'A brief (one to two sentence) summary of what happened.' },
+      confident: { type: 'boolean', description: 'True if this clearly looks like an incident/accident report describing a vehicle-related event. False if the image is unreadable or does not look like one.' }
+    },
+    required: ['description', 'confident']
+  }
+};
+
+app.post('/api/admin/extract-incident', requireAuth, async (req, res) => {
+  const { image } = req.body || {};
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Incident extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Document extraction is not configured on the server yet.' });
+  }
+  const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(image || '');
+  if (!match) {
+    return res.status(400).json({ error: 'A valid image is required.' });
+  }
+
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [EXTRACT_INCIDENT_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_incident' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+            { type: 'text', text: `This is a photo or scan of a vehicle safety incident, accident, or police report. Extract the date of the incident, your best assessment of severity, and a brief summary of what happened.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Incident extraction request failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_incident');
+    if (!toolUseBlock) {
+      console.error('Incident extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('Incident extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
+const EXTRACT_VIOLATION_TOOL = {
+  name: 'extract_violation',
+  description: 'Extract structured details from a traffic citation, moving violation notice, or compliance violation document.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'Date of the violation/citation in YYYY-MM-DD format, or empty string if not legible.' },
+      status: { type: 'string', enum: ['open', 'resolved'], description: 'Whether the violation appears already resolved/paid/dismissed (based on any stamps, notes, or paid indicators visible) versus still open. Default to "open" if there is no clear indication either way.' },
+      description: { type: 'string', description: 'A brief summary of the violation, e.g. "Speeding 15 over posted limit on I-20" or "Expired vehicle registration tag".' },
+      confident: { type: 'boolean', description: 'True if this clearly looks like a traffic citation or violation notice. False if the image is unreadable or does not look like one.' }
+    },
+    required: ['description', 'confident']
+  }
+};
+
+app.post('/api/admin/extract-violation', requireAuth, async (req, res) => {
+  const { image } = req.body || {};
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Violation extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Document extraction is not configured on the server yet.' });
+  }
+  const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(image || '');
+  if (!match) {
+    return res.status(400).json({ error: 'A valid image is required.' });
+  }
+
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [EXTRACT_VIOLATION_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_violation' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+            { type: 'text', text: `This is a photo or scan of a traffic citation, moving violation notice, or compliance violation document. Extract the date, whether it appears open or already resolved, and a brief summary of the violation.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Violation extraction request failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_violation');
+    if (!toolUseBlock) {
+      console.error('Violation extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    res.json(toolUseBlock.input);
+  } catch (err) {
+    console.error('Violation extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
 // ============ Captain Metrics: Paperwork Completeness ============
 // Estimates what share of a completed-paperwork upload's blank
 // signature/initial/written-response fields appear filled in by hand. This
