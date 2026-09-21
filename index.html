@@ -4062,10 +4062,13 @@
             </div>
             <label>Location / Inspector <input type="text" id="comp_dot_location"></label>
             <label>Notes <textarea id="comp_dot_notes" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
-            <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">
-              Inspection Report (optional)
-              <input type="file" id="comp_dot_file" accept=".pdf,.jpg,.jpeg,.png" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;">
-            </label>
+            <label style="display:block; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">Inspection Report (optional)</label>
+            <div id="comp_dot_dropzone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:16px; text-align:center; cursor:pointer; background:#fafafa; outline:none; margin-top:4px;">
+              <p style="margin:0; color:var(--muted); font-size:13px;">Drag &amp; drop the report here, or click to paste (Ctrl+V or Cmd+V)</p>
+              <p style="margin:4px 0 0; font-size:11.5px; color:var(--muted);">or <button type="button" id="comp_dot_chooseFileBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:11.5px;">choose a file</button> &mdash; image or PDF. Claude will read it and fill in what it can.</p>
+              <input type="file" id="comp_dot_file" accept=".pdf,.jpg,.jpeg,.png,.heic" style="display:none;">
+            </div>
+            <div id="comp_dot_filePreview" style="display:none; margin-top:8px; font-size:12.5px; color:var(--charcoal);"></div>
             <div class="form-actions">
               <button class="btn-primary" id="comp_dot_saveBtn" type="button">Save Inspection</button>
               <span class="status-msg" id="comp_dot_status"></span>
@@ -4100,6 +4103,13 @@
               </label>
             </div>
             <label>Description <textarea id="comp_inc_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+            <label style="display:block; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">Incident Report (optional)</label>
+            <div id="comp_inc_dropzone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:16px; text-align:center; cursor:pointer; background:#fafafa; outline:none; margin-top:4px;">
+              <p style="margin:0; color:var(--muted); font-size:13px;">Drag &amp; drop a report here, or click to paste (Ctrl+V or Cmd+V)</p>
+              <p style="margin:4px 0 0; font-size:11.5px; color:var(--muted);">or <button type="button" id="comp_inc_chooseFileBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:11.5px;">choose a file</button> &mdash; image or PDF. Claude will read it and fill in what it can.</p>
+              <input type="file" id="comp_inc_file" accept=".pdf,.jpg,.jpeg,.png,.heic" style="display:none;">
+            </div>
+            <div id="comp_inc_filePreview" style="display:none; margin-top:8px; font-size:12.5px; color:var(--charcoal);"></div>
             <div class="form-actions">
               <button class="btn-primary" id="comp_inc_saveBtn" type="button">Save Incident</button>
               <span class="status-msg" id="comp_inc_statusMsg"></span>
@@ -4111,6 +4121,7 @@
               <th id="comp_inc_truckColHead" style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line); display:none;">Truck</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Severity</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Report</th>
               <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="comp_inc_rows"></tbody>
@@ -4131,6 +4142,13 @@
               </label>
             </div>
             <label>Description <textarea id="comp_vio_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+            <label style="display:block; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">Citation / Notice (optional)</label>
+            <div id="comp_vio_dropzone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:16px; text-align:center; cursor:pointer; background:#fafafa; outline:none; margin-top:4px;">
+              <p style="margin:0; color:var(--muted); font-size:13px;">Drag &amp; drop a citation or notice here, or click to paste (Ctrl+V or Cmd+V)</p>
+              <p style="margin:4px 0 0; font-size:11.5px; color:var(--muted);">or <button type="button" id="comp_vio_chooseFileBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:11.5px;">choose a file</button> &mdash; image or PDF. Claude will read it and fill in what it can.</p>
+              <input type="file" id="comp_vio_file" accept=".pdf,.jpg,.jpeg,.png,.heic" style="display:none;">
+            </div>
+            <div id="comp_vio_filePreview" style="display:none; margin-top:8px; font-size:12.5px; color:var(--charcoal);"></div>
             <div class="form-actions">
               <button class="btn-primary" id="comp_vio_saveBtn" type="button">Save Violation</button>
               <span class="status-msg" id="comp_vio_statusMsg"></span>
@@ -4142,6 +4160,7 @@
               <th id="comp_vio_truckColHead" style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line); display:none;">Truck</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Status</th>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Document</th>
               <th style="padding:5px 3px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="comp_vio_rows"></tbody>
@@ -8073,6 +8092,141 @@
     win.document.close();
   }
 
+  // Shared by the DOT Inspections, Safety Incidents, and Violations dropzones
+  // below -- same drag/drop/paste/click wiring and extraction-call pattern
+  // as the Fleet Maintenance invoice upload, just parameterized per panel
+  // since each extracts different fields via its own backend endpoint.
+  function setupCompDropzone({ dropzoneId, fileInputId, chooseFileBtnId, previewId, statusId, extractEndpoint, applyExtractedData }){
+    const dropzone = document.getElementById(dropzoneId);
+    const fileInput = document.getElementById(fileInputId);
+    const preview = document.getElementById(previewId);
+
+    async function handleFile(file){
+      if(!file) return;
+      try{
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        fileInput.files = dt.files;
+      }catch(err){ console.error('Could not attach file to input:', err); }
+      preview.textContent = `Selected: ${file.name}`;
+      preview.style.display = 'block';
+
+      let imageDataUri = null;
+      try{
+        if(file.type === 'application/pdf'){
+          imageDataUri = await generatePdfThumbnail(file, 1400);
+        } else if(file.type.startsWith('image/')){
+          imageDataUri = await compressImageForUpload(file, 1600, 0.85);
+        } else {
+          return; // e.g. HEIC in browsers that can't render it client-side -- skip extraction, upload still works normally
+        }
+      }catch(err){ console.error('Could not prepare document for extraction:', err); return; }
+
+      const statusEl = document.getElementById(statusId);
+      statusEl.textContent = 'Reading document\u2026';
+      statusEl.className = 'status-msg';
+      try{
+        const res = await fetch(`${API_BASE}${extractEndpoint}`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({ image: imageDataUri })
+        });
+        if(handleAuthFailure(res)) return;
+        const data = await res.json();
+        if(!res.ok || !data.confident){
+          statusEl.textContent = '';
+          return; // quietly skip -- the admin can still fill the form in by hand
+        }
+        const filledAny = applyExtractedData(data);
+        statusEl.textContent = filledAny ? 'Filled in from the document \u2014 double-check before saving.' : '';
+        statusEl.className = 'status-msg ok';
+      }catch(err){
+        console.error('Document extraction failed:', err);
+        statusEl.textContent = '';
+      }
+    }
+
+    dropzone.addEventListener('click', ()=> dropzone.focus());
+    dropzone.addEventListener('focus', ()=>{ dropzone.style.borderColor = 'var(--brand-orange)'; dropzone.style.background = '#fff'; });
+    dropzone.addEventListener('blur', ()=>{ dropzone.style.borderColor = 'var(--line)'; dropzone.style.background = '#fafafa'; });
+    dropzone.addEventListener('paste', async (e)=>{
+      e.preventDefault();
+      const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && (item.type.startsWith('image/') || item.type === 'application/pdf'));
+      if(items.length === 0) return;
+      const blob = items[0].getAsFile();
+      if(blob) await handleFile(blob);
+    });
+    dropzone.addEventListener('dragover', (e)=>{
+      e.preventDefault();
+      dropzone.style.borderColor = 'var(--brand-orange)';
+      dropzone.style.background = '#fff';
+    });
+    dropzone.addEventListener('dragleave', ()=>{
+      dropzone.style.borderColor = 'var(--line)';
+      dropzone.style.background = '#fafafa';
+    });
+    dropzone.addEventListener('drop', async (e)=>{
+      e.preventDefault();
+      dropzone.style.borderColor = 'var(--line)';
+      dropzone.style.background = '#fafafa';
+      const files = Array.from(e.dataTransfer ? e.dataTransfer.files : []);
+      if(files[0]) await handleFile(files[0]);
+    });
+    if(chooseFileBtnId){
+      document.getElementById(chooseFileBtnId).addEventListener('click', (e)=>{ e.stopPropagation(); fileInput.click(); });
+    }
+    fileInput.addEventListener('change', async (e)=>{
+      if(e.target.files[0]) await handleFile(e.target.files[0]);
+    });
+  }
+
+  setupCompDropzone({
+    dropzoneId: 'comp_dot_dropzone', fileInputId: 'comp_dot_file', chooseFileBtnId: 'comp_dot_chooseFileBtn',
+    previewId: 'comp_dot_filePreview', statusId: 'comp_dot_status', extractEndpoint: '/api/admin/extract-dot-inspection',
+    applyExtractedData: (data) => {
+      const dateEl = document.getElementById('comp_dot_date');
+      const resultEl = document.getElementById('comp_dot_result');
+      const locEl = document.getElementById('comp_dot_location');
+      const notesEl = document.getElementById('comp_dot_notes');
+      let filledAny = false;
+      if(data.date && !dateEl.value){ dateEl.value = data.date; filledAny = true; }
+      if(data.result && ['pass','pass-defects','oos'].includes(data.result)){ resultEl.value = data.result; filledAny = true; }
+      if(data.location && !locEl.value){ locEl.value = data.location; filledAny = true; }
+      if(data.notes && !notesEl.value){ notesEl.value = data.notes; filledAny = true; }
+      return filledAny;
+    }
+  });
+
+  setupCompDropzone({
+    dropzoneId: 'comp_inc_dropzone', fileInputId: 'comp_inc_file', chooseFileBtnId: 'comp_inc_chooseFileBtn',
+    previewId: 'comp_inc_filePreview', statusId: 'comp_inc_statusMsg', extractEndpoint: '/api/admin/extract-incident',
+    applyExtractedData: (data) => {
+      const dateEl = document.getElementById('comp_inc_date');
+      const sevEl = document.getElementById('comp_inc_severity');
+      const descEl = document.getElementById('comp_inc_description');
+      let filledAny = false;
+      if(data.date && !dateEl.value){ dateEl.value = data.date; filledAny = true; }
+      if(data.severity && ['minor','moderate','severe'].includes(data.severity)){ sevEl.value = data.severity; filledAny = true; }
+      if(data.description && !descEl.value){ descEl.value = data.description; filledAny = true; }
+      return filledAny;
+    }
+  });
+
+  setupCompDropzone({
+    dropzoneId: 'comp_vio_dropzone', fileInputId: 'comp_vio_file', chooseFileBtnId: 'comp_vio_chooseFileBtn',
+    previewId: 'comp_vio_filePreview', statusId: 'comp_vio_statusMsg', extractEndpoint: '/api/admin/extract-violation',
+    applyExtractedData: (data) => {
+      const dateEl = document.getElementById('comp_vio_date');
+      const statusSelEl = document.getElementById('comp_vio_status');
+      const descEl = document.getElementById('comp_vio_description');
+      let filledAny = false;
+      if(data.date && !dateEl.value){ dateEl.value = data.date; filledAny = true; }
+      if(data.status && ['open','resolved'].includes(data.status)){ statusSelEl.value = data.status; filledAny = true; }
+      if(data.description && !descEl.value){ descEl.value = data.description; filledAny = true; }
+      return filledAny;
+    }
+  });
+
   function renderCompDotRows(){
     const tbody = document.getElementById('comp_dot_rows');
     const showAllTrucks = !compSelectedTruckId;
@@ -8143,6 +8297,7 @@
     document.getElementById('comp_dot_location').value = '';
     document.getElementById('comp_dot_notes').value = '';
     document.getElementById('comp_dot_file').value = '';
+    document.getElementById('comp_dot_filePreview').style.display = 'none';
     renderCompDotRows();
     statusEl.textContent = ok ? 'Inspection saved.' : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
@@ -8160,6 +8315,7 @@
         ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.severity==='severe'?'color:#B3261E; font-weight:600;':''}">${sevLabels[r.severity]||fleetEsc(r.severity)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.description)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${r.hasFile ? `<button type="button" class="comp-inc-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>` : '\u2014'}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-inc-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`).join('');
 
@@ -8170,10 +8326,23 @@
     if(logForm) logForm.style.display = showAllTrucks ? 'none' : '';
     if(logNote) logNote.style.display = showAllTrucks ? 'block' : 'none';
 
+    tbody.querySelectorAll('.comp-inc-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      try{
+        const dataUri = await window.dashboardApi.get('compliance-doc-' + id, null);
+        if(!dataUri){ alert('Could not load this file.'); return; }
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
+        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+      }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
+    }));
     tbody.querySelectorAll('.comp-inc-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const rec = compIncidents.find(r => r.id === id);
       if(!confirm('Delete this incident record?')) return;
-      compIncidents = compIncidents.filter(r => r.id !== e.target.dataset.id);
+      compIncidents = compIncidents.filter(r => r.id !== id);
       await window.dashboardApi.set(COMP_INCIDENT_KEY, compIncidents);
+      if(rec && rec.hasFile){ try{ await window.dashboardApi.delete('compliance-doc-' + id); }catch(e2){ console.error(e2); } }
       renderCompIncidentRows();
     }));
   }
@@ -8184,9 +8353,22 @@
     const date = document.getElementById('comp_inc_date').value;
     const description = document.getElementById('comp_inc_description').value.trim();
     if(!date || !description){ statusEl.textContent = 'Enter a date and description.'; statusEl.className = 'status-msg err'; return; }
-    compIncidents.push({ id: 'inc_'+Date.now()+'_'+Math.floor(Math.random()*1000), truckId: compSelectedTruckId, date, severity: document.getElementById('comp_inc_severity').value, description });
+    const file = document.getElementById('comp_inc_file').files[0];
+    if(file && file.size > 10*1024*1024){ statusEl.textContent = 'That file is over 10MB.'; statusEl.className = 'status-msg err'; return; }
+
+    const recId = 'inc_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    let hasFile = false;
+    if(file){
+      try{
+        const compressed = await window.compressUploadedFile(file);
+        hasFile = await window.dashboardApi.set('compliance-doc-' + recId, compressed.dataUri);
+      }catch(err){ console.error('Incident file upload failed:', err); }
+    }
+    compIncidents.push({ id: recId, truckId: compSelectedTruckId, date, severity: document.getElementById('comp_inc_severity').value, description, hasFile });
     const ok = await window.dashboardApi.set(COMP_INCIDENT_KEY, compIncidents);
     document.getElementById('comp_inc_description').value = '';
+    document.getElementById('comp_inc_file').value = '';
+    document.getElementById('comp_inc_filePreview').style.display = 'none';
     renderCompIncidentRows();
     statusEl.textContent = ok ? 'Incident saved.' : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
@@ -8204,6 +8386,7 @@
         ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.status==='open'?'color:#B3261E; font-weight:600;':''}">${statusLabels[r.status]||fleetEsc(r.status)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.description)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${r.hasFile ? `<button type="button" class="comp-vio-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>` : '\u2014'}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-vio-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`).join('');
 
@@ -8214,10 +8397,23 @@
     if(logForm) logForm.style.display = showAllTrucks ? 'none' : '';
     if(logNote) logNote.style.display = showAllTrucks ? 'block' : 'none';
 
+    tbody.querySelectorAll('.comp-vio-view').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      try{
+        const dataUri = await window.dashboardApi.get('compliance-doc-' + id, null);
+        if(!dataUri){ alert('Could not load this file.'); return; }
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
+        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+      }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
+    }));
     tbody.querySelectorAll('.comp-vio-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const rec = compViolations.find(r => r.id === id);
       if(!confirm('Delete this violation record?')) return;
-      compViolations = compViolations.filter(r => r.id !== e.target.dataset.id);
+      compViolations = compViolations.filter(r => r.id !== id);
       await window.dashboardApi.set(COMP_VIOLATION_KEY, compViolations);
+      if(rec && rec.hasFile){ try{ await window.dashboardApi.delete('compliance-doc-' + id); }catch(e2){ console.error(e2); } }
       renderCompViolationRows();
     }));
   }
@@ -8228,9 +8424,22 @@
     const date = document.getElementById('comp_vio_date').value;
     const description = document.getElementById('comp_vio_description').value.trim();
     if(!date || !description){ statusEl.textContent = 'Enter a date and description.'; statusEl.className = 'status-msg err'; return; }
-    compViolations.push({ id: 'vio_'+Date.now()+'_'+Math.floor(Math.random()*1000), truckId: compSelectedTruckId, date, status: document.getElementById('comp_vio_status').value, description });
+    const file = document.getElementById('comp_vio_file').files[0];
+    if(file && file.size > 10*1024*1024){ statusEl.textContent = 'That file is over 10MB.'; statusEl.className = 'status-msg err'; return; }
+
+    const recId = 'vio_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    let hasFile = false;
+    if(file){
+      try{
+        const compressed = await window.compressUploadedFile(file);
+        hasFile = await window.dashboardApi.set('compliance-doc-' + recId, compressed.dataUri);
+      }catch(err){ console.error('Violation file upload failed:', err); }
+    }
+    compViolations.push({ id: recId, truckId: compSelectedTruckId, date, status: document.getElementById('comp_vio_status').value, description, hasFile });
     const ok = await window.dashboardApi.set(COMP_VIOLATION_KEY, compViolations);
     document.getElementById('comp_vio_description').value = '';
+    document.getElementById('comp_vio_file').value = '';
+    document.getElementById('comp_vio_filePreview').style.display = 'none';
     renderCompViolationRows();
     statusEl.textContent = ok ? 'Violation saved.' : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
