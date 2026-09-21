@@ -4744,6 +4744,8 @@
           <p class="form-note">Comma-separated. These addresses get CC'd whenever the "Email Client" button is used after uploading completed paperwork.</p>
           <label>Google Review Link <input type="url" id="appset_googleReviewLink"></label>
           <p class="form-note">Included in the thank-you email sent to clients. Update if your Google Business listing ever changes.</p>
+          <label>Email Body <textarea id="appset_paperworkEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
+          <p class="form-note">Sent from the "Email Client" button after uploading a client's completed paperwork. Available merge fields: <span class="mono">{{clientFirstName}}</span> and <span class="mono">{{reviewSentence}}</span> (automatically swapped in with a line asking for a Google review, using the link above, only when the job was marked as a happy client &mdash; otherwise it's left blank). Subject line is always fixed to "Thank You for Choosing College Hunks".</p>
           <div class="form-actions">
             <button class="btn-primary" id="appset_paperworkSaveBtn" type="button">Save</button>
             <span class="status-msg" id="appset_paperworkStatus"></span>
@@ -5053,7 +5055,8 @@
     },
     paperwork: {
       completedPaperworkCc: 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com',
-      googleReviewLink: 'https://g.page/r/CTsnaSA6YbvlEBM/review'
+      googleReviewLink: 'https://g.page/r/CTsnaSA6YbvlEBM/review',
+      emailBodyTemplate: 'Hi {{clientFirstName}},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\n{{reviewSentence}}If anything about your experience wasn\u2019t up to standard, please give us a call so we can make it right.\n\nPlease don\u2019t hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team'
     },
     materials: {
       supplierPhone: '',
@@ -12048,6 +12051,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_redfinAugusta').value = marketing.redfinAugusta || '';
     document.getElementById('appset_completedPaperworkCc').value = paperwork.completedPaperworkCc || '';
     document.getElementById('appset_googleReviewLink').value = paperwork.googleReviewLink || '';
+    document.getElementById('appset_paperworkEmailBody').value = paperwork.emailBodyTemplate || '';
     document.getElementById('appset_supplierPhone').value = materials.supplierPhone || '';
     document.getElementById('appset_supplierAccountNumber').value = materials.supplierAccountNumber || '';
     document.getElementById('appset_supplierEmail').value = materials.supplierEmail || '';
@@ -12414,7 +12418,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const statusEl = document.getElementById('appset_paperworkStatus');
     const paperwork = {
       completedPaperworkCc: document.getElementById('appset_completedPaperworkCc').value.trim(),
-      googleReviewLink: document.getElementById('appset_googleReviewLink').value.trim()
+      googleReviewLink: document.getElementById('appset_googleReviewLink').value.trim(),
+      emailBodyTemplate: document.getElementById('appset_paperworkEmailBody').value
     };
     if(!paperwork.completedPaperworkCc){
       statusEl.textContent = 'The CC list can\u2019t be empty \u2014 remove the field content only if you want no one CC\u2019d.';
@@ -15986,7 +15991,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const reviewSentence = upload.satisfaction === 'happy'
           ? `If you were happy with our service, we'd really appreciate a 5-star review on Google: ${reviewLink}\n\n`
           : '';
-        const body = `Hi ${firstName},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\n${reviewSentence}If anything about your experience wasn't up to standard, please give us a call so we can make it right.\n\nPlease don't hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team`;
+        const template = pw.emailBodyTemplate || 'Hi {{clientFirstName}},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\n{{reviewSentence}}If anything about your experience wasn\'t up to standard, please give us a call so we can make it right.\n\nPlease don\'t hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team';
+        const body = template
+          .split('{{clientFirstName}}').join(firstName)
+          .split('{{reviewSentence}}').join(reviewSentence);
         const cc = pw.completedPaperworkCc || 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com';
 
         let clipboardOk = false;
