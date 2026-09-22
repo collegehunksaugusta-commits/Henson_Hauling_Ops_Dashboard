@@ -16355,7 +16355,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       console.log('[INVOICE-UPLOAD] step 7 done: saved. Finishing up.');
 
-      const baseName = (upload.fileName || 'paperwork').replace(/\.[a-zA-Z0-9]+$/, '');
+      const baseName = (upload.fileName || 'paperwork').replace(/\.[a-zA-Z0-9]+$/, '').replace(/(_with_invoice)+$/, '');
       upload.fileName = baseName + '_with_invoice.pdf';
       upload.invoiceBalanceDue = Number(extractData.balanceDue) || 0;
       upload.invoiceFileName = file.name;
