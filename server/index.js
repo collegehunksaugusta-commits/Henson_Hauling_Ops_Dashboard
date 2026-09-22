@@ -75,7 +75,8 @@ const ALLOWED_KEYS = new Set([
   'damage-claims',
   'junk-removal-jobs',
   'moving-damage-reports',
-  'manager-review-items'
+  'manager-review-items',
+  'financial-state-tax-records'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-'];
 
@@ -1577,11 +1578,13 @@ app.post('/api/verify-override-pin', requireAuth, async (req, res) => {
 // manual entry when available.
 const EXTRACT_CLIENT_INVOICE_TOOL = {
   name: 'extract_client_invoice',
-  description: 'Extract the balance due and billed line items from a HunkWare completed job invoice.',
+  description: 'Extract the balance due, total sale, tax, and billed line items from a HunkWare completed job invoice.',
   input_schema: {
     type: 'object',
     properties: {
       balanceDue: { type: 'number', description: 'The Balance Due amount shown on the invoice, in dollars (e.g. 0, 42.50). If the invoice shows the balance is fully paid / $0.00, report 0.' },
+      totalSale: { type: 'number', description: 'The Total Sale / Subtotal amount shown on the invoice, in dollars -- the pre-tax total charged for the job, before tax is added and before any prior deposit/payment is subtracted. This is NOT the same as Balance Due.' },
+      tax: { type: 'number', description: 'The Tax amount shown on the invoice, in dollars. Report 0 if the invoice explicitly shows no tax was charged.' },
       lineItems: {
         type: 'array',
         items: {
