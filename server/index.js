@@ -1760,7 +1760,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       return matchesReportedAmount ? amt : 0;
     }
     const taxAfterLayer1 = validateAgainstQuote(extraction.tax, extraction.taxLineAsPrinted, 'tax');
-    const totalSaleAfterLayer1 = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'subtotal|total sale');
+    const totalSaleAfterLayer1 = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'sub\\s*total|total\\s*sale|product\\s*total');
     console.log(`[TAX-EXTRACT ${reqId}] step3 after layer 1 (quote self-consistency): tax ${extraction.tax} -> ${taxAfterLayer1}${extraction.tax !== taxAfterLayer1 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer1}${extraction.totalSale !== totalSaleAfterLayer1 ? ' REJECTED' : ''}`);
     extraction.tax = taxAfterLayer1;
     extraction.totalSale = totalSaleAfterLayer1;
@@ -1784,7 +1784,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
         return new RegExp(keyword, 'i').test(window) ? amt : 0;
       }
       const taxAfterLayer2 = verifyAgainstSourceText(extraction.tax, 'tax');
-      const totalSaleAfterLayer2 = verifyAgainstSourceText(extraction.totalSale, 'subtotal|total sale');
+      const totalSaleAfterLayer2 = verifyAgainstSourceText(extraction.totalSale, 'sub\\s*total|total\\s*sale|product\\s*total');
       console.log(`[TAX-EXTRACT ${reqId}] step4 after layer 2 (ground-truth text search): tax ${extraction.tax} -> ${taxAfterLayer2}${extraction.tax !== taxAfterLayer2 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer2}${extraction.totalSale !== totalSaleAfterLayer2 ? ' REJECTED' : ''}`);
       extraction.tax = taxAfterLayer2;
       extraction.totalSale = totalSaleAfterLayer2;
