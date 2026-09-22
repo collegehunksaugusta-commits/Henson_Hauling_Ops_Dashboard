@@ -18377,6 +18377,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
 
+  const CLAIM_LINK_VALID_DAYS = 7; // matches the backend's enforcement window
+
   function dcClaimStatus(claim){
     if(claim.photosUploadedAt && !claim.acknowledgedAt) return { label: 'Photos Uploaded', color: '#B3261E', bg: '#FDEDEA' };
     if(claim.photosUploadedAt && claim.acknowledgedAt) return { label: 'Reviewed', color: 'var(--brand-green-dark)', bg: '#EAF6EE' };
