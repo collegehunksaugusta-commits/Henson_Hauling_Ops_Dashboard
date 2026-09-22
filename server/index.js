@@ -1746,6 +1746,21 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     ]);
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
 
+    // Defense in depth: the schema instructs the model not to include
+    // labor/service lines in lineItems, but this has been observed to leak
+    // through anyway (e.g. "2 Hunks *Price Per Hour"), which then shows up
+    // as a false "unmatched" materials-catalog item downstream. Rather than
+    // trust the instruction alone, hard-filter any line whose description
+    // matches known labor/service patterns before it ever reaches matching.
+    if (Array.isArray(extraction.lineItems)) {
+      const LABOR_PATTERN = /per\s*hour|\bhour(s)?\b|\bhunk(s)?\b|\blabor\b|\btravel\b|mileage|\bfee\b/i;
+      const before = extraction.lineItems.length;
+      extraction.lineItems = extraction.lineItems.filter(li => !LABOR_PATTERN.test(li.description || ''));
+      if (extraction.lineItems.length !== before) {
+        console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2b filtered out ${before - extraction.lineItems.length} labor/service line item(s) that leaked into lineItems`);
+      }
+    }
+
     // Server-side validation. Layer 1: a claimed dollar figure is only
     // trusted if its quoted "as printed" line actually contains the right
     // keyword AND a dollar amount that numerically matches (within
