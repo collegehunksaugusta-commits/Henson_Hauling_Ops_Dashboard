@@ -1645,6 +1645,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
   }
 
   try {
+    const reqId = Math.random().toString(36).slice(2, 8);
     const imageBlocks = images.map(dataUri => {
       const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
       if (!match) return null;
@@ -1663,6 +1664,10 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     const texts = Array.isArray(pageTexts) ? pageTexts.map(t => (typeof t === 'string' ? t : '')) : [];
     const combinedTextLength = texts.reduce((sum, t) => sum + t.length, 0);
     const hasUsableText = texts.length === imageBlocks.length && combinedTextLength > 50;
+    console.log(`[TAX-EXTRACT ${reqId}] start: pages=${imageBlocks.length} pageTextsProvided=${texts.length} combinedTextLength=${combinedTextLength} mode=${hasUsableText ? 'TEXT' : 'VISION'}`);
+    if (hasUsableText) {
+      texts.forEach((t, i) => console.log(`[TAX-EXTRACT ${reqId}] page ${i} text (${t.length} chars): ${t.slice(0, 500).replace(/\n/g, ' | ')}`));
+    }
 
     function pageContentBlocks(indices) {
       if (hasUsableText) {
@@ -1712,6 +1717,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       ...pageContentBlocks(allIndices),
       { type: 'text', text: `These are ${imageBlocks.length} page(s) from a moving/junk removal job's paperwork -- this may be ONLY the invoice, or it may be the invoice merged together with the job's work order, contract, and signature pages.${hasUsableText ? ' Each page\u2019s text is labeled "--- PAGE n ---" above, using the same 0-indexed page numbers you should report.' : ''} Identify exactly which page(s), if any, are a genuine HunkWare invoice or receipt (has Balance Due / Subtotal / Tax lines explicitly printed and labeled on that specific page). A work order, contract, or estimate page is NOT an invoice, even if it shows a dollar total -- do not include those page numbers. Separately, if a work order page is present, report the job type and Origin Address ("FROM") shown on it.` }
     ]);
+    console.log(`[TAX-EXTRACT ${reqId}] step1 classification: ${JSON.stringify(classification)}`);
     const invoicePageIndices = (Array.isArray(classification.invoicePageIndices) ? classification.invoicePageIndices : [])
       .filter(i => Number.isInteger(i) && i >= 0 && i < imageBlocks.length);
 
@@ -1724,6 +1730,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       // No genuine invoice page found -- nothing to extract, and no second
       // call needed. jobType/originAddress from step 1 still carry through,
       // since those can come from a work order page even with no invoice.
+      console.log(`[TAX-EXTRACT ${reqId}] no invoice page found -- returning early with all-zero financials`);
       return res.json({ ...baseResult, invoicePageFound: false, balanceDue: 0, totalSale: 0, tax: 0, lineItems: [], confident: false });
     }
 
@@ -1735,6 +1742,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       ...pageContentBlocks(invoicePageIndices),
       { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold. Before reporting the Total Sale and Tax dollar values, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted and taxLineAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
     ]);
+    console.log(`[TAX-EXTRACT ${reqId}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
 
     // Server-side validation. Layer 1: a claimed dollar figure is only
     // trusted if its quoted "as printed" line actually contains the right
@@ -1751,8 +1759,11 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       const matchesReportedAmount = numbersInQuote.some(n => Math.abs(n - amt) < 0.01);
       return matchesReportedAmount ? amt : 0;
     }
-    extraction.tax = validateAgainstQuote(extraction.tax, extraction.taxLineAsPrinted, 'tax');
-    extraction.totalSale = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'subtotal|total sale');
+    const taxAfterLayer1 = validateAgainstQuote(extraction.tax, extraction.taxLineAsPrinted, 'tax');
+    const totalSaleAfterLayer1 = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'subtotal|total sale');
+    console.log(`[TAX-EXTRACT ${reqId}] step3 after layer 1 (quote self-consistency): tax ${extraction.tax} -> ${taxAfterLayer1}${extraction.tax !== taxAfterLayer1 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer1}${extraction.totalSale !== totalSaleAfterLayer1 ? ' REJECTED' : ''}`);
+    extraction.tax = taxAfterLayer1;
+    extraction.totalSale = totalSaleAfterLayer1;
 
     // Layer 2 (only possible in text mode, and much stronger): search the
     // server's OWN independently-extracted text for the claimed dollar
@@ -1772,10 +1783,14 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
         const window = invoiceText.slice(Math.max(0, idx - 40), idx + 40);
         return new RegExp(keyword, 'i').test(window) ? amt : 0;
       }
-      extraction.tax = verifyAgainstSourceText(extraction.tax, 'tax');
-      extraction.totalSale = verifyAgainstSourceText(extraction.totalSale, 'subtotal|total sale');
+      const taxAfterLayer2 = verifyAgainstSourceText(extraction.tax, 'tax');
+      const totalSaleAfterLayer2 = verifyAgainstSourceText(extraction.totalSale, 'subtotal|total sale');
+      console.log(`[TAX-EXTRACT ${reqId}] step4 after layer 2 (ground-truth text search): tax ${extraction.tax} -> ${taxAfterLayer2}${extraction.tax !== taxAfterLayer2 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer2}${extraction.totalSale !== totalSaleAfterLayer2 ? ' REJECTED' : ''}`);
+      extraction.tax = taxAfterLayer2;
+      extraction.totalSale = totalSaleAfterLayer2;
     }
 
+    console.log(`[TAX-EXTRACT ${reqId}] FINAL result: ${JSON.stringify({ ...baseResult, invoicePageFound: true, ...extraction })}`);
     res.json({ ...baseResult, invoicePageFound: true, ...extraction });
   } catch (err) {
     console.error('Client invoice extraction failed:', err.message);
