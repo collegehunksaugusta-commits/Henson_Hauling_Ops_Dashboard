@@ -16025,7 +16025,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         if(images.length === 0){ skipped++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
         let pageTexts = [];
         if(file.type === 'application/pdf'){
-          pageTexts = await window.extractPdfPageTextsSafe(file);
+          // The stored file has already been through mergeFilesToPdf, which
+          // rasterizes every page to an image and builds a new PDF with no
+          // text layer at all -- re-extracting text from it directly would
+          // always come back empty. If text was preserved at upload time
+          // (from the original, not-yet-merged invoice file), use that
+          // instead: the invoice pages are always appended last during the
+          // merge, so pad the earlier paperwork pages with empty strings
+          // and place the real text at the end to keep indices aligned
+          // with the images array.
+          const preservedInvoiceText = await window.dashboardApi.get('paperwork-upload-invoicetext-' + upload.id, null);
+          if(Array.isArray(preservedInvoiceText) && preservedInvoiceText.length > 0 && preservedInvoiceText.length <= images.length){
+            const paddingCount = images.length - preservedInvoiceText.length;
+            pageTexts = [...Array(paddingCount).fill(''), ...preservedInvoiceText];
+          } else {
+            pageTexts = await window.extractPdfPageTextsSafe(file);
+          }
         }
 
         const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
@@ -16354,6 +16369,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
       console.log('[INVOICE-UPLOAD] step 7 done: saved. Finishing up.');
+
+      // mergeFilesToPdf rasterizes every page to a JPEG and rebuilds a new
+      // PDF from those images -- it does not preserve a text layer. Save
+      // the text extracted just above (from the original, not-yet-merged
+      // file) separately, so a later backfill run -- which only has
+      // access to this now-flattened merged file -- can still use it
+      // instead of finding no text at all and falling back to vision mode.
+      if(invoicePageTexts.length > 0){
+        await window.dashboardApi.set('paperwork-upload-invoicetext-' + uploadId, invoicePageTexts);
+      }
 
       const baseName = (upload.fileName || 'paperwork').replace(/\.[a-zA-Z0-9]+$/, '').replace(/(_with_invoice)+$/, '');
       upload.fileName = baseName + '_with_invoice.pdf';
