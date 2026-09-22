@@ -1633,7 +1633,7 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
 };
 
 app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
-  const { images, pageTexts, jobNumber } = req.body || {};
+  const { images, pageTexts, jobNumber, materialsNicknames } = req.body || {};
   if (!Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ error: 'At least one image is required.' });
   }
@@ -1740,24 +1740,41 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     // classified as a genuine invoice -- the model literally cannot see
     // (let alone pull a number from) any work order/estimate page here,
     // rather than just being told to ignore pages it can still see.
+    const validNicknames = Array.isArray(materialsNicknames)
+      ? materialsNicknames.map(n => (typeof n === 'string' ? n.trim() : '')).filter(Boolean)
+      : [];
+    const lineItemInstruction = validNicknames.length > 0
+      ? `For line items, ONLY look for and report items whose description matches one of these exact names from the materials catalog: ${validNicknames.map(n => `"${n}"`).join(', ')}. Do not report ANY other billed item, even if it looks like a physical good -- labor, hourly rates, truckload/shipping charges, fees, discounts, tips, and anything else not on this list must never appear in lineItems, regardless of how it's labeled on the invoice.`
+      : `Find every billed line item that represents a physical good sold -- not labor, mileage, or other service fees.`;
     const extraction = await callClaude([EXTRACT_CLIENT_INVOICE_TOOL], 'extract_client_invoice', [
       ...pageContentBlocks(invoicePageIndices),
-      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold -- including the exact dollar amount billed for each individual line item, since that is what was actually charged to the client and is what matters for sales tax, not any catalog or cost price. Before reporting the Total Sale, Tax, and each line item's dollar amount, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted, taxLineAsPrinted, and lineTotalAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
+      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, and the Tax amount. ${lineItemInstruction} For each reported line item, include the exact dollar amount billed for it, since that is what was actually charged to the client and is what matters for sales tax, not any catalog or cost price. Before reporting the Total Sale, Tax, and each line item's dollar amount, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted, taxLineAsPrinted, and lineTotalAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
     ]);
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
 
-    // Defense in depth: the schema instructs the model not to include
-    // labor/service lines in lineItems, but this has been observed to leak
-    // through anyway (e.g. "2 Hunks *Price Per Hour"), which then shows up
-    // as a false "unmatched" materials-catalog item downstream. Rather than
-    // trust the instruction alone, hard-filter any line whose description
-    // matches known labor/service patterns before it ever reaches matching.
+    // The invoice reading should only ever look for items that are
+    // actually in the materials catalog -- everything else (labor,
+    // shipping/truckload charges, fees, discounts, tips, and anything
+    // else) is excluded from Total Sales, no matter how it's labeled on
+    // the invoice. The prompt above already scopes the model's search to
+    // this closed list, but this is the authoritative, guaranteed check:
+    // hard-filter to only descriptions that exactly match a real
+    // materials Nickname, rather than trusting the model's judgment about
+    // what "looks like" a good.
     if (Array.isArray(extraction.lineItems)) {
-      const LABOR_PATTERN = /per\s*hour|\bhour(s)?\b|\bhunk(s)?\b|\blabor\b|\btravel\b|mileage|\bfee\b/i;
       const before = extraction.lineItems.length;
-      extraction.lineItems = extraction.lineItems.filter(li => !LABOR_PATTERN.test(li.description || ''));
+      if (validNicknames.length > 0) {
+        const nicknameSet = new Set(validNicknames.map(n => n.toLowerCase()));
+        extraction.lineItems = extraction.lineItems.filter(li => nicknameSet.has((li.description || '').trim().toLowerCase()));
+      } else {
+        // No materials catalog was provided at all -- fall back to a
+        // pattern-based exclusion of obvious non-goods lines as a
+        // last-resort safety net, rather than trusting every line item.
+        const NON_GOODS_PATTERN = /per\s*hour|\bhour(s)?\b|\bhunk(s)?\b|\blabor\b|\btravel\b|mileage|\bfee\b|\btruck(load)?\b/i;
+        extraction.lineItems = extraction.lineItems.filter(li => !NON_GOODS_PATTERN.test(li.description || ''));
+      }
       if (extraction.lineItems.length !== before) {
-        console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2b filtered out ${before - extraction.lineItems.length} labor/service line item(s) that leaked into lineItems`);
+        console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2b filtered out ${before - extraction.lineItems.length} line item(s) not in the materials catalog`);
       }
     }
 
