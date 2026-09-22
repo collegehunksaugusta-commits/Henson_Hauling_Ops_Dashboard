@@ -16043,6 +16043,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const alreadyCovered = new Set(existingRecords.map(r => r.jobNumber));
     const candidates = paperworkUploads.filter(u => u.jobNumber && u.invoiceUploadedAt && !alreadyCovered.has(u.jobNumber));
     const total = candidates.length;
+    // The invoice extraction only looks for these exact item names -- a
+    // closed list, not an open-ended "does this look like a good" guess --
+    // so it never has to distinguish labor/fees/shipping from goods itself.
+    let materialsNicknames = [];
+    try{ materialsNicknames = ((await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [])).map(mi => mi.nickname).filter(Boolean); }
+    catch(err){ console.error('Load materials nicknames for backfill failed:', err); }
 
     for(const upload of candidates){
       checked++;
@@ -16075,7 +16081,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
           method: 'POST',
           headers: authHeaders({'Content-Type': 'application/json'}),
-          body: JSON.stringify({ images, pageTexts, jobNumber: upload.jobNumber })
+          body: JSON.stringify({ images, pageTexts, jobNumber: upload.jobNumber, materialsNicknames })
         });
         if(handleAuthFailure(res)) return { checked, total, recorded, skipped, failed };
         const data = await res.json();
@@ -16357,10 +16363,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
 
       console.log('[INVOICE-UPLOAD] step 3: calling extraction API...');
+      let materialsNicknames = [];
+      try{ materialsNicknames = ((await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [])).map(mi => mi.nickname).filter(Boolean); }
+      catch(err){ console.error('Load materials nicknames for invoice upload failed:', err); }
       const extractRes = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ images: invoicePages, pageTexts: invoicePageTexts, jobNumber: upload.jobNumber })
+        body: JSON.stringify({ images: invoicePages, pageTexts: invoicePageTexts, jobNumber: upload.jobNumber, materialsNicknames })
       });
       console.log('[INVOICE-UPLOAD] step 3 done: HTTP', extractRes.status);
       if(handleAuthFailure(extractRes)) return;
