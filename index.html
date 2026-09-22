@@ -15900,6 +15900,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         }catch(err){ console.error('Materials pricing lookup for tax record failed:', err); }
       }
 
+      // Defense in depth: if the AI reports it never actually found a
+      // genuine invoice/receipt page, don't trust any tax figure it
+      // returned regardless -- treat it as 0 rather than relying solely on
+      // the extraction schema instruction to have zeroed it out correctly.
+      const taxCollected = extractData.invoicePageFound === false ? 0 : (Number(extractData.tax) || 0);
+
+      // Flags implausible combinations for manual review rather than
+      // silently trusting them -- e.g. tax charged against $0 in matched
+      // materials, or a tax figure larger than the sale itself, neither of
+      // which is possible at a normal sales tax rate. Catches exactly the
+      // kind of misattributed figure (a number from the wrong page) seen
+      // in practice.
+      const needsReview = taxCollected > 0 && (materialsSaleTotal === 0 || taxCollected > materialsSaleTotal);
+
       let records = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
       // Keyed by job number -- reprocessing an invoice for the same job
       // (e.g. a corrected re-upload) updates the existing record rather
@@ -15910,7 +15924,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         jobType: jobType,
         state: state,
         totalSale: materialsSaleTotal,
-        taxCollected: Number(extractData.tax) || 0,
+        taxCollected: taxCollected,
+        needsReview: needsReview,
         date: dateForRecord,
         recordedAt: new Date().toISOString()
       });
@@ -16118,11 +16133,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const monthTotalSale = rows.reduce((sum, r) => sum + (Number(r.totalSale) || 0), 0);
       const monthEstimatedTax = rows.reduce((sum, r) => sum + (STATE_TAX_RATES[r.state] || 0) * (Number(r.totalSale) || 0), 0);
       const monthTaxCollected = rows.reduce((sum, r) => sum + (Number(r.taxCollected) || 0), 0);
+      const monthFlaggedCount = rows.filter(r => r.needsReview).length;
 
       return `
       <div class="panel" style="margin-bottom:14px;">
         <button type="button" class="st-month-toggle" data-month="${monthKey}" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
-          <h3 style="margin:0;">${stEsc(monthLabel)} <span class="form-note" style="font-weight:400;">(${rows.length} job${rows.length===1?'':'s'}, ${stMoney(monthTotalSale)} total sales)</span></h3>
+          <h3 style="margin:0;">${stEsc(monthLabel)} <span class="form-note" style="font-weight:400;">(${rows.length} job${rows.length===1?'':'s'}, ${stMoney(monthTotalSale)} total sales)</span>${monthFlaggedCount > 0 ? ` <span style="color:#B3261E; font-weight:600; font-size:12px;">\u26a0\ufe0f ${monthFlaggedCount} flagged for review</span>` : ''}</h3>
           <span style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px; transform:rotate(${isExpanded?90:0}deg);">&#9656;</span>
         </button>
         <div style="display:${isExpanded?'block':'none'}; margin-top:12px;">
@@ -16136,12 +16152,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             </tr></thead>
             <tbody>
               ${rows.map(r => `
-              <tr>
+              <tr${r.needsReview ? ' style="background:#FFF4E5;"' : ''}>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${stEsc(r.jobNumber)}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${stEsc(JOB_TYPE_LABELS_ST[r.jobType] || 'Unknown')}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${!r.state ? 'color:#B3261E;' : ''}">${stEsc(r.state ? STATE_LABELS_ST[r.state] : 'Unknown')}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;">${stMoney(r.totalSale)}</td>
-                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;">${stMoney(r.taxCollected)}</td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${r.needsReview ? 'color:#B3261E; font-weight:600;' : ''}" title="${r.needsReview ? 'Flagged: this tax amount doesn\u2019t line up with the materials sale \u2014 double-check against the actual invoice.' : ''}">${stMoney(r.taxCollected)}${r.needsReview ? ' \u26a0\ufe0f' : ''}</td>
               </tr>`).join('')}
             </tbody>
             <tfoot>
