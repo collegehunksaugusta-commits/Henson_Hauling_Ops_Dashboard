@@ -1578,13 +1578,14 @@ app.post('/api/verify-override-pin', requireAuth, async (req, res) => {
 // manual entry when available.
 const EXTRACT_CLIENT_INVOICE_TOOL = {
   name: 'extract_client_invoice',
-  description: 'Extract the balance due, total sale, tax, billed line items, and (if present) job type and origin address from a HunkWare completed job invoice or work order.',
+  description: 'Extract the balance due, total sale, tax, and billed line items from a HunkWare completed job invoice or receipt page specifically -- never from a work order, contract, or estimate page, even if one is included alongside it.',
   input_schema: {
     type: 'object',
     properties: {
-      balanceDue: { type: 'number', description: 'The Balance Due amount shown on the invoice, in dollars (e.g. 0, 42.50). If the invoice shows the balance is fully paid / $0.00, report 0.' },
-      totalSale: { type: 'number', description: 'The Total Sale / Subtotal amount shown on the invoice, in dollars -- the pre-tax total charged for the job, before tax is added and before any prior deposit/payment is subtracted. This is NOT the same as Balance Due.' },
-      tax: { type: 'number', description: 'The Tax amount shown on the invoice, in dollars. Report 0 if the invoice explicitly shows no tax was charged.' },
+      invoicePageFound: { type: 'boolean', description: 'True only if at least one of the provided pages is clearly a HunkWare invoice or receipt (has a Balance Due, Subtotal, or Tax line explicitly printed and labeled as such). False if the provided pages are only a work order, contract, estimate, or signature page with no actual invoice/receipt page present. All the dollar fields below must be 0 and confident must be false when this is false.' },
+      balanceDue: { type: 'number', description: 'The Balance Due amount, in dollars, but ONLY if read directly from a line explicitly labeled "Balance Due" on a genuine invoice/receipt page. Never estimate, calculate, or infer this. Report 0 if invoicePageFound is false, or if the invoice shows the balance is fully paid.' },
+      totalSale: { type: 'number', description: 'The Total Sale / Subtotal amount, in dollars, but ONLY if read directly from a line explicitly labeled "Total Sale" or "Subtotal" on a genuine invoice/receipt page. Never estimate, calculate, or infer this -- and never pull this from a work order\u2019s estimated total or an unrelated dollar figure elsewhere on the page. Report 0 if invoicePageFound is false.' },
+      tax: { type: 'number', description: 'The Tax amount, in dollars, but ONLY if read directly from a line explicitly labeled "Tax" or "Sales Tax" on a genuine invoice/receipt page. Never estimate, calculate, or infer this from any other number on the page or on a different page. Report 0 if invoicePageFound is false, or if the invoice explicitly shows no tax was charged, or if you cannot find a line specifically labeled as tax.' },
       lineItems: {
         type: 'array',
         items: {
@@ -1595,13 +1596,13 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
           },
           required: ['description', 'quantity']
         },
-        description: 'Every billed line item that looks like a packing/moving material (boxes, tape, wrap, etc.) -- not labor, mileage, or other service fees.'
+        description: 'Every billed line item that looks like a packing/moving material (boxes, tape, wrap, etc.) -- not labor, mileage, or other service fees. Empty array if invoicePageFound is false.'
       },
-      jobType: { type: 'string', enum: ['move', 'movelabor', 'longdistance'], description: 'If a work order page (not just the invoice itself) is included and shows a job type, report it: a full move ("move"), labor-only / load-or-unload-only ("movelabor"), or a long distance move ("longdistance"). Omit this field entirely if no work order page with this info is present.' },
-      originAddress: { type: 'string', description: 'If a work order page is included and shows a "FROM" / "Origin Address" field, report it exactly as printed. Omit this field entirely if no such page is present.' },
-      confident: { type: 'boolean', description: 'True if the Balance Due and line items were read clearly. False if the invoice was blurry, cut off, or the Balance Due wasn\u2019t clearly shown.' }
+      jobType: { type: 'string', enum: ['move', 'movelabor', 'longdistance'], description: 'If a separate work order page (not the invoice itself) is included and shows a job type, report it: a full move ("move"), labor-only / load-or-unload-only ("movelabor"), or a long distance move ("longdistance"). Omit this field entirely if no work order page with this info is present. This field is independent of invoicePageFound -- report it even if no genuine invoice page was found, as long as a work order page was.' },
+      originAddress: { type: 'string', description: 'If a separate work order page is included and shows a "FROM" / "Origin Address" field, report it exactly as printed. Omit this field entirely if no such page is present. This field is independent of invoicePageFound -- report it even if no genuine invoice page was found, as long as a work order page was.' },
+      confident: { type: 'boolean', description: 'True only if invoicePageFound is true AND the Balance Due, Total Sale, and Tax lines were all read clearly and unambiguously from that genuine invoice/receipt page. False otherwise, including whenever invoicePageFound is false.' }
     },
-    required: ['balanceDue', 'lineItems', 'confident']
+    required: ['invoicePageFound', 'balanceDue', 'lineItems', 'confident']
   }
 };
 
@@ -1645,7 +1646,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
           role: 'user',
           content: [
             ...imageBlocks,
-            { type: 'text', text: `These are ${imageBlocks.length} page(s) of a HunkWare completed job invoice for a moving/junk removal client -- possibly merged together with the job's work order pages. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed packing/moving material line item (boxes, tape, wrap, etc. -- not labor or mileage). If a work order page is present, also report the job type and the Origin Address ("FROM") shown on it.` }
+            { type: 'text', text: `These are ${imageBlocks.length} page(s) from a moving/junk removal job's paperwork -- this may be ONLY the invoice, or it may be the invoice merged together with the job's work order, contract, and signature pages. First, determine which page(s), if any, are a genuine HunkWare invoice or receipt (has Balance Due / Subtotal / Tax lines explicitly printed and labeled). A work order, contract, or estimate page is NOT an invoice, even if it shows an estimated total -- do not pull Balance Due, Total Sale, or Tax from those pages. If you find a genuine invoice/receipt page, extract Balance Due, Total Sale/Subtotal, Tax, and every billed packing/moving material line item from that page only. If no genuine invoice/receipt page is present, set invoicePageFound to false and all dollar amounts to 0 -- do not guess or calculate them from other numbers on the document. Separately, if a work order page is present, report the job type and Origin Address ("FROM") shown on it, regardless of whether an invoice page was found.` }
           ]
         }]
       })
