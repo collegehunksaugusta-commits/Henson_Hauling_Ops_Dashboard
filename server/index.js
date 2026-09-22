@@ -1668,7 +1668,28 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       console.error('Client invoice extraction: no tool_use block. stop_reason=', data.stop_reason);
       return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
     }
-    res.json(toolUseBlock.input);
+
+    // Server-side validation, not just a schema instruction the model might
+    // not follow: a claimed dollar figure is only trusted if its quoted
+    // "as printed" line actually contains the right keyword AND a dollar
+    // amount that numerically matches (within rounding) what was reported.
+    // Catches a model fabricating both a number and a plausible-looking
+    // quote to go with it, which a schema instruction alone can't prevent.
+    const result = toolUseBlock.input || {};
+    function validateAgainstQuote(amount, quotedLine, keyword) {
+      const amt = Number(amount) || 0;
+      if (amt <= 0) return amt; // nothing to validate for a zero/blank figure
+      const quote = (quotedLine || '').trim();
+      if (!quote) return 0; // no quote at all -- can't trust the figure
+      if (!new RegExp(keyword, 'i').test(quote)) return 0; // quote doesn't even mention the right label
+      const numbersInQuote = (quote.match(/[\d,]+\.\d{2}/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
+      const matchesReportedAmount = numbersInQuote.some(n => Math.abs(n - amt) < 0.01);
+      return matchesReportedAmount ? amt : 0;
+    }
+    result.tax = validateAgainstQuote(result.tax, result.taxLineAsPrinted, 'tax');
+    result.totalSale = validateAgainstQuote(result.totalSale, result.totalSaleLineAsPrinted, 'subtotal|total sale');
+
+    res.json(result);
   } catch (err) {
     console.error('Client invoice extraction failed:', err.message);
     res.status(500).json({ error: 'Extraction failed: ' + err.message });
