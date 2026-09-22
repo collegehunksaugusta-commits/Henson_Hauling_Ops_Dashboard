@@ -15848,14 +15848,48 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // the job archive's own 90-day window has since passed), the record is
   // still saved so the sale isn't silently dropped from tax reporting --
   // just flagged as Unknown for manual review in the report itself.
-  async function recordStateTaxData(jobNumber, extractData){
+  // Matches AI-extracted invoice line items to the materials catalog by
+  // Nickname. Shared by processInvoiceUpload (going forward) and
+  // backfillStateTaxData (historical jobs) -- both need this to compute the
+  // materials-only dollar total for State Taxes reporting.
+  async function matchLineItemsToMaterials(lineItems){
+    let materialsItems = [];
+    try{ materialsItems = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
+    catch(err){ console.error('Load materials items for invoice matching failed:', err); }
+    const matched = [];
+    (lineItems || []).forEach(li => {
+      const normalizedDesc = (li.description || '').trim().toLowerCase();
+      if(!normalizedDesc) return;
+      const matchedItem = materialsItems.find(mi => (mi.nickname || '').trim().toLowerCase() === normalizedDesc);
+      if(!matchedItem) return;
+      matched.push({ itemId: matchedItem.id, quantity: Number(li.quantity) || 0 });
+    });
+    return matched;
+  }
+
+  async function recordStateTaxData(jobNumber, extractData, matchedMaterialsBilled){
     if(!jobNumber) return;
     try{
       const archived = await lookupArchivedJob(jobNumber);
-      const jobType = (archived && archived.jobType) || null;
+      const jobType = (archived && archived.jobType) || (TAX_JOB_TYPES.includes(extractData.jobType) ? extractData.jobType : null);
       if(jobType && !TAX_JOB_TYPES.includes(jobType)) return; // not a taxable-goods job type (shouldn't occur via this form, but guards against it)
-      const state = archived ? determineJobState(archived.originAddress) : null;
+      const originAddress = (archived && archived.originAddress) || extractData.originAddress || '';
+      const state = determineJobState(originAddress);
       const dateForRecord = (archived && archived.assignmentDate) || new Date().toISOString().slice(0, 10);
+
+      // Total Sales is specifically the materials/goods portion of the job,
+      // not the whole invoice total -- GA and SC only tax goods sold, not
+      // moving labor or other services, so labor must not be counted here.
+      let materialsSaleTotal = 0;
+      if(Array.isArray(matchedMaterialsBilled) && matchedMaterialsBilled.length > 0){
+        try{
+          const materialsItems = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [];
+          matchedMaterialsBilled.forEach(mb => {
+            const item = materialsItems.find(mi => mi.id === mb.itemId);
+            if(item) materialsSaleTotal += (Number(item.priceEach) || 0) * (Number(mb.quantity) || 0);
+          });
+        }catch(err){ console.error('Materials pricing lookup for tax record failed:', err); }
+      }
 
       let records = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
       // Keyed by job number -- reprocessing an invoice for the same job
@@ -15866,7 +15900,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         jobNumber,
         jobType: jobType,
         state: state,
-        totalSale: Number(extractData.totalSale) || 0,
+        totalSale: materialsSaleTotal,
         taxCollected: Number(extractData.tax) || 0,
         date: dateForRecord,
         recordedAt: new Date().toISOString()
@@ -15909,7 +15943,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const data = await res.json();
         if(!res.ok || !data.confident){ failed++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
 
-        await recordStateTaxData(upload.jobNumber, data);
+        const matchedMaterialsBilled = await matchLineItemsToMaterials(data.lineItems);
+        await recordStateTaxData(upload.jobNumber, data, matchedMaterialsBilled);
         recorded++;
       }catch(err){
         console.error('State tax backfill failed for job', upload.jobNumber, err);
@@ -16160,17 +16195,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
 
-      let materialsItems = [];
-      try{ materialsItems = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
-      catch(err){ console.error('Load materials items for invoice matching failed:', err); }
-      const matchedMaterialsBilled = [];
-      (extractData.lineItems || []).forEach(li => {
-        const normalizedDesc = (li.description || '').trim().toLowerCase();
-        if(!normalizedDesc) return;
-        const matchedItem = materialsItems.find(mi => (mi.nickname || '').trim().toLowerCase() === normalizedDesc);
-        if(!matchedItem) return;
-        matchedMaterialsBilled.push({ itemId: matchedItem.id, quantity: Number(li.quantity) || 0 });
-      });
+      const matchedMaterialsBilled = await matchLineItemsToMaterials(extractData.lineItems);
 
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, mergedDataUri);
       if(!blobOk){
@@ -16187,7 +16212,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       upload.invoiceUploadedAt = new Date().toISOString();
       upload.invoiceConfident = !!extractData.confident;
       upload.balanceDueOverridden = false;
-      await recordStateTaxData(upload.jobNumber, extractData);
+      await recordStateTaxData(upload.jobNumber, extractData, matchedMaterialsBilled);
       // Invoice-derived data replaces manual entry once available -- it's
       // the concrete source of truth this whole feature is built around.
       if(matchedMaterialsBilled.length > 0){
