@@ -15840,15 +15840,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <input type="file" class="pu-invoice-input" data-id="${u.id}" accept=".jpg,.jpeg,.png,.pdf,.heic" style="display:none;">
       </div>`;
     }
+    const replaceLink = `<label class="pu-invoice-replace" data-id="${u.id}" style="display:block; margin-top:2px; color:var(--muted); text-decoration:underline; font-size:10px; cursor:pointer;">Replace Invoice
+      <input type="file" class="pu-invoice-input" data-id="${u.id}" accept=".jpg,.jpeg,.png,.pdf,.heic" style="display:none;">
+    </label>`;
     const reconciled = Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden;
     if(reconciled){
       const overrideNote = u.balanceDueOverridden
         ? ` <span title="Reconciliation overridden by an administrator" style="cursor:help; color:var(--muted);">(overridden)</span>`
         : '';
-      return `<span style="font-weight:600; color:#00612C;">${matMoney(u.invoiceBalanceDue)}</span>${overrideNote}`;
+      return `<span style="font-weight:600; color:#00612C;">${matMoney(u.invoiceBalanceDue)}</span>${overrideNote}${replaceLink}`;
     }
     return `<span style="font-weight:600; color:#b3261e;">${matMoney(u.invoiceBalanceDue)}</span>
-      <button type="button" class="pu-invoice-override" data-id="${u.id}" style="display:block; margin:2px auto 0; background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10px; cursor:pointer; padding:0;">Override</button>`;
+      <button type="button" class="pu-invoice-override" data-id="${u.id}" style="display:block; margin:2px auto 0; background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10px; cursor:pointer; padding:0;">Override</button>${replaceLink}`;
   }
 
   // Extracts Balance Due + billed materials from a HunkWare invoice, merges
@@ -16417,6 +16420,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         e.preventDefault();
         dropEl.style.background = '';
         const file = e.dataTransfer.files[0];
+        if(file) processInvoiceUpload(id, file);
+      });
+    });
+
+    // Clicking the label natively opens the file picker (a <label> wrapping
+    // an <input type="file">) -- only the change handler needs wiring here.
+    tbody.querySelectorAll('.pu-invoice-replace').forEach(replaceEl => {
+      const id = replaceEl.dataset.id;
+      const input = replaceEl.querySelector('.pu-invoice-input');
+      input.addEventListener('click', (e) => e.stopPropagation()); // don't also trigger the row/other handlers
+      input.addEventListener('change', (e) => {
+        const file = e.target.files[0];
         if(file) processInvoiceUpload(id, file);
       });
     });
