@@ -6523,6 +6523,40 @@
     return images;
   }
 
+  // Extracts each page's ACTUAL embedded text (not a rendered image) via
+  // PDF.js's text layer -- for a machine-generated PDF (like a HunkWare
+  // invoice export, as opposed to a scanned paper document), this gives the
+  // exact characters with zero OCR/vision uncertainty. Approximates line
+  // breaks by watching for meaningful Y-coordinate jumps between
+  // consecutive text runs, so a table row's label and value tend to stay
+  // together rather than scattering across one undifferentiated string.
+  // Returns one text string per page; a page with no text layer at all
+  // (a scanned image with nothing embedded) comes back as an empty string.
+  async function extractPdfPageTexts(file){
+    const typedArray = new Uint8Array(await file.arrayBuffer());
+    const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+    const pageTexts = [];
+    for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      let text = '';
+      let lastY = null;
+      textContent.items.forEach(item => {
+        const y = item.transform[5];
+        if(lastY !== null && Math.abs(y - lastY) > 2){
+          text += '\n';
+        } else if(text && !/[\s\n]$/.test(text)){
+          text += ' ';
+        }
+        text += item.str;
+        lastY = y;
+      });
+      pageTexts.push(text.trim());
+    }
+    return pageTexts;
+  }
+  window.extractPdfPageTexts = extractPdfPageTexts;
+
   async function compressPdfFile(file, targetWidth, jpegQuality){
     targetWidth = targetWidth || 1600;
     jpegQuality = jpegQuality || 0.75;
@@ -15967,11 +16001,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const file = window.dataUriToFile(dataUri, upload.fileName);
         const images = await window.getImagesForAssessment(file);
         if(images.length === 0){ skipped++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
+        let pageTexts = [];
+        if(file.type === 'application/pdf'){
+          try{ pageTexts = await window.extractPdfPageTexts(file); }
+          catch(err){ console.error('PDF text extraction failed, falling back to image-only:', err); }
+        }
 
         const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
           method: 'POST',
           headers: authHeaders({'Content-Type': 'application/json'}),
-          body: JSON.stringify({ images })
+          body: JSON.stringify({ images, pageTexts })
         });
         if(handleAuthFailure(res)) return { checked, total, recorded, skipped, failed };
         const data = await res.json();
@@ -16237,11 +16276,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         renderPaperworkUploadsList();
         return;
       }
+      let invoicePageTexts = [];
+      if(file.type === 'application/pdf'){
+        try{ invoicePageTexts = await window.extractPdfPageTexts(file); }
+        catch(err){ console.error('PDF text extraction failed, falling back to image-only:', err); }
+      }
 
       const extractRes = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ images: invoicePages })
+        body: JSON.stringify({ images: invoicePages, pageTexts: invoicePageTexts })
       });
       if(handleAuthFailure(extractRes)) return;
       const extractData = await extractRes.json();
