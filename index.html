@@ -3377,6 +3377,22 @@
         </div>
       </div>
 
+      <div class="panel" id="pu_duplicatesPanel" style="display:none;">
+        <h3>Duplicate Job Packages <span id="pu_duplicatesCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
+        <p class="form-note" style="margin-top:0;">Jobs with more than one completed-paperwork record on file. Rows in red have at least one package with an invoice and at least one without.</p>
+        <div id="pu_duplicatesRows"></div>
+      </div>
+
+      <div class="panel" id="pu_missingInvoicePanel" style="display:none;">
+        <h3>Packages Missing an Invoice <span id="pu_missingInvoiceCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
+        <p class="form-note" style="margin-top:0;">No Move, Move Labor, or Long Distance Move paperwork package is considered complete until its HunkWare invoice is uploaded and checked. These packages have none on file yet.</p>
+        <div id="pu_missingInvoiceRows" style="max-height:240px; overflow-y:auto; font-size:12.5px;"></div>
+        <div class="form-actions">
+          <button type="button" id="pu_deleteMissingInvoiceBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Delete All</button>
+          <span class="status-msg" id="pu_deleteMissingInvoiceStatus"></span>
+        </div>
+      </div>
+
       <div class="panel" id="paperworkUploadPanel">
         <button type="button" id="pu_panelToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
           <h3 style="margin:0;">Paperwork on File <span id="pu_panelCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
@@ -16405,8 +16421,90 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
 
+  // Surfaces jobs with more than one completed-paperwork record on file --
+  // specifically flagging the pattern where one package has an invoice and
+  // another doesn't, since the State Taxes backfill only has visibility
+  // into whichever specific record it's looking at, and a duplicate could
+  // mean the wrong one (the invoice-less one) is what gets processed.
+  // Shared by the render function and the cleanup handler below, so the
+  // exact same grouping logic is used in both places.
+  function getDuplicateJobGroups(){
+    const byJobNumber = {};
+    paperworkUploads.forEach(u => {
+      if(!u.jobNumber) return;
+      if(!byJobNumber[u.jobNumber]) byJobNumber[u.jobNumber] = [];
+      byJobNumber[u.jobNumber].push(u);
+    });
+    return Object.entries(byJobNumber).filter(([, uploads]) => uploads.length > 1);
+  }
+
+  function renderDuplicateJobPackages(){
+    const duplicateGroups = getDuplicateJobGroups();
+
+    const panel = document.getElementById('pu_duplicatesPanel');
+    const countEl = document.getElementById('pu_duplicatesCount');
+    const rowsEl = document.getElementById('pu_duplicatesRows');
+
+    if(duplicateGroups.length === 0){
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = 'block';
+    countEl.textContent = `(${duplicateGroups.length} job${duplicateGroups.length === 1 ? '' : 's'})`;
+
+    // Mixed invoice-status groups (the pattern of concern) sort first.
+    duplicateGroups.sort((a, b) => {
+      const aMixed = a[1].some(u => u.invoiceUploadedAt) && a[1].some(u => !u.invoiceUploadedAt);
+      const bMixed = b[1].some(u => u.invoiceUploadedAt) && b[1].some(u => !u.invoiceUploadedAt);
+      if(aMixed && !bMixed) return -1;
+      if(!aMixed && bMixed) return 1;
+      return a[0].localeCompare(b[0]);
+    });
+
+    rowsEl.innerHTML = duplicateGroups.map(([jobNumber, uploads]) => {
+      const isMixed = uploads.some(u => u.invoiceUploadedAt) && uploads.some(u => !u.invoiceUploadedAt);
+      const packagesHtml = uploads.map(u => {
+        const hasInvoice = !!u.invoiceUploadedAt;
+        return `<div style="padding:4px 0 4px 12px; border-left:2px solid ${hasInvoice ? '#00612C' : '#b3261e'};">
+          ${esc(u.clientName || '(no name)')} &mdash; ${esc(u.fileName || '(no file)')} &mdash; uploaded ${u.uploadedAt ? new Date(u.uploadedAt).toLocaleDateString() : 'unknown date'}
+          ${hasInvoice ? ` &mdash; <span style="color:#00612C; font-weight:600;">Has invoice</span> (${matMoney(u.invoiceBalanceDue)})` : ' &mdash; <span style="color:#b3261e; font-weight:600;">No invoice</span>'}
+        </div>`;
+      }).join('');
+      return `<div style="margin-bottom:10px; padding:8px; ${isMixed ? 'background:#FDEDEA; border-radius:6px;' : ''}">
+        <div style="font-weight:600; ${isMixed ? 'color:#b3261e;' : ''}">Job ${esc(jobNumber)} &mdash; ${uploads.length} packages${isMixed ? ' \u26a0\ufe0f Mixed invoice status' : ''}</div>
+        ${packagesHtml}
+      </div>`;
+    }).join('');
+  }
+
+  // No Move, Move Labor, or Long Distance Move package is considered
+  // complete without its invoice on file. Surfaces every package still
+  // missing one, with a way to delete them all at once.
+  function renderMissingInvoicePanel(){
+    const missing = paperworkUploads.filter(u => !u.invoiceUploadedAt);
+    const panel = document.getElementById('pu_missingInvoicePanel');
+    const countEl = document.getElementById('pu_missingInvoiceCount');
+    const rowsEl = document.getElementById('pu_missingInvoiceRows');
+    const btn = document.getElementById('pu_deleteMissingInvoiceBtn');
+
+    if(missing.length === 0){
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = 'block';
+    countEl.textContent = `(${missing.length} package${missing.length === 1 ? '' : 's'})`;
+    btn.textContent = `Delete All (${missing.length})`;
+
+    rowsEl.innerHTML = missing.map(u => `
+      <div style="padding:4px 0; border-bottom:1px solid var(--line);">
+        Job ${esc(u.jobNumber || '(no job #)')} &mdash; ${esc(u.clientName || '(no name)')} &mdash; ${esc(u.fileName || '(no file)')} &mdash; uploaded ${u.uploadedAt ? new Date(u.uploadedAt).toLocaleDateString() : 'unknown date'}
+      </div>`).join('');
+  }
+
   function renderPaperworkUploadsList(){
     renderArchiveEligibleCount();
+    renderDuplicateJobPackages();
+    renderMissingInvoicePanel();
     document.getElementById('pu_panelCount').textContent = paperworkUploads.length > 0
       ? `(${paperworkUploads.length} record${paperworkUploads.length === 1 ? '' : 's'})`
       : '';
@@ -16456,7 +16554,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
-          <button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Email Sent' : 'Send Email'}</button>
+          ${(u.invoiceUploadedAt && (Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden))
+            ? `<button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Email Sent' : 'Send Email'}</button>`
+            : `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="${!u.invoiceUploadedAt ? 'Upload the HunkWare invoice for this job before the client can be emailed.' : 'Balance Due must be under $1 (or overridden) before the client can be emailed.'}">${!u.invoiceUploadedAt ? 'Invoice needed' : 'Balance not reconciled'}</span>`}
           <button type="button" class="pu-delete" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
         </td>
       </tr>`).join('');
@@ -16832,6 +16932,41 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }));
 
   document.getElementById('pu_search').addEventListener('input', renderPaperworkUploadsList);
+
+  document.getElementById('pu_deleteMissingInvoiceBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('pu_deleteMissingInvoiceBtn');
+    const statusEl = document.getElementById('pu_deleteMissingInvoiceStatus');
+
+    const toDelete = paperworkUploads.filter(u => !u.invoiceUploadedAt);
+    if(toDelete.length === 0) return;
+
+    const preview = toDelete.slice(0, 10).map(u => `\u2022 Job ${u.jobNumber || '(no job #)'} \u2014 ${u.fileName || '(no file)'} (${u.clientName || 'no name'})`).join('\n');
+    const more = toDelete.length > 10 ? `\n...and ${toDelete.length - 10} more.` : '';
+    if(!confirm(`This will permanently delete ${toDelete.length} completed-paperwork package(s) that have no HunkWare invoice attached:\n\n${preview}${more}\n\nThis cannot be undone. Continue?`)) return;
+
+    btn.disabled = true;
+    statusEl.textContent = 'Deleting\u2026';
+    statusEl.className = 'status-msg';
+    let deleted = 0, failed = 0;
+    for(const upload of toDelete){
+      try{
+        paperworkUploads = paperworkUploads.filter(u => u.id !== upload.id);
+        await savePaperworkUploadsList();
+        await window.dashboardApi.delete('paperwork-upload-' + upload.id);
+        deleted++;
+      }catch(err){
+        console.error('Missing-invoice cleanup delete failed for', upload.jobNumber, err);
+        failed++;
+      }
+      statusEl.textContent = `Deleted ${deleted} of ${toDelete.length}${failed > 0 ? `, ${failed} failed` : ''}\u2026`;
+    }
+    statusEl.textContent = failed > 0
+      ? `Done. Deleted ${deleted}, ${failed} failed \u2014 check your connection and try again for those.`
+      : `Done. Deleted ${deleted} package(s) missing an invoice.`;
+    statusEl.className = failed > 0 ? 'status-msg err' : 'status-msg ok';
+    btn.disabled = false;
+    renderPaperworkUploadsList();
+  });
 
   // ---------- Hidden job data archive (bridges Job Data Entry -> Completed Paperwork upload) ----------
   // The Job Data Entry form gets cleared between jobs, often well before the completed
