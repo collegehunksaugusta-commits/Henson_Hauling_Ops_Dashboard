@@ -3838,6 +3838,15 @@
       </div>
     </div>
 
+    <div class="panel">
+      <h3>Backfill From Existing Invoices</h3>
+      <p class="form-note">Re-reads completed paperwork already on file that has an invoice attached, and pulls the same tax data from it as new jobs get going forward. Jobs already in the report below are skipped, so this is safe to run more than once. Only covers files still on file (180-day retention) &mdash; anything already pruned can't be recovered this way.</p>
+      <div class="form-actions">
+        <button class="btn-primary" id="st_backfillBtn" type="button">Backfill From Existing Invoices</button>
+        <span class="status-msg" id="st_backfillStatus"></span>
+      </div>
+    </div>
+
     <div id="st_monthGroups"></div>
     <p class="form-note" id="st_emptyNote" style="display:none;">No tax data recorded yet. This builds up automatically as completed job invoices are processed in Job Paperwork.</p>
   </div>
@@ -15867,6 +15876,75 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.recordStateTaxData = recordStateTaxData;
   window.determineJobState = determineJobState;
+
+  // One-time (but safe to re-run) backfill: re-reads every already-uploaded
+  // completed-paperwork file that has an invoice merged into it, and runs
+  // the same extraction + recording used going forward, so existing jobs on
+  // file can populate the State Taxes report too. Skips any job already
+  // present in the tax records so re-running this doesn't burn extra AI
+  // calls re-processing the same files. onProgress(checked, total, recorded,
+  // skipped, failed) is called after every job.
+  async function backfillStateTaxData(onProgress){
+    let checked = 0, recorded = 0, skipped = 0, failed = 0;
+    const existingRecords = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
+    const alreadyCovered = new Set(existingRecords.map(r => r.jobNumber));
+    const candidates = paperworkUploads.filter(u => u.jobNumber && u.invoiceUploadedAt && !alreadyCovered.has(u.jobNumber));
+    const total = candidates.length;
+
+    for(const upload of candidates){
+      checked++;
+      try{
+        const dataUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
+        if(!dataUri){ skipped++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
+        const file = window.dataUriToFile(dataUri, upload.fileName);
+        const images = await window.getImagesForAssessment(file);
+        if(images.length === 0){ skipped++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
+
+        const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({ images })
+        });
+        if(handleAuthFailure(res)) return { checked, total, recorded, skipped, failed };
+        const data = await res.json();
+        if(!res.ok || !data.confident){ failed++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
+
+        await recordStateTaxData(upload.jobNumber, data);
+        recorded++;
+      }catch(err){
+        console.error('State tax backfill failed for job', upload.jobNumber, err);
+        failed++;
+      }
+      if(onProgress) onProgress(checked, total, recorded, skipped, failed);
+    }
+    return { checked, total, recorded, skipped, failed };
+  }
+
+  document.getElementById('st_backfillBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('st_backfillBtn');
+    const statusEl = document.getElementById('st_backfillStatus');
+    if(!confirm('This will re-read every completed paperwork file already on file that has an invoice attached, and pull tax data from it \u2014 the same way new jobs are handled going forward. Jobs already covered below are skipped. This can take a while and makes one extraction call per job. Continue?')) return;
+    btn.disabled = true;
+    statusEl.textContent = 'Loading existing paperwork\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      await loadPaperworkUploads();
+      const result = await backfillStateTaxData((checked, total, recorded, skipped, failed) => {
+        statusEl.textContent = `Checked ${checked} of ${total} \u2014 ${recorded} recorded, ${skipped} skipped, ${failed} failed\u2026`;
+      });
+      statusEl.textContent = result.total === 0
+        ? 'Done \u2014 no jobs needed backfilling (either none have an invoice on file, or they\u2019re already covered).'
+        : `Done. Checked ${result.checked} of ${result.total}, recorded ${result.recorded}, skipped ${result.skipped}, ${result.failed} failed.`;
+      statusEl.className = 'status-msg ok';
+      await loadStateTaxData();
+    }catch(err){
+      console.error('State tax backfill failed:', err);
+      statusEl.textContent = 'Something went wrong partway through \u2014 check your connection and try again. Jobs already recorded are saved; nothing is lost by re-running this.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.disabled = false;
+    }
+  });
 
   function stEsc(s){
     const d = document.createElement('div');
