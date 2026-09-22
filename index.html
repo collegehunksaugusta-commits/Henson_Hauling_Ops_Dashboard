@@ -6557,6 +6557,25 @@
   }
   window.extractPdfPageTexts = extractPdfPageTexts;
 
+  // Guards against extractPdfPageTexts ever hanging the whole upload flow
+  // indefinitely (e.g. a PDF.js worker issue that never resolves or
+  // rejects) -- gives up after a bounded wait and falls back to
+  // vision-only extraction rather than leaving the admin stuck on
+  // "Reading invoice..." forever with no error and no way to tell why.
+  async function extractPdfPageTextsSafe(file, timeoutMs){
+    timeoutMs = timeoutMs || 8000;
+    try{
+      return await Promise.race([
+        extractPdfPageTexts(file),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('PDF text extraction timed out after ' + timeoutMs + 'ms')), timeoutMs))
+      ]);
+    }catch(err){
+      console.error('PDF text extraction failed or timed out, falling back to image-only:', err);
+      return [];
+    }
+  }
+  window.extractPdfPageTextsSafe = extractPdfPageTextsSafe;
+
   async function compressPdfFile(file, targetWidth, jpegQuality){
     targetWidth = targetWidth || 1600;
     jpegQuality = jpegQuality || 0.75;
@@ -16006,8 +16025,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         if(images.length === 0){ skipped++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
         let pageTexts = [];
         if(file.type === 'application/pdf'){
-          try{ pageTexts = await window.extractPdfPageTexts(file); }
-          catch(err){ console.error('PDF text extraction failed, falling back to image-only:', err); }
+          pageTexts = await window.extractPdfPageTextsSafe(file);
         }
 
         const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
@@ -16268,11 +16286,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const upload = paperworkUploads.find(u => u.id === uploadId);
     if(!upload) return;
 
+    console.log('[INVOICE-UPLOAD] starting for job', upload.jobNumber, 'file:', file.name, file.type, file.size, 'bytes');
     upload.invoiceProcessing = true;
     renderPaperworkUploadsList();
 
     try{
+      console.log('[INVOICE-UPLOAD] step 1: rendering pages to images...');
       const invoicePages = await window.getImagesForAssessment(file);
+      console.log('[INVOICE-UPLOAD] step 1 done:', invoicePages.length, 'image(s)');
       if(invoicePages.length === 0){
         alert('Could not read that file \u2014 please use an image or PDF.');
         delete upload.invoiceProcessing;
@@ -16281,17 +16302,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       let invoicePageTexts = [];
       if(file.type === 'application/pdf'){
-        try{ invoicePageTexts = await window.extractPdfPageTexts(file); }
-        catch(err){ console.error('PDF text extraction failed, falling back to image-only:', err); }
+        console.log('[INVOICE-UPLOAD] step 2: extracting PDF text layer...');
+        invoicePageTexts = await window.extractPdfPageTextsSafe(file);
+        console.log('[INVOICE-UPLOAD] step 2 done:', invoicePageTexts.map(t => t.length + ' chars'));
       }
 
+      console.log('[INVOICE-UPLOAD] step 3: calling extraction API...');
       const extractRes = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
         body: JSON.stringify({ images: invoicePages, pageTexts: invoicePageTexts })
       });
+      console.log('[INVOICE-UPLOAD] step 3 done: HTTP', extractRes.status);
       if(handleAuthFailure(extractRes)) return;
       const extractData = await extractRes.json();
+      console.log('[INVOICE-UPLOAD] step 3 response body:', extractData);
       if(!extractRes.ok){
         alert(extractData.error || 'Could not read the invoice.');
         delete upload.invoiceProcessing;
@@ -16299,6 +16324,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
 
+      console.log('[INVOICE-UPLOAD] step 4: loading existing paperwork file to merge with...');
       const existingDataUri = await window.dashboardApi.get('paperwork-upload-' + uploadId, null);
       if(!existingDataUri){
         alert('Could not load the existing paperwork file to merge with.');
@@ -16307,6 +16333,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
       const existingFile = window.dataUriToFile(existingDataUri, upload.fileName);
+      console.log('[INVOICE-UPLOAD] step 5: merging PDFs...');
       const mergedDataUri = await window.mergeFilesToPdf(existingFile, file);
       if(!mergedDataUri){
         alert('Could not combine the invoice with the existing paperwork.');
@@ -16314,8 +16341,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         renderPaperworkUploadsList();
         return;
       }
+      console.log('[INVOICE-UPLOAD] step 5 done, merged size:', mergedDataUri.length, 'chars (base64)');
 
       const { matched: matchedMaterialsBilled, unmatchedDescriptions } = await matchLineItemsToMaterials(extractData.lineItems);
+      console.log('[INVOICE-UPLOAD] step 6: materials matched:', matchedMaterialsBilled, 'unmatched:', unmatchedDescriptions);
 
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, mergedDataUri);
       if(!blobOk){
@@ -16324,6 +16353,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         renderPaperworkUploadsList();
         return;
       }
+      console.log('[INVOICE-UPLOAD] step 7 done: saved. Finishing up.');
 
       const baseName = (upload.fileName || 'paperwork').replace(/\.[a-zA-Z0-9]+$/, '');
       upload.fileName = baseName + '_with_invoice.pdf';
