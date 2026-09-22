@@ -1631,7 +1631,7 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
 };
 
 app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
-  const { images, pageTexts } = req.body || {};
+  const { images, pageTexts, jobNumber } = req.body || {};
   if (!Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ error: 'At least one image is required.' });
   }
@@ -1664,9 +1664,9 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     const texts = Array.isArray(pageTexts) ? pageTexts.map(t => (typeof t === 'string' ? t : '')) : [];
     const combinedTextLength = texts.reduce((sum, t) => sum + t.length, 0);
     const hasUsableText = texts.length === imageBlocks.length && combinedTextLength > 50;
-    console.log(`[TAX-EXTRACT ${reqId}] start: pages=${imageBlocks.length} pageTextsProvided=${texts.length} combinedTextLength=${combinedTextLength} mode=${hasUsableText ? 'TEXT' : 'VISION'}`);
+    console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] start: pages=${imageBlocks.length} pageTextsProvided=${texts.length} combinedTextLength=${combinedTextLength} mode=${hasUsableText ? 'TEXT' : 'VISION'}`);
     if (hasUsableText) {
-      texts.forEach((t, i) => console.log(`[TAX-EXTRACT ${reqId}] page ${i} text (${t.length} chars): ${t.slice(0, 500).replace(/\n/g, ' | ')}`));
+      texts.forEach((t, i) => console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] page ${i} text (${t.length} chars): ${t.slice(0, 500).replace(/\n/g, ' | ')}`));
     }
 
     function pageContentBlocks(indices) {
@@ -1717,7 +1717,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       ...pageContentBlocks(allIndices),
       { type: 'text', text: `These are ${imageBlocks.length} page(s) from a moving/junk removal job's paperwork -- this may be ONLY the invoice, or it may be the invoice merged together with the job's work order, contract, and signature pages.${hasUsableText ? ' Each page\u2019s text is labeled "--- PAGE n ---" above, using the same 0-indexed page numbers you should report.' : ''} Identify exactly which page(s), if any, are a genuine HunkWare invoice or receipt (has Balance Due / Subtotal / Tax lines explicitly printed and labeled on that specific page). A work order, contract, or estimate page is NOT an invoice, even if it shows a dollar total -- do not include those page numbers. Separately, if a work order page is present, report the job type and Origin Address ("FROM") shown on it.` }
     ]);
-    console.log(`[TAX-EXTRACT ${reqId}] step1 classification: ${JSON.stringify(classification)}`);
+    console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step1 classification: ${JSON.stringify(classification)}`);
     const invoicePageIndices = (Array.isArray(classification.invoicePageIndices) ? classification.invoicePageIndices : [])
       .filter(i => Number.isInteger(i) && i >= 0 && i < imageBlocks.length);
 
@@ -1730,7 +1730,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       // No genuine invoice page found -- nothing to extract, and no second
       // call needed. jobType/originAddress from step 1 still carry through,
       // since those can come from a work order page even with no invoice.
-      console.log(`[TAX-EXTRACT ${reqId}] no invoice page found -- returning early with all-zero financials`);
+      console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] no invoice page found -- returning early with all-zero financials`);
       return res.json({ ...baseResult, invoicePageFound: false, balanceDue: 0, totalSale: 0, tax: 0, lineItems: [], confident: false });
     }
 
@@ -1742,7 +1742,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       ...pageContentBlocks(invoicePageIndices),
       { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold. Before reporting the Total Sale and Tax dollar values, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted and taxLineAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
     ]);
-    console.log(`[TAX-EXTRACT ${reqId}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
+    console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
 
     // Server-side validation. Layer 1: a claimed dollar figure is only
     // trusted if its quoted "as printed" line actually contains the right
@@ -1761,7 +1761,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     }
     const taxAfterLayer1 = validateAgainstQuote(extraction.tax, extraction.taxLineAsPrinted, 'tax');
     const totalSaleAfterLayer1 = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'sub\\s*total|total\\s*sale|product\\s*total');
-    console.log(`[TAX-EXTRACT ${reqId}] step3 after layer 1 (quote self-consistency): tax ${extraction.tax} -> ${taxAfterLayer1}${extraction.tax !== taxAfterLayer1 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer1}${extraction.totalSale !== totalSaleAfterLayer1 ? ' REJECTED' : ''}`);
+    console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step3 after layer 1 (quote self-consistency): tax ${extraction.tax} -> ${taxAfterLayer1}${extraction.tax !== taxAfterLayer1 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer1}${extraction.totalSale !== totalSaleAfterLayer1 ? ' REJECTED' : ''}`);
     extraction.tax = taxAfterLayer1;
     extraction.totalSale = totalSaleAfterLayer1;
 
@@ -1785,12 +1785,12 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       }
       const taxAfterLayer2 = verifyAgainstSourceText(extraction.tax, 'tax');
       const totalSaleAfterLayer2 = verifyAgainstSourceText(extraction.totalSale, 'sub\\s*total|total\\s*sale|product\\s*total');
-      console.log(`[TAX-EXTRACT ${reqId}] step4 after layer 2 (ground-truth text search): tax ${extraction.tax} -> ${taxAfterLayer2}${extraction.tax !== taxAfterLayer2 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer2}${extraction.totalSale !== totalSaleAfterLayer2 ? ' REJECTED' : ''}`);
+      console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step4 after layer 2 (ground-truth text search): tax ${extraction.tax} -> ${taxAfterLayer2}${extraction.tax !== taxAfterLayer2 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer2}${extraction.totalSale !== totalSaleAfterLayer2 ? ' REJECTED' : ''}`);
       extraction.tax = taxAfterLayer2;
       extraction.totalSale = totalSaleAfterLayer2;
     }
 
-    console.log(`[TAX-EXTRACT ${reqId}] FINAL result: ${JSON.stringify({ ...baseResult, invoicePageFound: true, ...extraction })}`);
+    console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] FINAL result: ${JSON.stringify({ ...baseResult, invoicePageFound: true, ...extraction })}`);
     res.json({ ...baseResult, invoicePageFound: true, ...extraction });
   } catch (err) {
     console.error('Client invoice extraction failed:', err.message);
