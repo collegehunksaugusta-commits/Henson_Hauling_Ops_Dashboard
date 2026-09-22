@@ -3847,6 +3847,15 @@
       </div>
     </div>
 
+    <div class="panel">
+      <h3>Clear All Records</h3>
+      <p class="form-note">Permanently deletes every tax record below. Use this if the data needs to be rebuilt from scratch (e.g. after a fix to how it's calculated) before re-running the backfill above. This does not touch the underlying invoice files themselves &mdash; only this compiled report.</p>
+      <div class="form-actions">
+        <button type="button" id="st_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Clear All Records</button>
+        <span class="status-msg" id="st_clearAllStatus"></span>
+      </div>
+    </div>
+
     <div id="st_monthGroups"></div>
     <p class="form-note" id="st_emptyNote" style="display:none;">No tax data recorded yet. This builds up automatically as completed job invoices are processed in Job Paperwork.</p>
   </div>
@@ -15975,6 +15984,33 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){
       console.error('State tax backfill failed:', err);
       statusEl.textContent = 'Something went wrong partway through \u2014 check your connection and try again. Jobs already recorded are saved; nothing is lost by re-running this.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('st_clearAllBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('st_clearAllBtn');
+    const statusEl = document.getElementById('st_clearAllStatus');
+    const count = stateTaxRecords.length;
+    if(!confirm(`This will permanently delete all ${count} tax record${count===1?'':'s'} currently in the report below. This cannot be undone. The underlying invoice files themselves are not affected \u2014 you can re-run the backfill afterward to rebuild this report. Continue?`)) return;
+    btn.disabled = true;
+    statusEl.textContent = 'Clearing\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const ok = await window.dashboardApi.set(FINANCIAL_TAX_RECORDS_KEY, []);
+      if(ok){
+        statusEl.textContent = 'Cleared. You can now re-run the backfill above.';
+        statusEl.className = 'status-msg ok';
+        await loadStateTaxData();
+      } else {
+        statusEl.textContent = 'Could not clear \u2014 check your connection and try again.';
+        statusEl.className = 'status-msg err';
+      }
+    }catch(err){
+      console.error('Clear state tax records failed:', err);
+      statusEl.textContent = 'Could not clear \u2014 check your connection and try again.';
       statusEl.className = 'status-msg err';
     }finally{
       btn.disabled = false;
