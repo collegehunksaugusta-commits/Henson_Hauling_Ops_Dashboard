@@ -2720,6 +2720,28 @@
         </div>
       </div>
     </div>
+    <div class="dashSection" id="dashSection-financial" data-category="financial">
+      <button type="button" class="dashSectionHeader" id="dashSectionHeader-financial" aria-expanded="false" aria-controls="tilesContainer-financial">
+        <span class="dashSectionChevron">&#9656;</span>
+        <div class="dashSectionHeaderText">
+          <div class="dashSectionTitleRow">
+            <span class="dashSectionEmoji" aria-hidden="true">💵</span>
+            <span>Financial</span>
+            <span class="dashSectionCount">(1)</span>
+          </div>
+          <div class="dashSectionTileList">State Taxes</div>
+        </div>
+      </button>
+      <div class="dashSectionBody">
+        <div class="tiles tilesCategory" id="tilesContainer-financial">
+      <div class="tile" id="tile-statetaxes" tabindex="0" role="button" aria-label="Open State Taxes">
+        <span class="icon">🧾</span>
+        <h3>State Taxes</h3>
+        <p>Monthly Georgia and South Carolina sales tax data, pulled automatically from completed job invoices as they're processed.</p>
+      </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ============ LABOR COST DETAIL ============ -->
@@ -3792,6 +3814,32 @@
       <div id="mv_jobRows"></div>
       <p class="form-note" id="mv_emptyNote" style="display:none;">No moving damage reports yet.</p>
     </div>
+  </div>
+
+  <!-- ============ STATE TAXES DETAIL ============ -->
+  <div id="stateTaxesDetail" style="display:none;">
+    <button class="backlink" id="stateTaxesBackBtn">&larr; Dispatch</button>
+    <h2 class="display">State Taxes</h2>
+    <p class="form-note" style="margin-top:-8px;">Georgia and South Carolina sales tax data, compiled automatically from completed job invoices (Move, Move Labor, and Long Distance Move) as they're processed in Job Paperwork. This data is kept permanently for tax reporting, independent of the underlying invoice files themselves, which follow the standard document retention schedule.</p>
+
+    <div class="panel">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+        <div>
+          <label style="display:inline-block; margin-right:16px;">Filter by State
+            <select id="st_stateFilter">
+              <option value="">All States</option>
+              <option value="GA">Georgia</option>
+              <option value="SC">South Carolina</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </label>
+        </div>
+        <span class="status-msg" id="st_status"></span>
+      </div>
+    </div>
+
+    <div id="st_monthGroups"></div>
+    <p class="form-note" id="st_emptyNote" style="display:none;">No tax data recorded yet. This builds up automatically as completed job invoices are processed in Job Paperwork.</p>
   </div>
 
   <!-- ============ ATTENDANCE TRACKING DETAIL ============ -->
@@ -5157,6 +5205,7 @@
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
   const managerReviewDetail = document.getElementById('managerReviewDetail');
+  const stateTaxesDetail = document.getElementById('stateTaxesDetail');
 
   function showView(view){
     home.style.display = view === 'home' ? 'block' : 'none';
@@ -5173,6 +5222,7 @@
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
     managerReviewDetail.style.display = view === 'managerreview' ? 'block' : 'none';
+    stateTaxesDetail.style.display = view === 'statetaxes' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -5212,6 +5262,9 @@
       window.loadMovingReports();
       loadTipsData();
       showTipsSection(tipsCurrentSection);
+    }
+    if(view === 'statetaxes'){
+      window.loadStateTaxData();
     }
     if(view === 'paperwork'){
       window.loadPwBatchJunkRemovalPersistent();
@@ -5362,6 +5415,9 @@
   document.getElementById('tile-managerreview').addEventListener('click', ()=> navigateTo('managerreview'));
   document.getElementById('tile-managerreview').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('managerreview'); }});
   document.getElementById('managerReviewBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('tile-statetaxes').addEventListener('click', ()=> navigateTo('statetaxes'));
+  document.getElementById('tile-statetaxes').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('statetaxes'); }});
+  document.getElementById('stateTaxesBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
 
@@ -15749,6 +15805,237 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // invoice last), and matches the invoice's line items to inventory by
   // Nickname -- becoming the authoritative source for materialsBilled
   // going forward, in place of manual entry.
+  // ---------- Financial: State Taxes ----------
+  // Permanent, lightweight tax-relevant data pulled from each processed
+  // invoice -- deliberately separate from the invoice file itself (which
+  // follows the normal 180-day paperwork retention schedule). This record
+  // survives that cleanup indefinitely, since state tax reporting needs
+  // years of history, not just the last 6 months.
+  const FINANCIAL_TAX_RECORDS_KEY = 'financial-state-tax-records';
+  const TAX_JOB_TYPES = ['move', 'movelabor', 'longdistance']; // matches pw_jobType exactly
+  const STATE_TAX_RATES = { GA: 0.08, SC: 0.07 }; // GA matches GA_COMBINED_TAX_RATE used elsewhere; SC set per admin instruction to include local tax
+
+  // Reads the state off a standard US mailing address string. Prioritizes
+  // the typical "City, ST ZIP" pattern near the end of the address; falls
+  // back to a standalone state-code word or full state name anywhere in
+  // the string. Returns null (shown as "Unknown" in the report) rather
+  // than guessing when the address doesn't clearly indicate GA or SC --
+  // this feeds real tax filings, so a flagged gap is safer than a wrong guess.
+  function determineJobState(address){
+    if(!address) return null;
+    const a = address.trim();
+    const stateZipMatch = a.match(/,\s*(GA|SC)\s*\d{5}(-\d{4})?\s*$/i);
+    if(stateZipMatch) return stateZipMatch[1].toUpperCase();
+    const wordMatch = a.match(/\b(GA|SC)\b/);
+    if(wordMatch) return wordMatch[1].toUpperCase();
+    if(/south carolina/i.test(a)) return 'SC';
+    if(/georgia/i.test(a)) return 'GA';
+    return null;
+  }
+
+  // Called once, right when an invoice is successfully processed. Looks up
+  // the job's type and Origin Address from the Job Archive (by job number)
+  // to classify state and job type; if that lookup comes up empty (e.g.
+  // the job archive's own 90-day window has since passed), the record is
+  // still saved so the sale isn't silently dropped from tax reporting --
+  // just flagged as Unknown for manual review in the report itself.
+  async function recordStateTaxData(jobNumber, extractData){
+    if(!jobNumber) return;
+    try{
+      const archived = await lookupArchivedJob(jobNumber);
+      const jobType = (archived && archived.jobType) || null;
+      if(jobType && !TAX_JOB_TYPES.includes(jobType)) return; // not a taxable-goods job type (shouldn't occur via this form, but guards against it)
+      const state = archived ? determineJobState(archived.originAddress) : null;
+      const dateForRecord = (archived && archived.assignmentDate) || new Date().toISOString().slice(0, 10);
+
+      let records = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
+      // Keyed by job number -- reprocessing an invoice for the same job
+      // (e.g. a corrected re-upload) updates the existing record rather
+      // than creating a duplicate line in the report.
+      records = records.filter(r => r.jobNumber !== jobNumber);
+      records.push({
+        jobNumber,
+        jobType: jobType,
+        state: state,
+        totalSale: Number(extractData.totalSale) || 0,
+        taxCollected: Number(extractData.tax) || 0,
+        date: dateForRecord,
+        recordedAt: new Date().toISOString()
+      });
+      await window.dashboardApi.set(FINANCIAL_TAX_RECORDS_KEY, records);
+    }catch(err){ console.error('State tax record save failed:', err); }
+  }
+  window.recordStateTaxData = recordStateTaxData;
+  window.determineJobState = determineJobState;
+
+  function stEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s === undefined || s === null ? '' : String(s);
+    return d.innerHTML;
+  }
+  function stMoney(n){
+    return '$' + (Number(n) || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  let stateTaxRecords = [];
+  let stSort = { field: 'jobNumber', dir: 'asc' };
+  let stExpandedMonths = null; // null until first render, then a Set of "YYYY-MM" keys
+
+  async function loadStateTaxData(){
+    const statusEl = document.getElementById('st_status');
+    statusEl.textContent = 'Loading\u2026';
+    try{
+      stateTaxRecords = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
+      statusEl.textContent = '';
+      renderStateTaxData();
+    }catch(err){
+      console.error('State tax data load failed:', err);
+      statusEl.textContent = 'Could not load \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+  window.loadStateTaxData = loadStateTaxData;
+
+  const JOB_TYPE_LABELS_ST = { move: 'Move', movelabor: 'Move Labor', longdistance: 'Long Distance Move' };
+  const STATE_LABELS_ST = { GA: 'Georgia', SC: 'South Carolina' };
+
+  function renderStateTaxData(){
+    const container = document.getElementById('st_monthGroups');
+    const emptyNote = document.getElementById('st_emptyNote');
+    const stateFilter = document.getElementById('st_stateFilter').value;
+
+    const filtered = stateTaxRecords.filter(r => {
+      if(!stateFilter) return true;
+      if(stateFilter === 'unknown') return !r.state;
+      return r.state === stateFilter;
+    });
+
+    if(filtered.length === 0){
+      container.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const byMonth = {};
+    filtered.forEach(r => {
+      const monthKey = (r.date || '').slice(0, 7) || 'Unknown Date';
+      if(!byMonth[monthKey]) byMonth[monthKey] = [];
+      byMonth[monthKey].push(r);
+    });
+    const monthKeys = Object.keys(byMonth).sort((a,b) => b.localeCompare(a));
+
+    // Default: only the most recent month expanded, everything else
+    // collapsed -- set once on first render so the admin's own
+    // expand/collapse choices persist across re-renders (filtering, sorting).
+    if(stExpandedMonths === null){
+      stExpandedMonths = new Set(monthKeys.length ? [monthKeys[0]] : []);
+    }
+
+    const cmp = (a, b) => {
+      let av = a[stSort.field], bv = b[stSort.field];
+      if(stSort.field === 'totalSale' || stSort.field === 'taxCollected'){
+        av = Number(av) || 0; bv = Number(bv) || 0;
+      } else {
+        av = (av || '').toString().toLowerCase(); bv = (bv || '').toString().toLowerCase();
+      }
+      if(av < bv) return stSort.dir === 'asc' ? -1 : 1;
+      if(av > bv) return stSort.dir === 'asc' ? 1 : -1;
+      return 0;
+    };
+
+    const sortArrow = (field) => stSort.field === field ? (stSort.dir === 'asc' ? '\u25b2' : '\u25bc') : '';
+    const sortHeader = (field, label) => `<th class="st-sort-header" data-field="${field}" style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line); cursor:pointer;">${label} <span style="font-size:9px;">${sortArrow(field)}</span></th>`;
+
+    container.innerHTML = monthKeys.map(monthKey => {
+      const rows = [...byMonth[monthKey]].sort(cmp);
+      const monthLabel = monthKey === 'Unknown Date'
+        ? 'Unknown Date'
+        : new Date(monthKey + '-01T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+      const isExpanded = stExpandedMonths.has(monthKey);
+
+      // Per-state subtotals within this month
+      const byState = {};
+      rows.forEach(r => {
+        const key = r.state || 'unknown';
+        if(!byState[key]) byState[key] = { totalSale: 0, taxCollected: 0, estimatedTax: 0, count: 0 };
+        byState[key].totalSale += Number(r.totalSale) || 0;
+        byState[key].taxCollected += Number(r.taxCollected) || 0;
+        byState[key].estimatedTax += (STATE_TAX_RATES[r.state] || 0) * (Number(r.totalSale) || 0);
+        byState[key].count++;
+      });
+      const stateKeys = Object.keys(byState).sort((a,b) => a === 'unknown' ? 1 : b === 'unknown' ? -1 : a.localeCompare(b));
+
+      const monthTotalSale = rows.reduce((sum, r) => sum + (Number(r.totalSale) || 0), 0);
+      const monthEstimatedTax = rows.reduce((sum, r) => sum + (STATE_TAX_RATES[r.state] || 0) * (Number(r.totalSale) || 0), 0);
+      const monthTaxCollected = rows.reduce((sum, r) => sum + (Number(r.taxCollected) || 0), 0);
+
+      return `
+      <div class="panel" style="margin-bottom:14px;">
+        <button type="button" class="st-month-toggle" data-month="${monthKey}" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+          <h3 style="margin:0;">${stEsc(monthLabel)} <span class="form-note" style="font-weight:400;">(${rows.length} job${rows.length===1?'':'s'}, ${stMoney(monthTotalSale)} total sales)</span></h3>
+          <span style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px; transform:rotate(${isExpanded?90:0}deg);">&#9656;</span>
+        </button>
+        <div style="display:${isExpanded?'block':'none'}; margin-top:12px;">
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+            <thead><tr>
+              ${sortHeader('jobNumber', 'Job Number')}
+              ${sortHeader('jobType', 'Job Type')}
+              ${sortHeader('state', 'State')}
+              <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line); cursor:pointer;" class="st-sort-header" data-field="totalSale">Total Sales <span style="font-size:9px;">${sortArrow('totalSale')}</span></th>
+              <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line); cursor:pointer;" class="st-sort-header" data-field="taxCollected">Tax Collected <span style="font-size:9px;">${sortArrow('taxCollected')}</span></th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `
+              <tr>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${stEsc(r.jobNumber)}</td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${stEsc(JOB_TYPE_LABELS_ST[r.jobType] || 'Unknown')}</td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${!r.state ? 'color:#B3261E;' : ''}">${stEsc(r.state ? STATE_LABELS_ST[r.state] : 'Unknown')}</td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;">${stMoney(r.totalSale)}</td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;">${stMoney(r.taxCollected)}</td>
+              </tr>`).join('')}
+            </tbody>
+            <tfoot>
+              ${stateKeys.map(sk => `
+              <tr style="font-size:11.5px; color:var(--muted);">
+                <td colspan="3" style="padding:4px 3px; text-align:right;">${sk === 'unknown' ? 'Unknown State' : STATE_LABELS_ST[sk]} subtotal (${byState[sk].count} job${byState[sk].count===1?'':'s'}):</td>
+                <td style="padding:4px 3px; text-align:right;">${stMoney(byState[sk].totalSale)}</td>
+                <td style="padding:4px 3px; text-align:right;">${stMoney(byState[sk].taxCollected)}</td>
+              </tr>`).join('')}
+              <tr style="font-weight:700; border-top:2px solid var(--charcoal);">
+                <td colspan="3" style="padding:6px 3px; text-align:right;">Month Total Sales:</td>
+                <td style="padding:6px 3px; text-align:right;" colspan="2">${stMoney(monthTotalSale)}</td>
+              </tr>
+              <tr style="font-weight:700;">
+                <td colspan="3" style="padding:2px 3px 6px; text-align:right;">Estimated Tax (GA 8% / SC 7%):</td>
+                <td style="padding:2px 3px 6px; text-align:right;" colspan="2">${stMoney(monthEstimatedTax)}</td>
+              </tr>
+              <tr style="color:var(--muted); font-size:11.5px;">
+                <td colspan="3" style="padding:0 3px 4px; text-align:right;">Actual Tax Collected (from invoices):</td>
+                <td style="padding:0 3px 4px; text-align:right;" colspan="2">${stMoney(monthTaxCollected)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>`;
+    }).join('');
+
+    container.querySelectorAll('.st-month-toggle').forEach(btn => btn.addEventListener('click', ()=>{
+      const month = btn.dataset.month;
+      if(stExpandedMonths.has(month)) stExpandedMonths.delete(month);
+      else stExpandedMonths.add(month);
+      renderStateTaxData();
+    }));
+    container.querySelectorAll('.st-sort-header').forEach(th => th.addEventListener('click', ()=>{
+      const field = th.dataset.field;
+      if(stSort.field === field){ stSort.dir = stSort.dir === 'asc' ? 'desc' : 'asc'; }
+      else { stSort.field = field; stSort.dir = 'asc'; }
+      renderStateTaxData();
+    }));
+  }
+
+  document.getElementById('st_stateFilter').addEventListener('change', renderStateTaxData);
+
   async function processInvoiceUpload(uploadId, file){
     const upload = paperworkUploads.find(u => u.id === uploadId);
     if(!upload) return;
@@ -15822,6 +16109,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       upload.invoiceUploadedAt = new Date().toISOString();
       upload.invoiceConfident = !!extractData.confident;
       upload.balanceDueOverridden = false;
+      await recordStateTaxData(upload.jobNumber, extractData);
       // Invoice-derived data replaces manual entry once available -- it's
       // the concrete source of truth this whole feature is built around.
       if(matchedMaterialsBilled.length > 0){
@@ -16286,6 +16574,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const captainName = pwCaptainName();
     const assignmentDate = pwAssignmentDate();
     const jobType = document.getElementById('pw_jobType').value;
+    const originAddress = pwVal('pw_originAddress');
+    const destAddress = pwVal('pw_destAddress');
     try{
       let archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []);
       const cutoff = new Date(Date.now() - JOB_ARCHIVE_RETENTION_DAYS*24*60*60*1000).toISOString();
@@ -16296,7 +16586,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // Signing, Copy Link) shouldn't erase what was already known.
       const resolvedPackingMaterials = packingMaterials !== undefined ? packingMaterials : ((existing && existing.packingMaterials) || []);
       archive = archive.filter(j => j.savedAt >= cutoff && j.jobNumber !== jobNumber);
-      archive.push({ jobNumber, clientName, clientEmail, clientPhone, captainName, assignmentDate, jobType, packingMaterials: resolvedPackingMaterials, savedAt: new Date().toISOString() });
+      archive.push({ jobNumber, clientName, clientEmail, clientPhone, captainName, assignmentDate, jobType, originAddress, destAddress, packingMaterials: resolvedPackingMaterials, savedAt: new Date().toISOString() });
       await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
     }catch(err){ console.error('Job archive save failed:', err); }
   }
