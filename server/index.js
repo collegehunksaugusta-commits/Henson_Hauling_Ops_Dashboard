@@ -1576,6 +1576,30 @@ app.post('/api/verify-override-pin', requireAuth, async (req, res) => {
 // completed invoice -- the "concrete source of truth" for both the payment
 // reconciliation gate and the materials-billed reconciliation, replacing
 // manual entry when available.
+// Step 1 of a two-step extraction: identify which pages (if any) are a
+// genuine invoice/receipt BEFORE extracting any dollar figures. The actual
+// figure-extraction call (below) then only ever sees those specific pages
+// -- removing work order/contract/estimate pages from its context entirely,
+// rather than just instructing it to ignore them, since instruction alone
+// proved insufficient to stop it pulling a real number from the wrong page.
+const IDENTIFY_INVOICE_PAGES_TOOL = {
+  name: 'identify_invoice_pages',
+  description: 'Identify which pages of this multi-page document, if any, are a genuine invoice or receipt, as opposed to a work order, contract, estimate, or signature page.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      invoicePageIndices: {
+        type: 'array',
+        items: { type: 'integer' },
+        description: '0-indexed page numbers (matching the order pages were provided, first page is 0) that are a genuine HunkWare invoice or receipt page -- has a Balance Due, Subtotal, or Tax line explicitly printed and labeled as such on that specific page. A work order, contract, estimate, or signature page is NOT an invoice, even if it shows a dollar total. Empty array if no such page exists anywhere in the document.'
+      },
+      jobType: { type: 'string', enum: ['move', 'movelabor', 'longdistance'], description: 'If any page is a work order showing a job type, report it: a full move ("move"), labor-only ("movelabor"), or long distance ("longdistance"). Omit this field entirely if no work order page with this info is present.' },
+      originAddress: { type: 'string', description: 'If any page is a work order showing a "FROM" / Origin Address field, report it exactly as printed. Omit this field entirely if no such page is present.' }
+    },
+    required: ['invoicePageIndices']
+  }
+};
+
 const EXTRACT_CLIENT_INVOICE_TOOL = {
   name: 'extract_client_invoice',
   description: 'Extract the balance due, total sale, tax, and billed line items from a HunkWare completed job invoice or receipt page specifically -- never from a work order, contract, or estimate page, even if one is included alongside it.',
@@ -1600,8 +1624,6 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
         },
         description: 'Every billed line item that looks like a packing/moving material or physical good (boxes, tape, wrap, crates, etc.) -- not labor, mileage, or other service fees. Include unusual or one-off items too (e.g. "TV Crate", "Wardrobe Box") even if they look uncommon -- do not skip a line just because it seems unfamiliar. Empty array if invoicePageFound is false.'
       },
-      jobType: { type: 'string', enum: ['move', 'movelabor', 'longdistance'], description: 'If a separate work order page (not the invoice itself) is included and shows a job type, report it: a full move ("move"), labor-only / load-or-unload-only ("movelabor"), or a long distance move ("longdistance"). Omit this field entirely if no work order page with this info is present. This field is independent of invoicePageFound -- report it even if no genuine invoice page was found, as long as a work order page was.' },
-      originAddress: { type: 'string', description: 'If a separate work order page is included and shows a "FROM" / "Origin Address" field, report it exactly as printed. Omit this field entirely if no such page is present. This field is independent of invoicePageFound -- report it even if no genuine invoice page was found, as long as a work order page was.' },
       confident: { type: 'boolean', description: 'True only if invoicePageFound is true AND the Balance Due, Total Sale, and Tax lines were all read clearly and unambiguously from that genuine invoice/receipt page. False otherwise, including whenever invoicePageFound is false.' }
     },
     required: ['invoicePageFound', 'balanceDue', 'lineItems', 'confident']
@@ -1632,50 +1654,77 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'No valid images were provided.' });
     }
 
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
-        tools: [EXTRACT_CLIENT_INVOICE_TOOL],
-        tool_choice: { type: 'tool', name: 'extract_client_invoice' },
-        messages: [{
-          role: 'user',
-          content: [
-            ...imageBlocks,
-            { type: 'text', text: `These are ${imageBlocks.length} page(s) from a moving/junk removal job's paperwork -- this may be ONLY the invoice, or it may be the invoice merged together with the job's work order, contract, and signature pages. First, determine which page(s), if any, are a genuine HunkWare invoice or receipt (has Balance Due / Subtotal / Tax lines explicitly printed and labeled). A work order, contract, or estimate page is NOT an invoice, even if it shows an estimated total -- do not pull Balance Due, Total Sale, or Tax from those pages. If you find a genuine invoice/receipt page, transcribe the exact Total Sale/Subtotal line and Tax line as printed (word for word) before reporting their dollar values -- if you can't point to a specific printed line for one of them, report that figure as 0 rather than guessing. Also extract Balance Due and every billed line item that represents a physical good sold (packing materials, boxes, crates, etc.) -- don't skip an item just because it's unusual; report it exactly as described even if you don't recognize it. If no genuine invoice/receipt page is present, set invoicePageFound to false and all dollar amounts to 0 -- do not guess or calculate them from other numbers on the document. Separately, if a work order page is present, report the job type and Origin Address ("FROM") shown on it, regardless of whether an invoice page was found.` }
-          ]
-        }]
-      })
-    });
-
-    if (!anthropicRes.ok) {
-      const errBody = await anthropicRes.text().catch(() => '');
-      console.error('Client invoice extraction failed:', anthropicRes.status, errBody);
-      let detail = '';
-      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
-      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    async function callClaude(tools, toolName, content) {
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 2048,
+          tools,
+          tool_choice: { type: 'tool', name: toolName },
+          messages: [{ role: 'user', content }]
+        })
+      });
+      if (!anthropicRes.ok) {
+        const errBody = await anthropicRes.text().catch(() => '');
+        console.error('Client invoice extraction call failed:', anthropicRes.status, errBody);
+        let detail = '';
+        try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+        const err = new Error(`Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}`);
+        err.status = 502;
+        throw err;
+      }
+      const data = await anthropicRes.json();
+      const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === toolName);
+      if (!toolUseBlock) {
+        console.error(`Client invoice extraction: no ${toolName} tool_use block. stop_reason=`, data.stop_reason);
+        const err = new Error('Could not read a structured response from the extraction service.');
+        err.status = 502;
+        throw err;
+      }
+      return toolUseBlock.input || {};
     }
 
-    const data = await anthropicRes.json();
-    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_client_invoice');
-    if (!toolUseBlock) {
-      console.error('Client invoice extraction: no tool_use block. stop_reason=', data.stop_reason);
-      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    // Step 1: classify which pages (if any) are a genuine invoice, and pull
+    // job type / origin address from any work order page found -- BEFORE
+    // any dollar figure is extracted.
+    const classification = await callClaude([IDENTIFY_INVOICE_PAGES_TOOL], 'identify_invoice_pages', [
+      ...imageBlocks,
+      { type: 'text', text: `These are ${imageBlocks.length} page(s) from a moving/junk removal job's paperwork -- this may be ONLY the invoice, or it may be the invoice merged together with the job's work order, contract, and signature pages. Identify exactly which page(s), if any, are a genuine HunkWare invoice or receipt (has Balance Due / Subtotal / Tax lines explicitly printed and labeled on that specific page). A work order, contract, or estimate page is NOT an invoice, even if it shows a dollar total -- do not include those page numbers. Separately, if a work order page is present, report the job type and Origin Address ("FROM") shown on it.` }
+    ]);
+    const invoicePageIndices = (Array.isArray(classification.invoicePageIndices) ? classification.invoicePageIndices : [])
+      .filter(i => Number.isInteger(i) && i >= 0 && i < imageBlocks.length);
+
+    const baseResult = {
+      jobType: classification.jobType,
+      originAddress: classification.originAddress
+    };
+
+    if (invoicePageIndices.length === 0) {
+      // No genuine invoice page found -- nothing to extract, and no second
+      // call needed. jobType/originAddress from step 1 still carry through,
+      // since those can come from a work order page even with no invoice.
+      return res.json({ ...baseResult, invoicePageFound: false, balanceDue: 0, totalSale: 0, tax: 0, lineItems: [], confident: false });
     }
+
+    // Step 2: extract financial figures using ONLY the pages step 1
+    // classified as a genuine invoice -- the model literally cannot see
+    // (let alone pull a number from) any work order/estimate page here,
+    // rather than just being told to ignore pages it can still see.
+    const invoiceOnlyBlocks = invoicePageIndices.map(i => imageBlocks[i]);
+    const extraction = await callClaude([EXTRACT_CLIENT_INVOICE_TOOL], 'extract_client_invoice', [
+      ...invoiceOnlyBlocks,
+      { type: 'text', text: `These are the ${invoiceOnlyBlocks.length} page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold. Before reporting the Total Sale and Tax dollar values, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted and taxLineAsPrinted -- if you can't point to a specific printed line for one of them on these pages, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
+    ]);
 
     // Server-side validation, not just a schema instruction the model might
     // not follow: a claimed dollar figure is only trusted if its quoted
     // "as printed" line actually contains the right keyword AND a dollar
     // amount that numerically matches (within rounding) what was reported.
-    // Catches a model fabricating both a number and a plausible-looking
-    // quote to go with it, which a schema instruction alone can't prevent.
-    const result = toolUseBlock.input || {};
+    // Kept as a second layer even with page isolation above, since a
+    // fabricated number could still in principle appear within the
+    // genuine invoice page(s) themselves.
     function validateAgainstQuote(amount, quotedLine, keyword) {
       const amt = Number(amount) || 0;
       if (amt <= 0) return amt; // nothing to validate for a zero/blank figure
@@ -1686,13 +1735,13 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       const matchesReportedAmount = numbersInQuote.some(n => Math.abs(n - amt) < 0.01);
       return matchesReportedAmount ? amt : 0;
     }
-    result.tax = validateAgainstQuote(result.tax, result.taxLineAsPrinted, 'tax');
-    result.totalSale = validateAgainstQuote(result.totalSale, result.totalSaleLineAsPrinted, 'subtotal|total sale');
+    extraction.tax = validateAgainstQuote(extraction.tax, extraction.taxLineAsPrinted, 'tax');
+    extraction.totalSale = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'subtotal|total sale');
 
-    res.json(result);
+    res.json({ ...baseResult, invoicePageFound: true, ...extraction });
   } catch (err) {
     console.error('Client invoice extraction failed:', err.message);
-    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+    res.status(err.status || 500).json({ error: err.status ? err.message : ('Extraction failed: ' + err.message) });
   }
 });
 
