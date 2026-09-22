@@ -1631,7 +1631,7 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
 };
 
 app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
-  const { images } = req.body || {};
+  const { images, pageTexts } = req.body || {};
   if (!Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ error: 'At least one image is required.' });
   }
@@ -1652,6 +1652,23 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     }).filter(Boolean);
     if (imageBlocks.length === 0) {
       return res.status(400).json({ error: 'No valid images were provided.' });
+    }
+
+    // A real text layer (from a machine-generated PDF, as opposed to a
+    // scanned image with nothing embedded) lets the AI read exact
+    // characters instead of visually guessing at them, and lets the server
+    // independently verify any claimed figure against ground-truth text it
+    // extracted itself. Falls back to image/vision mode when there's no
+    // usable text (e.g. a photographed paper document).
+    const texts = Array.isArray(pageTexts) ? pageTexts.map(t => (typeof t === 'string' ? t : '')) : [];
+    const combinedTextLength = texts.reduce((sum, t) => sum + t.length, 0);
+    const hasUsableText = texts.length === imageBlocks.length && combinedTextLength > 50;
+
+    function pageContentBlocks(indices) {
+      if (hasUsableText) {
+        return [{ type: 'text', text: indices.map(i => `--- PAGE ${i} ---\n${texts[i]}`).join('\n\n') }];
+      }
+      return indices.map(i => imageBlocks[i]);
     }
 
     async function callClaude(tools, toolName, content) {
@@ -1686,12 +1703,14 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       return toolUseBlock.input || {};
     }
 
+    const allIndices = imageBlocks.map((_, i) => i);
+
     // Step 1: classify which pages (if any) are a genuine invoice, and pull
     // job type / origin address from any work order page found -- BEFORE
     // any dollar figure is extracted.
     const classification = await callClaude([IDENTIFY_INVOICE_PAGES_TOOL], 'identify_invoice_pages', [
-      ...imageBlocks,
-      { type: 'text', text: `These are ${imageBlocks.length} page(s) from a moving/junk removal job's paperwork -- this may be ONLY the invoice, or it may be the invoice merged together with the job's work order, contract, and signature pages. Identify exactly which page(s), if any, are a genuine HunkWare invoice or receipt (has Balance Due / Subtotal / Tax lines explicitly printed and labeled on that specific page). A work order, contract, or estimate page is NOT an invoice, even if it shows a dollar total -- do not include those page numbers. Separately, if a work order page is present, report the job type and Origin Address ("FROM") shown on it.` }
+      ...pageContentBlocks(allIndices),
+      { type: 'text', text: `These are ${imageBlocks.length} page(s) from a moving/junk removal job's paperwork -- this may be ONLY the invoice, or it may be the invoice merged together with the job's work order, contract, and signature pages.${hasUsableText ? ' Each page\u2019s text is labeled "--- PAGE n ---" above, using the same 0-indexed page numbers you should report.' : ''} Identify exactly which page(s), if any, are a genuine HunkWare invoice or receipt (has Balance Due / Subtotal / Tax lines explicitly printed and labeled on that specific page). A work order, contract, or estimate page is NOT an invoice, even if it shows a dollar total -- do not include those page numbers. Separately, if a work order page is present, report the job type and Origin Address ("FROM") shown on it.` }
     ]);
     const invoicePageIndices = (Array.isArray(classification.invoicePageIndices) ? classification.invoicePageIndices : [])
       .filter(i => Number.isInteger(i) && i >= 0 && i < imageBlocks.length);
@@ -1712,31 +1731,50 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     // classified as a genuine invoice -- the model literally cannot see
     // (let alone pull a number from) any work order/estimate page here,
     // rather than just being told to ignore pages it can still see.
-    const invoiceOnlyBlocks = invoicePageIndices.map(i => imageBlocks[i]);
     const extraction = await callClaude([EXTRACT_CLIENT_INVOICE_TOOL], 'extract_client_invoice', [
-      ...invoiceOnlyBlocks,
-      { type: 'text', text: `These are the ${invoiceOnlyBlocks.length} page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold. Before reporting the Total Sale and Tax dollar values, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted and taxLineAsPrinted -- if you can't point to a specific printed line for one of them on these pages, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
+      ...pageContentBlocks(invoicePageIndices),
+      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold. Before reporting the Total Sale and Tax dollar values, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted and taxLineAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
     ]);
 
-    // Server-side validation, not just a schema instruction the model might
-    // not follow: a claimed dollar figure is only trusted if its quoted
-    // "as printed" line actually contains the right keyword AND a dollar
-    // amount that numerically matches (within rounding) what was reported.
-    // Kept as a second layer even with page isolation above, since a
-    // fabricated number could still in principle appear within the
-    // genuine invoice page(s) themselves.
+    // Server-side validation. Layer 1: a claimed dollar figure is only
+    // trusted if its quoted "as printed" line actually contains the right
+    // keyword AND a dollar amount that numerically matches (within
+    // rounding) what was reported -- catches an internally inconsistent
+    // fabrication.
     function validateAgainstQuote(amount, quotedLine, keyword) {
       const amt = Number(amount) || 0;
-      if (amt <= 0) return amt; // nothing to validate for a zero/blank figure
+      if (amt <= 0) return amt;
       const quote = (quotedLine || '').trim();
-      if (!quote) return 0; // no quote at all -- can't trust the figure
-      if (!new RegExp(keyword, 'i').test(quote)) return 0; // quote doesn't even mention the right label
+      if (!quote) return 0;
+      if (!new RegExp(keyword, 'i').test(quote)) return 0;
       const numbersInQuote = (quote.match(/[\d,]+\.\d{2}/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
       const matchesReportedAmount = numbersInQuote.some(n => Math.abs(n - amt) < 0.01);
       return matchesReportedAmount ? amt : 0;
     }
     extraction.tax = validateAgainstQuote(extraction.tax, extraction.taxLineAsPrinted, 'tax');
     extraction.totalSale = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'subtotal|total sale');
+
+    // Layer 2 (only possible in text mode, and much stronger): search the
+    // server's OWN independently-extracted text for the claimed dollar
+    // amount appearing near the relevant keyword -- not just checking the
+    // model's self-reported quote for internal consistency, but verifying
+    // against ground truth the model never got to author. Catches a figure
+    // that has zero basis anywhere on the real document at all, which a
+    // self-consistency check alone cannot.
+    if (hasUsableText) {
+      const invoiceText = invoicePageIndices.map(i => texts[i]).join(' ').toLowerCase().replace(/\s+/g, ' ');
+      function verifyAgainstSourceText(amount, keyword) {
+        const amt = Number(amount) || 0;
+        if (amt <= 0) return amt;
+        const amountStr = amt.toFixed(2);
+        const idx = invoiceText.indexOf(amountStr);
+        if (idx === -1) return 0; // the claimed amount doesn't appear anywhere in the real text at all
+        const window = invoiceText.slice(Math.max(0, idx - 40), idx + 40);
+        return new RegExp(keyword, 'i').test(window) ? amt : 0;
+      }
+      extraction.tax = verifyAgainstSourceText(extraction.tax, 'tax');
+      extraction.totalSale = verifyAgainstSourceText(extraction.totalSale, 'subtotal|total sale');
+    }
 
     res.json({ ...baseResult, invoicePageFound: true, ...extraction });
   } catch (err) {
