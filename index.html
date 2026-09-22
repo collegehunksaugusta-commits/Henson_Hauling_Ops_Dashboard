@@ -15944,7 +15944,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!normalizedDesc) return;
       const matchedItem = materialsItems.find(mi => (mi.nickname || '').trim().toLowerCase() === normalizedDesc);
       if(!matchedItem){ unmatchedDescriptions.push(li.description); return; }
-      matched.push({ itemId: matchedItem.id, quantity: Number(li.quantity) || 0 });
+      // lineTotal is what was actually billed to the client for this item,
+      // per the invoice itself (already grounded server-side) -- the
+      // Materials catalog is used here only to confirm this is a taxable
+      // good, never for its price, since that field is the vendor cost.
+      matched.push({ itemId: matchedItem.id, quantity: Number(li.quantity) || 0, lineTotal: Number(li.lineTotal) || 0 });
     });
     return { matched, unmatchedDescriptions };
   }
@@ -15963,15 +15967,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // Total Sales is specifically the materials/goods portion of the job,
       // not the whole invoice total -- GA and SC only tax goods sold, not
       // moving labor or other services, so labor must not be counted here.
+      // The dollar amount comes from what was actually billed to the
+      // client on the invoice itself (lineTotal), not from the Materials
+      // catalog's priceEach -- that field is the user's cost from their
+      // vendor, not the sale price, and using it would misreport what
+      // sales tax should have been collected on.
       let materialsSaleTotal = 0;
       if(Array.isArray(matchedMaterialsBilled) && matchedMaterialsBilled.length > 0){
-        try{
-          const materialsItems = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [];
-          matchedMaterialsBilled.forEach(mb => {
-            const item = materialsItems.find(mi => mi.id === mb.itemId);
-            if(item) materialsSaleTotal += (Number(item.priceEach) || 0) * (Number(mb.quantity) || 0);
-          });
-        }catch(err){ console.error('Materials pricing lookup for tax record failed:', err); }
+        matchedMaterialsBilled.forEach(mb => { materialsSaleTotal += Number(mb.lineTotal) || 0; });
       }
 
       // Defense in depth: if the AI reports it never actually found a
@@ -15984,7 +15987,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         ? 0
         : (Number(extractData.tax) || 0);
 
-      // Two independent reasons to flag a record for manual review:
+      // Three independent reasons to flag a record for manual review:
       // 1) an implausible tax-vs-sale combination (tax charged with no
       //    matched sale, or larger than the sale itself) -- catches a
       //    misattributed dollar figure from elsewhere in the document.
@@ -15992,8 +15995,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       //    catalog -- catches a genuine sale (like "TV Crate") being
       //    silently under-reported because its catalog nickname doesn't
       //    exactly match what's printed on the invoice.
+      // 3) a matched item (its description DID match the catalog) whose
+      //    invoice-billed amount was rejected by server-side grounding --
+      //    catches a genuine sale contributing $0 because its dollar
+      //    figure couldn't be verified against the actual printed line,
+      //    which is a different failure than never matching at all.
       const hasUnmatchedItems = Array.isArray(unmatchedDescriptions) && unmatchedDescriptions.length > 0;
-      const needsReview = (taxCollected > 0 && (materialsSaleTotal === 0 || taxCollected > materialsSaleTotal)) || hasUnmatchedItems;
+      const zeroValueMatchedItems = Array.isArray(matchedMaterialsBilled)
+        ? matchedMaterialsBilled.filter(mb => !(Number(mb.lineTotal) > 0)).map(mb => mb.itemId)
+        : [];
+      const hasZeroValueMatchedItems = zeroValueMatchedItems.length > 0;
+      const needsReview = (taxCollected > 0 && (materialsSaleTotal === 0 || taxCollected > materialsSaleTotal)) || hasUnmatchedItems || hasZeroValueMatchedItems;
 
       let records = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
       // Keyed by job number -- reprocessing an invoice for the same job
@@ -16008,6 +16020,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         taxCollected: taxCollected,
         needsReview: needsReview,
         unmatchedItems: hasUnmatchedItems ? unmatchedDescriptions : [],
+        zeroValueItemCount: zeroValueMatchedItems.length,
         date: dateForRecord,
         recordedAt: new Date().toISOString()
       });
@@ -16254,21 +16267,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <tbody>
               ${rows.map(r => {
                 const hasUnmatched = Array.isArray(r.unmatchedItems) && r.unmatchedItems.length > 0;
+                const hasZeroValueItems = Number(r.zeroValueItemCount) > 0;
                 const taxSuspicious = r.taxCollected > 0 && (r.totalSale === 0 || r.taxCollected > r.totalSale);
                 const reasons = [];
                 if(taxSuspicious) reasons.push('this tax amount doesn\u2019t line up with the materials sale \u2014 double-check against the actual invoice');
                 if(hasUnmatched) reasons.push('some billed item(s) didn\u2019t match anything in the materials catalog, so they\u2019re missing from Total Sales');
+                if(hasZeroValueItems) reasons.push('a matched item\u2019s billed amount couldn\u2019t be verified against the invoice text, so it\u2019s missing from Total Sales');
                 const tooltip = reasons.length ? ('Flagged: ' + reasons.join('; ') + '.') : '';
                 return `
               <tr${r.needsReview ? ' style="background:#FFF4E5;"' : ''}>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${stEsc(r.jobNumber)}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${stEsc(JOB_TYPE_LABELS_ST[r.jobType] || 'Unknown')}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${!r.state ? 'color:#B3261E;' : ''}">${stEsc(r.state ? STATE_LABELS_ST[r.state] : 'Unknown')}</td>
-                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${hasUnmatched ? 'color:#B3261E; font-weight:600;' : ''}">${stMoney(r.totalSale)}${hasUnmatched ? ' \u26a0\ufe0f' : ''}</td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${hasUnmatched || hasZeroValueItems ? 'color:#B3261E; font-weight:600;' : ''}">${stMoney(r.totalSale)}${(hasUnmatched || hasZeroValueItems) ? ' \u26a0\ufe0f' : ''}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${taxSuspicious ? 'color:#B3261E; font-weight:600;' : ''}" title="${tooltip}">${stMoney(r.taxCollected)}${taxSuspicious ? ' \u26a0\ufe0f' : ''}</td>
               </tr>${hasUnmatched ? `
               <tr${r.needsReview ? ' style="background:#FFF4E5;"' : ''}>
                 <td colspan="5" style="padding:0 3px 6px; font-size:11px; color:#B3261E;">&#8627; Not matched to your materials catalog: ${r.unmatchedItems.map(u => stEsc(u)).join(', ')} &mdash; add a catalog item with a matching Nickname to include this in Total Sales.</td>
+              </tr>` : ''}${hasZeroValueItems ? `
+              <tr${r.needsReview ? ' style="background:#FFF4E5;"' : ''}>
+                <td colspan="5" style="padding:0 3px 6px; font-size:11px; color:#B3261E;">&#8627; ${r.zeroValueItemCount} matched item(s) had a billed amount that couldn\u2019t be confirmed against the invoice text, so they\u2019re showing as $0 in Total Sales &mdash; check this job\u2019s invoice by hand.</td>
               </tr>` : ''}`;
               }).join('')}
             </tbody>
