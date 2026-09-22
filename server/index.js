@@ -1578,7 +1578,7 @@ app.post('/api/verify-override-pin', requireAuth, async (req, res) => {
 // manual entry when available.
 const EXTRACT_CLIENT_INVOICE_TOOL = {
   name: 'extract_client_invoice',
-  description: 'Extract the balance due, total sale, tax, and billed line items from a HunkWare completed job invoice.',
+  description: 'Extract the balance due, total sale, tax, billed line items, and (if present) job type and origin address from a HunkWare completed job invoice or work order.',
   input_schema: {
     type: 'object',
     properties: {
@@ -1597,6 +1597,8 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
         },
         description: 'Every billed line item that looks like a packing/moving material (boxes, tape, wrap, etc.) -- not labor, mileage, or other service fees.'
       },
+      jobType: { type: 'string', enum: ['move', 'movelabor', 'longdistance'], description: 'If a work order page (not just the invoice itself) is included and shows a job type, report it: a full move ("move"), labor-only / load-or-unload-only ("movelabor"), or a long distance move ("longdistance"). Omit this field entirely if no work order page with this info is present.' },
+      originAddress: { type: 'string', description: 'If a work order page is included and shows a "FROM" / "Origin Address" field, report it exactly as printed. Omit this field entirely if no such page is present.' },
       confident: { type: 'boolean', description: 'True if the Balance Due and line items were read clearly. False if the invoice was blurry, cut off, or the Balance Due wasn\u2019t clearly shown.' }
     },
     required: ['balanceDue', 'lineItems', 'confident']
@@ -1643,7 +1645,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
           role: 'user',
           content: [
             ...imageBlocks,
-            { type: 'text', text: `These are ${imageBlocks.length} page(s) of a HunkWare completed job invoice for a moving/junk removal client. Find the Balance Due amount, and every billed packing/moving material line item (boxes, tape, wrap, etc. -- not labor or mileage).` }
+            { type: 'text', text: `These are ${imageBlocks.length} page(s) of a HunkWare completed job invoice for a moving/junk removal client -- possibly merged together with the job's work order pages. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed packing/moving material line item (boxes, tape, wrap, etc. -- not labor or mileage). If a work order page is present, also report the job type and the Origin Address ("FROM") shown on it.` }
           ]
         }]
       })
