@@ -3394,11 +3394,11 @@
       </div>
 
       <div class="panel" id="pu_visionOnlyPanel">
-        <h3>Jobs Needing Invoice Re-upload <span id="pu_visionOnlyCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
-        <p class="form-note" style="margin-top:0;">These jobs' invoices were uploaded before text-preserving processing existed, so State Taxes extraction falls back to reading the page as an image -- less reliable, and the most common cause of a backfill failure. Replacing the invoice (even with the same file) reprocesses it through the current, more reliable path.</p>
+        <h3>Jobs Missing From State Taxes <span id="pu_visionOnlyCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
+        <p class="form-note" style="margin-top:0;">Every job with an invoice on file should have a record in the State Taxes report. These have none -- extraction genuinely failed for them on the last backfill. Replacing the invoice (even with the same file) gives extraction another pass.</p>
         <div id="pu_visionOnlyRows" style="max-height:280px; overflow-y:auto; font-size:12.5px;"></div>
         <div class="form-actions">
-          <button type="button" id="pu_checkVisionOnlyBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Check for Vision-Only Jobs</button>
+          <button type="button" id="pu_checkVisionOnlyBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Check for Missing Jobs</button>
           <span class="status-msg" id="pu_checkVisionOnlyStatus"></span>
         </div>
       </div>
@@ -16538,10 +16538,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`).join('');
   }
 
-  // On-demand only (not run on every render) -- checking preserved text
-  // means a storage read per invoiced job, which isn't cheap enough to
-  // repeat on every keystroke in the search box the way the other two
-  // diagnostic panels do.
+  // On-demand only (not run on every render) -- this reads the full tax
+  // records list once, so it's cheap, but still not worth repeating on
+  // every keystroke in the search box the way the other two panels do.
+  //
+  // Checks against financial-state-tax-records, not preserved text --
+  // "no preserved text" and "backfill failed" turned out to be different
+  // things. Preserved text only ever gets written by the interactive
+  // single-upload flow, never by bulk backfill, so almost every
+  // historically-backfilled job lacks it regardless of whether vision-only
+  // extraction actually succeeded for that specific invoice. Missing from
+  // the tax report entirely is the real, actionable signal that a job's
+  // extraction genuinely failed and needs another pass.
   async function checkVisionOnlyJobs(){
     const btn = document.getElementById('pu_checkVisionOnlyBtn');
     const statusEl = document.getElementById('pu_checkVisionOnlyStatus');
@@ -16556,34 +16564,27 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
 
     btn.disabled = true;
-    const visionOnly = [];
-    for(let i = 0; i < candidates.length; i++){
-      const u = candidates[i];
-      statusEl.textContent = `Checking ${i + 1} of ${candidates.length}\u2026`;
-      statusEl.className = 'status-msg';
-      try{
-        const preservedText = await window.dashboardApi.get('paperwork-upload-invoicetext-' + u.id, null);
-        // A real, usable text layer means at least one page has a
-        // meaningful amount of extracted text -- matches the same
-        // threshold the backend uses to decide TEXT vs VISION mode.
-        const hasUsableText = Array.isArray(preservedText) && preservedText.some(t => typeof t === 'string' && t.length > 50);
-        if(!hasUsableText) visionOnly.push(u);
-      }catch(err){
-        console.error('Preserved-text check failed for job', u.jobNumber, err);
-      }
-    }
+    statusEl.textContent = 'Checking\u2026';
+    statusEl.className = 'status-msg';
+
+    let records = [];
+    try{ records = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || []; }
+    catch(err){ console.error('Load tax records for vision-only check failed:', err); }
+    const recordedJobNumbers = new Set(records.map(r => r.jobNumber));
+
+    const missing = candidates.filter(u => !recordedJobNumbers.has(u.jobNumber));
     btn.disabled = false;
 
     statusEl.textContent = `Checked ${candidates.length} invoiced job(s).`;
     statusEl.className = 'status-msg';
-    countEl.textContent = `(${visionOnly.length} found)`;
+    countEl.textContent = `(${missing.length} found)`;
 
-    if(visionOnly.length === 0){
-      rowsEl.innerHTML = `<p class="form-note" style="margin:0;">None found \u2014 every invoiced job has preserved text and will extract reliably.</p>`;
+    if(missing.length === 0){
+      rowsEl.innerHTML = `<p class="form-note" style="margin:0;">None found \u2014 every invoiced job has a record in the State Taxes report.</p>`;
       return;
     }
 
-    rowsEl.innerHTML = visionOnly.map(u => `
+    rowsEl.innerHTML = missing.map(u => `
       <div style="padding:6px 0; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;">
         <span>Job ${esc(u.jobNumber || '(no job #)')} &mdash; ${esc(u.clientName || '(no name)')} &mdash; ${esc(u.fileName || '(no file)')}</span>
         <label class="pu-visiononly-replace" data-id="${u.id}" style="flex-shrink:0; color:#00612C; text-decoration:underline; font-size:11px; cursor:pointer; white-space:nowrap;">Replace Invoice
