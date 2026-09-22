@@ -16046,7 +16046,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
           method: 'POST',
           headers: authHeaders({'Content-Type': 'application/json'}),
-          body: JSON.stringify({ images, pageTexts })
+          body: JSON.stringify({ images, pageTexts, jobNumber: upload.jobNumber })
         });
         if(handleAuthFailure(res)) return { checked, total, recorded, skipped, failed };
         const data = await res.json();
@@ -16326,7 +16326,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const extractRes = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ images: invoicePages, pageTexts: invoicePageTexts })
+        body: JSON.stringify({ images: invoicePages, pageTexts: invoicePageTexts, jobNumber: upload.jobNumber })
       });
       console.log('[INVOICE-UPLOAD] step 3 done: HTTP', extractRes.status);
       if(handleAuthFailure(extractRes)) return;
