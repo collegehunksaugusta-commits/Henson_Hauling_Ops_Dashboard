@@ -3393,6 +3393,16 @@
         </div>
       </div>
 
+      <div class="panel" id="pu_visionOnlyPanel">
+        <h3>Jobs Needing Invoice Re-upload <span id="pu_visionOnlyCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
+        <p class="form-note" style="margin-top:0;">These jobs' invoices were uploaded before text-preserving processing existed, so State Taxes extraction falls back to reading the page as an image -- less reliable, and the most common cause of a backfill failure. Replacing the invoice (even with the same file) reprocesses it through the current, more reliable path.</p>
+        <div id="pu_visionOnlyRows" style="max-height:280px; overflow-y:auto; font-size:12.5px;"></div>
+        <div class="form-actions">
+          <button type="button" id="pu_checkVisionOnlyBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Check for Vision-Only Jobs</button>
+          <span class="status-msg" id="pu_checkVisionOnlyStatus"></span>
+        </div>
+      </div>
+
       <div class="panel" id="paperworkUploadPanel">
         <button type="button" id="pu_panelToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
           <h3 style="margin:0;">Paperwork on File <span id="pu_panelCount" style="font-weight:400; color:var(--muted); font-size:13px;"></span></h3>
@@ -16527,6 +16537,71 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         Job ${esc(u.jobNumber || '(no job #)')} &mdash; ${esc(u.clientName || '(no name)')} &mdash; ${esc(u.fileName || '(no file)')} &mdash; uploaded ${u.uploadedAt ? new Date(u.uploadedAt).toLocaleDateString() : 'unknown date'}
       </div>`).join('');
   }
+
+  // On-demand only (not run on every render) -- checking preserved text
+  // means a storage read per invoiced job, which isn't cheap enough to
+  // repeat on every keystroke in the search box the way the other two
+  // diagnostic panels do.
+  async function checkVisionOnlyJobs(){
+    const btn = document.getElementById('pu_checkVisionOnlyBtn');
+    const statusEl = document.getElementById('pu_checkVisionOnlyStatus');
+    const countEl = document.getElementById('pu_visionOnlyCount');
+    const rowsEl = document.getElementById('pu_visionOnlyRows');
+
+    const candidates = paperworkUploads.filter(u => u.jobNumber && u.invoiceUploadedAt);
+    if(candidates.length === 0){
+      statusEl.textContent = 'No invoiced jobs to check yet.';
+      statusEl.className = 'status-msg';
+      return;
+    }
+
+    btn.disabled = true;
+    const visionOnly = [];
+    for(let i = 0; i < candidates.length; i++){
+      const u = candidates[i];
+      statusEl.textContent = `Checking ${i + 1} of ${candidates.length}\u2026`;
+      statusEl.className = 'status-msg';
+      try{
+        const preservedText = await window.dashboardApi.get('paperwork-upload-invoicetext-' + u.id, null);
+        // A real, usable text layer means at least one page has a
+        // meaningful amount of extracted text -- matches the same
+        // threshold the backend uses to decide TEXT vs VISION mode.
+        const hasUsableText = Array.isArray(preservedText) && preservedText.some(t => typeof t === 'string' && t.length > 50);
+        if(!hasUsableText) visionOnly.push(u);
+      }catch(err){
+        console.error('Preserved-text check failed for job', u.jobNumber, err);
+      }
+    }
+    btn.disabled = false;
+
+    statusEl.textContent = `Checked ${candidates.length} invoiced job(s).`;
+    statusEl.className = 'status-msg';
+    countEl.textContent = `(${visionOnly.length} found)`;
+
+    if(visionOnly.length === 0){
+      rowsEl.innerHTML = `<p class="form-note" style="margin:0;">None found \u2014 every invoiced job has preserved text and will extract reliably.</p>`;
+      return;
+    }
+
+    rowsEl.innerHTML = visionOnly.map(u => `
+      <div style="padding:6px 0; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <span>Job ${esc(u.jobNumber || '(no job #)')} &mdash; ${esc(u.clientName || '(no name)')} &mdash; ${esc(u.fileName || '(no file)')}</span>
+        <label class="pu-visiononly-replace" data-id="${u.id}" style="flex-shrink:0; color:#00612C; text-decoration:underline; font-size:11px; cursor:pointer; white-space:nowrap;">Replace Invoice
+          <input type="file" class="pu-visiononly-input" data-id="${u.id}" accept=".jpg,.jpeg,.png,.pdf,.heic" style="display:none;">
+        </label>
+      </div>`).join('');
+
+    rowsEl.querySelectorAll('.pu-visiononly-replace').forEach(replaceEl => {
+      const id = replaceEl.dataset.id;
+      const input = replaceEl.querySelector('.pu-visiononly-input');
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if(file) processInvoiceUpload(id, file);
+      });
+    });
+  }
+  document.getElementById('pu_checkVisionOnlyBtn').addEventListener('click', checkVisionOnlyJobs);
 
   function renderPaperworkUploadsList(){
     renderArchiveEligibleCount();
