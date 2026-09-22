@@ -1618,7 +1618,9 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
           type: 'object',
           properties: {
             description: { type: 'string', description: 'The line item description exactly as printed, e.g. "Small Box", "Shrink Wrap".' },
-            quantity: { type: 'number', description: 'The quantity billed for this line.' }
+            quantity: { type: 'number', description: 'The quantity billed for this line.' },
+            lineTotal: { type: 'number', description: 'The dollar amount billed to the client for this specific line (quantity x rate, or however it is totaled on the invoice), read directly from that line. Never estimate, calculate, or infer this from a unit rate -- read the printed line total itself. Report 0 if lineTotalAsPrinted is empty.' },
+            lineTotalAsPrinted: { type: 'string', description: 'The complete text of this specific line exactly as printed, including its dollar amount, e.g. "TV Crate    $50.00    3    $150.00". This must be a literal transcription of text visible on the page. Leave as an empty string if the line has no legible dollar amount; in that case lineTotal must be 0.' }
           },
           required: ['description', 'quantity']
         },
@@ -1740,7 +1742,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     // rather than just being told to ignore pages it can still see.
     const extraction = await callClaude([EXTRACT_CLIENT_INVOICE_TOOL], 'extract_client_invoice', [
       ...pageContentBlocks(invoicePageIndices),
-      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold. Before reporting the Total Sale and Tax dollar values, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted and taxLineAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
+      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal amount, the Tax amount, and every billed line item that represents a physical good sold -- including the exact dollar amount billed for each individual line item, since that is what was actually charged to the client and is what matters for sales tax, not any catalog or cost price. Before reporting the Total Sale, Tax, and each line item's dollar amount, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted, taxLineAsPrinted, and lineTotalAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
     ]);
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
 
@@ -1765,6 +1767,20 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     extraction.tax = taxAfterLayer1;
     extraction.totalSale = totalSaleAfterLayer1;
 
+    // Same layer-1 grounding, applied per line item: a claimed lineTotal is
+    // only trusted if its own quoted line actually mentions that specific
+    // item (by description) AND contains a dollar figure matching what was
+    // reported. This is what Total Sales is actually built from now, since
+    // the Materials catalog price is the vendor cost, not what was billed.
+    if (Array.isArray(extraction.lineItems)) {
+      extraction.lineItems = extraction.lineItems.map(li => {
+        const descKeyword = (li.description || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const lineTotalAfterLayer1 = descKeyword ? validateAgainstQuote(li.lineTotal, li.lineTotalAsPrinted, descKeyword) : 0;
+        return { ...li, lineTotal: lineTotalAfterLayer1 };
+      });
+      console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step3b line items after layer 1: ${JSON.stringify(extraction.lineItems.map(li => ({ description: li.description, lineTotal: li.lineTotal })))}`);
+    }
+
     // Layer 2 (only possible in text mode, and much stronger): search the
     // server's OWN independently-extracted text for the claimed dollar
     // amount appearing near the relevant keyword -- not just checking the
@@ -1788,6 +1804,15 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step4 after layer 2 (ground-truth text search): tax ${extraction.tax} -> ${taxAfterLayer2}${extraction.tax !== taxAfterLayer2 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer2}${extraction.totalSale !== totalSaleAfterLayer2 ? ' REJECTED' : ''}`);
       extraction.tax = taxAfterLayer2;
       extraction.totalSale = totalSaleAfterLayer2;
+
+      if (Array.isArray(extraction.lineItems)) {
+        extraction.lineItems = extraction.lineItems.map(li => {
+          const descKeyword = (li.description || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const lineTotalAfterLayer2 = descKeyword ? verifyAgainstSourceText(li.lineTotal, descKeyword) : 0;
+          return { ...li, lineTotal: lineTotalAfterLayer2 };
+        });
+        console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step4b line items after layer 2: ${JSON.stringify(extraction.lineItems.map(li => ({ description: li.description, lineTotal: li.lineTotal })))}`);
+      }
     }
 
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] FINAL result: ${JSON.stringify({ ...baseResult, invoicePageFound: true, ...extraction })}`);
