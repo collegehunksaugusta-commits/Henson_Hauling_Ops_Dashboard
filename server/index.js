@@ -1608,13 +1608,20 @@ const IDENTIFY_INVOICE_PAGES_TOOL = {
 // printed" line actually contains the right keyword AND a dollar amount
 // that numerically matches (within rounding) what was reported -- catches
 // an internally inconsistent fabrication.
+//
+// Numbers are matched with an OPTIONAL decimal part: some documents always
+// print cents ("$3,993.23"), but others (e.g. Fathom-style management
+// reports) print whole dollars with no decimal point at all ("$182") for
+// every figure, cents or not. Requiring a decimal previously meant every
+// single figure on that second document type silently failed to ground,
+// regardless of how correct the reading was.
 function validateAgainstQuote(amount, quotedLine, keyword) {
   const amt = Number(amount) || 0;
   if (amt <= 0) return amt;
   const quote = (quotedLine || '').trim();
   if (!quote) return 0;
   if (!new RegExp(keyword, 'i').test(quote)) return 0;
-  const numbersInQuote = (quote.match(/[\d,]+\.\d{2}/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
+  const numbersInQuote = (quote.match(/[\d,]+(?:\.\d{1,2})?/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
   const matchesReportedAmount = numbersInQuote.some(n => Math.abs(n - amt) < 0.01);
   return matchesReportedAmount ? amt : 0;
 }
@@ -1629,14 +1636,26 @@ function validateAgainstQuote(amount, quotedLine, keyword) {
 // collapsed, and comma-stripped (comma-stripping matters: a printed
 // "$3,993.23" would otherwise never match amt.toFixed(2)'s comma-free
 // "3993.23", silently rejecting every real amount of $1,000 or more).
+//
+// Tries both a cents-formatted search ("182.00") and, when the amount is a
+// whole number, a plain whole-dollar search ("182") too -- some documents
+// never print cents at all. The whole-number search uses word boundaries
+// so it can never match as a false substring inside a larger number (e.g.
+// "182" must never match inside "1820.00").
 function verifyAgainstSourceText(sourceText, amount, keyword) {
   const amt = Number(amount) || 0;
   if (amt <= 0) return amt;
-  const amountStr = amt.toFixed(2);
-  const idx = sourceText.indexOf(amountStr);
-  if (idx === -1) return 0; // the claimed amount doesn't appear anywhere in the real text at all
-  const window = sourceText.slice(Math.max(0, idx - 40), idx + 40);
-  return new RegExp(keyword, 'i').test(window) ? amt : 0;
+  const candidates = [amt.toFixed(2)];
+  if (Number.isInteger(amt)) candidates.push(String(amt));
+  for (const amountStr of candidates) {
+    const escaped = amountStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = new RegExp('\\b' + escaped + '\\b').exec(sourceText);
+    if (!match) continue;
+    const idx = match.index;
+    const window = sourceText.slice(Math.max(0, idx - 40), idx + 40);
+    if (new RegExp(keyword, 'i').test(window)) return amt;
+  }
+  return 0; // the claimed amount doesn't appear anywhere in the real text at all
 }
 
 const EXTRACT_CLIENT_INVOICE_TOOL = {
@@ -1892,26 +1911,26 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
 // page-classification step entirely and reads straight through.
 const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
   name: 'extract_monthly_financials',
-  description: 'Extract monthly summary financial figures (Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, Owner Wages, Net Income) from a financial statement or P&L report for a single month.',
+  description: 'Extract monthly summary financial figures (Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, Owner Wages, Net Income) from a financial statement or P&L report for a single month -- built to handle multi-page management reports (e.g. Fathom-style "Monthly Performance Report" PDFs) that repeat the same line item across several tables and several months\u2019 columns.',
   input_schema: {
     type: 'object',
     properties: {
       periodFound: { type: 'boolean', description: 'True if this document is a financial statement/P&L/income statement showing figures for a single, identifiable period. False if this document has no such financial statement content at all -- in that case every dollar field below must be 0 and confident must be false.' },
-      month: { type: 'string', description: 'The single month this statement covers, in YYYY-MM format, read from the document\u2019s own stated reporting period (e.g. a header reading "Profit and Loss - July 2026", "For the Month Ended July 31, 2026", or a date range where the start and end fall in the same month). Empty string if the statement covers more than one month, or if the specific month can\u2019t be determined.' },
+      month: { type: 'string', description: 'The single month this statement covers, in YYYY-MM format. On a multi-page management report, this is usually stated once near the top (e.g. a cover page reading "Monthly Performance Report ... August 2026", or a header reading "For the Month Ended July 31, 2026") -- that is the report\u2019s own current/reporting month, and is what every field below should be read for, even though most tables in the report ALSO show prior months and a year-to-date column side by side. Empty string if the specific month can\u2019t be determined.' },
       periodAsPrinted: { type: 'string', description: 'The exact period/date text as printed on the document\u2019s header, verbatim, e.g. "July 2026" or "07/01/2026 through 07/31/2026". Empty string if no such header text is found.' },
-      revenue: { type: 'number', description: 'Total revenue for the period, in dollars, read directly from a line labeled "Total Revenue" -- or, if that exact label isn\u2019t present, "Total Income", "Total Sales", or "Net Sales". Never estimate, calculate, or sum this yourself from individual income lines -- only use it if a single labeled total line is present. Report 0 if revenueLineAsPrinted is empty.' },
-      revenueLineAsPrinted: { type: 'string', description: 'The complete text of the line the revenue figure was read from, exactly as printed. Literal transcription only, not a summary. Empty string if no such line exists; in that case revenue must be 0.' },
-      labor: { type: 'number', description: 'Total labor/payroll cost for the period, read directly from a line labeled "Total Hunk Team Payroll Cost" -- or, if that exact label isn\u2019t present, "Hunk Team Payroll", "Payroll Expenses", "Total Labor", "Wages", or "Salaries and Wages". Never estimate or sum this from several sub-lines yourself -- only use a single labeled total line. Report 0 if laborLineAsPrinted is empty.' },
-      laborLineAsPrinted: { type: 'string', description: 'The complete text of the line the labor/payroll figure was read from, exactly as printed. Empty string if no such line exists; in that case labor must be 0.' },
-      grossProfit: { type: 'number', description: 'Gross profit for the period, read ONLY from a line explicitly labeled "Gross Profit" or "Gross Margin". Never calculate this yourself as Revenue minus Labor or minus COGS -- report 0 if no such explicitly labeled line is present, even if it seems computable from other figures on the page.' },
+      revenue: { type: 'number', description: 'Total revenue for the reporting month specifically, in dollars, read from a line labeled "Total Revenue" or a plain "Revenue" total row (not a subcategory like "Move Job Revenue" or "Junk Job Revenue"). A report with a "Financial Summary" and/or "P&L Financial Summary" section usually states this cleanly near the top -- use the reporting month\u2019s own column there, not a "Last Month"/prior-month column, not a "YTD" column, and not a repeated appearance of the same row further down in a longer table covering many months at once. Never estimate, calculate, or sum this yourself from individual income lines. Report 0 if revenueLineAsPrinted is empty.' },
+      revenueLineAsPrinted: { type: 'string', description: 'The complete text of the line the revenue figure was read from, exactly as printed, including enough surrounding text (e.g. a nearby column header) to show which month\u2019s figure this is. Literal transcription only, not a summary. Empty string if no such line exists; in that case revenue must be 0.' },
+      labor: { type: 'number', description: 'Total labor/payroll cost for the reporting month, read from the line labeled "Total Hunk Team Payroll Cost" or "Total Hunk Team Payroll Costs" -- this is a SUBTOTAL, usually appearing inside a "Cost of Goods Sold" section after several individual sub-lines (things like Regular Wages, Overtime Wages, Bonuses & Commissions, Payroll Taxes, Payroll Processing) -- use that subtotal, never one individual sub-line and never sum them yourself. Do not confuse this with a differently-named payroll line elsewhere in the report, such as "Total Office Staff Payroll Expenses" (office/management staff, not the Hunk Team) -- that is a different line entirely. If the exact label "Total Hunk Team Payroll Cost(s)" truly isn\u2019t present anywhere, fall back to "Total Labor" or "Payroll Expenses" instead. Report 0 if laborLineAsPrinted is empty.' },
+      laborLineAsPrinted: { type: 'string', description: 'The complete text of the line the labor/payroll figure was read from, exactly as printed (the label may be visually truncated with an ellipsis, e.g. "Total Hunk Team Payroll Co\u2026" -- that is still the right line, transcribe it as printed). Empty string if no such line exists; in that case labor must be 0.' },
+      grossProfit: { type: 'number', description: 'Gross profit for the reporting month, read ONLY from a line explicitly labeled "Gross Profit" (or "Gross Margin") -- use the reporting month\u2019s own column, not a prior-month or YTD column even on the same row. Never calculate this yourself as Revenue minus Labor or minus COGS -- report 0 if no such explicitly labeled line is present, even if it seems computable from other figures on the page.' },
       grossProfitLineAsPrinted: { type: 'string', description: 'The complete text of the line the gross profit figure was read from, exactly as printed. Empty string if no such line exists; in that case grossProfit must be 0.' },
-      ebit: { type: 'number', description: 'EBIT (Earnings Before Interest and Taxes) for the period, read ONLY from a line explicitly labeled "EBIT". This is NOT the same figure as EBITDA (which also adds back depreciation and amortization) -- if the only labeled line on the page says "EBITDA" rather than "EBIT", that is a different metric and must NOT be reported here; report 0 instead. Never calculate, estimate, or derive this yourself from other figures on the page.' },
-      ebitLineAsPrinted: { type: 'string', description: 'The complete text of the line the EBIT figure was read from, exactly as printed. Empty string if no such line exists (including if the only such line says EBITDA instead of EBIT); in that case ebit must be 0.' },
-      ownerWages: { type: 'number', description: 'Owner compensation for the period, read directly from a line labeled something like "Owner Wages", "Owner\u2019s Draw", "Officer Compensation", or "Owner Salary". Report 0 if ownerWagesLineAsPrinted is empty.' },
+      ebit: { type: 'number', description: 'EBIT (Earnings Before Interest and Taxes) for the reporting month, read from a line labeled exactly "EBIT" if one is present anywhere on the page (a "P&L Financial Summary"-style section often states it this way, cleanly, as its own row). If no line says "EBIT" but one says "Earnings Before Interest & Tax" (the same metric spelled out, sometimes appearing in a more detailed section further down the report), that is an acceptable substitute and the same figure -- use it. This is NOT the same figure as EBITDA (which also adds back depreciation and amortization) -- if the only labeled line on the page says "EBITDA" rather than one of the two labels above, that is a different metric and must NOT be reported here; report 0 instead. Use the reporting month\u2019s own column, not a prior-month or YTD column. Never calculate, estimate, or derive this yourself from other figures on the page.' },
+      ebitLineAsPrinted: { type: 'string', description: 'The complete text of the line the EBIT figure was read from, exactly as printed -- whichever of "EBIT" or "Earnings Before Interest & Tax" was actually used. Empty string if no such line exists (including if the only such line says EBITDA instead); in that case ebit must be 0.' },
+      ownerWages: { type: 'number', description: 'Owner compensation for the reporting month, read from a line labeled something like "Owner Wages", "Owner\u2019s Draw", "Officer Compensation", or "Owner Salary". On a longer management report this often sits inside an "Other Expenses" section well below the main summary, separate from and not to be confused with any office/operations staff payroll line (a manager\u2019s wages are a different person from the owner). Use the reporting month\u2019s own column. Report 0 if ownerWagesLineAsPrinted is empty.' },
       ownerWagesLineAsPrinted: { type: 'string', description: 'The complete text of the line the owner wages figure was read from, exactly as printed. Empty string if no such line exists; in that case ownerWages must be 0.' },
-      netIncome: { type: 'number', description: 'Net income for the period -- typically the final bottom-line figure on a P&L -- read directly from a line labeled "Net Income", "Net Profit", or "Net Ordinary Income". Report 0 if netIncomeLineAsPrinted is empty.' },
-      netIncomeLineAsPrinted: { type: 'string', description: 'The complete text of the line the net income figure was read from, exactly as printed. Empty string if no such line exists; in that case netIncome must be 0.' },
-      confident: { type: 'boolean', description: 'True only if periodFound is true, the month/period was clearly identifiable, AND at least Revenue and Net Income were both read clearly from explicitly labeled lines. False otherwise, including whenever periodFound is false or the month couldn\u2019t be determined.' }
+      netIncome: { type: 'number', description: 'Net income for the reporting month specifically -- typically the final bottom-line figure on a P&L, labeled "Net Income", "Net Profit", or "Net Ordinary Income". This exact label often repeats more than once in a longer report (once in a monthly summary table, again in a year-to-date column on the very same row, and again inside a many-months trailing table near the end that sums a full year) -- these can be very different numbers under the identical label. Use ONLY the figure in the reporting month\u2019s own column of the main monthly summary table, never a YTD total and never a figure from a multi-month trailing table. Report 0 if netIncomeLineAsPrinted is empty.' },
+      netIncomeLineAsPrinted: { type: 'string', description: 'The complete text of the line the net income figure was read from, exactly as printed, including enough surrounding text (e.g. a nearby column header) to show this is the reporting month\u2019s own figure and not a YTD or trailing-table total. Empty string if no such line exists; in that case netIncome must be 0.' },
+      confident: { type: 'boolean', description: 'True only if periodFound is true, the month/period was clearly identifiable, AND at least Revenue and Net Income were both read clearly from explicitly labeled lines for the correct reporting month specifically (not a YTD or other-month figure mistaken for it). False otherwise, including whenever periodFound is false or the month couldn\u2019t be determined.' }
     },
     required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'ebit', 'ownerWages', 'netIncome', 'confident']
   }
@@ -1966,7 +1985,7 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
           role: 'user',
           content: [
             ...content,
-            { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} a financial statement (P&L / income statement) for a single month, uploaded for a business's monthly financial tracking. Find the reporting period, then Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, Owner Wages, and Net Income -- each ONLY from a line explicitly labeled as such (see each field's own description for the exact labels to look for, including fallback labels if the primary one isn't present). Before reporting each dollar figure, transcribe the exact line it was read from, word for word, in its matching "...LineAsPrinted" field -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing or calculating it from other numbers on the page.` }
+            { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} a financial statement -- possibly a short single-page P&L, or possibly a longer multi-page management report (e.g. a Fathom-style "Monthly Performance Report") -- for a single month, uploaded for a business's monthly financial tracking. First find the reporting month itself (usually stated once, near the top). Then find Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, Owner Wages, and Net Income -- each ONLY from a line explicitly labeled as such (see each field's own description for the exact labels to look for, including fallback labels and where that line tends to sit in a longer report). IMPORTANT: a longer report typically shows the SAME row label more than once -- once in a compact summary table near the top (this is usually what you want), and again repeated inside a much longer table further down that covers many months side by side (this is usually NOT what you want, since it will contain the reporting month buried among many others, and its own column headers must be checked carefully). When a row appears in more than one place, prefer the earlier, simpler summary table over a later one covering many months at once, and always double-check which month's column you're actually reading from -- never a "Last Month", "YTD", "Budget", or any other month's column, even when it sits right next to the correct one on the same row. Before reporting each dollar figure, transcribe the exact line it was read from, word for word, in its matching "...LineAsPrinted" field -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing or calculating it from other numbers on the page.` }
           ]
         }]
       })
@@ -2000,7 +2019,7 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
     // authored, catching a figure with zero basis anywhere on the real page.
     const fields = [
       ['revenue', 'revenueLineAsPrinted', 'total\\s*revenue|total\\s*income|total\\s*sales|net\\s*sales'],
-      ['labor', 'laborLineAsPrinted', 'total\\s*hunk\\s*team\\s*payroll|hunk\\s*team\\s*payroll|total\\s*labor|payroll|labor|wages|salaries'],
+      ['labor', 'laborLineAsPrinted', 'total\\s*hunk\\s*team\\s*payroll|hunk\\s*team\\s*payroll|total\\s*labor|\\blabor\\b|\\bwages\\b|salaries'],
       ['grossProfit', 'grossProfitLineAsPrinted', 'gross\\s*profit|gross\\s*margin'],
       ['ebit', 'ebitLineAsPrinted', '\\bebit\\b'],
       ['ownerWages', 'ownerWagesLineAsPrinted', 'owner.{0,10}(wages|draw|salary|compensation)|officer\\s*compensation'],
