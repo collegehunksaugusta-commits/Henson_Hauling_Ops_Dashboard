@@ -1821,7 +1821,11 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     // that has zero basis anywhere on the real document at all, which a
     // self-consistency check alone cannot.
     if (hasUsableText) {
-      const invoiceText = invoicePageIndices.map(i => texts[i]).join(' ').toLowerCase().replace(/\s+/g, ' ');
+      // Comma-stripped so a printed "$3,993.23" matches amt.toFixed(2)'s
+      // comma-free "3993.23" -- without this, any amount $1,000 or higher
+      // could never be found here, since toFixed(2) never inserts a
+      // thousands separator but real invoices always print one.
+      const invoiceText = invoicePageIndices.map(i => texts[i]).join(' ').toLowerCase().replace(/\s+/g, ' ').replace(/,/g, '');
       function verifyAgainstSourceText(amount, keyword) {
         const amt = Number(amount) || 0;
         if (amt <= 0) return amt;
