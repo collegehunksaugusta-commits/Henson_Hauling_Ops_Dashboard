@@ -1642,6 +1642,13 @@ function validateAgainstQuote(amount, quotedLine, keyword) {
 // never print cents at all. The whole-number search uses word boundaries
 // so it can never match as a false substring inside a larger number (e.g.
 // "182" must never match inside "1820.00").
+//
+// Checks EVERY occurrence of the amount in the text, not just the first --
+// a P&L can print the identical figure on several consecutive lines under
+// different labels (e.g. "Earnings Before Tax $182", "Earnings After Tax
+// $182", "Net Income $182" all in a row when nothing further adjusts the
+// number between them). Stopping at the first occurrence risks landing on
+// the wrong line and never reaching the correct one just below it.
 function verifyAgainstSourceText(sourceText, amount, keyword) {
   const amt = Number(amount) || 0;
   if (amt <= 0) return amt;
@@ -1649,13 +1656,15 @@ function verifyAgainstSourceText(sourceText, amount, keyword) {
   if (Number.isInteger(amt)) candidates.push(String(amt));
   for (const amountStr of candidates) {
     const escaped = amountStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp('\\b' + escaped + '\\b').exec(sourceText);
-    if (!match) continue;
-    const idx = match.index;
-    const window = sourceText.slice(Math.max(0, idx - 40), idx + 40);
-    if (new RegExp(keyword, 'i').test(window)) return amt;
+    const regex = new RegExp('\\b' + escaped + '\\b', 'g');
+    let match;
+    while ((match = regex.exec(sourceText)) !== null) {
+      const idx = match.index;
+      const window = sourceText.slice(Math.max(0, idx - 40), idx + 40);
+      if (new RegExp(keyword, 'i').test(window)) return amt;
+    }
   }
-  return 0; // the claimed amount doesn't appear anywhere in the real text at all
+  return 0; // the claimed amount doesn't appear anywhere in the real text with the keyword nearby, in any occurrence
 }
 
 const EXTRACT_CLIENT_INVOICE_TOOL = {
