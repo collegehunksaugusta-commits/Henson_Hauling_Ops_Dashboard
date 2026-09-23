@@ -1660,7 +1660,16 @@ function verifyAgainstSourceText(sourceText, amount, keyword) {
     let match;
     while ((match = regex.exec(sourceText)) !== null) {
       const idx = match.index;
-      const window = sourceText.slice(Math.max(0, idx - 40), idx + 40);
+      // Asymmetric on purpose: a label always precedes its value in every
+      // document type seen so far, so 40 chars behind covers a real label
+      // reliably, while only 15 chars ahead avoids reaching past this
+      // row's own trailing text (a percentage, a stray character) into
+      // the START of the NEXT row -- which matters when a short sub-total
+      // row sits immediately before the row actually wanted (e.g. "Total
+      // Other Equity $121,566 Total Equity $69,255"): a wide "after"
+      // window let the wrong amount's search pick up the next row's
+      // correctly-labeled text and falsely pass.
+      const window = sourceText.slice(Math.max(0, idx - 40), idx + 15);
       if (new RegExp(keyword, 'i').test(window)) return amt;
     }
   }
@@ -1920,7 +1929,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
 // page-classification step entirely and reads straight through.
 const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
   name: 'extract_monthly_financials',
-  description: 'Extract monthly summary financial figures (Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, Operating Profit, EBIT, Owner Wages, Net Income) from a financial statement or P&L report for a single month -- built to handle multi-page management reports (e.g. Fathom-style "Monthly Performance Report" PDFs) that repeat the same line item across several tables and several months\u2019 columns.',
+  description: 'Extract monthly summary financial figures (Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, Operating Profit, EBIT, Owner Wages, Net Income, and Total Equity from the Balance Sheet) from a financial statement or P&L/Balance Sheet report for a single month -- built to handle multi-page management reports (e.g. Fathom-style "Monthly Performance Report" PDFs) that repeat the same line item across several tables and several months\u2019 columns.',
   input_schema: {
     type: 'object',
     properties: {
@@ -1941,9 +1950,11 @@ const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
       ownerWagesLineAsPrinted: { type: 'string', description: 'The complete text of the line the owner wages figure was read from, exactly as printed. Empty string if no such line exists; in that case ownerWages must be 0.' },
       netIncome: { type: 'number', description: 'Net income for the reporting month specifically -- typically the final bottom-line figure on a P&L, labeled "Net Income", "Net Profit", or "Net Ordinary Income". This exact label often repeats more than once in a longer report (once in a monthly summary table, again in a year-to-date column on the very same row, and again inside a many-months trailing table near the end that sums a full year) -- these can be very different numbers under the identical label. Use ONLY the figure in the reporting month\u2019s own column of the main monthly summary table, never a YTD total and never a figure from a multi-month trailing table. Report 0 if netIncomeLineAsPrinted is empty.' },
       netIncomeLineAsPrinted: { type: 'string', description: 'The complete text of the line the net income figure was read from, exactly as printed, including enough surrounding text (e.g. a nearby column header) to show this is the reporting month\u2019s own figure and not a YTD or trailing-table total. Empty string if no such line exists; in that case netIncome must be 0.' },
+      totalEquity: { type: 'number', description: 'Total equity as of the end of the reporting month, in dollars, read from a "Balance Sheet" or "Balance Sheet Detailed" section -- a completely different statement from the Income Statement/P&L that the other fields above come from, usually appearing later in the document. Read ONLY from a line explicitly labeled "Total Equity" (it typically appears as the last line of an "EQUITY" section, just above a "Total Liabilities & Equity" line that should equal Total Assets). Do NOT confuse this with "Total Other Equity", a smaller sub-total that often appears just one or two lines above it in the same section -- that is a different, smaller figure, not the one wanted here. Unlike the P&L fields above, this is a point-in-time balance, not a monthly flow -- use the reporting month\u2019s own column (usually the first/leftmost dollar column in that table). Never calculate this yourself as Total Assets minus Total Liabilities -- report 0 if no explicitly labeled "Total Equity" line is present.' },
+      totalEquityLineAsPrinted: { type: 'string', description: 'The complete text of the line the total equity figure was read from, exactly as printed. Empty string if no such line exists; in that case totalEquity must be 0.' },
       confident: { type: 'boolean', description: 'True only if periodFound is true, the month/period was clearly identifiable, AND at least Revenue and Net Income were both read clearly from explicitly labeled lines for the correct reporting month specifically (not a YTD or other-month figure mistaken for it). False otherwise, including whenever periodFound is false or the month couldn\u2019t be determined.' }
     },
-    required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'operatingProfit', 'ebit', 'ownerWages', 'netIncome', 'confident']
+    required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'operatingProfit', 'ebit', 'ownerWages', 'netIncome', 'totalEquity', 'confident']
   }
 };
 
@@ -1996,7 +2007,7 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
           role: 'user',
           content: [
             ...content,
-            { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} a financial statement -- possibly a short single-page P&L, or possibly a longer multi-page management report (e.g. a Fathom-style "Monthly Performance Report") -- for a single month, uploaded for a business's monthly financial tracking. First find the reporting month itself (usually stated once, near the top). Then find Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, Operating Profit, EBIT, Owner Wages, and Net Income -- each ONLY from a line explicitly labeled as such (see each field's own description for the exact labels to look for, including fallback labels and where that line tends to sit in a longer report). IMPORTANT: a longer report typically shows the SAME row label more than once -- once in a compact summary table near the top (this is usually what you want), and again repeated inside a much longer table further down that covers many months side by side (this is usually NOT what you want, since it will contain the reporting month buried among many others, and its own column headers must be checked carefully). When a row appears in more than one place, prefer the earlier, simpler summary table over a later one covering many months at once, and always double-check which month's column you're actually reading from -- never a "Last Month", "YTD", "Budget", or any other month's column, even when it sits right next to the correct one on the same row. Before reporting each dollar figure, transcribe the exact line it was read from, word for word, in its matching "...LineAsPrinted" field -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing or calculating it from other numbers on the page.` }
+            { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} a financial statement -- possibly a short single-page P&L, or possibly a longer multi-page management report (e.g. a Fathom-style "Monthly Performance Report") -- for a single month, uploaded for a business's monthly financial tracking. First find the reporting month itself (usually stated once, near the top). Then find Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, Operating Profit, EBIT, Owner Wages, and Net Income -- each ONLY from a line explicitly labeled as such (see each field's own description for the exact labels to look for, including fallback labels and where that line tends to sit in a longer report). If the document also includes a Balance Sheet (a separate statement from the P&L/Income Statement, usually appearing later in the document), also find Total Equity there. IMPORTANT: a longer report typically shows the SAME row label more than once -- once in a compact summary table near the top (this is usually what you want), and again repeated inside a much longer table further down that covers many months side by side (this is usually NOT what you want, since it will contain the reporting month buried among many others, and its own column headers must be checked carefully). When a row appears in more than one place, prefer the earlier, simpler summary table over a later one covering many months at once, and always double-check which month's column you're actually reading from -- never a "Last Month", "YTD", "Budget", or any other month's column, even when it sits right next to the correct one on the same row. Before reporting each dollar figure, transcribe the exact line it was read from, word for word, in its matching "...LineAsPrinted" field -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing or calculating it from other numbers on the page.` }
           ]
         }]
       })
@@ -2020,7 +2031,7 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
     console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] step1 RAW extraction (before validation): ${JSON.stringify(extraction)}`);
 
     if (!extraction.periodFound) {
-      return res.json({ periodFound: false, month: '', revenue: 0, labor: 0, grossProfit: 0, operatingProfit: 0, ebit: 0, ownerWages: 0, netIncome: 0, confident: false });
+      return res.json({ periodFound: false, month: '', revenue: 0, labor: 0, grossProfit: 0, operatingProfit: 0, ebit: 0, ownerWages: 0, netIncome: 0, totalEquity: 0, confident: false });
     }
 
     // Same two-layer grounding as invoice extraction: Layer 1 checks each
@@ -2035,7 +2046,8 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
       ['operatingProfit', 'operatingProfitLineAsPrinted', 'operating\\s*profit'],
       ['ebit', 'ebitLineAsPrinted', '\\bebit\\b'],
       ['ownerWages', 'ownerWagesLineAsPrinted', 'owner.{0,10}(wages|draw|salary|compensation)|officer\\s*compensation'],
-      ['netIncome', 'netIncomeLineAsPrinted', 'net\\s*income|net\\s*profit|net\\s*ordinary\\s*income']
+      ['netIncome', 'netIncomeLineAsPrinted', 'net\\s*income|net\\s*profit|net\\s*ordinary\\s*income'],
+      ['totalEquity', 'totalEquityLineAsPrinted', 'total\\s*equity']
     ];
     fields.forEach(([field, printedField, keyword]) => {
       extraction[field] = validateAgainstQuote(extraction[field], extraction[printedField], keyword);
