@@ -2044,7 +2044,7 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
       ['labor', 'laborLineAsPrinted', 'total\\s*hunk\\s*team\\s*payroll|hunk\\s*team\\s*payroll|total\\s*labor|\\blabor\\b|\\bwages\\b|salaries'],
       ['grossProfit', 'grossProfitLineAsPrinted', 'gross\\s*profit|gross\\s*margin'],
       ['operatingProfit', 'operatingProfitLineAsPrinted', 'operating\\s*profit'],
-      ['ebit', 'ebitLineAsPrinted', '\\bebit\\b'],
+      ['ebit', 'ebitLineAsPrinted', '\\bebit\\b|earnings\\s*before\\s*interest\\s*(?:&|and)?\\s*tax\\b'],
       ['ownerWages', 'ownerWagesLineAsPrinted', 'owner.{0,10}(wages|draw|salary|compensation)|officer\\s*compensation'],
       ['netIncome', 'netIncomeLineAsPrinted', 'net\\s*income|net\\s*profit|net\\s*ordinary\\s*income'],
       ['totalEquity', 'totalEquityLineAsPrinted', 'total\\s*equity']
