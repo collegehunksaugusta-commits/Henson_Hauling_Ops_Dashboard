@@ -2727,9 +2727,9 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">💵</span>
             <span>Financial</span>
-            <span class="dashSectionCount">(1)</span>
+            <span class="dashSectionCount">(2)</span>
           </div>
-          <div class="dashSectionTileList">State Taxes</div>
+          <div class="dashSectionTileList">State Taxes, Monthly Financials</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2738,6 +2738,11 @@
         <span class="icon">🧾</span>
         <h3>State Taxes</h3>
         <p>Monthly Georgia and South Carolina sales tax data, pulled automatically from completed job invoices as they're processed.</p>
+      </div>
+      <div class="tile" id="tile-monthlyfinancials" tabindex="0" role="button" aria-label="Open Monthly Financials">
+        <span class="icon">📈</span>
+        <h3>Monthly Financials</h3>
+        <p>Revenue, Labor, Gross Profit, EBITDA, and Owner Wages + Net Income over time &mdash; a clear trend line for a future buyer's review.</p>
       </div>
         </div>
       </div>
@@ -3890,6 +3895,71 @@
 
     <div id="st_monthGroups"></div>
     <p class="form-note" id="st_emptyNote" style="display:none;">No tax data recorded yet. This builds up automatically as completed job invoices are processed in Job Paperwork.</p>
+  </div>
+
+  <!-- ============ MONTHLY FINANCIALS DETAIL ============ -->
+  <div id="monthlyFinancialsDetail" style="display:none;">
+    <button class="backlink" id="monthlyFinancialsBackBtn">&larr; Dispatch</button>
+    <h2 class="display">Monthly Financials</h2>
+    <p class="form-note" style="margin-top:-8px;">A running record of the business's monthly financial performance &mdash; meant to give a future buyer a clear trend at a glance, without having to reconstruct it from raw statements themselves.</p>
+
+    <div class="panel">
+      <h3>Batch Upload &mdash; Financial Statements</h3>
+      <p class="form-note">Drop in monthly P&amp;L / income statements (images or PDFs) and Claude will read each one and pull out Revenue, Labor, Gross Profit, EBITDA, Owner Wages, and Net Income. Each file should cover exactly one month. Review every figure below before saving &mdash; nothing is saved automatically.</p>
+      <div id="mfBatch_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
+        <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop statements here, or click to paste (Ctrl+V or Cmd+V)</p>
+        <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="mfBatch_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
+        <input type="file" id="mfBatch_files" accept=".jpg,.jpeg,.png,.pdf" multiple style="display:none;">
+      </div>
+      <div id="mfBatch_thumbnails" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;"></div>
+      <div class="form-actions">
+        <button class="btn-primary" id="mfBatch_extractBtn" type="button">Read Financial Statements</button>
+        <span class="status-msg" id="mfBatch_extractStatus"></span>
+      </div>
+
+      <div id="mfBatch_reviewWrap" style="display:none; margin-top:20px;">
+        <h4 style="margin-bottom:6px;">Review Before Saving</h4>
+        <p class="form-note">Every figure below came from an AI read of the uploaded statement &mdash; check each one against the source (click the thumbnail to view it) before saving. A month left blank couldn't be determined automatically; pick it by hand.</p>
+        <div id="mfBatch_reviewRows"></div>
+        <div class="form-actions">
+          <button class="btn-primary" id="mfBatch_saveBtn" type="button">Save All</button>
+          <span class="status-msg" id="mfBatch_saveStatus"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 id="mf_formTitle">Add or Correct a Month by Hand</h3>
+      <p class="form-note" style="margin-top:0;">For a month with no statement to upload, or to fix a figure after the fact.</p>
+      <div class="form-grid">
+        <label>Month <input type="month" id="mf_month"></label>
+        <label>Revenue ($) <input type="number" step="0.01" id="mf_revenue"></label>
+        <label>Labor ($) <input type="number" step="0.01" id="mf_labor"></label>
+        <label>Gross Profit ($) <input type="number" step="0.01" id="mf_grossProfit"></label>
+        <label>EBITDA ($) <input type="number" step="0.01" id="mf_ebitda"></label>
+        <label>Owner Wages ($) <input type="number" step="0.01" id="mf_ownerWages"></label>
+        <label>Net Income ($) <input type="number" step="0.01" id="mf_netIncome"></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn-primary" id="mf_saveBtn" type="button">Save Month</button>
+        <button type="button" id="mf_cancelEditBtn" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Cancel Edit</button>
+        <span class="status-msg" id="mf_saveStatus"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Trend Over Time</h3>
+      <p class="form-note" style="margin-top:0;">Owner Wages and Net Income are charted together as one line &mdash; a rough proxy for total owner benefit, similar to Seller's Discretionary Earnings, so a buyer isn't left to add the two together themselves. Both are still recorded and shown separately in the table below.</p>
+      <label style="max-width:160px; margin-bottom:12px;">Year <select id="mf_chartYear"></select></label>
+      <canvas id="mf_trendChart"></canvas>
+      <p class="form-note" id="mf_chartEmptyNote" style="display:none;">Add at least one month above to see the trend chart.</p>
+    </div>
+
+    <div class="panel">
+      <h3>All Months</h3>
+      <div id="mf_tableGroups"></div>
+      <p class="form-note" id="mf_tableEmptyNote" style="display:none;">No months recorded yet &mdash; add one above to get started.</p>
+    </div>
   </div>
 
   <!-- ============ ATTENDANCE TRACKING DETAIL ============ -->
@@ -5256,8 +5326,18 @@
   const damageClaimDetail = document.getElementById('damageClaimDetail');
   const managerReviewDetail = document.getElementById('managerReviewDetail');
   const stateTaxesDetail = document.getElementById('stateTaxesDetail');
+  const monthlyFinancialsDetail = document.getElementById('monthlyFinancialsDetail');
 
   function showView(view){
+    // Monthly Financials is admin-only -- block direct navigation (a typed
+    // or bookmarked #monthlyfinancials hash, browser back/forward, etc.)
+    // the same way the tile itself is hidden from non-admins, rather than
+    // relying only on the tile being absent from the dashboard.
+    if(view === 'monthlyfinancials' && localStorage.getItem('henson_auth_role') !== 'admin'){
+      alert('Monthly Financials is only accessible to administrators.');
+      view = 'home';
+      history.replaceState({view}, '', '#home');
+    }
     home.style.display = view === 'home' ? 'block' : 'none';
     detail.style.display = view === 'labor' ? 'block' : 'none';
     calcDetail.style.display = view === 'calc' ? 'block' : 'none';
@@ -5273,6 +5353,7 @@
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
     managerReviewDetail.style.display = view === 'managerreview' ? 'block' : 'none';
     stateTaxesDetail.style.display = view === 'statetaxes' ? 'block' : 'none';
+    monthlyFinancialsDetail.style.display = view === 'monthlyfinancials' ? 'block' : 'none';
     if(view === 'labor'){
       loadWeeks();
     }
@@ -5316,6 +5397,9 @@
     if(view === 'statetaxes'){
       window.loadStateTaxData();
     }
+    if(view === 'monthlyfinancials'){
+      window.loadMonthlyFinancialsData();
+    }
     if(view === 'paperwork'){
       window.loadPwBatchJunkRemovalPersistent();
     }
@@ -5325,13 +5409,15 @@
     if(view === 'opsmetrics'){
       window.loadOpsMetricsData();
     }
+    return view;
   }
 
   function navigateTo(view){
-    showView(view);
-    history.pushState({view}, '', '#'+view);
+    const resolvedView = showView(view);
+    history.pushState({view: resolvedView}, '', '#'+resolvedView);
   }
   window.navigateTo = navigateTo;
+  window.showView = showView;
 
   window.addEventListener('popstate', (e)=>{
     showView(e.state && e.state.view ? e.state.view : 'home');
@@ -5467,6 +5553,9 @@
   document.getElementById('managerReviewBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-statetaxes').addEventListener('click', ()=> navigateTo('statetaxes'));
   document.getElementById('tile-statetaxes').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('statetaxes'); }});
+  document.getElementById('tile-monthlyfinancials').addEventListener('click', ()=> navigateTo('monthlyfinancials'));
+  document.getElementById('tile-monthlyfinancials').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('monthlyfinancials'); }});
+  document.getElementById('monthlyFinancialsBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('stateTaxesBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
@@ -9626,6 +9715,25 @@
     });
   }
   initDashSections();
+
+  // Monthly Financials is sensitive enough (meant for a future buyer's
+  // review) to restrict to administrators only -- hidden from the
+  // dashboard entirely for anyone else, with the section's own count and
+  // tile-list text kept accurate so it doesn't claim a tile is there that
+  // isn't. This mirrors the same client-side gating every other role
+  // distinction in this app already uses (e.g. applyLaborRolePermissions);
+  // it is a UI-level restriction, not a server-enforced one, consistent
+  // with how the rest of this app's role permissions work.
+  function applyMonthlyFinancialsPermission(){
+    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
+    const tile = document.getElementById('tile-monthlyfinancials');
+    if(tile) tile.style.display = isAdmin ? '' : 'none';
+    const countEl = document.querySelector('#dashSection-financial .dashSectionCount');
+    const listEl = document.querySelector('#dashSection-financial .dashSectionTileList');
+    if(countEl) countEl.textContent = isAdmin ? '(2)' : '(1)';
+    if(listEl) listEl.textContent = isAdmin ? 'State Taxes, Monthly Financials' : 'State Taxes';
+  }
+  applyMonthlyFinancialsPermission();
 
   // Reflects each collapsed section's own tiles' "needs attention" badges on
   // its header, so nothing important goes invisible just because a category
@@ -17061,6 +17169,537 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderPaperworkUploadsList();
     }));
   }
+
+  // ---------- Financial: Monthly Financials ----------
+
+  // ---- Batch upload: AI-read financial statements ----
+  let mfBatchFiles = [];   // { id, file, allPageDataUris, isPdf, pageTexts }
+  let mfBatchReview = [];  // one row per uploaded file, pending save
+
+  async function addMfBatchFile(file){
+    const statusEl = document.getElementById('mfBatch_extractStatus');
+    if(file.size > 30*1024*1024){
+      statusEl.textContent = 'That file is over 30MB \u2014 please use a smaller file.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    try{
+      let allPageDataUris, isPdf = false;
+      if(file.type === 'application/pdf'){
+        allPageDataUris = await window.getImagesForAssessment(file);
+        if(allPageDataUris.length === 0) throw new Error('Could not read that PDF.');
+        isPdf = true;
+      } else if(file.type.startsWith('image/')){
+        allPageDataUris = [await window.compressImageForUpload(file, 2000, 0.92)];
+      } else {
+        throw new Error('Unsupported file type.');
+      }
+      if(allPageDataUris.length > 24){
+        statusEl.textContent = `That file has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      mfBatchFiles.push({ id: 'mfbatch_' + Date.now() + '_' + Math.floor(Math.random()*1000), file, allPageDataUris, isPdf });
+      renderMfBatchThumbnails();
+    }catch(err){
+      console.error('Financial statement processing failed:', err);
+      statusEl.textContent = 'Could not process that file \u2014 try a different document.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+
+  function renderMfBatchThumbnails(){
+    const wrap = document.getElementById('mfBatch_thumbnails');
+    wrap.innerHTML = mfBatchFiles.map(f => `
+      <div style="position:relative; width:80px; height:80px;">
+        <img src="${f.allPageDataUris[0]}" style="width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block;">
+        ${f.allPageDataUris.length > 1 ? `<span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.65); color:#fff; font-size:9px; padding:1px 4px; border-radius:3px;">${f.allPageDataUris.length} pages</span>` : ''}
+        <button type="button" class="mfBatch-remove" data-id="${f.id}" style="position:absolute; top:-6px; right:-6px; background:#b3261e; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">&times;</button>
+      </div>`).join('');
+    wrap.querySelectorAll('.mfBatch-remove').forEach(btn => btn.addEventListener('click', (e)=>{
+      mfBatchFiles = mfBatchFiles.filter(f => f.id !== e.target.dataset.id);
+      renderMfBatchThumbnails();
+    }));
+  }
+
+  const mfBatchPasteZone = document.getElementById('mfBatch_pasteZone');
+  mfBatchPasteZone.addEventListener('click', ()=> mfBatchPasteZone.focus());
+  mfBatchPasteZone.addEventListener('focus', ()=>{ mfBatchPasteZone.style.borderColor = 'var(--brand-orange)'; mfBatchPasteZone.style.background = '#fff'; });
+  mfBatchPasteZone.addEventListener('blur', ()=>{ mfBatchPasteZone.style.borderColor = 'var(--line)'; mfBatchPasteZone.style.background = '#fafafa'; });
+  mfBatchPasteZone.addEventListener('paste', async (e)=>{
+    e.preventDefault();
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []).filter(item => item.type && (item.type.startsWith('image/') || item.type === 'application/pdf'));
+    if(items.length === 0){
+      const statusEl = document.getElementById('mfBatch_extractStatus');
+      statusEl.textContent = 'That paste didn\u2019t contain an image or PDF.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const item of items){
+      const blob = item.getAsFile();
+      if(blob) await addMfBatchFile(blob);
+    }
+  });
+  mfBatchPasteZone.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    mfBatchPasteZone.style.borderColor = 'var(--brand-orange)';
+    mfBatchPasteZone.style.background = '#fff';
+  });
+  mfBatchPasteZone.addEventListener('dragleave', ()=>{
+    mfBatchPasteZone.style.borderColor = 'var(--line)';
+    mfBatchPasteZone.style.background = '#fafafa';
+  });
+  mfBatchPasteZone.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    mfBatchPasteZone.style.borderColor = 'var(--line)';
+    mfBatchPasteZone.style.background = '#fafafa';
+    const files = Array.from(e.dataTransfer ? e.dataTransfer.files : []).filter(f => f.type && (f.type.startsWith('image/') || f.type === 'application/pdf'));
+    if(files.length === 0){
+      const statusEl = document.getElementById('mfBatch_extractStatus');
+      statusEl.textContent = 'That didn\u2019t contain an image or PDF.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    for(const file of files){ await addMfBatchFile(file); }
+  });
+  document.getElementById('mfBatch_chooseFilesBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('mfBatch_files').click();
+  });
+  document.getElementById('mfBatch_files').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files || []);
+    for(const file of files){ await addMfBatchFile(file); }
+    e.target.value = '';
+  });
+
+  document.getElementById('mfBatch_extractBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mfBatch_extractStatus');
+    if(mfBatchFiles.length === 0){
+      statusEl.textContent = 'Add at least one file first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = `Reading 0 of ${mfBatchFiles.length}\u2026`;
+    statusEl.className = 'status-msg';
+    const totalFiles = mfBatchFiles.length;
+    const newRows = [];
+    let failures = 0;
+    for(let i = 0; i < mfBatchFiles.length; i++){
+      const f = mfBatchFiles[i];
+      statusEl.textContent = `Reading ${i + 1} of ${mfBatchFiles.length}\u2026`;
+      try{
+        let pageTexts = [];
+        if(f.isPdf) pageTexts = await window.extractPdfPageTextsSafe(f.file);
+        const res = await fetch(`${API_BASE}/api/admin/extract-monthly-financials`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({ images: f.allPageDataUris, pageTexts })
+        });
+        if(handleAuthFailure(res)) return;
+        const data = await res.json();
+        if(!res.ok){
+          failures++;
+          console.error('Monthly financials extraction failed for', f.file.name, data.error);
+          continue;
+        }
+        newRows.push({
+          reviewId: 'mfrev_' + f.id,
+          thumbnail: f.allPageDataUris[0],
+          fileName: f.file.name,
+          month: data.month || '',
+          periodAsPrinted: data.periodAsPrinted || '',
+          revenue: data.revenue || 0,
+          labor: data.labor || 0,
+          grossProfit: data.grossProfit || 0,
+          ebitda: data.ebitda || 0,
+          ownerWages: data.ownerWages || 0,
+          netIncome: data.netIncome || 0,
+          confident: !!data.confident,
+          periodFound: !!data.periodFound
+        });
+      }catch(err){
+        console.error('Monthly financials extraction failed for', f.file.name, err);
+        failures++;
+      }
+    }
+    mfBatchReview = mfBatchReview.concat(newRows);
+    mfBatchFiles = [];
+    renderMfBatchThumbnails();
+    renderMfBatchReview();
+    statusEl.textContent = `Read ${newRows.length} of ${totalFiles} file${totalFiles === 1 ? '' : 's'}.` + (failures > 0 ? ` ${failures} failed \u2014 check your connection and try those again.` : '');
+    statusEl.className = failures > 0 ? 'status-msg err' : 'status-msg ok';
+  });
+
+  function renderMfBatchReview(){
+    const wrap = document.getElementById('mfBatch_reviewWrap');
+    const container = document.getElementById('mfBatch_reviewRows');
+    if(mfBatchReview.length === 0){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    container.innerHTML = mfBatchReview.map(r => `
+      <div data-review-id="${r.reviewId}" style="display:flex; gap:12px; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; ${!r.month || !r.periodFound ? 'background:#fdf6e3;' : ''}">
+        <img class="mfrev-thumb" data-review-id="${r.reviewId}" src="${r.thumbnail}" style="width:56px; height:56px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;" title="Click to view the source page">
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">${esc(r.fileName)}${r.periodAsPrinted ? ' \u2014 statement reads: "' + esc(r.periodAsPrinted) + '"' : ''}</div>
+          ${!r.periodFound ? '<div style="font-size:11.5px; color:#b3261e; margin-bottom:6px;">\u26a0 This didn\u2019t look like a financial statement \u2014 check the file, or remove this row.</div>' : ''}
+          ${r.periodFound && !r.month ? '<div style="font-size:11.5px; color:#8a6d00; margin-bottom:6px;">\u26a0 Couldn\u2019t determine the month automatically \u2014 pick it below.</div>' : ''}
+          ${r.periodFound && !r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-bottom:6px;">Low confidence read \u2014 please double-check the figures against the source.</div>' : ''}
+          <div class="form-grid" style="margin-bottom:0;">
+            <label style="font-size:11px;">Month <input type="month" class="mfrev-field" data-field="month" data-review-id="${r.reviewId}" value="${esc(r.month)}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Revenue ($) <input type="number" step="0.01" class="mfrev-field" data-field="revenue" data-review-id="${r.reviewId}" value="${r.revenue}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Labor ($) <input type="number" step="0.01" class="mfrev-field" data-field="labor" data-review-id="${r.reviewId}" value="${r.labor}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Gross Profit ($) <input type="number" step="0.01" class="mfrev-field" data-field="grossProfit" data-review-id="${r.reviewId}" value="${r.grossProfit}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">EBITDA ($) <input type="number" step="0.01" class="mfrev-field" data-field="ebitda" data-review-id="${r.reviewId}" value="${r.ebitda}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Owner Wages ($) <input type="number" step="0.01" class="mfrev-field" data-field="ownerWages" data-review-id="${r.reviewId}" value="${r.ownerWages}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Net Income ($) <input type="number" step="0.01" class="mfrev-field" data-field="netIncome" data-review-id="${r.reviewId}" value="${r.netIncome}" style="font-size:13px;"></label>
+          </div>
+          <button type="button" class="mfrev-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-top:8px;">Remove</button>
+        </div>
+      </div>`).join('');
+
+    container.querySelectorAll('.mfrev-thumb').forEach(thumb => thumb.addEventListener('click', (e)=>{
+      window.open(e.currentTarget.src, '_blank');
+    }));
+    container.querySelectorAll('.mfrev-field').forEach(input => input.addEventListener('input', (e)=>{
+      const r = mfBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      const field = e.target.dataset.field;
+      r[field] = field === 'month' ? e.target.value : (parseFloat(e.target.value) || 0);
+    }));
+    container.querySelectorAll('.mfrev-remove').forEach(btn => btn.addEventListener('click', (e)=>{
+      mfBatchReview = mfBatchReview.filter(x => x.reviewId !== e.target.dataset.reviewId);
+      renderMfBatchReview();
+    }));
+  }
+
+  document.getElementById('mfBatch_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mfBatch_saveStatus');
+    const missingMonth = mfBatchReview.filter(r => !r.month);
+    if(missingMonth.length > 0){
+      statusEl.textContent = `${missingMonth.length} row${missingMonth.length===1?'':'s'} still need${missingMonth.length===1?'s':''} a month picked before saving.`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    // A month appearing twice within THIS batch (two statements accidentally
+    // read as the same month) would otherwise silently overwrite one with
+    // the other on save -- catch it here rather than losing one silently.
+    const monthCounts = {};
+    mfBatchReview.forEach(r => { monthCounts[r.month] = (monthCounts[r.month]||0) + 1; });
+    const dupeMonths = Object.keys(monthCounts).filter(m => monthCounts[m] > 1);
+    if(dupeMonths.length > 0){
+      statusEl.textContent = `More than one row is set to ${mfMonthLabel(dupeMonths[0])} \u2014 fix the month on one of them before saving.`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const overwriting = mfBatchReview.filter(r => monthlyFinancialsRecords.some(existing => existing.month === r.month));
+    if(overwriting.length > 0){
+      const list = overwriting.map(r => mfMonthLabel(r.month)).join(', ');
+      if(!confirm(`${overwriting.length} of these month${overwriting.length===1?'':'s'} already ${overwriting.length===1?'has':'have'} a saved record (${list}). Overwrite ${overwriting.length===1?'it':'them'} with these values?`)) return;
+    }
+    statusEl.textContent = 'Saving\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      mfBatchReview.forEach(r => {
+        monthlyFinancialsRecords = monthlyFinancialsRecords.filter(x => x.month !== r.month);
+        monthlyFinancialsRecords.push({
+          month: r.month, revenue: r.revenue, labor: r.labor, grossProfit: r.grossProfit,
+          ebitda: r.ebitda, ownerWages: r.ownerWages, netIncome: r.netIncome,
+          updatedAt: new Date().toISOString()
+        });
+      });
+      await window.dashboardApi.set(MONTHLY_FINANCIALS_KEY, monthlyFinancialsRecords);
+      statusEl.textContent = `${mfBatchReview.length} month${mfBatchReview.length===1?'':'s'} saved.`;
+      statusEl.className = 'status-msg ok';
+      mfBatchReview = [];
+      renderMfBatchReview();
+      renderMonthlyFinancialsChart();
+      renderMonthlyFinancialsTable();
+    }catch(err){
+      console.error('Monthly financials batch save failed:', err);
+      statusEl.textContent = 'Could not save \u2014 check your connection and try again.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  const MONTHLY_FINANCIALS_KEY = 'monthly-financials';
+  let monthlyFinancialsRecords = [];
+  let mfEditingMonth = null; // the month key currently being edited, if any
+  let mfChart = null;
+  let mfSelectedYear = null; // 'YYYY' -- null until first render picks the most recent year with data
+
+  function mfMoney(v){
+    const n = Number(v) || 0;
+    const sign = n < 0 ? '-' : '';
+    return sign + '$' + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  // monthKey is 'YYYY-MM' -- built at noon UTC and read back out in UTC so
+  // the label can never roll over to the adjacent month from a timezone
+  // offset the way midnight-local parsing would.
+  function mfMonthLabel(monthKey){
+    const [y, m] = monthKey.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1, 1, 12));
+    return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  async function loadMonthlyFinancialsData(){
+    try{
+      monthlyFinancialsRecords = await window.dashboardApi.get(MONTHLY_FINANCIALS_KEY, []) || [];
+      renderMonthlyFinancialsChart();
+      renderMonthlyFinancialsTable();
+    }catch(err){
+      console.error('Monthly financials load failed:', err);
+      const statusEl = document.getElementById('mf_saveStatus');
+      statusEl.textContent = 'Could not load \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+  window.loadMonthlyFinancialsData = loadMonthlyFinancialsData;
+
+  const MF_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function mfPopulateYearSelector(){
+    const sel = document.getElementById('mf_chartYear');
+    const years = [...new Set(monthlyFinancialsRecords.map(r => r.month.slice(0,4)))].sort((a,b) => b.localeCompare(a));
+    if(years.length === 0) years.push(String(new Date().getFullYear()));
+    // Keep the admin's current selection if it's still valid; otherwise
+    // default to the most recent year that actually has data.
+    if(!mfSelectedYear || !years.includes(mfSelectedYear)) mfSelectedYear = years[0];
+    sel.innerHTML = years.map(y => `<option value="${y}" ${y === mfSelectedYear ? 'selected' : ''}>${y}</option>`).join('');
+  }
+  document.getElementById('mf_chartYear').addEventListener('change', (e)=>{
+    mfSelectedYear = e.target.value;
+    renderMonthlyFinancialsChart();
+  });
+
+  function renderMonthlyFinancialsChart(){
+    mfPopulateYearSelector();
+    const canvas = document.getElementById('mf_trendChart');
+    const emptyNote = document.getElementById('mf_chartEmptyNote');
+    if(monthlyFinancialsRecords.length === 0){
+      canvas.style.display = 'none';
+      emptyNote.style.display = 'block';
+      if(mfChart){ mfChart.destroy(); mfChart = null; }
+      return;
+    }
+    canvas.style.display = 'block';
+    emptyNote.style.display = 'none';
+
+    // Always a full Jan-Dec year for the selected year -- a month with no
+    // saved record becomes null, which Chart.js renders as a genuine gap
+    // in the line (spanGaps: false) rather than silently bridging over
+    // missing data as if it were a smooth trend.
+    const byMonthKey = {};
+    monthlyFinancialsRecords.forEach(r => { byMonthKey[r.month] = r; });
+    const monthsOfYear = MF_MONTH_ABBR.map((_, i) => byMonthKey[`${mfSelectedYear}-${String(i+1).padStart(2,'0')}`] || null);
+
+    const datasets = [
+      { label: 'Revenue', data: monthsOfYear.map(r => r ? r.revenue : null), borderColor: '#2E5C8A', backgroundColor: '#2E5C8A' },
+      { label: 'Labor', data: monthsOfYear.map(r => r ? r.labor : null), borderColor: '#C1392B', backgroundColor: '#C1392B' },
+      { label: 'Gross Profit', data: monthsOfYear.map(r => r ? r.grossProfit : null), borderColor: '#00843D', backgroundColor: '#00843D' },
+      { label: 'EBITDA', data: monthsOfYear.map(r => r ? r.ebitda : null), borderColor: '#F2A900', backgroundColor: '#F2A900' },
+      // Combined, not a raw ledger figure -- dashed to visually set it apart
+      // from the four lines that come straight off the books.
+      { label: 'Owner Wages + Net Income', data: monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] }
+    ].map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
+
+    const ctx = canvas.getContext('2d');
+    // Isolated from the caller -- a save has already durably succeeded in
+    // storage by the time this runs, so a Chart.js-level failure (CDN
+    // blocked, library not yet loaded) must never bubble up and make a
+    // successful save look like it failed, or block the table below from
+    // rendering.
+    try{
+      if(mfChart) mfChart.destroy();
+      mfChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: MF_MONTH_ABBR, datasets },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { labels: { boxWidth: 16, font: { size: 11 } } },
+            tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}` } }
+          },
+          scales: {
+            y: { ticks: { callback: v => '$' + Number(v).toLocaleString() }, grid: { color: '#E4E0D6' } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }catch(err){
+      console.error('Monthly financials chart render failed:', err);
+    }
+  }
+
+  function renderMonthlyFinancialsTable(){
+    const container = document.getElementById('mf_tableGroups');
+    const emptyNote = document.getElementById('mf_tableEmptyNote');
+    if(monthlyFinancialsRecords.length === 0){
+      container.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+
+    const byYear = {};
+    monthlyFinancialsRecords.forEach(r => {
+      const year = r.month.slice(0,4);
+      if(!byYear[year]) byYear[year] = [];
+      byYear[year].push(r);
+    });
+    const years = Object.keys(byYear).sort((a,b) => b.localeCompare(a)); // most recent year first
+
+    container.innerHTML = years.map((year, idx) => {
+      const rows = [...byYear[year]].sort((a,b) => b.month.localeCompare(a.month)); // most recent month first
+      const totals = rows.reduce((acc, r) => {
+        acc.revenue += Number(r.revenue)||0; acc.labor += Number(r.labor)||0;
+        acc.grossProfit += Number(r.grossProfit)||0; acc.ebitda += Number(r.ebitda)||0;
+        acc.ownerWages += Number(r.ownerWages)||0; acc.netIncome += Number(r.netIncome)||0;
+        return acc;
+      }, {revenue:0, labor:0, grossProfit:0, ebitda:0, ownerWages:0, netIncome:0});
+
+      return `
+      <details ${idx === 0 ? 'open' : ''} style="margin-bottom:10px; border:1px solid var(--line); border-radius:8px; padding:10px 14px;">
+        <summary style="cursor:pointer; font-weight:600; font-size:14px; color:var(--charcoal);">${year} <span style="font-weight:400; color:var(--muted); font-size:12px;">(${rows.length} month${rows.length===1?'':'s'} &middot; ${mfMoney(totals.revenue)} revenue)</span></summary>
+        <div style="overflow-x:auto; margin-top:10px;">
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr>
+                <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line);">Month</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Revenue</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Labor</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Gross Profit</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">EBITDA</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Owner Wages</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>
+                <th style="border-bottom:2px solid var(--line);"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => `
+              <tr>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line);">${mfMonthLabel(r.month)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.revenue)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.labor)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.grossProfit)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ebitda)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ownerWages)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;">
+                  <button type="button" class="mf-edit" data-month="${r.month}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
+                  <button type="button" class="mf-delete" data-month="${r.month}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
+                </td>
+              </tr>`).join('')}
+              <tr style="font-weight:600; background:#faf8f3;">
+                <td style="padding:6px 8px; border-top:2px solid var(--line);">${year} Total</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.revenue)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.labor)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.grossProfit)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ebitda)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ownerWages)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>
+                <td style="border-top:2px solid var(--line);"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>`;
+    }).join('');
+
+    container.querySelectorAll('.mf-edit').forEach(btn => btn.addEventListener('click', (e)=>{
+      const month = e.target.dataset.month;
+      const r = monthlyFinancialsRecords.find(x => x.month === month);
+      if(!r) return;
+      mfEditingMonth = month;
+      document.getElementById('mf_month').value = r.month;
+      document.getElementById('mf_revenue').value = r.revenue;
+      document.getElementById('mf_labor').value = r.labor;
+      document.getElementById('mf_grossProfit').value = r.grossProfit;
+      document.getElementById('mf_ebitda').value = r.ebitda;
+      document.getElementById('mf_ownerWages').value = r.ownerWages;
+      document.getElementById('mf_netIncome').value = r.netIncome;
+      document.getElementById('mf_formTitle').textContent = `Editing ${mfMonthLabel(month)}`;
+      document.getElementById('mf_cancelEditBtn').style.display = 'inline-block';
+      document.getElementById('mf_month').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+
+    container.querySelectorAll('.mf-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const month = e.target.dataset.month;
+      if(!confirm(`Delete the financial record for ${mfMonthLabel(month)}? This cannot be undone.`)) return;
+      monthlyFinancialsRecords = monthlyFinancialsRecords.filter(x => x.month !== month);
+      try{
+        await window.dashboardApi.set(MONTHLY_FINANCIALS_KEY, monthlyFinancialsRecords);
+        renderMonthlyFinancialsChart();
+        renderMonthlyFinancialsTable();
+      }catch(err){
+        console.error('Monthly financials delete failed:', err);
+        alert('Could not delete \u2014 check your connection and try again.');
+      }
+    }));
+  }
+
+  function mfResetForm(){
+    mfEditingMonth = null;
+    document.getElementById('mf_month').value = '';
+    document.getElementById('mf_revenue').value = '';
+    document.getElementById('mf_labor').value = '';
+    document.getElementById('mf_grossProfit').value = '';
+    document.getElementById('mf_ebitda').value = '';
+    document.getElementById('mf_ownerWages').value = '';
+    document.getElementById('mf_netIncome').value = '';
+    document.getElementById('mf_formTitle').textContent = 'Add a Month';
+    document.getElementById('mf_cancelEditBtn').style.display = 'none';
+  }
+
+  document.getElementById('mf_cancelEditBtn').addEventListener('click', mfResetForm);
+
+  document.getElementById('mf_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('mf_saveStatus');
+    const month = document.getElementById('mf_month').value;
+    if(!month){
+      statusEl.textContent = 'Pick a month first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const record = {
+      month,
+      revenue: parseFloat(document.getElementById('mf_revenue').value) || 0,
+      labor: parseFloat(document.getElementById('mf_labor').value) || 0,
+      grossProfit: parseFloat(document.getElementById('mf_grossProfit').value) || 0,
+      ebitda: parseFloat(document.getElementById('mf_ebitda').value) || 0,
+      ownerWages: parseFloat(document.getElementById('mf_ownerWages').value) || 0,
+      netIncome: parseFloat(document.getElementById('mf_netIncome').value) || 0,
+      updatedAt: new Date().toISOString()
+    };
+    // Editing one month but changing the month field to a different month
+    // that already has its own saved record -- confirm before overwriting
+    // it, rather than silently merging two months into one on save.
+    const existingForThisMonth = monthlyFinancialsRecords.find(r => r.month === month);
+    if(existingForThisMonth && mfEditingMonth && mfEditingMonth !== month){
+      if(!confirm(`${mfMonthLabel(month)} already has a record. Overwrite it with these values instead?`)) return;
+    }
+    statusEl.textContent = 'Saving\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      // Upsert by month -- remove both the record being edited (if its
+      // month changed) and any existing record for the target month, then
+      // add the new one, so a save never produces a duplicate month.
+      monthlyFinancialsRecords = monthlyFinancialsRecords.filter(r => r.month !== month && r.month !== mfEditingMonth);
+      monthlyFinancialsRecords.push(record);
+      await window.dashboardApi.set(MONTHLY_FINANCIALS_KEY, monthlyFinancialsRecords);
+      statusEl.textContent = `${mfMonthLabel(month)} saved.`;
+      statusEl.className = 'status-msg ok';
+      mfResetForm();
+      renderMonthlyFinancialsChart();
+      renderMonthlyFinancialsTable();
+    }catch(err){
+      console.error('Monthly financials save failed:', err);
+      statusEl.textContent = 'Could not save \u2014 check your connection and try again.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   // ---------- Archive Old Paperwork ----------
   const PA_RETENTION_MONTHS = 7; // GA's 6-month minimum + 1-month safety buffer
