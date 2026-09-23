@@ -1851,6 +1851,16 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       }
     }
 
+    // The model occasionally omits the confident field from its tool_use
+    // response entirely, even though the schema marks it required. That's
+    // a model quirk, not a real signal of low confidence -- and the two
+    // grounding layers above have already independently verified every
+    // dollar figure against the actual printed text, zeroing out anything
+    // that didn't check out. So a missing field defaults to true rather
+    // than discarding an otherwise well-grounded extraction; an explicit
+    // confident:false from the model is still respected as-is.
+    if (extraction.confident === undefined) extraction.confident = true;
+
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] FINAL result: ${JSON.stringify({ ...baseResult, invoicePageFound: true, ...extraction })}`);
     res.json({ ...baseResult, invoicePageFound: true, ...extraction });
   } catch (err) {
