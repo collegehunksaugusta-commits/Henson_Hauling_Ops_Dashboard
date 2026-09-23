@@ -3936,6 +3936,7 @@
         <label>Total Revenue ($) <input type="number" step="0.01" id="mf_revenue"></label>
         <label>Total Hunk Team Payroll Cost ($) <input type="number" step="0.01" id="mf_labor"></label>
         <label>Gross Profit ($) <input type="number" step="0.01" id="mf_grossProfit"></label>
+        <label>Operating Profit ($) <input type="number" step="0.01" id="mf_operatingProfit"></label>
         <label>EBIT ($) <input type="number" step="0.01" id="mf_ebit"></label>
         <label>Owner Wages ($) <input type="number" step="0.01" id="mf_ownerWages"></label>
         <label>Net Income ($) <input type="number" step="0.01" id="mf_netIncome"></label>
@@ -3948,8 +3949,8 @@
     </div>
 
     <div class="panel">
-      <h3>Trend Over Time</h3>
-      <p class="form-note" style="margin-top:0;">Owner Wages and Net Income are charted together as one line &mdash; a rough proxy for total owner benefit, similar to Seller's Discretionary Earnings, so a buyer isn't left to add the two together themselves. Both are still recorded and shown separately in the table below.</p>
+      <h3>Year-to-Date Trend</h3>
+      <p class="form-note" style="margin-top:0;">Each line is a running total for the selected year, resetting to zero every January &mdash; so a rising line reflects cumulative performance building through the year, not a single month's figure. Owner Wages and Net Income are charted together as one line &mdash; a rough proxy for total owner benefit, similar to Seller's Discretionary Earnings, so a buyer isn't left to add the two together themselves. Both are still recorded and shown separately, at their individual monthly values, in the table below.</p>
       <label style="max-width:160px; margin-bottom:12px;">Year <select id="mf_chartYear"></select></label>
       <canvas id="mf_trendChart"></canvas>
       <p class="form-note" id="mf_chartEmptyNote" style="display:none;">Add at least one month above to see the trend chart.</p>
@@ -17311,6 +17312,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           revenue: data.revenue || 0,
           labor: data.labor || 0,
           grossProfit: data.grossProfit || 0,
+          operatingProfit: data.operatingProfit || 0,
           ebit: data.ebit || 0,
           ownerWages: data.ownerWages || 0,
           netIncome: data.netIncome || 0,
@@ -17351,6 +17353,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <label style="font-size:11px;">Total Revenue ($) <input type="number" step="0.01" class="mfrev-field" data-field="revenue" data-review-id="${r.reviewId}" value="${r.revenue}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Total Hunk Team Payroll Cost ($) <input type="number" step="0.01" class="mfrev-field" data-field="labor" data-review-id="${r.reviewId}" value="${r.labor}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Gross Profit ($) <input type="number" step="0.01" class="mfrev-field" data-field="grossProfit" data-review-id="${r.reviewId}" value="${r.grossProfit}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Operating Profit ($) <input type="number" step="0.01" class="mfrev-field" data-field="operatingProfit" data-review-id="${r.reviewId}" value="${r.operatingProfit}" style="font-size:13px;"></label>
             <label style="font-size:11px;">EBIT ($) <input type="number" step="0.01" class="mfrev-field" data-field="ebit" data-review-id="${r.reviewId}" value="${r.ebit}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Owner Wages ($) <input type="number" step="0.01" class="mfrev-field" data-field="ownerWages" data-review-id="${r.reviewId}" value="${r.ownerWages}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Net Income ($) <input type="number" step="0.01" class="mfrev-field" data-field="netIncome" data-review-id="${r.reviewId}" value="${r.netIncome}" style="font-size:13px;"></label>
@@ -17405,7 +17408,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         monthlyFinancialsRecords = monthlyFinancialsRecords.filter(x => x.month !== r.month);
         monthlyFinancialsRecords.push({
           month: r.month, revenue: r.revenue, labor: r.labor, grossProfit: r.grossProfit,
-          ebit: r.ebit, ownerWages: r.ownerWages, netIncome: r.netIncome,
+          operatingProfit: r.operatingProfit, ebit: r.ebit, ownerWages: r.ownerWages, netIncome: r.netIncome,
           updatedAt: new Date().toISOString()
         });
       });
@@ -17474,6 +17477,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderMonthlyFinancialsChart();
   });
 
+  // Turns a Jan-Dec array of monthly values (nulls for months with no
+  // saved record) into a running year-to-date total. A null month plots no
+  // point (still a visible gap, same as the monthly view), but doesn't
+  // reset the running total -- a later month's cumulative figure still
+  // reflects every earlier month that DOES have data, simply treating the
+  // gap's own unknown contribution as zero rather than blocking every
+  // month after it.
+  function mfCumulative(monthlyValues){
+    let runningTotal = 0;
+    return monthlyValues.map(v => {
+      if(v == null) return null;
+      runningTotal += Number(v) || 0;
+      return runningTotal;
+    });
+  }
+
   function renderMonthlyFinancialsChart(){
     mfPopulateYearSelector();
     const canvas = document.getElementById('mf_trendChart');
@@ -17496,13 +17515,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const monthsOfYear = MF_MONTH_ABBR.map((_, i) => byMonthKey[`${mfSelectedYear}-${String(i+1).padStart(2,'0')}`] || null);
 
     const datasets = [
-      { label: 'Total Revenue', data: monthsOfYear.map(r => r ? r.revenue : null), borderColor: '#2E5C8A', backgroundColor: '#2E5C8A' },
-      { label: 'Total Hunk Team Payroll Cost', data: monthsOfYear.map(r => r ? r.labor : null), borderColor: '#C1392B', backgroundColor: '#C1392B' },
-      { label: 'Gross Profit', data: monthsOfYear.map(r => r ? r.grossProfit : null), borderColor: '#00843D', backgroundColor: '#00843D' },
-      { label: 'EBIT', data: monthsOfYear.map(r => r ? r.ebit : null), borderColor: '#F2A900', backgroundColor: '#F2A900' },
+      { label: 'Total Revenue', data: mfCumulative(monthsOfYear.map(r => r ? r.revenue : null)), borderColor: '#2E5C8A', backgroundColor: '#2E5C8A' },
+      { label: 'Total Hunk Team Payroll Cost', data: mfCumulative(monthsOfYear.map(r => r ? r.labor : null)), borderColor: '#C1392B', backgroundColor: '#C1392B' },
+      { label: 'Gross Profit', data: mfCumulative(monthsOfYear.map(r => r ? r.grossProfit : null)), borderColor: '#00843D', backgroundColor: '#00843D' },
+      { label: 'Operating Profit', data: mfCumulative(monthsOfYear.map(r => r ? r.operatingProfit : null)), borderColor: '#17A398', backgroundColor: '#17A398' },
+      { label: 'EBIT', data: mfCumulative(monthsOfYear.map(r => r ? r.ebit : null)), borderColor: '#F2A900', backgroundColor: '#F2A900' },
       // Combined, not a raw ledger figure -- dashed to visually set it apart
       // from the four lines that come straight off the books.
-      { label: 'Owner Wages + Net Income', data: monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] }
+      { label: 'Owner Wages + Net Income', data: mfCumulative(monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null)), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] }
     ].map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
 
     const ctx = canvas.getContext('2d');
@@ -17520,7 +17540,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           responsive: true,
           plugins: {
             legend: { labels: { boxWidth: 16, font: { size: 11 } } },
-            tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}` } }
+            tooltip: { callbacks: { label: c => `${c.dataset.label} (YTD): ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}` } }
           },
           scales: {
             y: { ticks: { callback: v => '$' + Number(v).toLocaleString() }, grid: { color: '#E4E0D6' } },
@@ -17555,10 +17575,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const rows = [...byYear[year]].sort((a,b) => b.month.localeCompare(a.month)); // most recent month first
       const totals = rows.reduce((acc, r) => {
         acc.revenue += Number(r.revenue)||0; acc.labor += Number(r.labor)||0;
-        acc.grossProfit += Number(r.grossProfit)||0; acc.ebit += Number(r.ebit)||0;
+        acc.grossProfit += Number(r.grossProfit)||0; acc.operatingProfit += Number(r.operatingProfit)||0; acc.ebit += Number(r.ebit)||0;
         acc.ownerWages += Number(r.ownerWages)||0; acc.netIncome += Number(r.netIncome)||0;
         return acc;
-      }, {revenue:0, labor:0, grossProfit:0, ebit:0, ownerWages:0, netIncome:0});
+      }, {revenue:0, labor:0, grossProfit:0, operatingProfit:0, ebit:0, ownerWages:0, netIncome:0});
 
       return `
       <details ${idx === 0 ? 'open' : ''} style="margin-bottom:10px; border:1px solid var(--line); border-radius:8px; padding:10px 14px;">
@@ -17571,6 +17591,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Revenue</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Hunk Team Payroll Cost</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Gross Profit</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Operating Profit</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">EBIT</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Owner Wages</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>
@@ -17584,6 +17605,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.revenue)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.labor)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.grossProfit)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.operatingProfit)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ebit)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ownerWages)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>
@@ -17597,6 +17619,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.revenue)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.labor)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.grossProfit)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.operatingProfit)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ebit)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ownerWages)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>
@@ -17617,6 +17640,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('mf_revenue').value = r.revenue;
       document.getElementById('mf_labor').value = r.labor;
       document.getElementById('mf_grossProfit').value = r.grossProfit;
+      document.getElementById('mf_operatingProfit').value = r.operatingProfit;
       document.getElementById('mf_ebit').value = r.ebit;
       document.getElementById('mf_ownerWages').value = r.ownerWages;
       document.getElementById('mf_netIncome').value = r.netIncome;
@@ -17646,6 +17670,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('mf_revenue').value = '';
     document.getElementById('mf_labor').value = '';
     document.getElementById('mf_grossProfit').value = '';
+    document.getElementById('mf_operatingProfit').value = '';
     document.getElementById('mf_ebit').value = '';
     document.getElementById('mf_ownerWages').value = '';
     document.getElementById('mf_netIncome').value = '';
@@ -17668,6 +17693,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       revenue: parseFloat(document.getElementById('mf_revenue').value) || 0,
       labor: parseFloat(document.getElementById('mf_labor').value) || 0,
       grossProfit: parseFloat(document.getElementById('mf_grossProfit').value) || 0,
+      operatingProfit: parseFloat(document.getElementById('mf_operatingProfit').value) || 0,
       ebit: parseFloat(document.getElementById('mf_ebit').value) || 0,
       ownerWages: parseFloat(document.getElementById('mf_ownerWages').value) || 0,
       netIncome: parseFloat(document.getElementById('mf_netIncome').value) || 0,
