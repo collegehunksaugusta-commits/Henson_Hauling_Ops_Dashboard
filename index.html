@@ -3267,6 +3267,12 @@
           <h4 style="margin-bottom:6px;">Work Packages Ready to Print</h4>
           <div id="pwBatch_packagesRows"></div>
         </div>
+
+        <details style="margin-top:20px;">
+          <summary style="cursor:pointer; font-weight:600; font-size:13px; color:var(--charcoal);">Learned Hourly Rates</summary>
+          <p class="form-note">Every time a real quote passes through (a work order's own quote narrative, or an uploaded corrected quote), its hourly rate is silently recorded here by crew size &mdash; the latest one always wins. This is what lets the missing-quote fallback offer a rate automatically once you enter a crew size, instead of requiring a dollar figure by hand. Clear an entry below if a bad read ever poisons it.</p>
+          <div id="pwHourlyRates_rows" style="font-size:12.5px;"></div>
+        </details>
       </div>
 
       <div class="panel">
@@ -13909,6 +13915,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     return result;
   }
+  window.parseEstimateSummary = parseEstimateSummary;
 
   // The quote narrative that lands in this box varies a lot in length --
   // sometimes a few short lines, sometimes a much longer verbatim HunkWare
@@ -14616,6 +14623,81 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return Math.abs(scheduledHours - quotedHours) >= QUOTE_GAP_THRESHOLD_HOURS ? 'mismatch' : 'ok';
   }
 
+  // Keyed by crew size (as a string, e.g. "3") -- { rate, observedAt,
+  // jobNumber }. Every real, quoted rate that passes through the system
+  // (a work order's own quote narrative, or a corrected quote upload)
+  // silently updates this, latest-wins per crew size. This is what lets
+  // the "missing quote" fallback offer a rate automatically once the
+  // admin enters a crew size, instead of requiring a dollar figure by hand
+  // every time. Manually-entered fallback rates are deliberately never
+  // fed back in here -- only rates actually read off a real quote count,
+  // so a one-off manual guess can't become tomorrow's default.
+  const HOURLY_RATE_HISTORY_KEY = 'hourly-rate-history';
+  // Rates outside this range are almost certainly a misread (a stray
+  // digit, a total cost mistaken for an hourly one) rather than a real
+  // rate change, so they're never recorded -- a bad read shouldn't be
+  // able to poison the learned table for a crew size going forward.
+  const HOURLY_RATE_SANITY_MIN = 20, HOURLY_RATE_SANITY_MAX = 1000;
+  async function recordObservedHourlyRate(crewSize, rate, jobNumber){
+    if(!(crewSize > 0) || !(rate > 0)) return;
+    if(rate < HOURLY_RATE_SANITY_MIN || rate > HOURLY_RATE_SANITY_MAX) return;
+    try{
+      const history = await window.dashboardApi.get(HOURLY_RATE_HISTORY_KEY, {}) || {};
+      history[String(crewSize)] = { rate, observedAt: new Date().toISOString(), jobNumber: jobNumber || '' };
+      await window.dashboardApi.set(HOURLY_RATE_HISTORY_KEY, history);
+    }catch(err){ console.error('Recording observed hourly rate failed:', err); }
+  }
+  window.recordObservedHourlyRate = recordObservedHourlyRate;
+
+  async function renderPwHourlyRates(){
+    const container = document.getElementById('pwHourlyRates_rows');
+    if(!container) return;
+    let history = {};
+    try{ history = await window.dashboardApi.get(HOURLY_RATE_HISTORY_KEY, {}) || {}; }
+    catch(err){ console.error('Loading hourly rate history failed:', err); }
+    const crewSizes = Object.keys(history).map(Number).sort((a,b) => a - b);
+    if(crewSizes.length === 0){
+      container.innerHTML = '<p class="form-note" style="margin:0;">Nothing learned yet &mdash; rates fill in automatically as real quotes pass through.</p>';
+      return;
+    }
+    container.innerHTML = `
+      <table style="width:100%; border-collapse:collapse;">
+        <thead><tr>
+          <th style="text-align:left; padding:4px 6px; border-bottom:1px solid var(--line);"># of Hunks</th>
+          <th style="text-align:right; padding:4px 6px; border-bottom:1px solid var(--line);">Rate</th>
+          <th style="text-align:left; padding:4px 6px; border-bottom:1px solid var(--line);">As Of</th>
+          <th style="text-align:left; padding:4px 6px; border-bottom:1px solid var(--line);">Source Job</th>
+          <th style="border-bottom:1px solid var(--line);"></th>
+        </tr></thead>
+        <tbody>
+          ${crewSizes.map(n => {
+            const e = history[String(n)];
+            return `<tr>
+              <td style="padding:4px 6px; border-bottom:1px solid var(--line);">${n}</td>
+              <td style="padding:4px 6px; border-bottom:1px solid var(--line); text-align:right;">$${Number(e.rate).toFixed(2)}/hr</td>
+              <td style="padding:4px 6px; border-bottom:1px solid var(--line);">${e.observedAt ? new Date(e.observedAt).toLocaleDateString() : ''}</td>
+              <td style="padding:4px 6px; border-bottom:1px solid var(--line);">${e.jobNumber ? esc(e.jobNumber) : '\u2014'}</td>
+              <td style="padding:4px 6px; border-bottom:1px solid var(--line);"><button type="button" class="pwrate-clear" data-crew="${n}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Clear</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+    container.querySelectorAll('.pwrate-clear').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const crew = e.target.dataset.crew;
+      if(!confirm(`Clear the learned rate for ${crew} Hunks? The next real quote seen for this crew size will replace it.`)) return;
+      try{
+        const h = await window.dashboardApi.get(HOURLY_RATE_HISTORY_KEY, {}) || {};
+        delete h[crew];
+        await window.dashboardApi.set(HOURLY_RATE_HISTORY_KEY, h);
+        renderPwHourlyRates();
+      }catch(err){ console.error('Clearing rate failed:', err); }
+    }));
+  }
+  window.renderPwHourlyRates = renderPwHourlyRates;
+  document.querySelector('#pwBatch_packagesWrap')?.parentElement?.querySelector('details')?.addEventListener('toggle', function(){
+    if(this.open) renderPwHourlyRates();
+  });
+
   // The actual cost math is always done here, in plain arithmetic, never by
   // asking the model to compute it -- only the raw inputs (rate, crew size,
   // fees) come from extraction.
@@ -14638,6 +14720,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       + `The cost for labor for this move is estimated at ${pwBatchMoney(laborCost)}.\n`
       + `The estimated total cost of this move is ${pwBatchMoney(totalCost)}${feeClause}.`;
   }
+
+  // Same shape as buildEstimateSummaryNarrative, for the manual-entry path
+  // where no crew size was ever read from the work order -- only the
+  // hourly rate and travel fee are known, both entered by hand.
+  function buildManualEstimateSummaryNarrative(hours, hourlyRate, laborCost, totalCost, travelFee){
+    const feeClause = travelFee > 0 ? ` (including a Truck and Travel Fee of ${pwBatchMoney(travelFee)})` : '';
+    return `We have estimated the move to last ${hours} hours given the factors provided by the client.\n`
+      + `The hourly rate for the franchise at the time of this booking is ${pwBatchMoney(hourlyRate)} per hour.\n`
+      + `The cost for labor for this move is estimated at ${pwBatchMoney(laborCost)}.\n`
+      + `The estimated total cost of this move is ${pwBatchMoney(totalCost)}${feeClause}.`;
+  }
+  window.buildManualEstimateSummaryNarrative = buildManualEstimateSummaryNarrative;
 
   function renderPwBatchThumbnails(){
     const wrap = document.getElementById('pwBatch_thumbnails');
@@ -14759,20 +14853,35 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const quotedHours = d.quotedHours || 0;
     const quotedHourlyRate = d.quotedHourlyRate || 0;
     const quotedCrewSize = d.quotedCrewSize || 0;
+    // Silent by design -- this is a real, quoted rate off an actual work
+    // order, worth learning from regardless of whether its stated hours
+    // happen to match the schedule (that's a separate concern from
+    // whether the rate itself is genuine).
+    recordObservedHourlyRate(quotedCrewSize, quotedHourlyRate, d.jobNumber);
     const quotedOtherFees = d.quotedOtherFees || 0;
     const quoteGap = classifyQuoteGap(scheduledHours, quotedHours);
     let estimateSummary = d.estimateSummary || '';
     let quoteResolution = 'original';
     let extrapolatedTotal = null;
-    // A mismatch with enough info to extrapolate gets a corrected estimate
-    // by default (never leaving the stale, wrong-duration quote in
-    // place) -- the admin can still swap in a real corrected quote instead.
-    if(quoteGap === 'mismatch' && quotedHourlyRate > 0 && quotedCrewSize > 0){
+    // A mismatch (quote found, but for different hours) or a missing quote
+    // (the "estimated to last X hours" phrase specifically didn't match,
+    // even though a rate and crew size were still found elsewhere in the
+    // narrative) both get a corrected estimate by default -- never leaving
+    // a stale-duration or blank estimate in place. The admin can still
+    // swap in a real corrected quote instead.
+    if((quoteGap === 'mismatch' || quoteGap === 'missing') && quotedHourlyRate > 0 && quotedCrewSize > 0){
       const { laborCost, totalCost } = computeExtrapolatedEstimate(scheduledHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees);
       estimateSummary = buildEstimateSummaryNarrative(scheduledHours, quotedHourlyRate, quotedCrewSize, laborCost, totalCost, quotedOtherFees);
       quoteResolution = 'extrapolated';
       extrapolatedTotal = totalCost;
     }
+    // If even the rate/crew size couldn't be read -- no usable quote data
+    // of any kind was found on the work order -- there's nothing left to
+    // extrapolate from. Rather than let a blank estimate reach a printed
+    // Bill of Lading, this is flagged so the review UI requires the admin
+    // to enter the hourly rate and travel fee by hand before the job can
+    // be generated.
+    const needsManualQuote = (quoteGap === 'missing' || quoteGap === 'unknown') && quoteResolution === 'original';
 
     return {
       reviewId,
@@ -14791,10 +14900,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       thumbnail,
       workOrderPages,
       scheduledHours, quotedHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees,
-      quoteGap, quoteResolution, extrapolatedTotal,
+      quoteGap, quoteResolution, extrapolatedTotal, needsManualQuote,
+      manualHours: scheduledHours || null, manualHourlyRate: null, manualTravelFee: null, manualCrewSize: null, manualRateSource: null,
       packingMaterials: Array.isArray(d.packingMaterials) ? d.packingMaterials : []
     };
   }
+  window.buildPwReviewRow = buildPwReviewRow;
 
   document.getElementById('pwBatch_extractBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pwBatch_extractStatus');
@@ -15160,6 +15271,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   async function renderPwBatchReview(){
+    window.__pwBatchReviewForTest = pwBatchReview; // test-only visibility into the closure-scoped array
     const wrap = document.getElementById('pwBatch_reviewWrap');
     const container = document.getElementById('pwBatch_reviewRows');
     if(pwBatchReview.length === 0){
@@ -15185,19 +15297,37 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         distNote = '<span style="color:var(--muted);">Could not estimate distance</span>';
       }
       let quoteGapHtml = '';
-      if(r.quoteGap === 'mismatch' || r.quoteGap === 'missing'){
+      if(r.quoteGap === 'mismatch' || r.quoteGap === 'missing' || r.needsManualQuote){
         const resolvedNote = r.quoteResolution === 'extrapolated'
           ? `<div style="margin-top:4px;">Using an extrapolated estimate instead \u2014 ${pwBatchMoney(r.extrapolatedTotal)} total for ${r.scheduledHours} hrs.</div>`
           : r.quoteResolution === 'uploaded'
             ? `<div style="margin-top:4px; color:#00612C;">Using the uploaded corrected quote.</div>`
-            : '';
+            : r.quoteResolution === 'manual'
+              ? `<div style="margin-top:4px; color:#00612C;">Using the manually entered rate \u2014 ${pwBatchMoney(r.extrapolatedTotal)} total for ${r.manualHours} hrs.</div>`
+              : '';
         const headline = r.quoteGap === 'mismatch'
           ? `\u26a0 Job is scheduled for ${r.scheduledHours} hrs, but the attached quote is based on ${r.quotedHours} hrs.`
-          : `\u26a0 No quote found on this work order for the scheduled ${r.scheduledHours} hrs.`;
+          : r.needsManualQuote
+            ? `\u26a0 No usable quote found on this work order \u2014 enter the # of Hunks below to apply the last known rate, or enter the hourly rate directly, or upload a quote.`
+            : `\u26a0 No quote found on this work order for the scheduled ${r.scheduledHours} hrs.`;
+        const rateSourceNote = r.manualCrewSize > 0
+          ? (r.manualRateSource
+              ? `<div style="margin-top:4px; color:#00612C;">Using the last known rate for ${r.manualCrewSize} Hunks: ${pwBatchMoney(r.manualRateSource.rate)}/hr (as of ${new Date(r.manualRateSource.observedAt).toLocaleDateString()}). Override the rate field below if this has changed.</div>`
+              : `<div style="margin-top:4px; color:var(--muted);">No rate on file yet for ${r.manualCrewSize} Hunks \u2014 enter the hourly rate manually below.</div>`)
+          : '';
+        const manualEntryHtml = r.needsManualQuote && r.quoteResolution !== 'uploaded' ? `
+            <div style="margin-top:6px; display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
+              <label style="font-size:11px; margin:0;">Hours<br><input type="number" step="0.25" min="0" class="pwrev-manual-hours" data-review-id="${r.reviewId}" value="${r.manualHours != null ? r.manualHours : ''}" style="width:70px; font-size:12px; padding:4px;"></label>
+              <label style="font-size:11px; margin:0;"># of Hunks<br><input type="number" step="1" min="1" class="pwrev-manual-crew" data-review-id="${r.reviewId}" value="${r.manualCrewSize != null ? r.manualCrewSize : ''}" style="width:70px; font-size:12px; padding:4px;"></label>
+              <label style="font-size:11px; margin:0;">Hourly Rate ($)<br><input type="number" step="0.01" min="0" class="pwrev-manual-rate" data-review-id="${r.reviewId}" value="${r.manualHourlyRate != null ? r.manualHourlyRate : ''}" style="width:85px; font-size:12px; padding:4px;"></label>
+              <label style="font-size:11px; margin:0;">Travel Fee ($)<br><input type="number" step="0.01" min="0" class="pwrev-manual-fee" data-review-id="${r.reviewId}" value="${r.manualTravelFee != null ? r.manualTravelFee : ''}" style="width:85px; font-size:12px; padding:4px;"></label>
+            </div>
+            ${rateSourceNote}` : '';
         quoteGapHtml = `
           <div style="font-size:11.5px; color:#8a6d00; background:#FFF6E8; border:1px solid #F0D9A8; border-radius:6px; padding:8px 10px; margin-top:6px;">
             ${headline}
             ${resolvedNote}
+            ${manualEntryHtml}
             <div style="margin-top:6px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
               <label style="font-size:11px; margin:0;">Upload ${r.quoteGap === 'mismatch' ? 'corrected' : 'a'} quote:
                 <input type="file" class="pwrev-quote-upload" data-review-id="${r.reviewId}" accept=".jpg,.jpeg,.png,.pdf" style="font-size:11px;">
@@ -15269,6 +15399,63 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       pwBatchReview = pwBatchReview.filter(x => x.reviewId !== e.target.dataset.reviewId);
       renderPwBatchReview();
     }));
+    function recomputeManualQuote(r){
+      const hours = r.manualHours != null ? r.manualHours : r.scheduledHours;
+      const rate = r.manualHourlyRate;
+      const fee = r.manualTravelFee != null ? r.manualTravelFee : 0;
+      // A rate is required before this counts as resolved -- hours alone
+      // isn't enough, since $0/hr would silently zero out the whole
+      // estimate rather than actually reflect "not yet entered".
+      if(!(hours > 0) || !(rate > 0)){
+        if(r.quoteResolution === 'manual') r.quoteResolution = 'original';
+        return;
+      }
+      const laborCost = rate * hours;
+      const totalCost = laborCost + fee;
+      r.estimateSummary = buildManualEstimateSummaryNarrative(hours, rate, laborCost, totalCost, fee);
+      r.quoteResolution = 'manual';
+      r.extrapolatedTotal = totalCost;
+    }
+    container.querySelectorAll('.pwrev-manual-crew').forEach(input => input.addEventListener('change', async (e)=>{
+      const r = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      const crewSize = e.target.value === '' ? null : parseInt(e.target.value, 10);
+      r.manualCrewSize = crewSize;
+      r.manualRateSource = null;
+      if(crewSize > 0){
+        try{
+          const history = await window.dashboardApi.get(HOURLY_RATE_HISTORY_KEY, {}) || {};
+          const entry = history[String(crewSize)];
+          if(entry && entry.rate > 0){
+            r.manualHourlyRate = entry.rate;
+            r.manualRateSource = entry;
+          }
+        }catch(err){ console.error('Rate history lookup failed:', err); }
+      }
+      recomputeManualQuote(r);
+      renderPwBatchReview();
+    }));
+    container.querySelectorAll('.pwrev-manual-hours').forEach(input => input.addEventListener('change', (e)=>{
+      const r = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      r.manualHours = e.target.value === '' ? null : parseFloat(e.target.value);
+      recomputeManualQuote(r);
+      renderPwBatchReview();
+    }));
+    container.querySelectorAll('.pwrev-manual-rate').forEach(input => input.addEventListener('change', (e)=>{
+      const r = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      r.manualHourlyRate = e.target.value === '' ? null : parseFloat(e.target.value);
+      recomputeManualQuote(r);
+      renderPwBatchReview();
+    }));
+    container.querySelectorAll('.pwrev-manual-fee').forEach(input => input.addEventListener('change', (e)=>{
+      const r = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
+      if(!r) return;
+      r.manualTravelFee = e.target.value === '' ? null : parseFloat(e.target.value);
+      recomputeManualQuote(r);
+      renderPwBatchReview();
+    }));
     container.querySelectorAll('.pwrev-quote-upload').forEach(input => input.addEventListener('change', async (e)=>{
       const file = e.target.files[0];
       if(!file) return;
@@ -15312,6 +15499,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           if(statusEl){ statusEl.textContent = 'Could not read enough detail from that quote to use it \u2014 try a clearer file.'; statusEl.className = 'status-msg err'; }
           return;
         }
+        // Silent, same as the batch work-order path -- a real quote is a
+        // real quote regardless of which upload path it came through.
+        recordObservedHourlyRate(data.quotedCrewSize, data.quotedHourlyRate, r.jobNumber);
         r.quoteResolution = 'uploaded';
         renderPwBatchReview();
       }catch(err){
@@ -15320,8 +15510,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
     }));
   }
+  window.renderPwBatchReview = renderPwBatchReview;
 
-  // Shared by the manual Clear All Fields button and the batch flow (which
   // needs to reset the form after driving it programmatically for each job).
   function pwClearFormFields(){
     const fieldIds = ['pw_jobNumber','pw_clientName','pw_clientPhone','pw_clientEmail','pw_originAddress','pw_destAddress',
@@ -15336,7 +15526,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   document.getElementById('pwBatch_generateBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pwBatch_generateStatus');
-    const ready = pwBatchReview.filter(r => r.jobNumber && r.clientName && r.originAddress && r.destAddress && r.jobType);
+    const ready = pwBatchReview.filter(r => r.jobNumber && r.clientName && r.originAddress && r.destAddress && r.jobType && (!r.needsManualQuote || r.quoteResolution === 'manual' || r.quoteResolution === 'uploaded'));
+    const blockedByQuote = pwBatchReview.filter(r => r.jobNumber && r.clientName && r.originAddress && r.destAddress && r.jobType && r.needsManualQuote && r.quoteResolution === 'original');
+    if(ready.length === 0 && blockedByQuote.length > 0){
+      statusEl.textContent = `${blockedByQuote.length} job${blockedByQuote.length===1?'':'s'} still need${blockedByQuote.length===1?'s':''} an hourly rate and travel fee entered (or a quote uploaded) before generating -- see the highlighted job${blockedByQuote.length===1?'':'s'} above.`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
     if(ready.length === 0){
       statusEl.textContent = 'Fill in job #, client name, both addresses, and a job type for at least one job first.';
       statusEl.className = 'status-msg err';
@@ -15379,7 +15575,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       pwBatchReview = pwBatchReview.filter(r => !ready.includes(r));
       renderPwBatchReview();
       renderPwBatchPackages();
-      statusEl.textContent = `${generated.length} work package${generated.length===1?'':'s'} generated \u2014 print each below.`;
+      const stillBlocked = pwBatchReview.filter(r => r.needsManualQuote && r.quoteResolution === 'original').length;
+      statusEl.textContent = `${generated.length} work package${generated.length===1?'':'s'} generated \u2014 print each below.`
+        + (stillBlocked > 0 ? ` ${stillBlocked} job${stillBlocked===1?'':'s'} left above still need${stillBlocked===1?'s':''} a rate/fee entered before generating.` : '');
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Batch work package generation failed:', err);
