@@ -17535,6 +17535,71 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       { label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] }
     ].map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
 
+    // Draws a small callout box on the most recent (rightmost) point of
+    // the Owner Wages + Net Income line specifically -- it's the one line
+    // that isn't a raw ledger figure, so it's easy to read past in a
+    // legend with five other lines. A native Chart.js draw plugin, not a
+    // third-party dependency, so there's nothing extra to load.
+    const ownerWagesCalloutPlugin = {
+      id: 'ownerWagesCallout',
+      afterDatasetsDraw(chart){
+        const datasetIndex = chart.data.datasets.findIndex(ds => ds.label === 'Owner Wages + Net Income');
+        if(datasetIndex === -1) return;
+        const values = chart.data.datasets[datasetIndex].data;
+        let lastIndex = -1;
+        for(let i = values.length - 1; i >= 0; i--){
+          if(values[i] != null){ lastIndex = i; break; }
+        }
+        if(lastIndex === -1) return; // no data at all for this line in the selected year
+        const point = chart.getDatasetMeta(datasetIndex).data[lastIndex];
+        if(!point) return;
+
+        const ctx = chart.ctx;
+        const label = `Owner Wages + Net Income: ${mfMoney(values[lastIndex])}`;
+        ctx.save();
+        ctx.font = 'bold 11px sans-serif';
+        const padding = 7;
+        const boxWidth = ctx.measureText(label).width + padding * 2;
+        const boxHeight = 22;
+        const area = chart.chartArea;
+        // Centered above the point by default, clamped to stay fully
+        // inside the plotted area so it's never cut off near either edge.
+        let boxX = point.x - boxWidth / 2;
+        boxX = Math.max(area.left, Math.min(boxX, area.right - boxWidth));
+        let boxY = point.y - boxHeight - 14;
+        if(boxY < area.top) boxY = point.y + 14; // flip below the point if there's no room above
+
+        const r = 5;
+        ctx.beginPath();
+        ctx.moveTo(boxX + r, boxY);
+        ctx.arcTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + boxHeight, r);
+        ctx.arcTo(boxX + boxWidth, boxY + boxHeight, boxX, boxY + boxHeight, r);
+        ctx.arcTo(boxX, boxY + boxHeight, boxX, boxY, r);
+        ctx.arcTo(boxX, boxY, boxX + boxWidth, boxY, r);
+        ctx.closePath();
+        ctx.fillStyle = '#7A4FA3';
+        ctx.fill();
+
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2);
+
+        // Small triangle connecting the box to the actual point, so it
+        // reads as an annotation on that point rather than a floating label.
+        const pointingDown = boxY < point.y;
+        const tipY = pointingDown ? boxY + boxHeight : boxY;
+        const tipDir = pointingDown ? 6 : -6;
+        ctx.beginPath();
+        ctx.moveTo(point.x - 5, tipY);
+        ctx.lineTo(point.x + 5, tipY);
+        ctx.lineTo(point.x, tipY + tipDir);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    };
+
     const ctx = canvas.getContext('2d');
     // Isolated from the caller -- a save has already durably succeeded in
     // storage by the time this runs, so a Chart.js-level failure (CDN
@@ -17546,6 +17611,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       mfChart = new Chart(ctx, {
         type: 'line',
         data: { labels: MF_MONTH_ABBR, datasets },
+        plugins: [ownerWagesCalloutPlugin],
         options: {
           responsive: true,
           plugins: {
