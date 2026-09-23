@@ -2742,7 +2742,7 @@
       <div class="tile" id="tile-monthlyfinancials" tabindex="0" role="button" aria-label="Open Monthly Financials">
         <span class="icon">📈</span>
         <h3>Monthly Financials</h3>
-        <p>Revenue, Labor, Gross Profit, EBITDA, and Owner Wages + Net Income over time &mdash; a clear trend line for a future buyer's review.</p>
+        <p>Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, and Owner Wages + Net Income over time &mdash; a clear trend line for a future buyer's review.</p>
       </div>
         </div>
       </div>
@@ -3905,7 +3905,7 @@
 
     <div class="panel">
       <h3>Batch Upload &mdash; Financial Statements</h3>
-      <p class="form-note">Drop in monthly P&amp;L / income statements (images or PDFs) and Claude will read each one and pull out Revenue, Labor, Gross Profit, EBITDA, Owner Wages, and Net Income. Each file should cover exactly one month. Review every figure below before saving &mdash; nothing is saved automatically.</p>
+      <p class="form-note">Drop in monthly P&amp;L / income statements (images or PDFs) and Claude will read each one and pull out Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, Owner Wages, and Net Income. Each file should cover exactly one month. Review every figure below before saving &mdash; nothing is saved automatically.</p>
       <div id="mfBatch_pasteZone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
         <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop statements here, or click to paste (Ctrl+V or Cmd+V)</p>
         <p style="margin:6px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="mfBatch_chooseFilesBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">choose files</button> instead</p>
@@ -3933,10 +3933,10 @@
       <p class="form-note" style="margin-top:0;">For a month with no statement to upload, or to fix a figure after the fact.</p>
       <div class="form-grid">
         <label>Month <input type="month" id="mf_month"></label>
-        <label>Revenue ($) <input type="number" step="0.01" id="mf_revenue"></label>
-        <label>Labor ($) <input type="number" step="0.01" id="mf_labor"></label>
+        <label>Total Revenue ($) <input type="number" step="0.01" id="mf_revenue"></label>
+        <label>Total Hunk Team Payroll Cost ($) <input type="number" step="0.01" id="mf_labor"></label>
         <label>Gross Profit ($) <input type="number" step="0.01" id="mf_grossProfit"></label>
-        <label>EBITDA ($) <input type="number" step="0.01" id="mf_ebitda"></label>
+        <label>EBIT ($) <input type="number" step="0.01" id="mf_ebit"></label>
         <label>Owner Wages ($) <input type="number" step="0.01" id="mf_ownerWages"></label>
         <label>Net Income ($) <input type="number" step="0.01" id="mf_netIncome"></label>
       </div>
@@ -17311,7 +17311,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           revenue: data.revenue || 0,
           labor: data.labor || 0,
           grossProfit: data.grossProfit || 0,
-          ebitda: data.ebitda || 0,
+          ebit: data.ebit || 0,
           ownerWages: data.ownerWages || 0,
           netIncome: data.netIncome || 0,
           confident: !!data.confident,
@@ -17348,10 +17348,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${r.periodFound && !r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-bottom:6px;">Low confidence read \u2014 please double-check the figures against the source.</div>' : ''}
           <div class="form-grid" style="margin-bottom:0;">
             <label style="font-size:11px;">Month <input type="month" class="mfrev-field" data-field="month" data-review-id="${r.reviewId}" value="${esc(r.month)}" style="font-size:13px;"></label>
-            <label style="font-size:11px;">Revenue ($) <input type="number" step="0.01" class="mfrev-field" data-field="revenue" data-review-id="${r.reviewId}" value="${r.revenue}" style="font-size:13px;"></label>
-            <label style="font-size:11px;">Labor ($) <input type="number" step="0.01" class="mfrev-field" data-field="labor" data-review-id="${r.reviewId}" value="${r.labor}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Total Revenue ($) <input type="number" step="0.01" class="mfrev-field" data-field="revenue" data-review-id="${r.reviewId}" value="${r.revenue}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Total Hunk Team Payroll Cost ($) <input type="number" step="0.01" class="mfrev-field" data-field="labor" data-review-id="${r.reviewId}" value="${r.labor}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Gross Profit ($) <input type="number" step="0.01" class="mfrev-field" data-field="grossProfit" data-review-id="${r.reviewId}" value="${r.grossProfit}" style="font-size:13px;"></label>
-            <label style="font-size:11px;">EBITDA ($) <input type="number" step="0.01" class="mfrev-field" data-field="ebitda" data-review-id="${r.reviewId}" value="${r.ebitda}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">EBIT ($) <input type="number" step="0.01" class="mfrev-field" data-field="ebit" data-review-id="${r.reviewId}" value="${r.ebit}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Owner Wages ($) <input type="number" step="0.01" class="mfrev-field" data-field="ownerWages" data-review-id="${r.reviewId}" value="${r.ownerWages}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Net Income ($) <input type="number" step="0.01" class="mfrev-field" data-field="netIncome" data-review-id="${r.reviewId}" value="${r.netIncome}" style="font-size:13px;"></label>
           </div>
@@ -17405,7 +17405,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         monthlyFinancialsRecords = monthlyFinancialsRecords.filter(x => x.month !== r.month);
         monthlyFinancialsRecords.push({
           month: r.month, revenue: r.revenue, labor: r.labor, grossProfit: r.grossProfit,
-          ebitda: r.ebitda, ownerWages: r.ownerWages, netIncome: r.netIncome,
+          ebit: r.ebit, ownerWages: r.ownerWages, netIncome: r.netIncome,
           updatedAt: new Date().toISOString()
         });
       });
@@ -17496,10 +17496,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const monthsOfYear = MF_MONTH_ABBR.map((_, i) => byMonthKey[`${mfSelectedYear}-${String(i+1).padStart(2,'0')}`] || null);
 
     const datasets = [
-      { label: 'Revenue', data: monthsOfYear.map(r => r ? r.revenue : null), borderColor: '#2E5C8A', backgroundColor: '#2E5C8A' },
-      { label: 'Labor', data: monthsOfYear.map(r => r ? r.labor : null), borderColor: '#C1392B', backgroundColor: '#C1392B' },
+      { label: 'Total Revenue', data: monthsOfYear.map(r => r ? r.revenue : null), borderColor: '#2E5C8A', backgroundColor: '#2E5C8A' },
+      { label: 'Total Hunk Team Payroll Cost', data: monthsOfYear.map(r => r ? r.labor : null), borderColor: '#C1392B', backgroundColor: '#C1392B' },
       { label: 'Gross Profit', data: monthsOfYear.map(r => r ? r.grossProfit : null), borderColor: '#00843D', backgroundColor: '#00843D' },
-      { label: 'EBITDA', data: monthsOfYear.map(r => r ? r.ebitda : null), borderColor: '#F2A900', backgroundColor: '#F2A900' },
+      { label: 'EBIT', data: monthsOfYear.map(r => r ? r.ebit : null), borderColor: '#F2A900', backgroundColor: '#F2A900' },
       // Combined, not a raw ledger figure -- dashed to visually set it apart
       // from the four lines that come straight off the books.
       { label: 'Owner Wages + Net Income', data: monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] }
@@ -17555,10 +17555,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const rows = [...byYear[year]].sort((a,b) => b.month.localeCompare(a.month)); // most recent month first
       const totals = rows.reduce((acc, r) => {
         acc.revenue += Number(r.revenue)||0; acc.labor += Number(r.labor)||0;
-        acc.grossProfit += Number(r.grossProfit)||0; acc.ebitda += Number(r.ebitda)||0;
+        acc.grossProfit += Number(r.grossProfit)||0; acc.ebit += Number(r.ebit)||0;
         acc.ownerWages += Number(r.ownerWages)||0; acc.netIncome += Number(r.netIncome)||0;
         return acc;
-      }, {revenue:0, labor:0, grossProfit:0, ebitda:0, ownerWages:0, netIncome:0});
+      }, {revenue:0, labor:0, grossProfit:0, ebit:0, ownerWages:0, netIncome:0});
 
       return `
       <details ${idx === 0 ? 'open' : ''} style="margin-bottom:10px; border:1px solid var(--line); border-radius:8px; padding:10px 14px;">
@@ -17568,10 +17568,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <thead>
               <tr>
                 <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line);">Month</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Revenue</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Labor</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Revenue</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Hunk Team Payroll Cost</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Gross Profit</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">EBITDA</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">EBIT</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Owner Wages</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>
                 <th style="border-bottom:2px solid var(--line);"></th>
@@ -17584,7 +17584,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.revenue)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.labor)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.grossProfit)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ebitda)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ebit)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ownerWages)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;">
@@ -17597,7 +17597,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.revenue)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.labor)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.grossProfit)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ebitda)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ebit)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ownerWages)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>
                 <td style="border-top:2px solid var(--line);"></td>
@@ -17617,7 +17617,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('mf_revenue').value = r.revenue;
       document.getElementById('mf_labor').value = r.labor;
       document.getElementById('mf_grossProfit').value = r.grossProfit;
-      document.getElementById('mf_ebitda').value = r.ebitda;
+      document.getElementById('mf_ebit').value = r.ebit;
       document.getElementById('mf_ownerWages').value = r.ownerWages;
       document.getElementById('mf_netIncome').value = r.netIncome;
       document.getElementById('mf_formTitle').textContent = `Editing ${mfMonthLabel(month)}`;
@@ -17646,7 +17646,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('mf_revenue').value = '';
     document.getElementById('mf_labor').value = '';
     document.getElementById('mf_grossProfit').value = '';
-    document.getElementById('mf_ebitda').value = '';
+    document.getElementById('mf_ebit').value = '';
     document.getElementById('mf_ownerWages').value = '';
     document.getElementById('mf_netIncome').value = '';
     document.getElementById('mf_formTitle').textContent = 'Add a Month';
@@ -17668,7 +17668,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       revenue: parseFloat(document.getElementById('mf_revenue').value) || 0,
       labor: parseFloat(document.getElementById('mf_labor').value) || 0,
       grossProfit: parseFloat(document.getElementById('mf_grossProfit').value) || 0,
-      ebitda: parseFloat(document.getElementById('mf_ebitda').value) || 0,
+      ebit: parseFloat(document.getElementById('mf_ebit').value) || 0,
       ownerWages: parseFloat(document.getElementById('mf_ownerWages').value) || 0,
       netIncome: parseFloat(document.getElementById('mf_netIncome').value) || 0,
       updatedAt: new Date().toISOString()
