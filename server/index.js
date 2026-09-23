@@ -1892,28 +1892,28 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
 // page-classification step entirely and reads straight through.
 const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
   name: 'extract_monthly_financials',
-  description: 'Extract monthly summary financial figures (Revenue, Labor, Gross Profit, EBITDA, Owner Wages, Net Income) from a financial statement or P&L report for a single month.',
+  description: 'Extract monthly summary financial figures (Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, Owner Wages, Net Income) from a financial statement or P&L report for a single month.',
   input_schema: {
     type: 'object',
     properties: {
       periodFound: { type: 'boolean', description: 'True if this document is a financial statement/P&L/income statement showing figures for a single, identifiable period. False if this document has no such financial statement content at all -- in that case every dollar field below must be 0 and confident must be false.' },
       month: { type: 'string', description: 'The single month this statement covers, in YYYY-MM format, read from the document\u2019s own stated reporting period (e.g. a header reading "Profit and Loss - July 2026", "For the Month Ended July 31, 2026", or a date range where the start and end fall in the same month). Empty string if the statement covers more than one month, or if the specific month can\u2019t be determined.' },
       periodAsPrinted: { type: 'string', description: 'The exact period/date text as printed on the document\u2019s header, verbatim, e.g. "July 2026" or "07/01/2026 through 07/31/2026". Empty string if no such header text is found.' },
-      revenue: { type: 'number', description: 'Total revenue for the period, in dollars, read directly from a line labeled something like "Total Income", "Total Revenue", "Total Sales", or "Net Sales". Never estimate, calculate, or sum this yourself from individual income lines -- only use it if a single labeled total line is present. Report 0 if revenueLineAsPrinted is empty.' },
+      revenue: { type: 'number', description: 'Total revenue for the period, in dollars, read directly from a line labeled "Total Revenue" -- or, if that exact label isn\u2019t present, "Total Income", "Total Sales", or "Net Sales". Never estimate, calculate, or sum this yourself from individual income lines -- only use it if a single labeled total line is present. Report 0 if revenueLineAsPrinted is empty.' },
       revenueLineAsPrinted: { type: 'string', description: 'The complete text of the line the revenue figure was read from, exactly as printed. Literal transcription only, not a summary. Empty string if no such line exists; in that case revenue must be 0.' },
-      labor: { type: 'number', description: 'Total labor cost for the period, read directly from a line labeled something like "Labor", "Total Labor", "Payroll Expenses", "Wages", "Direct Labor", or "Salaries and Wages". Never estimate or sum this from several sub-lines yourself -- only use a single labeled total line. Report 0 if laborLineAsPrinted is empty.' },
-      laborLineAsPrinted: { type: 'string', description: 'The complete text of the line the labor figure was read from, exactly as printed. Empty string if no such line exists; in that case labor must be 0.' },
+      labor: { type: 'number', description: 'Total labor/payroll cost for the period, read directly from a line labeled "Total Hunk Team Payroll Cost" -- or, if that exact label isn\u2019t present, "Hunk Team Payroll", "Payroll Expenses", "Total Labor", "Wages", or "Salaries and Wages". Never estimate or sum this from several sub-lines yourself -- only use a single labeled total line. Report 0 if laborLineAsPrinted is empty.' },
+      laborLineAsPrinted: { type: 'string', description: 'The complete text of the line the labor/payroll figure was read from, exactly as printed. Empty string if no such line exists; in that case labor must be 0.' },
       grossProfit: { type: 'number', description: 'Gross profit for the period, read ONLY from a line explicitly labeled "Gross Profit" or "Gross Margin". Never calculate this yourself as Revenue minus Labor or minus COGS -- report 0 if no such explicitly labeled line is present, even if it seems computable from other figures on the page.' },
       grossProfitLineAsPrinted: { type: 'string', description: 'The complete text of the line the gross profit figure was read from, exactly as printed. Empty string if no such line exists; in that case grossProfit must be 0.' },
-      ebitda: { type: 'number', description: 'EBITDA for the period, read ONLY from a line explicitly labeled "EBITDA" (or "Adjusted EBITDA"). This is a specific adjusted metric whose add-backs vary by preparer -- never calculate, estimate, or derive it yourself from other figures on the page. Report 0 if no such explicitly labeled line is present.' },
-      ebitdaLineAsPrinted: { type: 'string', description: 'The complete text of the line the EBITDA figure was read from, exactly as printed. Empty string if no such line exists; in that case ebitda must be 0.' },
+      ebit: { type: 'number', description: 'EBIT (Earnings Before Interest and Taxes) for the period, read ONLY from a line explicitly labeled "EBIT". This is NOT the same figure as EBITDA (which also adds back depreciation and amortization) -- if the only labeled line on the page says "EBITDA" rather than "EBIT", that is a different metric and must NOT be reported here; report 0 instead. Never calculate, estimate, or derive this yourself from other figures on the page.' },
+      ebitLineAsPrinted: { type: 'string', description: 'The complete text of the line the EBIT figure was read from, exactly as printed. Empty string if no such line exists (including if the only such line says EBITDA instead of EBIT); in that case ebit must be 0.' },
       ownerWages: { type: 'number', description: 'Owner compensation for the period, read directly from a line labeled something like "Owner Wages", "Owner\u2019s Draw", "Officer Compensation", or "Owner Salary". Report 0 if ownerWagesLineAsPrinted is empty.' },
       ownerWagesLineAsPrinted: { type: 'string', description: 'The complete text of the line the owner wages figure was read from, exactly as printed. Empty string if no such line exists; in that case ownerWages must be 0.' },
       netIncome: { type: 'number', description: 'Net income for the period -- typically the final bottom-line figure on a P&L -- read directly from a line labeled "Net Income", "Net Profit", or "Net Ordinary Income". Report 0 if netIncomeLineAsPrinted is empty.' },
       netIncomeLineAsPrinted: { type: 'string', description: 'The complete text of the line the net income figure was read from, exactly as printed. Empty string if no such line exists; in that case netIncome must be 0.' },
       confident: { type: 'boolean', description: 'True only if periodFound is true, the month/period was clearly identifiable, AND at least Revenue and Net Income were both read clearly from explicitly labeled lines. False otherwise, including whenever periodFound is false or the month couldn\u2019t be determined.' }
     },
-    required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'ebitda', 'ownerWages', 'netIncome', 'confident']
+    required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'ebit', 'ownerWages', 'netIncome', 'confident']
   }
 };
 
@@ -1966,7 +1966,7 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
           role: 'user',
           content: [
             ...content,
-            { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} a financial statement (P&L / income statement) for a single month, uploaded for a business's monthly financial tracking. Find the reporting period, then Revenue, Labor, Gross Profit, EBITDA, Owner Wages, and Net Income -- each ONLY from a line explicitly labeled as such (see each field's own description for the exact labels to look for). Before reporting each dollar figure, transcribe the exact line it was read from, word for word, in its matching "...LineAsPrinted" field -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing or calculating it from other numbers on the page.` }
+            { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} a financial statement (P&L / income statement) for a single month, uploaded for a business's monthly financial tracking. Find the reporting period, then Total Revenue, Total Hunk Team Payroll Cost, Gross Profit, EBIT, Owner Wages, and Net Income -- each ONLY from a line explicitly labeled as such (see each field's own description for the exact labels to look for, including fallback labels if the primary one isn't present). Before reporting each dollar figure, transcribe the exact line it was read from, word for word, in its matching "...LineAsPrinted" field -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing or calculating it from other numbers on the page.` }
           ]
         }]
       })
@@ -1990,7 +1990,7 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
     console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] step1 RAW extraction (before validation): ${JSON.stringify(extraction)}`);
 
     if (!extraction.periodFound) {
-      return res.json({ periodFound: false, month: '', revenue: 0, labor: 0, grossProfit: 0, ebitda: 0, ownerWages: 0, netIncome: 0, confident: false });
+      return res.json({ periodFound: false, month: '', revenue: 0, labor: 0, grossProfit: 0, ebit: 0, ownerWages: 0, netIncome: 0, confident: false });
     }
 
     // Same two-layer grounding as invoice extraction: Layer 1 checks each
@@ -1999,10 +1999,10 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
     // independently-extracted text -- ground truth the model never
     // authored, catching a figure with zero basis anywhere on the real page.
     const fields = [
-      ['revenue', 'revenueLineAsPrinted', 'total\\s*income|total\\s*revenue|total\\s*sales|net\\s*sales'],
-      ['labor', 'laborLineAsPrinted', 'labor|payroll|wages|salaries'],
+      ['revenue', 'revenueLineAsPrinted', 'total\\s*revenue|total\\s*income|total\\s*sales|net\\s*sales'],
+      ['labor', 'laborLineAsPrinted', 'total\\s*hunk\\s*team\\s*payroll|hunk\\s*team\\s*payroll|total\\s*labor|payroll|labor|wages|salaries'],
       ['grossProfit', 'grossProfitLineAsPrinted', 'gross\\s*profit|gross\\s*margin'],
-      ['ebitda', 'ebitdaLineAsPrinted', 'ebitda'],
+      ['ebit', 'ebitLineAsPrinted', '\\bebit\\b'],
       ['ownerWages', 'ownerWagesLineAsPrinted', 'owner.{0,10}(wages|draw|salary|compensation)|officer\\s*compensation'],
       ['netIncome', 'netIncomeLineAsPrinted', 'net\\s*income|net\\s*profit|net\\s*ordinary\\s*income']
     ];
