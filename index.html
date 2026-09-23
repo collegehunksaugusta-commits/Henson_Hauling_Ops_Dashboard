@@ -17335,6 +17335,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   });
 
   function renderMfBatchReview(){
+    window.mfBatchReview = mfBatchReview; // test-only visibility into the closure-scoped array
     const wrap = document.getElementById('mfBatch_reviewWrap');
     const container = document.getElementById('mfBatch_reviewRows');
     if(mfBatchReview.length === 0){
@@ -17342,11 +17343,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return;
     }
     wrap.style.display = 'block';
-    container.innerHTML = mfBatchReview.map(r => `
-      <div data-review-id="${r.reviewId}" style="display:flex; gap:12px; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; ${!r.month || !r.periodFound ? 'background:#fdf6e3;' : ''}">
+    // Recomputed fresh on every render (rather than tracked as separate
+    // state) so it always reflects the current month values -- including
+    // right after the user fixes one and the count drops back to 1.
+    const monthCounts = {};
+    mfBatchReview.forEach(r => { if(r.month) monthCounts[r.month] = (monthCounts[r.month]||0) + 1; });
+    container.innerHTML = mfBatchReview.map(r => {
+      const isDuplicate = r.month && monthCounts[r.month] > 1;
+      return `
+      <div data-review-id="${r.reviewId}" style="display:flex; gap:12px; border:1px solid ${isDuplicate ? '#b3261e' : 'var(--line)'}; border-radius:8px; padding:14px; margin-bottom:10px; ${isDuplicate ? 'background:#fdecea;' : (!r.month || !r.periodFound ? 'background:#fdf6e3;' : '')}">
         <img class="mfrev-thumb" data-review-id="${r.reviewId}" src="${r.thumbnail}" style="width:56px; height:56px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;" title="Click to view the source page">
         <div style="flex:1; min-width:0;">
           <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">${esc(r.fileName)}${r.periodAsPrinted ? ' \u2014 statement reads: "' + esc(r.periodAsPrinted) + '"' : ''}</div>
+          ${isDuplicate ? `<div style="font-size:11.5px; color:#b3261e; font-weight:600; margin-bottom:6px;">\u26a0 Another row below is also set to ${mfMonthLabel(r.month)} \u2014 check the source PDF and fix whichever one is wrong.</div>` : ''}
           ${!r.periodFound ? '<div style="font-size:11.5px; color:#b3261e; margin-bottom:6px;">\u26a0 This didn\u2019t look like a financial statement \u2014 check the file, or remove this row.</div>' : ''}
           ${r.periodFound && !r.month ? '<div style="font-size:11.5px; color:#8a6d00; margin-bottom:6px;">\u26a0 Couldn\u2019t determine the month automatically \u2014 pick it below.</div>' : ''}
           ${r.periodFound && !r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-bottom:6px;">Low confidence read \u2014 please double-check the figures against the source.</div>' : ''}
@@ -17363,7 +17372,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
           <button type="button" class="mfrev-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-top:8px;">Remove</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     container.querySelectorAll('.mfrev-thumb').forEach(thumb => thumb.addEventListener('click', (e)=>{
       window.open(e.currentTarget.src, '_blank');
@@ -17379,6 +17389,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderMfBatchReview();
     }));
   }
+  window.renderMfBatchReview = renderMfBatchReview;
 
   document.getElementById('mfBatch_saveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('mfBatch_saveStatus');
@@ -17395,8 +17406,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     mfBatchReview.forEach(r => { monthCounts[r.month] = (monthCounts[r.month]||0) + 1; });
     const dupeMonths = Object.keys(monthCounts).filter(m => monthCounts[m] > 1);
     if(dupeMonths.length > 0){
-      statusEl.textContent = `More than one row is set to ${mfMonthLabel(dupeMonths[0])} \u2014 fix the month on one of them before saving.`;
+      const list = dupeMonths.map(m => mfMonthLabel(m)).join(', ');
+      statusEl.textContent = `${dupeMonths.length > 1 ? 'Multiple months are' : 'More than one row is set to the same month:'} ${list} \u2014 the affected rows are highlighted below. Check each one against its source PDF and fix whichever is misread.`;
       statusEl.className = 'status-msg err';
+      renderMfBatchReview(); // refresh so the highlighting on the colliding rows actually shows
       return;
     }
     const overwriting = mfBatchReview.filter(r => monthlyFinancialsRecords.some(existing => existing.month === r.month));
