@@ -1600,6 +1600,45 @@ const IDENTIFY_INVOICE_PAGES_TOOL = {
   }
 };
 
+// Shared grounding utilities -- proven across the invoice extraction work,
+// reused by any endpoint that needs to verify a model-claimed dollar figure
+// actually has a basis in the real document rather than trusting it outright.
+//
+// Layer 1: a claimed dollar figure is only trusted if its quoted "as
+// printed" line actually contains the right keyword AND a dollar amount
+// that numerically matches (within rounding) what was reported -- catches
+// an internally inconsistent fabrication.
+function validateAgainstQuote(amount, quotedLine, keyword) {
+  const amt = Number(amount) || 0;
+  if (amt <= 0) return amt;
+  const quote = (quotedLine || '').trim();
+  if (!quote) return 0;
+  if (!new RegExp(keyword, 'i').test(quote)) return 0;
+  const numbersInQuote = (quote.match(/[\d,]+\.\d{2}/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
+  const matchesReportedAmount = numbersInQuote.some(n => Math.abs(n - amt) < 0.01);
+  return matchesReportedAmount ? amt : 0;
+}
+
+// Layer 2 (only possible in text mode, and much stronger): search the
+// server's OWN independently-extracted text for the claimed dollar amount
+// appearing near the relevant keyword -- not just checking the model's
+// self-reported quote for internal consistency, but verifying against
+// ground truth the model never got to author. Catches a figure that has
+// zero basis anywhere on the real document at all, which a self-consistency
+// check alone cannot. sourceText must already be lowercased, whitespace-
+// collapsed, and comma-stripped (comma-stripping matters: a printed
+// "$3,993.23" would otherwise never match amt.toFixed(2)'s comma-free
+// "3993.23", silently rejecting every real amount of $1,000 or more).
+function verifyAgainstSourceText(sourceText, amount, keyword) {
+  const amt = Number(amount) || 0;
+  if (amt <= 0) return amt;
+  const amountStr = amt.toFixed(2);
+  const idx = sourceText.indexOf(amountStr);
+  if (idx === -1) return 0; // the claimed amount doesn't appear anywhere in the real text at all
+  const window = sourceText.slice(Math.max(0, idx - 40), idx + 40);
+  return new RegExp(keyword, 'i').test(window) ? amt : 0;
+}
+
 const EXTRACT_CLIENT_INVOICE_TOOL = {
   name: 'extract_client_invoice',
   description: 'Extract the balance due, total sale, tax, and billed line items from a HunkWare completed job invoice or receipt page specifically -- never from a work order, contract, or estimate page, even if one is included alongside it.',
@@ -1778,21 +1817,8 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       }
     }
 
-    // Server-side validation. Layer 1: a claimed dollar figure is only
-    // trusted if its quoted "as printed" line actually contains the right
-    // keyword AND a dollar amount that numerically matches (within
-    // rounding) what was reported -- catches an internally inconsistent
-    // fabrication.
-    function validateAgainstQuote(amount, quotedLine, keyword) {
-      const amt = Number(amount) || 0;
-      if (amt <= 0) return amt;
-      const quote = (quotedLine || '').trim();
-      if (!quote) return 0;
-      if (!new RegExp(keyword, 'i').test(quote)) return 0;
-      const numbersInQuote = (quote.match(/[\d,]+\.\d{2}/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
-      const matchesReportedAmount = numbersInQuote.some(n => Math.abs(n - amt) < 0.01);
-      return matchesReportedAmount ? amt : 0;
-    }
+    // Server-side validation, Layer 1: see the shared validateAgainstQuote
+    // utility near the top of this file.
     const taxAfterLayer1 = validateAgainstQuote(extraction.tax, extraction.taxLineAsPrinted, 'tax');
     const totalSaleAfterLayer1 = validateAgainstQuote(extraction.totalSale, extraction.totalSaleLineAsPrinted, 'sub\\s*total|total\\s*sale|product\\s*total');
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step3 after layer 1 (quote self-consistency): tax ${extraction.tax} -> ${taxAfterLayer1}${extraction.tax !== taxAfterLayer1 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer1}${extraction.totalSale !== totalSaleAfterLayer1 ? ' REJECTED' : ''}`);
@@ -1821,22 +1847,11 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     // that has zero basis anywhere on the real document at all, which a
     // self-consistency check alone cannot.
     if (hasUsableText) {
-      // Comma-stripped so a printed "$3,993.23" matches amt.toFixed(2)'s
-      // comma-free "3993.23" -- without this, any amount $1,000 or higher
-      // could never be found here, since toFixed(2) never inserts a
-      // thousands separator but real invoices always print one.
       const invoiceText = invoicePageIndices.map(i => texts[i]).join(' ').toLowerCase().replace(/\s+/g, ' ').replace(/,/g, '');
-      function verifyAgainstSourceText(amount, keyword) {
-        const amt = Number(amount) || 0;
-        if (amt <= 0) return amt;
-        const amountStr = amt.toFixed(2);
-        const idx = invoiceText.indexOf(amountStr);
-        if (idx === -1) return 0; // the claimed amount doesn't appear anywhere in the real text at all
-        const window = invoiceText.slice(Math.max(0, idx - 40), idx + 40);
-        return new RegExp(keyword, 'i').test(window) ? amt : 0;
-      }
-      const taxAfterLayer2 = verifyAgainstSourceText(extraction.tax, 'tax');
-      const totalSaleAfterLayer2 = verifyAgainstSourceText(extraction.totalSale, 'sub\\s*total|total\\s*sale|product\\s*total');
+      // Server-side validation, Layer 2: see the shared verifyAgainstSourceText
+      // utility near the top of this file.
+      const taxAfterLayer2 = verifyAgainstSourceText(invoiceText, extraction.tax, 'tax');
+      const totalSaleAfterLayer2 = verifyAgainstSourceText(invoiceText, extraction.totalSale, 'sub\\s*total|total\\s*sale|product\\s*total');
       console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step4 after layer 2 (ground-truth text search): tax ${extraction.tax} -> ${taxAfterLayer2}${extraction.tax !== taxAfterLayer2 ? ' REJECTED' : ''}, totalSale ${extraction.totalSale} -> ${totalSaleAfterLayer2}${extraction.totalSale !== totalSaleAfterLayer2 ? ' REJECTED' : ''}`);
       extraction.tax = taxAfterLayer2;
       extraction.totalSale = totalSaleAfterLayer2;
@@ -1844,7 +1859,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       if (Array.isArray(extraction.lineItems)) {
         extraction.lineItems = extraction.lineItems.map(li => {
           const descKeyword = (li.description || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const lineTotalAfterLayer2 = descKeyword ? verifyAgainstSourceText(li.lineTotal, descKeyword) : 0;
+          const lineTotalAfterLayer2 = descKeyword ? verifyAgainstSourceText(invoiceText, li.lineTotal, descKeyword) : 0;
           return { ...li, lineTotal: lineTotalAfterLayer2 };
         });
         console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step4b line items after layer 2: ${JSON.stringify(extraction.lineItems.map(li => ({ description: li.description, lineTotal: li.lineTotal })))}`);
@@ -1869,7 +1884,155 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
   }
 });
 
-// ============ Dashboard Tile Order ============
+// ============ Monthly Financials: Extraction ============
+// One uploaded file = one month's financial statement (a P&L/income
+// statement export, typically from accounting software). Unlike the
+// invoice extraction above, there's no multi-page paperwork bundle to
+// search through -- the whole file IS the statement -- so this skips the
+// page-classification step entirely and reads straight through.
+const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
+  name: 'extract_monthly_financials',
+  description: 'Extract monthly summary financial figures (Revenue, Labor, Gross Profit, EBITDA, Owner Wages, Net Income) from a financial statement or P&L report for a single month.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      periodFound: { type: 'boolean', description: 'True if this document is a financial statement/P&L/income statement showing figures for a single, identifiable period. False if this document has no such financial statement content at all -- in that case every dollar field below must be 0 and confident must be false.' },
+      month: { type: 'string', description: 'The single month this statement covers, in YYYY-MM format, read from the document\u2019s own stated reporting period (e.g. a header reading "Profit and Loss - July 2026", "For the Month Ended July 31, 2026", or a date range where the start and end fall in the same month). Empty string if the statement covers more than one month, or if the specific month can\u2019t be determined.' },
+      periodAsPrinted: { type: 'string', description: 'The exact period/date text as printed on the document\u2019s header, verbatim, e.g. "July 2026" or "07/01/2026 through 07/31/2026". Empty string if no such header text is found.' },
+      revenue: { type: 'number', description: 'Total revenue for the period, in dollars, read directly from a line labeled something like "Total Income", "Total Revenue", "Total Sales", or "Net Sales". Never estimate, calculate, or sum this yourself from individual income lines -- only use it if a single labeled total line is present. Report 0 if revenueLineAsPrinted is empty.' },
+      revenueLineAsPrinted: { type: 'string', description: 'The complete text of the line the revenue figure was read from, exactly as printed. Literal transcription only, not a summary. Empty string if no such line exists; in that case revenue must be 0.' },
+      labor: { type: 'number', description: 'Total labor cost for the period, read directly from a line labeled something like "Labor", "Total Labor", "Payroll Expenses", "Wages", "Direct Labor", or "Salaries and Wages". Never estimate or sum this from several sub-lines yourself -- only use a single labeled total line. Report 0 if laborLineAsPrinted is empty.' },
+      laborLineAsPrinted: { type: 'string', description: 'The complete text of the line the labor figure was read from, exactly as printed. Empty string if no such line exists; in that case labor must be 0.' },
+      grossProfit: { type: 'number', description: 'Gross profit for the period, read ONLY from a line explicitly labeled "Gross Profit" or "Gross Margin". Never calculate this yourself as Revenue minus Labor or minus COGS -- report 0 if no such explicitly labeled line is present, even if it seems computable from other figures on the page.' },
+      grossProfitLineAsPrinted: { type: 'string', description: 'The complete text of the line the gross profit figure was read from, exactly as printed. Empty string if no such line exists; in that case grossProfit must be 0.' },
+      ebitda: { type: 'number', description: 'EBITDA for the period, read ONLY from a line explicitly labeled "EBITDA" (or "Adjusted EBITDA"). This is a specific adjusted metric whose add-backs vary by preparer -- never calculate, estimate, or derive it yourself from other figures on the page. Report 0 if no such explicitly labeled line is present.' },
+      ebitdaLineAsPrinted: { type: 'string', description: 'The complete text of the line the EBITDA figure was read from, exactly as printed. Empty string if no such line exists; in that case ebitda must be 0.' },
+      ownerWages: { type: 'number', description: 'Owner compensation for the period, read directly from a line labeled something like "Owner Wages", "Owner\u2019s Draw", "Officer Compensation", or "Owner Salary". Report 0 if ownerWagesLineAsPrinted is empty.' },
+      ownerWagesLineAsPrinted: { type: 'string', description: 'The complete text of the line the owner wages figure was read from, exactly as printed. Empty string if no such line exists; in that case ownerWages must be 0.' },
+      netIncome: { type: 'number', description: 'Net income for the period -- typically the final bottom-line figure on a P&L -- read directly from a line labeled "Net Income", "Net Profit", or "Net Ordinary Income". Report 0 if netIncomeLineAsPrinted is empty.' },
+      netIncomeLineAsPrinted: { type: 'string', description: 'The complete text of the line the net income figure was read from, exactly as printed. Empty string if no such line exists; in that case netIncome must be 0.' },
+      confident: { type: 'boolean', description: 'True only if periodFound is true, the month/period was clearly identifiable, AND at least Revenue and Net Income were both read clearly from explicitly labeled lines. False otherwise, including whenever periodFound is false or the month couldn\u2019t be determined.' }
+    },
+    required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'ebitda', 'ownerWages', 'netIncome', 'confident']
+  }
+};
+
+app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) => {
+  const { images, pageTexts } = req.body || {};
+  if (!Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'At least one image is required.' });
+  }
+  if (images.length > 24) {
+    return res.status(400).json({ error: 'Please split this into files of 24 pages or fewer.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Monthly financials extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Extraction is not configured on the server yet.' });
+  }
+
+  try {
+    const reqId = Math.random().toString(36).slice(2, 8);
+    const imageBlocks = images.map(dataUri => {
+      const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(dataUri || '');
+      if (!match) return null;
+      return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+    }).filter(Boolean);
+    if (imageBlocks.length === 0) {
+      return res.status(400).json({ error: 'No valid images were provided.' });
+    }
+
+    const texts = Array.isArray(pageTexts) ? pageTexts.map(t => (typeof t === 'string' ? t : '')) : [];
+    const combinedTextLength = texts.reduce((sum, t) => sum + t.length, 0);
+    const hasUsableText = texts.length === imageBlocks.length && combinedTextLength > 50;
+    console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] start: pages=${imageBlocks.length} pageTextsProvided=${texts.length} combinedTextLength=${combinedTextLength} mode=${hasUsableText ? 'TEXT' : 'VISION'}`);
+    if (hasUsableText) {
+      texts.forEach((t, i) => console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] page ${i} text (${t.length} chars): ${t.slice(0, 500).replace(/\n/g, ' | ')}`));
+    }
+
+    const content = hasUsableText
+      ? [{ type: 'text', text: texts.map((t, i) => `--- PAGE ${i} ---\n${t}`).join('\n\n') }]
+      : imageBlocks;
+
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2048,
+        tools: [EXTRACT_MONTHLY_FINANCIALS_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_monthly_financials' },
+        messages: [{
+          role: 'user',
+          content: [
+            ...content,
+            { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} a financial statement (P&L / income statement) for a single month, uploaded for a business's monthly financial tracking. Find the reporting period, then Revenue, Labor, Gross Profit, EBITDA, Owner Wages, and Net Income -- each ONLY from a line explicitly labeled as such (see each field's own description for the exact labels to look for). Before reporting each dollar figure, transcribe the exact line it was read from, word for word, in its matching "...LineAsPrinted" field -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing or calculating it from other numbers on the page.` }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error(`Monthly financials extraction ${reqId} failed:`, anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_monthly_financials');
+    if (!toolUseBlock) {
+      console.error(`Monthly financials extraction ${reqId}: no tool_use block. stop_reason=`, data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    const extraction = toolUseBlock.input;
+    console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] step1 RAW extraction (before validation): ${JSON.stringify(extraction)}`);
+
+    if (!extraction.periodFound) {
+      return res.json({ periodFound: false, month: '', revenue: 0, labor: 0, grossProfit: 0, ebitda: 0, ownerWages: 0, netIncome: 0, confident: false });
+    }
+
+    // Same two-layer grounding as invoice extraction: Layer 1 checks each
+    // claimed figure against its own quoted line for self-consistency;
+    // Layer 2 (text mode only) checks it against the server's own
+    // independently-extracted text -- ground truth the model never
+    // authored, catching a figure with zero basis anywhere on the real page.
+    const fields = [
+      ['revenue', 'revenueLineAsPrinted', 'total\\s*income|total\\s*revenue|total\\s*sales|net\\s*sales'],
+      ['labor', 'laborLineAsPrinted', 'labor|payroll|wages|salaries'],
+      ['grossProfit', 'grossProfitLineAsPrinted', 'gross\\s*profit|gross\\s*margin'],
+      ['ebitda', 'ebitdaLineAsPrinted', 'ebitda'],
+      ['ownerWages', 'ownerWagesLineAsPrinted', 'owner.{0,10}(wages|draw|salary|compensation)|officer\\s*compensation'],
+      ['netIncome', 'netIncomeLineAsPrinted', 'net\\s*income|net\\s*profit|net\\s*ordinary\\s*income']
+    ];
+    fields.forEach(([field, printedField, keyword]) => {
+      extraction[field] = validateAgainstQuote(extraction[field], extraction[printedField], keyword);
+    });
+    console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] step2 after layer 1 (quote self-consistency): ${JSON.stringify(Object.fromEntries(fields.map(([f]) => [f, extraction[f]])))}`);
+
+    if (hasUsableText) {
+      const sourceText = texts.join(' ').toLowerCase().replace(/\s+/g, ' ').replace(/,/g, '');
+      fields.forEach(([field, , keyword]) => {
+        extraction[field] = verifyAgainstSourceText(sourceText, extraction[field], keyword);
+      });
+      console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] step3 after layer 2 (ground-truth text search): ${JSON.stringify(Object.fromEntries(fields.map(([f]) => [f, extraction[f]])))}`);
+    }
+
+    // Same reasoning as the invoice endpoint's missing-confident-field fix:
+    // the grounding layers above already independently verify every dollar
+    // figure, so a model that omits this field entirely shouldn't have an
+    // otherwise well-grounded extraction thrown out over it.
+    if (extraction.confident === undefined) extraction.confident = true;
+
+    console.log(`[MONTHLY-FIN-EXTRACT ${reqId}] FINAL result: ${JSON.stringify(extraction)}`);
+    res.json(extraction);
+  } catch (err) {
+    console.error('Monthly financials extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
 // Lets an admin drag-reorder the home screen tiles; everyone sees the same
 // resulting order, since this is a shared dashboard layout, not a personal
 // preference.
