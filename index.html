@@ -3940,6 +3940,7 @@
         <label>EBIT ($) <input type="number" step="0.01" id="mf_ebit"></label>
         <label>Owner Wages ($) <input type="number" step="0.01" id="mf_ownerWages"></label>
         <label>Net Income ($) <input type="number" step="0.01" id="mf_netIncome"></label>
+        <label>Total Equity ($) <input type="number" step="0.01" id="mf_totalEquity"></label>
       </div>
       <div class="form-actions">
         <button class="btn-primary" id="mf_saveBtn" type="button">Save Month</button>
@@ -3950,7 +3951,7 @@
 
     <div class="panel">
       <h3>Year-to-Date Trend</h3>
-      <p class="form-note" style="margin-top:0;">Each line is a running total for the selected year, resetting to zero every January &mdash; so a rising line reflects cumulative performance building through the year, not a single month's figure. Owner Wages and Net Income are charted together as one line &mdash; a rough proxy for total owner benefit, similar to Seller's Discretionary Earnings, so a buyer isn't left to add the two together themselves. Both are still recorded and shown separately, at their individual monthly values, in the table below.</p>
+      <p class="form-note" style="margin-top:0;">Each line is a running total for the selected year, resetting to zero every January &mdash; so a rising line reflects cumulative performance building through the year, not a single month's figure. Total Equity is the one exception: it's a snapshot of the business's balance as of each month's end, not a monthly flow, so it's plotted at its own actual value each month rather than summed. Owner Wages and Net Income are charted together as one line &mdash; a rough proxy for total owner benefit, similar to Seller's Discretionary Earnings, so a buyer isn't left to add the two together themselves. Both are still recorded and shown separately, at their individual monthly values, in the table below.</p>
       <label style="max-width:160px; margin-bottom:12px;">Year <select id="mf_chartYear"></select></label>
       <canvas id="mf_trendChart"></canvas>
       <p class="form-note" id="mf_chartEmptyNote" style="display:none;">Add at least one month above to see the trend chart.</p>
@@ -17316,6 +17317,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ebit: data.ebit || 0,
           ownerWages: data.ownerWages || 0,
           netIncome: data.netIncome || 0,
+          totalEquity: data.totalEquity || 0,
           confident: !!data.confident,
           periodFound: !!data.periodFound
         });
@@ -17357,6 +17359,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <label style="font-size:11px;">EBIT ($) <input type="number" step="0.01" class="mfrev-field" data-field="ebit" data-review-id="${r.reviewId}" value="${r.ebit}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Owner Wages ($) <input type="number" step="0.01" class="mfrev-field" data-field="ownerWages" data-review-id="${r.reviewId}" value="${r.ownerWages}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Net Income ($) <input type="number" step="0.01" class="mfrev-field" data-field="netIncome" data-review-id="${r.reviewId}" value="${r.netIncome}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Total Equity ($) <input type="number" step="0.01" class="mfrev-field" data-field="totalEquity" data-review-id="${r.reviewId}" value="${r.totalEquity}" style="font-size:13px;"></label>
           </div>
           <button type="button" class="mfrev-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-top:8px;">Remove</button>
         </div>
@@ -17408,7 +17411,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         monthlyFinancialsRecords = monthlyFinancialsRecords.filter(x => x.month !== r.month);
         monthlyFinancialsRecords.push({
           month: r.month, revenue: r.revenue, labor: r.labor, grossProfit: r.grossProfit,
-          operatingProfit: r.operatingProfit, ebit: r.ebit, ownerWages: r.ownerWages, netIncome: r.netIncome,
+          operatingProfit: r.operatingProfit, ebit: r.ebit, ownerWages: r.ownerWages, netIncome: r.netIncome, totalEquity: r.totalEquity,
           updatedAt: new Date().toISOString()
         });
       });
@@ -17522,7 +17525,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       { label: 'EBIT', data: mfCumulative(monthsOfYear.map(r => r ? r.ebit : null)), borderColor: '#F2A900', backgroundColor: '#F2A900' },
       // Combined, not a raw ledger figure -- dashed to visually set it apart
       // from the four lines that come straight off the books.
-      { label: 'Owner Wages + Net Income', data: mfCumulative(monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null)), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] }
+      { label: 'Owner Wages + Net Income', data: mfCumulative(monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null)), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] },
+      // NOT run through mfCumulative -- Total Equity is a point-in-time
+      // balance sheet snapshot as of each month's end, not a monthly flow
+      // like the other lines. Summing several months' snapshots together
+      // would be a meaningless number, unlike summing several months'
+      // revenue. Dotted (not dashed) to visually mark it as a different
+      // kind of figure again from the derived Owner Wages + Net Income line.
+      { label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] }
     ].map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
 
     const ctx = canvas.getContext('2d');
@@ -17540,7 +17550,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           responsive: true,
           plugins: {
             legend: { labels: { boxWidth: 16, font: { size: 11 } } },
-            tooltip: { callbacks: { label: c => `${c.dataset.label} (YTD): ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}` } }
+            tooltip: { callbacks: { label: c => `${c.dataset.label}${c.dataset.label === 'Total Equity' ? ' (as of month-end)' : ' (YTD)'}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}` } }
           },
           scales: {
             y: { ticks: { callback: v => '$' + Number(v).toLocaleString() }, grid: { color: '#E4E0D6' } },
@@ -17579,6 +17589,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         acc.ownerWages += Number(r.ownerWages)||0; acc.netIncome += Number(r.netIncome)||0;
         return acc;
       }, {revenue:0, labor:0, grossProfit:0, operatingProfit:0, ebit:0, ownerWages:0, netIncome:0});
+      // Not summed -- Total Equity is a point-in-time balance, so the
+      // meaningful "total" for the year is the most recent month's ending
+      // balance, not a sum of every month's snapshot. rows[0] is already
+      // the most recent month, since rows is sorted most-recent-first.
+      const latestEquity = rows[0] ? (Number(rows[0].totalEquity)||0) : 0;
 
       return `
       <details ${idx === 0 ? 'open' : ''} style="margin-bottom:10px; border:1px solid var(--line); border-radius:8px; padding:10px 14px;">
@@ -17595,6 +17610,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">EBIT</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Owner Wages</th>
                 <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>
+                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Equity</th>
                 <th style="border-bottom:2px solid var(--line);"></th>
               </tr>
             </thead>
@@ -17609,6 +17625,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ebit)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ownerWages)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.totalEquity)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;">
                   <button type="button" class="mf-edit" data-month="${r.month}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
                   <button type="button" class="mf-delete" data-month="${r.month}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
@@ -17623,6 +17640,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ebit)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ownerWages)}</td>
                 <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>
+                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;" title="Year-end balance, not a sum -- Total Equity is a point-in-time figure">${mfMoney(latestEquity)}</td>
                 <td style="border-top:2px solid var(--line);"></td>
               </tr>
             </tbody>
@@ -17644,6 +17662,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('mf_ebit').value = r.ebit;
       document.getElementById('mf_ownerWages').value = r.ownerWages;
       document.getElementById('mf_netIncome').value = r.netIncome;
+      document.getElementById('mf_totalEquity').value = r.totalEquity;
       document.getElementById('mf_formTitle').textContent = `Editing ${mfMonthLabel(month)}`;
       document.getElementById('mf_cancelEditBtn').style.display = 'inline-block';
       document.getElementById('mf_month').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -17674,6 +17693,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('mf_ebit').value = '';
     document.getElementById('mf_ownerWages').value = '';
     document.getElementById('mf_netIncome').value = '';
+    document.getElementById('mf_totalEquity').value = '';
     document.getElementById('mf_formTitle').textContent = 'Add a Month';
     document.getElementById('mf_cancelEditBtn').style.display = 'none';
   }
@@ -17697,6 +17717,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       ebit: parseFloat(document.getElementById('mf_ebit').value) || 0,
       ownerWages: parseFloat(document.getElementById('mf_ownerWages').value) || 0,
       netIncome: parseFloat(document.getElementById('mf_netIncome').value) || 0,
+      totalEquity: parseFloat(document.getElementById('mf_totalEquity').value) || 0,
       updatedAt: new Date().toISOString()
     };
     // Editing one month but changing the month field to a different month
