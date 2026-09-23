@@ -76,7 +76,9 @@ const ALLOWED_KEYS = new Set([
   'junk-removal-jobs',
   'moving-damage-reports',
   'manager-review-items',
-  'financial-state-tax-records'
+  'financial-state-tax-records',
+  'monthly-financials',
+  'hourly-rate-history'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-'];
 
