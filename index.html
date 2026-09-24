@@ -3240,6 +3240,58 @@
           <span class="status-msg" id="pwBatch_extractStatus"></span>
         </div>
 
+        <details style="margin-top:20px;">
+          <summary style="cursor:pointer;"><h3 style="display:inline;">Manual Job Data Entry</h3></summary>
+          <div class="form-grid">
+            <label>Job Type
+              <select id="pw_jobType">
+                <option value="move">Move</option>
+                <option value="movelabor">Move Labor</option>
+                <option value="longdistance">Long Distance Move</option>
+              </select>
+            </label>
+            <label>Hunkware Job # <input type="text" id="pw_jobNumber"></label>
+            <label>Captain
+              <select id="pw_captainSelect">
+                <option value="">Select Captain...</option>
+                <option value="__other__">Not on the list (type name)</option>
+              </select>
+            </label>
+            <label id="pw_captainOtherWrap" style="display:none;">Captain Name <input type="text" id="pw_captainOther" placeholder="First and last name"></label>
+            <label>Client Name <input type="text" id="pw_clientName"></label>
+            <label>Client Phone # <input type="text" id="pw_clientPhone"></label>
+            <label>Client Email Address <input type="email" id="pw_clientEmail"></label>
+            <label>Origin Address <input type="text" id="pw_originAddress"></label>
+            <label>Destination Address <input type="text" id="pw_destAddress"></label>
+          </div>
+          <div id="pw_stopsArea" class="form-grid" style="margin-top:2px;">
+            <label>Stop 1 (optional) <input type="text" id="pw_stop1"></label>
+            <label>Stop 2 (optional) <input type="text" id="pw_stop2"></label>
+            <label>Stop 3 (optional) <input type="text" id="pw_stop3"></label>
+          </div>
+          <div id="pw_localLaborArea" style="margin-top:2px;">
+            <label>Estimate Summary (paste the estimate text; used on the Bill of Lading)
+              <textarea id="pw_estimateSummary" rows="5" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:13px; box-sizing:border-box;"></textarea>
+            </label>
+          </div>
+          <div class="form-grid" style="margin-top:2px;">
+            <label>Estimate Date <input type="date" id="pw_estDate"></label>
+            <label>Packing Date <input type="date" id="pw_packingDate"></label>
+            <label>Loading Date <input type="date" id="pw_loadingDate"></label>
+            <label>Delivery Date <input type="date" id="pw_deliveryDate"></label>
+            <label>Unpacking Date <input type="date" id="pw_unpackingDate"></label>
+            <label>Other Service Date <input type="date" id="pw_otherServiceDate"></label>
+          </div>
+          <p class="form-note" id="pw_docListNote"></p>
+          <div class="form-actions">
+            <button class="btn-primary" id="pw_printBtn">Print Paperwork</button>
+            <button id="pw_digitalBtn" type="button" style="background:#00612C; border:1px solid #00612C; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Digital Paperwork</button>
+            <button id="pw_copyLinkBtn" type="button" style="background:#fff; border:1px solid #00612C; color:#00612C; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Copy Link</button>
+            <button id="pw_clearBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Clear All Fields</button>
+            <span class="status-msg" id="pw_status"></span>
+          </div>
+        </details>
+
         <div id="pwBatch_reviewWrap" style="display:none; margin-top:20px;">
           <h4 style="margin-bottom:6px;">Review Before Generating</h4>
           <p class="form-note">Distance is an estimate (straight-line with a road-distance buffer, not an exact route) &mdash; double-check anything close to the 50-mile line. Fix any field that looks off before generating.</p>
@@ -3278,58 +3330,6 @@
           <p class="form-note">Every time a real quote passes through (a work order's own quote narrative, or an uploaded corrected quote), its hourly rate is silently recorded here by crew size &mdash; the latest one always wins. This is what lets the missing-quote fallback offer a rate automatically once you enter a crew size, instead of requiring a dollar figure by hand. Clear an entry below if a bad read ever poisons it.</p>
           <div id="pwHourlyRates_rows" style="font-size:12.5px;"></div>
         </details>
-      </div>
-
-      <div class="panel">
-        <h3>Job Data Entry</h3>
-        <div class="form-grid">
-          <label>Job Type
-            <select id="pw_jobType">
-              <option value="move">Move</option>
-              <option value="movelabor">Move Labor</option>
-              <option value="longdistance">Long Distance Move</option>
-            </select>
-          </label>
-          <label>Hunkware Job # <input type="text" id="pw_jobNumber"></label>
-          <label>Captain
-            <select id="pw_captainSelect">
-              <option value="">Select Captain...</option>
-              <option value="__other__">Not on the list (type name)</option>
-            </select>
-          </label>
-          <label id="pw_captainOtherWrap" style="display:none;">Captain Name <input type="text" id="pw_captainOther" placeholder="First and last name"></label>
-          <label>Client Name <input type="text" id="pw_clientName"></label>
-          <label>Client Phone # <input type="text" id="pw_clientPhone"></label>
-          <label>Client Email Address <input type="email" id="pw_clientEmail"></label>
-          <label>Origin Address <input type="text" id="pw_originAddress"></label>
-          <label>Destination Address <input type="text" id="pw_destAddress"></label>
-        </div>
-        <div id="pw_stopsArea" class="form-grid" style="margin-top:2px;">
-          <label>Stop 1 (optional) <input type="text" id="pw_stop1"></label>
-          <label>Stop 2 (optional) <input type="text" id="pw_stop2"></label>
-          <label>Stop 3 (optional) <input type="text" id="pw_stop3"></label>
-        </div>
-        <div id="pw_localLaborArea" style="margin-top:2px;">
-          <label>Estimate Summary (paste the estimate text; used on the Bill of Lading)
-            <textarea id="pw_estimateSummary" rows="5" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:13px; box-sizing:border-box;"></textarea>
-          </label>
-        </div>
-        <div class="form-grid" style="margin-top:2px;">
-          <label>Estimate Date <input type="date" id="pw_estDate"></label>
-          <label>Packing Date <input type="date" id="pw_packingDate"></label>
-          <label>Loading Date <input type="date" id="pw_loadingDate"></label>
-          <label>Delivery Date <input type="date" id="pw_deliveryDate"></label>
-          <label>Unpacking Date <input type="date" id="pw_unpackingDate"></label>
-          <label>Other Service Date <input type="date" id="pw_otherServiceDate"></label>
-        </div>
-        <p class="form-note" id="pw_docListNote"></p>
-        <div class="form-actions">
-          <button class="btn-primary" id="pw_printBtn">Print Paperwork</button>
-          <button id="pw_digitalBtn" type="button" style="background:#00612C; border:1px solid #00612C; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Digital Paperwork</button>
-          <button id="pw_copyLinkBtn" type="button" style="background:#fff; border:1px solid #00612C; color:#00612C; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Copy Link</button>
-          <button id="pw_clearBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Clear All Fields</button>
-          <span class="status-msg" id="pw_status"></span>
-        </div>
       </div>
 
       <div class="panel" id="puBatchPanel">
