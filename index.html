@@ -16962,6 +16962,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('pu_checkVisionOnlyBtn').addEventListener('click', checkVisionOnlyJobs);
 
   function renderPaperworkUploadsList(){
+    window.paperworkUploads = paperworkUploads; // test-only visibility into the closure-scoped array
     renderArchiveEligibleCount();
     renderDuplicateJobPackages();
     renderMissingInvoicePanel();
@@ -17014,9 +17015,27 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
-          ${(u.invoiceUploadedAt && (Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden))
-            ? `<button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Email Sent' : 'Send Email'}</button>`
-            : `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="${!u.invoiceUploadedAt ? 'Upload the HunkWare invoice for this job before the client can be emailed.' : 'Balance Due must be under $1 (or overridden) before the client can be emailed.'}">${!u.invoiceUploadedAt ? 'Invoice needed' : 'Balance not reconciled'}</span>`}
+          ${(() => {
+            const balanceOk = u.invoiceUploadedAt && (Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden);
+            const materialsOk = u.requiresMaterials !== true || (Array.isArray(u.materialsBilled) && u.materialsBilled.length > 0) || u.materialsBilledOverridden;
+            if(balanceOk && materialsOk){
+              return `<button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Email Sent' : 'Send Email'}</button>`;
+            }
+            if(!u.invoiceUploadedAt){
+              return `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="Upload the HunkWare invoice for this job before the client can be emailed.">Invoice needed</span>`;
+            }
+            if(!balanceOk){
+              return `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="Balance Due must be under \$1 (or overridden) before the client can be emailed.">Balance not reconciled</span>`;
+            }
+            // Materials is the only remaining blocker -- same Override
+            // affordance as the balance-due check above, so an admin can
+            // resolve a false positive (or a knowingly waived charge)
+            // right here, without a separate trip to Materials Billed.
+            const overrideNote = u.materialsBilledOverridden
+              ? ` <span title="Materials requirement overridden by an administrator" style="cursor:help; color:var(--muted);">(overridden)</span>`
+              : ` <button type="button" class="pu-materials-override" data-id="${u.id}" style="display:inline; background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10px; cursor:pointer; padding:0;">Override</button>`;
+            return `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="This job's checked-out materials haven't been billed for yet -- complete the Materials Billed section, or have an administrator override it.">Materials not billed${overrideNote}</span>`;
+          })()}
           <button type="button" class="pu-delete" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
         </td>
       </tr>`).join('');
@@ -17083,6 +17102,38 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
     }));
 
+    tbody.querySelectorAll('.pu-materials-override').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const upload = paperworkUploads.find(u => u.id === id);
+      if(!upload) return;
+      const pin = prompt('Enter the Administrator Override PIN to send this email despite unbilled materials:');
+      if(pin === null) return; // cancelled
+      try{
+        const res = await fetch(`${API_BASE}/api/verify-override-pin`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify({ pin })
+        });
+        if(handleAuthFailure(res)) return;
+        const data = await res.json();
+        if(!res.ok){
+          alert(data.error || 'Could not verify PIN.');
+          return;
+        }
+        if(!data.valid){
+          alert('Incorrect PIN.');
+          return;
+        }
+        upload.materialsBilledOverridden = true;
+        upload.materialsBilledOverriddenAt = new Date().toISOString();
+        await savePaperworkUploadsList();
+        renderPaperworkUploadsList();
+      }catch(err){
+        console.error('Override PIN verification failed:', err);
+        alert('Could not reach the server \u2014 check your connection.');
+      }
+    }));
+
     tbody.querySelectorAll('.pu-face').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.dataset.id;
       const value = e.currentTarget.dataset.value;
@@ -17104,8 +17155,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // Checked against what was billable at upload time, captured then --
       // not re-evaluated against today's item list, so a material added
       // later doesn't retroactively block an already-complete record.
-      if(upload.requiresMaterials === true && (!Array.isArray(upload.materialsBilled) || upload.materialsBilled.length === 0)){
-        alert('This job requires packing materials to be billed before an email can be sent \u2014 please complete the Materials Billed section for this job.');
+      // An administrator can also override this directly from the row
+      // (see the .pu-materials-override handler) when the gap is a false
+      // positive or has been knowingly waived.
+      if(upload.requiresMaterials === true && (!Array.isArray(upload.materialsBilled) || upload.materialsBilled.length === 0) && !upload.materialsBilledOverridden){
+        alert('This job requires packing materials to be billed before an email can be sent \u2014 please complete the Materials Billed section for this job, or have an administrator override it.');
         return;
       }
       const origText = e.target.textContent;
@@ -17214,6 +17268,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderPaperworkUploadsList();
     }));
   }
+  window.renderPaperworkUploadsList = renderPaperworkUploadsList;
 
   // ---------- Financial: Monthly Financials ----------
 
