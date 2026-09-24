@@ -3590,6 +3590,7 @@
     <div class="detail-head">
       <h2 class="display">Ops Manager Metrics</h2>
     </div>
+    <p class="form-note" id="om_assignedToNote"></p>
     <p class="form-note">More operational metrics will be added here over time.</p>
 
     <div class="panel" id="omOverallScorePanel">
@@ -5153,6 +5154,27 @@
               <button type="button" id="appset_omReviewWindowSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Window</button>
               <span class="status-msg" id="appset_omReviewWindowStatus"></span>
             </div>
+          </div>
+        </div>
+
+        <div class="panel" id="set_commissionPanel" data-collapsible="true">
+          <h3>Commission Rates</h3>
+          <p class="form-note" style="margin-top:0;">A commission rate for each role below. Driver applies to anyone currently checked as a driver on the Compliance tile's Driver List. Ops Manager applies to whoever is assigned that role here, independent of the Driver checkbox &mdash; someone can be both.</p>
+          <div class="form-grid" style="grid-template-columns:auto auto; align-items:end;">
+            <label>Driver Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionDriverRate" style="max-width:120px;"></label>
+            <label>Ops Manager Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOpsManagerRate" style="max-width:120px;"></label>
+          </div>
+          <div class="form-actions">
+            <button type="button" id="appset_commissionRatesSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Rates</button>
+            <span class="status-msg" id="appset_commissionRatesStatus"></span>
+          </div>
+
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Ops Manager Assignment</h4>
+          <p class="form-note" style="margin-top:0;">Whoever is assigned here is the person Ops Manager Metrics measures and who receives the Ops Manager commission rate above. Change this any time someone new takes on the role &mdash; nothing else needs to change.</p>
+          <label>Currently Assigned <select id="appset_opsManagerAssignment" style="max-width:280px;"></select></label>
+          <div class="form-actions">
+            <button type="button" id="appset_opsManagerAssignmentSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Assignment</button>
+            <span class="status-msg" id="appset_opsManagerAssignmentStatus"></span>
           </div>
         </div>
 
@@ -12874,6 +12896,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderOmWeightRows(opsManagerMetrics.weights || { paperworkCloseout: 50, reviewCloseout: 50 });
     document.getElementById('appset_omReviewWindowDays').value = opsManagerMetrics.reviewCloseoutWindowDays || 7;
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
+    await renderCommissionSection(s.commission || {});
     loadOverridePinStatus();
     updateStorageUsageNote();
   }
@@ -13171,6 +13194,136 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Save Ops Manager Metrics review window failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---- Commission Rates + Ops Manager Assignment ----
+  // Driver commission needs no assignment mechanism of its own -- it
+  // applies directly to whoever is currently checked as a driver on the
+  // Compliance tile's Driver List, which is already tracked elsewhere.
+  // Ops Manager has no equivalent checkbox anywhere in the app, so it
+  // needs an explicit, easily-reassignable designation here instead.
+  async function renderCommissionSection(commission){
+    document.getElementById('appset_commissionDriverRate').value = commission.driverRate || 0;
+    document.getElementById('appset_commissionOpsManagerRate').value = commission.opsManagerRate || 0;
+
+    const select = document.getElementById('appset_opsManagerAssignment');
+    let roster = [];
+    try{ roster = await window.getCurrentEmployeeRoster(); }catch(err){ console.error('Roster load failed for Ops Manager assignment:', err); }
+    const savedAssignment = commission.opsManagerAssignment || '';
+    // Falls back to whoever the roster's own normalized-name match finds
+    // for "Pitchford, Cameron" if nothing's been explicitly saved yet --
+    // he's the person currently filling the role -- but never invents a
+    // name that isn't actually on the roster.
+    const defaultKey = nameDedupKey('Pitchford, Cameron');
+    const fallbackName = roster.find(n => nameDedupKey(n) === defaultKey) || '';
+    const currentValue = savedAssignment || fallbackName;
+    const options = new Set(roster);
+    if(currentValue) options.add(currentValue); // keep a saved assignment selectable even if they've since left the roster
+    select.innerHTML = [...options].sort((a,b)=>a.localeCompare(b)).map(name =>
+      `<option value="${settingsEsc(name)}" ${name === currentValue ? 'selected' : ''}>${settingsEsc(name)}</option>`
+    ).join('');
+  }
+
+  document.getElementById('appset_commissionRatesSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_commissionRatesStatus');
+    const driverRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionDriverRate').value) || 0));
+    const opsManagerRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionOpsManagerRate').value) || 0));
+    const pin = prompt('Enter the Administrator Override PIN to change commission rates:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save rates.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate });
+      statusEl.textContent = 'Rates saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save commission rates failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_opsManagerAssignmentSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_opsManagerAssignmentStatus');
+    const opsManagerAssignment = document.getElementById('appset_opsManagerAssignment').value;
+    if(!opsManagerAssignment){
+      statusEl.textContent = 'Choose someone from the list first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const pin = prompt('Enter the Administrator Override PIN to change the Ops Manager assignment:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { commission: { opsManagerAssignment } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save the assignment.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { opsManagerAssignment });
+      statusEl.textContent = 'Assignment saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save Ops Manager assignment failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -19232,6 +19385,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
       const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 7;
       const weights = omSettings.weights || { paperworkCloseout: 50, reviewCloseout: 50 };
+      const commission = window.appSettings.commission || {};
+      const assignedNoteEl = document.getElementById('om_assignedToNote');
+      assignedNoteEl.textContent = commission.opsManagerAssignment
+        ? `Currently assigned to ${commission.opsManagerAssignment}.`
+        : 'No one is currently assigned the Ops Manager role -- set this in Configuration \u2192 Commission Rates.';
 
       const [archiveResult, uploads, reviewItemsResult] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
