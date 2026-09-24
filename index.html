@@ -17122,6 +17122,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       upload.invoiceUploadedAt = new Date().toISOString();
       upload.invoiceConfident = !!extractData.confident;
       upload.balanceDueOverridden = false;
+      // Used by Captain Metrics' Underbilled Jobs check for Move/Move Labor
+      // jobs -- independent of materials, so stored here regardless of
+      // whether any materials were matched below.
+      upload.hasTravelLineItem = !!extractData.hasTravelLineItem;
       await recordStateTaxData(upload.jobNumber, extractData, matchedMaterialsBilled, unmatchedDescriptions);
       // Invoice-derived data replaces manual entry once available -- it's
       // the concrete source of truth this whole feature is built around.
@@ -18509,7 +18513,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { weightKey: 'attendance', label: 'Attendance', description: 'Checked against Attendance Tracking for the month. Any unexcused tardy or absence on file for a Captain drops this category to 0% for the whole month; otherwise 100%.' },
     { weightKey: 'ptiEod', label: 'Pre-Trip and EOD Inspection Completion', description: 'Any Captain assigned a job on a given day must have both a Pre-Trip and an End of Day Inspection on file for that day. Estimates are excluded, since they never generate a job record in the first place.' },
     { weightKey: 'movePhoto', label: 'Move Job Photo Upload', description: 'Each Captain assigned a Move job must upload at least one photo of pre-existing damage for that job.' },
-    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s jobs with materials checked out that were fully billed for what was actually used. A job with nothing checked out isn\u2019t counted either way.' }
+    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs that were fully billed. A job is applicable if it had materials checked out (every checked-out item must be billed for at least as much as was pulled) or is a Move/Move Labor job (the invoice must have a line item for travel). A job meeting neither isn\u2019t counted either way.' }
   ];
   window.CAPTAIN_METRIC_CATEGORIES = CAPTAIN_METRIC_CATEGORIES; // this file has multiple separate <script> blocks, each with its own const scope -- window is the only thing shared across all of them, and renderCmWeightRows (Settings) lives in an earlier one
 
