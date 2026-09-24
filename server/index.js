@@ -1296,94 +1296,332 @@ app.post('/api/driver/moving/:jobNumber/photos', requireDriverAuth, async (req, 
 // Response shape is a generic list of categories so new metrics can be added
 // here later without the driver-portal frontend needing any changes -- it
 // just renders whatever categories come back.
+// ============ Captain Metrics: shared monthly scoring ============
+const CAPTAIN_METRICS_MONTHLY_LOCKS_KEY = 'captain-metrics-monthly-locks';
+
+function monthAfter(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number);
+  const nm = m === 12 ? 1 : m + 1;
+  const ny = m === 12 ? y + 1 : y;
+  return `${ny}-${String(nm).padStart(2, '0')}`;
+}
+
+// Computes each of the 5 scoring categories, and the combined weighted
+// score, for every Captain, for one calendar month. A category a Captain
+// has no applicable data for (e.g. no move jobs that month) is left out of
+// their score entirely rather than counted as a 0 -- see the weight
+// re-normalization below.
+function computeCaptainScoresForMonth(monthStr, data, weights) {
+  const rangeStart = monthStr + '-01';
+  const rangeEnd = monthAfter(monthStr) + '-01'; // exclusive upper bound
+  return computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights);
+}
+
+// Same scoring logic as computeCaptainScoresForMonth, generalized to any
+// [rangeStart, rangeEnd) date range -- reused by the weekly trend graph,
+// which needs the identical formula at a finer granularity, not a
+// second, drifting implementation of it.
+function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems } = data;
+
+  // Only jobs whose scheduled day has actually passed count toward
+  // anything here -- a job later in the range hasn't had a chance to be
+  // late/incomplete/etc. yet.
+  const monthJobs = archive.filter(j =>
+    j.captainName && j.jobNumber && j.assignmentDate &&
+    j.assignmentDate >= rangeStart && j.assignmentDate < rangeEnd && j.assignmentDate < todayStr
+  );
+
+  // ---- 1. Completed Paperwork -- uploaded, emailed, and invoice
+  // reconciled, matching the same definition already used by Ops Manager
+  // Metrics' Paperwork Close-Out, just attributed per Captain here instead
+  // of company-wide. An "angry" satisfaction rating needs no email and is
+  // excluded entirely, same as that existing metric. ----
+  const uploadsByJob = {};
+  uploads.forEach(u => { if (u.jobNumber) uploadsByJob[u.jobNumber] = u; });
+  const paperworkByCaptain = {};
+  monthJobs.forEach(j => {
+    const upload = uploadsByJob[j.jobNumber];
+    if (upload && upload.satisfaction === 'angry') return;
+    if (!paperworkByCaptain[j.captainName]) paperworkByCaptain[j.captainName] = { complete: 0, total: 0 };
+    paperworkByCaptain[j.captainName].total++;
+    const complete = !!(upload && upload.emailSentAt && upload.invoiceUploadedAt && (Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden));
+    if (complete) paperworkByCaptain[j.captainName].complete++;
+  });
+
+  // ---- 2. Attendance -- any unexcused tardy or absence on file for a
+  // Captain this month drops that category to 0% outright; otherwise 100%.
+  // Only scored for a Captain who actually had a job this month. ----
+  const attendanceByCaptain = {};
+  const captainsThisMonth = new Set(monthJobs.map(j => j.captainName));
+  captainsThisMonth.forEach(captain => { attendanceByCaptain[captain] = 100; });
+  (attendanceRecords || []).filter(r => r.employeeName && r.date && r.date >= rangeStart && r.date < rangeEnd)
+    .forEach(r => { if (captainsThisMonth.has(r.employeeName)) attendanceByCaptain[r.employeeName] = 0; });
+
+  // ---- 3. Pre-Trip + End of Day Inspection Completion -- a day only
+  // counts as compliant if BOTH are on file for that Captain that day.
+  // Estimates never generate an archive record in the first place, so
+  // nothing further is needed to exclude them. ----
+  const assignedDaysByCaptain = {};
+  monthJobs.forEach(j => {
+    if (!assignedDaysByCaptain[j.captainName]) assignedDaysByCaptain[j.captainName] = new Set();
+    assignedDaysByCaptain[j.captainName].add(j.assignmentDate);
+  });
+  const ptiEodByCaptain = {};
+  Object.keys(assignedDaysByCaptain).forEach(captain => {
+    const days = [...assignedDaysByCaptain[captain]];
+    if (days.length === 0) return;
+    const compliant = days.filter(day =>
+      ptiRecords.some(p => p.driverName === captain && p.date === day) &&
+      eodRecords.some(e => e.driverName === captain && e.date === day)
+    ).length;
+    ptiEodByCaptain[captain] = { pct: (compliant / days.length) * 100 };
+  });
+
+  // ---- 4. Move Job Photo Upload -- "move" job type only, at least one
+  // pre-existing-damage photo on file for that job. ----
+  const moveJobsByCaptain = {};
+  monthJobs.filter(j => j.jobType === 'move').forEach(j => {
+    if (!moveJobsByCaptain[j.captainName]) moveJobsByCaptain[j.captainName] = { withPhoto: 0, total: 0 };
+    moveJobsByCaptain[j.captainName].total++;
+    const report = (movingReports || []).find(r => r.jobNumber === j.jobNumber);
+    if (report && Array.isArray(report.preExistingPhotoKeys) && report.preExistingPhotoKeys.length > 0) {
+      moveJobsByCaptain[j.captainName].withPhoto++;
+    }
+  });
+
+  // ---- 5. Underbilled Jobs -- only jobs that actually had materials
+  // checked out are applicable (a job with nothing checked out can't be
+  // underbilled). Not underbilled = every checked-out item was billed for
+  // at least as much as was pulled. ----
+  const billableItemIds = new Set((materialsItems || []).filter(i => !i.neverBilled).map(i => i.id));
+  const checkedOutByJob = {};
+  (materialsCheckouts || []).forEach(co => {
+    (co.jobNumbers || []).forEach(jobNumber => {
+      if (!checkedOutByJob[jobNumber]) checkedOutByJob[jobNumber] = {};
+      (co.items || []).forEach(it => {
+        if (!billableItemIds.has(it.itemId)) return;
+        checkedOutByJob[jobNumber][it.itemId] = (checkedOutByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
+      });
+    });
+  });
+  const billedByJob = {};
+  uploads.forEach(u => {
+    if (!u.jobNumber || !Array.isArray(u.materialsBilled)) return;
+    if (!billedByJob[u.jobNumber]) billedByJob[u.jobNumber] = {};
+    u.materialsBilled.forEach(b => {
+      billedByJob[u.jobNumber][b.itemId] = (billedByJob[u.jobNumber][b.itemId] || 0) + Number(b.quantity || 0);
+    });
+  });
+  const underbilledByCaptain = {};
+  monthJobs.forEach(j => {
+    const checkedOut = checkedOutByJob[j.jobNumber];
+    if (!checkedOut || Object.keys(checkedOut).length === 0) return; // not applicable
+    if (!underbilledByCaptain[j.captainName]) underbilledByCaptain[j.captainName] = { ok: 0, total: 0 };
+    underbilledByCaptain[j.captainName].total++;
+    const billed = billedByJob[j.jobNumber] || {};
+    const isUnderbilled = Object.keys(checkedOut).some(itemId => (billed[itemId] || 0) < checkedOut[itemId]);
+    if (!isUnderbilled) underbilledByCaptain[j.captainName].ok++;
+  });
+
+  // ---- Combine into per-category percentages + one weighted overall
+  // score, re-normalizing weights among only the categories each Captain
+  // actually has applicable data for. ----
+  const pct = (obj, numKey, denKey) => obj && obj[denKey] > 0 ? (obj[numKey] / obj[denKey]) * 100 : null;
+  const categoryDefs = [
+    { key: 'completedPaperwork', weight: Number(weights.completedPaperwork) || 0, get: c => pct(paperworkByCaptain[c], 'complete', 'total') },
+    { key: 'attendance', weight: Number(weights.attendance) || 0, get: c => (attendanceByCaptain[c] != null ? attendanceByCaptain[c] : null) },
+    { key: 'ptiEod', weight: Number(weights.ptiEod) || 0, get: c => (ptiEodByCaptain[c] ? ptiEodByCaptain[c].pct : null) },
+    { key: 'movePhoto', weight: Number(weights.movePhoto) || 0, get: c => pct(moveJobsByCaptain[c], 'withPhoto', 'total') },
+    { key: 'underbilled', weight: Number(weights.underbilled) || 0, get: c => pct(underbilledByCaptain[c], 'ok', 'total') }
+  ];
+
+  const allCaptains = new Set([
+    ...Object.keys(paperworkByCaptain), ...Object.keys(attendanceByCaptain),
+    ...Object.keys(ptiEodByCaptain), ...Object.keys(moveJobsByCaptain), ...Object.keys(underbilledByCaptain)
+  ]);
+
+  const scores = {};
+  allCaptains.forEach(captain => {
+    const values = categoryDefs.map(c => ({ ...c, pct: c.get(captain) }));
+    const applicable = values.filter(c => c.pct !== null && c.weight > 0);
+    const byCategory = {};
+    values.forEach(c => { byCategory[c.key] = c.pct === null ? null : Math.round(c.pct); });
+    if (applicable.length === 0) {
+      scores[captain] = { overall: null, ...byCategory };
+      return;
+    }
+    const totalWeight = applicable.reduce((s, c) => s + c.weight, 0);
+    const overall = totalWeight > 0 ? applicable.reduce((s, c) => s + c.pct * c.weight, 0) / totalWeight : null;
+    scores[captain] = { overall: overall === null ? null : Math.round(overall), ...byCategory };
+  });
+  return scores;
+}
+
+async function fetchCaptainMetricsRawData() {
+  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw] = await Promise.all([
+    redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
+    redis.get('paperwork-uploads'), redis.get('compliance-eod-inspections'),
+    redis.get('attendance-records'), redis.get('moving-damage-reports'),
+    redis.get('materials-checkouts'), redis.get('materials-items')
+  ]);
+  return {
+    archive: archiveRaw ? JSON.parse(archiveRaw) : [],
+    ptiRecords: ptiRaw ? JSON.parse(ptiRaw) : [],
+    uploads: uploadsRaw ? JSON.parse(uploadsRaw) : [],
+    eodRecords: eodRaw ? JSON.parse(eodRaw) : [],
+    attendanceRecords: attendanceRaw ? JSON.parse(attendanceRaw) : [],
+    movingReports: movingRaw ? JSON.parse(movingRaw) : [],
+    materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
+    materialsItems: itemsRaw ? JSON.parse(itemsRaw) : []
+  };
+}
+
+// The active (still-live, not yet locked) scoring month, plus locks any
+// months that have fallen due -- a month locks once a payroll week dated
+// in a LATER month has been uploaded, since that's the trigger the scores
+// (tied to monthly commission) are meant to wait for. Handles a payroll
+// catch-up spanning several months at once, locking each in turn, not
+// just the immediately-next one. Call this before reading current scores
+// anywhere they're displayed, and also right after a payroll week save.
+async function getActiveCaptainMetricsMonth(weights) {
+  const laborWeeksRaw = await redis.get('labor-weeks');
+  const laborWeeks = laborWeeksRaw ? JSON.parse(laborWeeksRaw) : [];
+  const locksRaw = await redis.get(CAPTAIN_METRICS_MONTHLY_LOCKS_KEY);
+  let locks = locksRaw ? JSON.parse(locksRaw) : [];
+
+  const currentCalendarMonth = new Date().toISOString().slice(0, 7);
+  const latestPayrollMonth = laborWeeks.reduce((max, w) => {
+    const m = (w.weekStart || '').slice(0, 7);
+    return m > max ? m : max;
+  }, '');
+
+  let activeMonth = locks.length > 0
+    ? monthAfter([...locks].map(l => l.month).sort().slice(-1)[0])
+    : currentCalendarMonth;
+
+  if (latestPayrollMonth && activeMonth < latestPayrollMonth) {
+    const data = await fetchCaptainMetricsRawData();
+    const lockedMonthSet = new Set(locks.map(l => l.month));
+    let changed = false;
+    while (activeMonth < latestPayrollMonth) {
+      if (!lockedMonthSet.has(activeMonth)) {
+        const scores = computeCaptainScoresForMonth(activeMonth, data, weights);
+        locks.push({ month: activeMonth, lockedAt: new Date().toISOString(), scores });
+        lockedMonthSet.add(activeMonth);
+        changed = true;
+      }
+      activeMonth = monthAfter(activeMonth);
+    }
+    if (changed) await redis.set(CAPTAIN_METRICS_MONTHLY_LOCKS_KEY, JSON.stringify(locks));
+  }
+
+  return { activeMonth, locks };
+}
+
 app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
   try {
-    const [archiveRaw, ptiRaw, uploadsRaw, eodRaw] = await Promise.all([
-      redis.get('paperwork-job-archive'),
-      redis.get('compliance-pretrip-inspections'),
-      redis.get('paperwork-uploads'),
-      redis.get('compliance-eod-inspections')
-    ]);
-    const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
-    const ptiRecords = ptiRaw ? JSON.parse(ptiRaw) : [];
-    const uploads = uploadsRaw ? JSON.parse(uploadsRaw) : [];
-    const eodRecords = eodRaw ? JSON.parse(eodRaw) : [];
+    const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+    const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
+    const weights = settings.captainMetrics.weights;
 
-    const categories = [];
+    const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
+    const data = await fetchCaptainMetricsRawData();
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights);
 
-    // ---- Pre-Trip Inspection Compliance, last 30 complete days ----
-    const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10);
-    const windowStart = new Date(today);
-    windowStart.setDate(windowStart.getDate() - 30);
-    const windowStartStr = windowStart.toISOString().slice(0, 10);
+    const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing' };
+    const entries = Object.keys(scores)
+      .filter(captain => scores[captain].overall !== null)
+      .map(captain => {
+        const s = scores[captain];
+        const breakdown = ['completedPaperwork', 'attendance', 'ptiEod', 'movePhoto', 'underbilled']
+          .filter(k => s[k] !== null).map(k => `${labelMap[k]} ${s[k]}%`).join(' \u00b7 ');
+        return { name: captain, value: s.overall, detail: breakdown };
+      })
+      .sort((a, b) => b.value - a.value);
 
-    const relevantJobs = archive.filter(j =>
-      j.captainName && j.assignmentDate &&
-      j.assignmentDate < todayStr && j.assignmentDate >= windowStartStr
-    );
-    const assignedDaysByCaptain = {}; // captain -> Set of days assigned
-    relevantJobs.forEach(j => {
-      if (!assignedDaysByCaptain[j.captainName]) assignedDaysByCaptain[j.captainName] = new Set();
-      assignedDaysByCaptain[j.captainName].add(j.assignmentDate);
-    });
-    const ptiEntries = Object.keys(assignedDaysByCaptain).map(captain => {
-      const days = [...assignedDaysByCaptain[captain]];
-      const compliantDays = days.filter(day => ptiRecords.some(p => p.driverName === captain && p.date === day)).length;
-      return {
-        name: captain,
-        value: days.length > 0 ? Math.round((compliantDays / days.length) * 100) : 0,
-        detail: `${compliantDays} of ${days.length} day${days.length === 1 ? '' : 's'}`
-      };
-    }).sort((a, b) => b.value - a.value);
-    if (ptiEntries.length > 0) {
-      categories.push({ key: 'pretrip', title: 'Pre-Trip Inspection Compliance', entries: ptiEntries });
-    }
-
-    // ---- End of Day Inspection Compliance, same day-window as Pre-Trip ----
-    // Only counts days that already have a Pre-Trip Inspection on file --
-    // a day nobody started with a PTI has nothing to "end" for compliance
-    // purposes here.
-    const eodEntries = Object.keys(assignedDaysByCaptain).map(captain => {
-      const ptiDays = [...assignedDaysByCaptain[captain]].filter(day => ptiRecords.some(p => p.driverName === captain && p.date === day));
-      const compliantDays = ptiDays.filter(day => eodRecords.some(e => e.driverName === captain && e.date === day)).length;
-      return {
-        name: captain,
-        value: ptiDays.length > 0 ? Math.round((compliantDays / ptiDays.length) * 100) : 0,
-        detail: `${compliantDays} of ${ptiDays.length} day${ptiDays.length === 1 ? '' : 's'}`
-      };
-    }).filter(e => e.detail !== '0 of 0 days').sort((a, b) => b.value - a.value);
-    if (eodEntries.length > 0) {
-      categories.push({ key: 'eod', title: 'End of Day Inspection Compliance', entries: eodEntries });
-    }
-
-    // ---- Completed Paperwork Quality, uploads from the last 30 days ----
-    const captainByJob = {};
-    archive.forEach(j => { if (j.jobNumber && j.captainName) captainByJob[j.jobNumber] = j.captainName; });
-    const windowStartIso = windowStart.toISOString();
-    const recentAssessed = uploads.filter(u =>
-      typeof u.completenessPercent === 'number' && u.uploadedAt && u.uploadedAt >= windowStartIso
-    );
-    const byCaptainCompleteness = {};
-    recentAssessed.forEach(u => {
-      const captain = captainByJob[u.jobNumber];
-      if (!captain) return; // no Captain on file for this job -- excluded from the leaderboard, not attributable
-      if (!byCaptainCompleteness[captain]) byCaptainCompleteness[captain] = [];
-      byCaptainCompleteness[captain].push(u.completenessPercent);
-    });
-    const qualityEntries = Object.keys(byCaptainCompleteness).map(captain => {
-      const scores = byCaptainCompleteness[captain];
-      const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
-      return { name: captain, value: Math.round(avg), detail: `${scores.length} job${scores.length === 1 ? '' : 's'}` };
-    }).sort((a, b) => b.value - a.value);
-    if (qualityEntries.length > 0) {
-      categories.push({ key: 'completeness', title: 'Completed Paperwork Quality', entries: qualityEntries });
-    }
-
+    const categories = entries.length > 0 ? [{ key: 'overall', title: 'Overall Captain Score', entries }] : [];
     res.json({ categories });
   } catch (err) {
     console.error('Driver leaderboard fetch failed:', err.message);
     res.status(500).json({ error: 'Could not load leaderboard.' });
+  }
+});
+
+// Admin Captain Metrics tile: current (live, in-progress) month's scores
+// per Captain, broken out by category -- unlike the driver leaderboard,
+// this includes the full per-category breakdown, not just an overall
+// number, since the admin tile shows the score within each category's own
+// panel rather than a single combined leaderboard.
+app.get('/api/admin/captain-metrics/current', requireAuth, async (req, res) => {
+  try {
+    const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+    const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
+    const weights = settings.captainMetrics.weights;
+    const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
+    const data = await fetchCaptainMetricsRawData();
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights);
+    res.json({ month: activeMonth, scores });
+  } catch (err) {
+    console.error('Captain Metrics current-month fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load Captain Metrics.' });
+  }
+});
+
+// Triggered right after a payroll week is saved on the Labor Cost tile --
+// checks whether that payroll week's month means an earlier Captain
+// Metrics month has now fallen due to be locked, and locks it (and any
+// others still overdue) if so. Safe to call anytime; a no-op when nothing
+// is actually due.
+app.post('/api/admin/captain-metrics/check-month-lock', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+    const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
+    const { activeMonth, locks } = await getActiveCaptainMetricsMonth(settings.captainMetrics.weights);
+    res.json({ ok: true, activeMonth, lockedMonths: locks.map(l => l.month) });
+  } catch (err) {
+    console.error('Captain Metrics month-lock check failed:', err.message);
+    res.status(500).json({ error: 'Could not check Captain Metrics month lock.' });
+  }
+});
+
+// Weekly overall-score trend for the admin Captain Metrics line graph --
+// Monday-Sunday weeks, matching the payroll week convention used
+// elsewhere in this app. Computed fresh on every request via the same
+// scoring logic as the monthly figures (computeCaptainScoresForRange),
+// just at week granularity -- this is for trend-spotting only, not tied
+// to commission, so it needs no lock/snapshot system of its own.
+app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res) => {
+  try {
+    const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+    const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
+    const weights = settings.captainMetrics.weights;
+    const data = await fetchCaptainMetricsRawData();
+
+    const WEEKS_BACK = 12;
+    const today = new Date();
+    const day = today.getUTCDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const thisMonday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    thisMonday.setUTCDate(thisMonday.getUTCDate() + diffToMonday);
+
+    const weeks = [];
+    for (let i = WEEKS_BACK - 1; i >= 0; i--) {
+      const weekStart = new Date(thisMonday);
+      weekStart.setUTCDate(weekStart.getUTCDate() - (i * 7));
+      const weekStartStr = weekStart.toISOString().slice(0, 10);
+      const weekEndDate = new Date(weekStart);
+      weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
+      const weekEndStr = weekEndDate.toISOString().slice(0, 10);
+      const scores = computeCaptainScoresForRange(weekStartStr, weekEndStr, data, weights);
+      weeks.push({ weekStart: weekStartStr, label: weekStartStr.slice(5), scores });
+    }
+
+    res.json({ weeks });
+  } catch (err) {
+    console.error('Captain Metrics weekly trend fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load Captain Metrics weekly trend.' });
   }
 });
 
@@ -1453,7 +1691,8 @@ const DEFAULT_APP_SETTINGS = {
     emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
   },
   captainMetrics: {
-    resetDate: ''
+    resetDate: '',
+    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 }
   },
   opsManagerMetrics: {
     resetDate: ''
