@@ -882,6 +882,8 @@
     updateDriverTileVisibility();
     driverLoadTruckMap();
   }
+  window.showDriverMenu = showDriverMenu;
+  window.loadDriverLeaderboard = loadDriverLeaderboard;
 
   // Mirrors the admin loadTruckMap() function, but authenticated via the
   // driver's own session token against the separate /api/driver/... endpoint
@@ -3493,33 +3495,49 @@
       <h2 class="display">Captain Metrics</h2>
     </div>
     <p class="form-note">Requires a Captain to be selected on Job Data Entry for each job -- days and jobs without a Captain assigned aren't reflected here.</p>
+    <p class="form-note" id="cm_activeMonthNote" style="font-weight:600;"></p>
 
-    <div class="panel" id="cmPtiPanel">
-      <h3>Pre-Trip Inspection Compliance</h3>
-      <p class="form-note">Any Captain with at least one job on a given day must log one pre-trip inspection that day, regardless of how many jobs or which truck.</p>
-      <div id="cm_ptiDayList"></div>
-      <p class="form-note" id="cm_ptiEmptyNote" style="display:none;">No Captain-assigned jobs found yet.</p>
+    <div class="panel" id="cmTrendPanel">
+      <h3>Score Trend</h3>
+      <p class="form-note">Each Captain's overall weighted score, by week. Weeks with no applicable data for a Captain are skipped for them, rather than shown as a 0.</p>
+      <label style="max-width:260px; margin-bottom:12px;">Captain <select id="cm_trendCaptainSelect"><option value="__all__">All Captains</option></select></label>
+      <canvas id="cm_trendChart"></canvas>
+      <p class="form-note" id="cm_trendEmptyNote" style="display:none;">Not enough weekly data yet to show a trend.</p>
     </div>
 
-    <div class="panel" id="cmEodPanel">
-      <h3>End of Day Inspection Compliance</h3>
-      <p class="form-note">Any Captain with a Pre-Trip Inspection on file for a day must also log an End of Day Inspection that same day.</p>
-      <div id="cm_eodDayList"></div>
-      <p class="form-note" id="cm_eodEmptyNote" style="display:none;">No Pre-Trip Inspections found yet.</p>
+    <div class="panel" id="cmPaperworkPanel">
+      <h3>Completed Paperwork</h3>
+      <p class="form-note" id="cm_paperworkDesc"></p>
+      <div id="cm_paperworkRows"></div>
+      <p class="form-note" id="cm_paperworkEmptyNote" style="display:none;">No data yet this month.</p>
     </div>
 
-    <div class="panel" id="cmTruckIssuesPanel">
-      <h3>Truck Condition Issues</h3>
-      <p class="form-note">Claude compares each End of Day photo against that same truck's Pre-Trip photo from that morning and flags equipment issues &mdash; missing items, unfolded blankets, and the like. Estimate only, not a precise audit.</p>
-      <div id="cm_truckIssuesRows"></div>
-      <p class="form-note" id="cm_truckIssuesEmptyNote" style="display:none;">No issues found.</p>
+    <div class="panel" id="cmAttendancePanel">
+      <h3>Attendance</h3>
+      <p class="form-note" id="cm_attendanceDesc"></p>
+      <div id="cm_attendanceRows"></div>
+      <p class="form-note" id="cm_attendanceEmptyNote" style="display:none;">No data yet this month.</p>
     </div>
 
-    <div class="panel" id="cmCompletenessPanel">
-      <h3>Completed Paperwork Quality</h3>
-      <p class="form-note">Estimated from uploaded paperwork -- Claude scans each upload for blank signature, initial, and written-response fields and estimates what share appear filled in. This is an estimate for spotting patterns, not a precise audit.</p>
-      <div id="cm_completenessRows"></div>
-      <p class="form-note" id="cm_completenessEmptyNote" style="display:none;">No completeness data yet -- this fills in as paperwork gets uploaded.</p>
+    <div class="panel" id="cmPtiEodPanel">
+      <h3>Pre-Trip and EOD Inspection Completion</h3>
+      <p class="form-note" id="cm_ptiEodDesc"></p>
+      <div id="cm_ptiEodRows"></div>
+      <p class="form-note" id="cm_ptiEodEmptyNote" style="display:none;">No data yet this month.</p>
+    </div>
+
+    <div class="panel" id="cmMovePhotoPanel">
+      <h3>Move Job Photo Upload</h3>
+      <p class="form-note" id="cm_movePhotoDesc"></p>
+      <div id="cm_movePhotoRows"></div>
+      <p class="form-note" id="cm_movePhotoEmptyNote" style="display:none;">No Move jobs yet this month.</p>
+    </div>
+
+    <div class="panel" id="cmUnderbilledPanel">
+      <h3>Underbilled Jobs</h3>
+      <p class="form-note" id="cm_underbilledDesc"></p>
+      <div id="cm_underbilledRows"></div>
+      <p class="form-note" id="cm_underbilledEmptyNote" style="display:none;">No applicable jobs yet this month.</p>
     </div>
   </div>
 
@@ -5018,6 +5036,24 @@
           <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from every section of Captain Metrics &mdash; Pre-Trip/End of Day Compliance, Truck Condition Issues, and Paperwork Quality &mdash; for every Captain. Nothing is deleted; it's just left out of the scoring. Since this changes how every Captain's performance is measured, it requires your Override PIN to change.</p>
         </div>
 
+        <div class="panel" id="set_captainMetricsWeightsPanel">
+          <h3>Captain Metrics Settings</h3>
+          <p class="form-note" style="margin-top:0;">Each category below produces its own percentage for a Captain. These weights control how much each one counts toward the single overall score shown on the Driver Portal's Captain Leaderboard &mdash; they don't change what's shown on the Captain Metrics tile itself, which always shows each category's own percentage on its own panel. Weights must add up to 100%.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Category</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
+              <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line); width:90px;">Weight</th>
+            </tr></thead>
+            <tbody id="appset_cmWeightRows"></tbody>
+          </table>
+          <p class="form-note" id="appset_cmWeightTotal" style="margin-top:10px; font-weight:600;"></p>
+          <div class="form-actions">
+            <button type="button" id="appset_cmWeightSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Weights</button>
+            <span class="status-msg" id="appset_cmWeightStatus"></span>
+          </div>
+        </div>
+
         <div class="panel" id="set_opsManagerMetricsPanel">
           <h3>Ops Manager Metrics</h3>
           <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
@@ -6260,6 +6296,12 @@
         document.getElementById(id).value = '';
       });
       document.getElementById('payrollUploadStatus').textContent = '';
+      // A payroll week dated in a later month is what triggers Captain
+      // Metrics to lock the prior month's scores (tied to monthly
+      // commission) -- fire-and-forget, since this is background
+      // housekeeping, not something worth blocking the save confirmation on.
+      fetch(`${API_BASE}/api/admin/captain-metrics/check-month-lock`, { method: 'POST', headers: authHeaders() })
+        .catch(err => console.error('Captain Metrics month-lock check failed:', err));
     }
     renderAll();
   });
@@ -12356,6 +12398,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_ldQuoteEmailBody').value = longDistanceQuote.emailBodyTemplate || '';
     document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
     document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(captainMetrics.resetDate, 'Captain Metrics');
+    renderCmWeightRows(captainMetrics.weights || { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 });
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
     document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
@@ -12456,6 +12499,90 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }finally{
       btn.textContent = origText;
       btn.disabled = false;
+    }
+  });
+
+  // Descriptions live only here and on the admin Captain Metrics tile --
+  // never sent to the Driver Portal, which only ever receives the
+  // computed percentages themselves (see /api/driver/leaderboard).
+  function renderCmWeightRows(weights){
+    const tbody = document.getElementById('appset_cmWeightRows');
+    tbody.innerHTML = window.CAPTAIN_METRIC_CATEGORIES.map(cat => `
+      <tr>
+        <td style="padding:6px 3px; border-bottom:1px solid var(--line); font-weight:600; vertical-align:top;">${settingsEsc(cat.label)}</td>
+        <td style="padding:6px 3px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; vertical-align:top;">${settingsEsc(cat.description)}</td>
+        <td style="padding:6px 3px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top;">
+          <input type="number" min="0" max="100" step="1" class="appset-cm-weight" data-key="${cat.weightKey}" value="${Number(weights[cat.weightKey]) || 0}" style="width:60px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; text-align:right;">%
+        </td>
+      </tr>`).join('');
+    tbody.querySelectorAll('.appset-cm-weight').forEach(input => input.addEventListener('input', updateCmWeightTotal));
+    updateCmWeightTotal();
+  }
+  window.renderCmWeightRows = renderCmWeightRows;
+
+  function updateCmWeightTotal(){
+    const total = Array.from(document.querySelectorAll('.appset-cm-weight')).reduce((s, i) => s + (Number(i.value) || 0), 0);
+    const el = document.getElementById('appset_cmWeightTotal');
+    el.textContent = `Total: ${total}%${total === 100 ? '' : ' \u2014 must equal 100% before saving'}`;
+    el.style.color = total === 100 ? '#00612C' : '#b3261e';
+  }
+
+  document.getElementById('appset_cmWeightSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_cmWeightStatus');
+    const weights = {};
+    let total = 0;
+    document.querySelectorAll('.appset-cm-weight').forEach(input => {
+      const v = Math.max(0, Math.min(100, Number(input.value) || 0));
+      weights[input.dataset.key] = v;
+      total += v;
+    });
+    if(total !== 100){
+      statusEl.textContent = `Weights must add up to 100% (currently ${total}%).`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const pin = prompt('Enter the Administrator Override PIN to change Captain Metrics weights:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { captainMetrics: { weights } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save weights.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.captainMetrics = Object.assign({}, window.appSettings.captainMetrics, { weights });
+      statusEl.textContent = 'Weights saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save Captain Metrics weights failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
     }
   });
 
@@ -18193,6 +18320,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   // ---------- Captain Metrics ----------
+  // Single source of truth for the 4 scoring categories -- used to render
+  // both the Settings weight-configuration table and (identically worded)
+  // the admin Captain Metrics tile's own panels, so the two can never say
+  // different things about what a category means. weightKey matches the
+  // field name in appSettings.captainMetrics.weights.
+  const CAPTAIN_METRIC_CATEGORIES = [
+    { weightKey: 'completedPaperwork', label: 'Completed Paperwork', description: 'Overall paperwork completion rate for the month \u2014 a job counts as complete once it\u2019s been uploaded, emailed to the client, and its HunkWare invoice is reconciled (same definition as Ops Manager Metrics\u2019 Paperwork Close-Out, attributed per Captain here).' },
+    { weightKey: 'attendance', label: 'Attendance', description: 'Checked against Attendance Tracking for the month. Any unexcused tardy or absence on file for a Captain drops this category to 0% for the whole month; otherwise 100%.' },
+    { weightKey: 'ptiEod', label: 'Pre-Trip and EOD Inspection Completion', description: 'Any Captain assigned a job on a given day must have both a Pre-Trip and an End of Day Inspection on file for that day. Estimates are excluded, since they never generate a job record in the first place.' },
+    { weightKey: 'movePhoto', label: 'Move Job Photo Upload', description: 'Each Captain assigned a Move job must upload at least one photo of pre-existing damage for that job.' },
+    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s jobs with materials checked out that were fully billed for what was actually used. A job with nothing checked out isn\u2019t counted either way.' }
+  ];
+  window.CAPTAIN_METRIC_CATEGORIES = CAPTAIN_METRIC_CATEGORIES; // this file has multiple separate <script> blocks, each with its own const scope -- window is the only thing shared across all of them, and renderCmWeightRows (Settings) lives in an earlier one
+
   function cmEsc(s){
     const d = document.createElement('div');
     d.textContent = s == null ? '' : String(s);
@@ -18200,173 +18341,126 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   async function loadCaptainMetricsData(){
-    let archive = [];
     try{
-      await window.ensureAppSettingsLoaded();
-      const configuredResetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
-      // A future reset date schedules the reset rather than applying it
-      // immediately -- everything keeps counting normally right up until
-      // that day arrives, then the cutoff kicks in on its own from there.
-      const todayStr = new Date().toISOString().slice(0,10);
-      const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
+      const res = await fetch(`${API_BASE}/api/admin/captain-metrics/current`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){ console.error('Captain Metrics load failed:', data.error); return; }
 
-      const [archiveResult, ptiRecords, eodRecords] = await Promise.all([
-        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
-        window.dashboardApi.get('compliance-pretrip-inspections', []),
-        window.dashboardApi.get('compliance-eod-inspections', [])
-      ]);
-      // Nothing dated before the reset date counts toward any Captain
-      // Metrics section -- applied once here, centrally, so every render
-      // function below sees the same, already-clean data. Records
-      // themselves are never touched, only left out of the scoring.
-      archive = resetDate ? (archiveResult || []).filter(j => !j.assignmentDate || j.assignmentDate >= resetDate) : (archiveResult || []);
-      const filteredPti = resetDate ? (ptiRecords || []).filter(p => !p.date || p.date >= resetDate) : (ptiRecords || []);
-      const filteredEod = resetDate ? (eodRecords || []).filter(e => !e.date || e.date >= resetDate) : (eodRecords || []);
+      const monthLabel = new Date(data.month + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      document.getElementById('cm_activeMonthNote').textContent = `Showing ${monthLabel} so far \u2014 live. Held at month-end until next month's first payroll upload.`;
 
-      renderCaptainPtiCompliance(archive, filteredPti);
-      renderCaptainEodCompliance(filteredPti, filteredEod);
-      renderTruckIssues(filteredEod);
+      const descElIdByKey = { completedPaperwork: 'paperwork', attendance: 'attendance', ptiEod: 'ptiEod', movePhoto: 'movePhoto', underbilled: 'underbilled' };
+      window.CAPTAIN_METRIC_CATEGORIES.forEach(cat => {
+        const el = document.getElementById(`cm_${descElIdByKey[cat.weightKey]}Desc`);
+        if(el) el.textContent = cat.description;
+      });
+
+      renderCmCategoryTable('cm_paperworkRows', 'cm_paperworkEmptyNote', data.scores, 'completedPaperwork');
+      renderCmCategoryTable('cm_attendanceRows', 'cm_attendanceEmptyNote', data.scores, 'attendance');
+      renderCmCategoryTable('cm_ptiEodRows', 'cm_ptiEodEmptyNote', data.scores, 'ptiEod');
+      renderCmCategoryTable('cm_movePhotoRows', 'cm_movePhotoEmptyNote', data.scores, 'movePhoto');
+      renderCmCategoryTable('cm_underbilledRows', 'cm_underbilledEmptyNote', data.scores, 'underbilled');
+
+      const captainSelect = document.getElementById('cm_trendCaptainSelect');
+      const existingValue = captainSelect.value;
+      const captainNames = Object.keys(data.scores).sort();
+      captainSelect.innerHTML = '<option value="__all__">All Captains</option>' + captainNames.map(n => `<option value="${cmEsc(n)}">${cmEsc(n)}</option>`).join('');
+      captainSelect.value = captainNames.includes(existingValue) ? existingValue : '__all__';
     }catch(err){
       console.error('Captain Metrics load failed:', err);
     }
-    try{
-      const configuredResetDate = (window.appSettings.captainMetrics && window.appSettings.captainMetrics.resetDate) || '';
-      const todayStr = new Date().toISOString().slice(0,10);
-      const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
-      const uploadsRaw = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []);
-      const uploads = resetDate ? (uploadsRaw || []).filter(u => !u.uploadedAt || u.uploadedAt.slice(0,10) >= resetDate) : (uploadsRaw || []);
-      renderCaptainCompleteness(archive, uploads);
-    }catch(err){
-      console.error('Captain Metrics completeness load failed:', err);
-    }
+    loadCaptainMetricsTrend();
   }
   window.loadCaptainMetricsData = loadCaptainMetricsData;
 
-  function renderCaptainPtiCompliance(archive, ptiRecords){
-    const listEl = document.getElementById('cm_ptiDayList');
-    const emptyNote = document.getElementById('cm_ptiEmptyNote');
-
-    // Every day with a Captain-assigned job is shown, including today -- a
-    // captain whose day isn't over yet just reads as "Pending" rather than
-    // the red "Incomplete" flag reserved for a day that's actually finished
-    // without a matching Pre-Trip Inspection.
-    const todayStr = new Date().toISOString().slice(0,10);
-    const relevant = archive.filter(j => j.captainName && j.assignmentDate);
-
-    if(relevant.length === 0){
-      listEl.innerHTML = '';
+  // One table shape reused for all 5 categories -- Captain, their
+  // percentage for this category this month, sorted lowest first so any
+  // gap surfaces at the top. A Captain with no applicable data for this
+  // specific category (score is null) is left out of this table entirely,
+  // same as they're left out of their own weighted overall score.
+  function renderCmCategoryTable(rowsElId, emptyNoteElId, scores, categoryKey){
+    const rowsEl = document.getElementById(rowsElId);
+    const emptyNote = document.getElementById(emptyNoteElId);
+    const entries = Object.keys(scores)
+      .map(captain => ({ captain, pct: scores[captain][categoryKey] }))
+      .filter(e => e.pct !== null && e.pct !== undefined)
+      .sort((a,b) => a.pct - b.pct);
+    if(entries.length === 0){
+      rowsEl.innerHTML = '';
       emptyNote.style.display = 'block';
       return;
     }
     emptyNote.style.display = 'none';
-
-    const byDay = {};
-    relevant.forEach(j => {
-      if(!byDay[j.assignmentDate]) byDay[j.assignmentDate] = new Set();
-      byDay[j.assignmentDate].add(j.captainName);
-    });
-
-    const days = Object.keys(byDay).sort((a,b) => b.localeCompare(a));
-
-    let html = '';
-    days.forEach(day => {
-      const isToday = day === todayStr;
-      const captains = [...byDay[day]].sort();
-      let completeCount = 0;
-      const rows = captains.map(captain => {
-        const hasInspection = ptiRecords.some(p => p.driverName === captain && p.date === day);
-        if(hasInspection) completeCount++;
-        const pendingLabel = isToday && !hasInspection;
-        const label = hasInspection ? 'Complete' : (pendingLabel ? 'Pending' : 'Incomplete');
-        const style = hasInspection ? 'background:#e8f5e9; color:#00612C;' : (pendingLabel ? 'background:#f0f0f0; color:var(--muted);' : 'background:#fdecea; color:#b3261e;');
-        return `<tr>
-          <td>${cmEsc(captain)}</td>
-          <td style="text-align:right;">
-            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${style}">
-              ${label}
-            </span>
-          </td>
-        </tr>`;
-      }).join('');
-
-      html += `
-      <div style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <strong>${window.fmtDate(day)}${isToday ? ' (Today)' : ''}</strong>
-          <span class="form-note" style="margin:0;">${completeCount} of ${captains.length} complete</span>
-        </div>
-        <table>
-          <thead><tr><th>Captain</th><th style="text-align:right;">Pre-Trip Status</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-    });
-
-    listEl.innerHTML = html;
+    rowsEl.innerHTML = '<table><thead><tr><th>Captain</th><th style="text-align:right;">Score</th></tr></thead><tbody>' +
+      entries.map(e => {
+        const color = e.pct >= 90 ? '#00612C' : (e.pct >= 70 ? '#8a6d00' : '#b3261e');
+        return `<tr><td>${cmEsc(e.captain)}</td><td style="text-align:right; font-weight:600; color:${color};">${e.pct}%</td></tr>`;
+      }).join('') + '</tbody></table>';
   }
 
-  function renderCaptainEodCompliance(ptiRecords, eodRecords){
-    const listEl = document.getElementById('cm_eodDayList');
-    const emptyNote = document.getElementById('cm_eodEmptyNote');
+  let cmTrendChart = null;
+  let cmTrendWeeksCache = null;
 
-    // Every day with a Pre-Trip Inspection on file is shown, including
-    // today -- a driver whose day isn't over yet just reads as "Pending"
-    // rather than the red "Incomplete" flag reserved for a day that's
-    // actually finished without a matching End of Day Inspection.
-    const todayStr = new Date().toISOString().slice(0,10);
-    const relevant = ptiRecords.filter(p => p.driverName && p.date);
+  async function loadCaptainMetricsTrend(){
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/captain-metrics/weekly-trend`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){ console.error('Captain Metrics trend load failed:', data.error); return; }
+      cmTrendWeeksCache = data.weeks;
+      renderCmTrendChart();
+    }catch(err){ console.error('Captain Metrics trend load failed:', err); }
+  }
+  window.loadCaptainMetricsTrend = loadCaptainMetricsTrend;
 
-    if(relevant.length === 0){
-      listEl.innerHTML = '';
+  function renderCmTrendChart(){
+    if(!cmTrendWeeksCache) return;
+    const canvas = document.getElementById('cm_trendChart');
+    const emptyNote = document.getElementById('cm_trendEmptyNote');
+    const selected = document.getElementById('cm_trendCaptainSelect').value;
+
+    const allCaptains = new Set();
+    cmTrendWeeksCache.forEach(w => Object.keys(w.scores).forEach(c => allCaptains.add(c)));
+    const captainsToShow = selected === '__all__' ? [...allCaptains].sort() : [selected];
+
+    const anyData = cmTrendWeeksCache.some(w => captainsToShow.some(c => w.scores[c] && w.scores[c].overall != null));
+    if(captainsToShow.length === 0 || !anyData){
+      canvas.style.display = 'none';
       emptyNote.style.display = 'block';
+      if(cmTrendChart){ cmTrendChart.destroy(); cmTrendChart = null; }
       return;
     }
+    canvas.style.display = 'block';
     emptyNote.style.display = 'none';
 
-    const byDay = {};
-    relevant.forEach(p => {
-      if(!byDay[p.date]) byDay[p.date] = new Set();
-      byDay[p.date].add(p.driverName);
-    });
+    const palette = ['#2E5C8A','#C1392B','#00843D','#17A398','#8a6d00','#7A4FA3','#B3261E','#00612C','#C77800','#455A64'];
+    const datasets = captainsToShow.map((captain, i) => ({
+      label: captain,
+      data: cmTrendWeeksCache.map(w => (w.scores[captain] ? w.scores[captain].overall : null)),
+      borderColor: palette[i % palette.length],
+      backgroundColor: palette[i % palette.length],
+      spanGaps: true, // a week with no applicable data for this Captain is skipped, not treated as a drop to zero
+      tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: false
+    }));
 
-    const days = Object.keys(byDay).sort((a,b) => b.localeCompare(a));
+    const labels = cmTrendWeeksCache.map(w => window.fmtDate(w.weekStart));
 
-    let html = '';
-    days.forEach(day => {
-      const isToday = day === todayStr;
-      const captains = [...byDay[day]].sort();
-      let completeCount = 0;
-      const rows = captains.map(captain => {
-        const hasInspection = eodRecords.some(e => e.driverName === captain && e.date === day);
-        if(hasInspection) completeCount++;
-        const pendingLabel = isToday && !hasInspection;
-        const label = hasInspection ? 'Complete' : (pendingLabel ? 'Pending' : 'Incomplete');
-        const style = hasInspection ? 'background:#e8f5e9; color:#00612C;' : (pendingLabel ? 'background:#f0f0f0; color:var(--muted);' : 'background:#fdecea; color:#b3261e;');
-        return `<tr>
-          <td>${cmEsc(captain)}</td>
-          <td style="text-align:right;">
-            <span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; ${style}">
-              ${label}
-            </span>
-          </td>
-        </tr>`;
-      }).join('');
-
-      html += `
-      <div style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <strong>${window.fmtDate(day)}${isToday ? ' (Today)' : ''}</strong>
-          <span class="form-note" style="margin:0;">${completeCount} of ${captains.length} complete</span>
-        </div>
-        <table>
-          <thead><tr><th>Captain</th><th style="text-align:right;">End of Day Status</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-    });
-
-    listEl.innerHTML = html;
+    try{
+      if(cmTrendChart) cmTrendChart.destroy();
+      cmTrendChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: captainsToShow.length > 1, labels: { boxWidth: 16, font: { size: 11 } } } },
+          scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
+        }
+      });
+      window.cmTrendChart = cmTrendChart; // test-only visibility
+    }catch(err){ console.error('Captain Metrics trend chart render failed:', err); }
   }
+  document.getElementById('cm_trendCaptainSelect').addEventListener('change', renderCmTrendChart);
 
   function renderTruckIssues(eodRecords){
     const rowsEl = document.getElementById('cm_truckIssuesRows');
@@ -18404,6 +18498,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // after -- never duplicates an entry, and never touches one already
   // reviewed (an EOD record's own flag doesn't change after the fact, so
   // unlike materials there's nothing here that would need un-flagging).
+  // Still called independently from the Materials load flow (see below) --
+  // Captain Metrics' own tile no longer computes truck issues at all,
+  // since that category doesn't exist in the current 5-category scoring.
   async function syncTruckConditionsToManagerReview(flagged){
     try{
       let reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
@@ -18430,62 +18527,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
       if(changed) await window.dashboardApi.set('manager-review-items', reviewItems);
     }catch(err){ console.error('Truck conditions sync to Manager Review failed:', err); }
-  }
-
-  function renderCaptainCompleteness(archive, uploads){
-    const rowsEl = document.getElementById('cm_completenessRows');
-    const emptyNote = document.getElementById('cm_completenessEmptyNote');
-
-    // Completed Paperwork Storage tracks jobNumber, not Captain directly --
-    // cross-reference through the same job archive Metric 1 uses.
-    const captainByJob = {};
-    archive.forEach(j => { if(j.jobNumber && j.captainName) captainByJob[j.jobNumber] = j.captainName; });
-
-    const assessed = uploads.filter(u => typeof u.completenessPercent === 'number');
-    if(assessed.length === 0){
-      rowsEl.innerHTML = '';
-      emptyNote.style.display = 'block';
-      return;
-    }
-    emptyNote.style.display = 'none';
-
-    const byCaptain = {};
-    assessed.forEach(u => {
-      const captain = captainByJob[u.jobNumber] || 'Unknown (no Captain on file for this job)';
-      if(!byCaptain[captain]) byCaptain[captain] = [];
-      byCaptain[captain].push(u);
-    });
-
-    const captains = Object.keys(byCaptain).sort((a,b) => {
-      const avgA = byCaptain[a].reduce((s,u) => s+u.completenessPercent, 0) / byCaptain[a].length;
-      const avgB = byCaptain[b].reduce((s,u) => s+u.completenessPercent, 0) / byCaptain[b].length;
-      return avgA - avgB; // lowest average first, so gaps surface at the top
-    });
-
-    let html = '<table><thead><tr><th>Captain</th><th style="text-align:right;">Jobs Assessed</th><th style="text-align:right;">Avg. Completeness</th></tr></thead><tbody>';
-    captains.forEach(captain => {
-      const jobs = byCaptain[captain];
-      const avg = jobs.reduce((s,u) => s+u.completenessPercent, 0) / jobs.length;
-      const pct = Math.round(avg);
-      const color = pct >= 90 ? '#00612C' : (pct >= 70 ? '#8a6d00' : '#b3261e');
-      html += `<tr><td>${cmEsc(captain)}</td><td style="text-align:right;">${jobs.length}</td><td style="text-align:right; font-weight:600; color:${color};">${pct}%</td></tr>`;
-    });
-    html += '</tbody></table>';
-
-    const flagged = assessed.filter(u => u.completenessPercent < 90 && (u.incompleteFields || []).length > 0)
-      .sort((a,b) => a.completenessPercent - b.completenessPercent);
-    if(flagged.length > 0){
-      html += '<h4 style="margin:18px 0 8px; font-family:\'Barlow Condensed\',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:13px; color:var(--muted);">Jobs to Follow Up On</h4>';
-      html += flagged.map(u => {
-        const captain = captainByJob[u.jobNumber] || 'Unknown';
-        return `<div style="border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-bottom:8px; font-size:12.5px;">
-          <strong>${cmEsc(u.clientName)}</strong> (Job ${cmEsc(u.jobNumber)}, Captain: ${cmEsc(captain)}) \u2014 ${Math.round(u.completenessPercent)}% complete
-          <div class="form-note" style="margin:4px 0 0;">Missing: ${(u.incompleteFields || []).map(cmEsc).join('; ')}</div>
-        </div>`;
-      }).join('');
-    }
-
-    rowsEl.innerHTML = html;
   }
 
   // ---------- Ops Manager Metrics ----------
