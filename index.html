@@ -2617,7 +2617,7 @@
       <div class="tile" id="tile-opsmetrics" tabindex="0" role="button" aria-label="Open Ops Manager Metrics">
         <span class="icon">📊</span>
         <h3>Ops Manager Metrics</h3>
-        <p>Paperwork close-out tracking, with more operational metrics planned.</p>
+        <p>Paperwork close-out and Manager Review item closeout tracking, weighted into a single overall score.</p>
       </div>
       <div class="tile" id="tile-materials" tabindex="0" role="button" aria-label="Open Materials">
         <span class="badge" id="materialsTileBadge" style="display:none;">Low Stock</span>
@@ -3576,12 +3576,26 @@
     </div>
     <p class="form-note">More operational metrics will be added here over time.</p>
 
+    <div class="panel" id="omOverallScorePanel">
+      <h3>Overall Score</h3>
+      <div id="om_overallScoreDisplay" style="font-size:36px; font-weight:800; line-height:1.1;"></div>
+      <div id="om_overallScoreBreakdown" style="font-size:13px; color:var(--muted); margin-top:6px;"></div>
+    </div>
+
     <div class="panel" id="omPaperworkCloseoutPanel">
       <h3>Paperwork Close-Out</h3>
       <p class="form-note">Compares jobs that had paperwork created on Job Data Entry against completed paperwork that was actually uploaded and emailed to the client. Can only look back 90 days, since job-creation records aren't kept longer than that. Jobs not yet at their scheduled date are excluded.</p>
       <p class="form-note" id="om_closeoutSummary" style="font-weight:600;"></p>
       <div id="om_closeoutRows"></div>
       <p class="form-note" id="om_closeoutEmptyNote" style="display:none;">No job-paperwork records found in the last 90 days.</p>
+    </div>
+
+    <div class="panel" id="omReviewCloseoutPanel">
+      <h3>Manager Review Item Closeout</h3>
+      <p class="form-note" id="om_reviewCloseoutDesc"></p>
+      <p class="form-note" id="om_reviewCloseoutSummary" style="font-weight:600;"></p>
+      <div id="om_reviewCloseoutRows"></div>
+      <p class="form-note" id="om_reviewCloseoutEmptyNote" style="display:none;">No Manager Review items due for closeout yet.</p>
     </div>
   </div>
 
@@ -5100,7 +5114,33 @@
               <span class="status-msg" id="appset_omResetDateStatus"></span>
             </div>
           </div>
-          <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from Ops Manager Metrics &mdash; currently Paperwork Close-Out. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
+          <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from Ops Manager Metrics. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
+
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Category Weights</h4>
+          <p class="form-note" style="margin-top:0;">Each category below produces its own percentage. These weights control how much each one counts toward the single overall score shown at the top of Ops Manager Metrics. Weights must add up to 100%.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Category</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Description</th>
+              <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line); width:90px;">Weight</th>
+            </tr></thead>
+            <tbody id="appset_omWeightRows"></tbody>
+          </table>
+          <p class="form-note" id="appset_omWeightTotal" style="margin-top:10px; font-weight:600;"></p>
+          <div class="form-actions">
+            <button type="button" id="appset_omWeightSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Weights</button>
+            <span class="status-msg" id="appset_omWeightStatus"></span>
+          </div>
+
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Manager Review Closeout Window</h4>
+          <p class="form-note" style="margin-top:0;">A Manager Review item counts toward the Manager Review Item Closeout category once it's due -- this many days after it was created. It passes if closed out by then; a still-open item within the window isn't counted yet either way.</p>
+          <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
+            <label>Window (days) <input type="number" min="1" step="1" id="appset_omReviewWindowDays" style="max-width:100px;"></label>
+            <div class="form-actions" style="margin:0;">
+              <button type="button" id="appset_omReviewWindowSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Window</button>
+              <span class="status-msg" id="appset_omReviewWindowStatus"></span>
+            </div>
+          </div>
         </div>
 
         <div class="panel" id="set_junkPricingPanel">
@@ -12517,6 +12557,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     loadCaptainMetricsExclusions();
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
     document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
+    renderOmWeightRows(opsManagerMetrics.weights || { paperworkCloseout: 50, reviewCloseout: 50 });
+    document.getElementById('appset_omReviewWindowDays').value = opsManagerMetrics.reviewCloseoutWindowDays || 7;
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
     loadOverridePinStatus();
     updateStorageUsageNote();
@@ -12697,6 +12739,124 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Save Captain Metrics weights failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---- Ops Manager Metrics: weights + review closeout window ----
+  // OPS_METRIC_CATEGORIES itself lives in the later script block, alongside
+  // the rest of the Ops Manager Metrics computation logic, and is exposed
+  // on window the same way CAPTAIN_METRIC_CATEGORIES is -- see the note on
+  // renderCmWeightRows above for why (multiple script blocks, separate
+  // scopes). Adding a new metric later only means appending to that list
+  // and writing its own computation function; this panel renders whatever
+  // it finds there.
+  function renderOmWeightRows(weights){
+    const tbody = document.getElementById('appset_omWeightRows');
+    tbody.innerHTML = window.OPS_METRIC_CATEGORIES.map(cat => `
+      <tr>
+        <td style="padding:6px 3px; border-bottom:1px solid var(--line); font-weight:600; vertical-align:top;">${settingsEsc(cat.label)}</td>
+        <td style="padding:6px 3px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; vertical-align:top;">${settingsEsc(cat.description)}</td>
+        <td style="padding:6px 3px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top;">
+          <input type="number" min="0" max="100" step="1" class="appset-om-weight" data-key="${cat.weightKey}" value="${Number(weights[cat.weightKey]) || 0}" style="width:60px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; text-align:right;">%
+        </td>
+      </tr>`).join('');
+    tbody.querySelectorAll('.appset-om-weight').forEach(input => input.addEventListener('input', updateOmWeightTotal));
+    updateOmWeightTotal();
+  }
+  window.renderOmWeightRows = renderOmWeightRows;
+
+  function updateOmWeightTotal(){
+    const total = Array.from(document.querySelectorAll('.appset-om-weight')).reduce((s, i) => s + (Number(i.value) || 0), 0);
+    const el = document.getElementById('appset_omWeightTotal');
+    el.textContent = `Total: ${total}%${total === 100 ? '' : ' \u2014 must equal 100% before saving'}`;
+    el.style.color = total === 100 ? '#00612C' : '#b3261e';
+  }
+
+  document.getElementById('appset_omWeightSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_omWeightStatus');
+    const weights = {};
+    let total = 0;
+    document.querySelectorAll('.appset-om-weight').forEach(input => {
+      const v = Math.max(0, Math.min(100, Number(input.value) || 0));
+      weights[input.dataset.key] = v;
+      total += v;
+    });
+    if(total !== 100){
+      statusEl.textContent = `Weights must add up to 100% (currently ${total}%).`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const pin = prompt('Enter the Administrator Override PIN to change Ops Manager Metrics weights:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { opsManagerMetrics: { weights } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save weights.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.opsManagerMetrics = Object.assign({}, window.appSettings.opsManagerMetrics, { weights });
+      statusEl.textContent = 'Weights saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save Ops Manager Metrics weights failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_omReviewWindowSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_omReviewWindowStatus');
+    const days = Math.max(1, Number(document.getElementById('appset_omReviewWindowDays').value) || 7);
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { opsManagerMetrics: { reviewCloseoutWindowDays: days } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save the window.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.opsManagerMetrics = Object.assign({}, window.appSettings.opsManagerMetrics, { reviewCloseoutWindowDays: days });
+      document.getElementById('appset_omReviewWindowDays').value = days;
+      statusEl.textContent = 'Window saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save Ops Manager Metrics review window failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -18713,19 +18873,56 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   // ---------- Ops Manager Metrics ----------
+  // A generic list, like CAPTAIN_METRIC_CATEGORIES -- adding a new metric
+  // later means writing its own compute function and appending an entry
+  // here, not touching the weights panel or the overall-score renderer,
+  // which both just iterate whatever's in this list.
+  const OPS_METRIC_CATEGORIES = [
+    { weightKey: 'paperworkCloseout', label: 'Paperwork Close-Out', description: 'Percentage of jobs past their scheduled date that were fully closed out -- uploaded, emailed to the client, and HunkWare invoice reconciled. Can only look back 90 days, since job-creation records aren\u2019t kept longer than that.' },
+    { weightKey: 'reviewCloseout', label: 'Manager Review Item Closeout', description: 'Percentage of Manager Review items (Underbilled Jobs, Truck Conditions) closed out within the configured window of being created. An item still inside that window isn\u2019t counted yet either way.' }
+  ];
+  window.OPS_METRIC_CATEGORIES = OPS_METRIC_CATEGORIES;
+
+  function renderOmOverallScore(byCategory, weights){
+    const applicable = OPS_METRIC_CATEGORIES
+      .map(cat => ({ ...cat, pct: byCategory[cat.weightKey], weight: Number(weights[cat.weightKey]) || 0 }))
+      .filter(c => c.pct !== null && c.weight > 0);
+
+    const displayEl = document.getElementById('om_overallScoreDisplay');
+    const breakdownEl = document.getElementById('om_overallScoreBreakdown');
+
+    if(applicable.length === 0){
+      displayEl.textContent = '\u2014';
+      breakdownEl.textContent = 'No applicable data yet this period.';
+      return;
+    }
+    const weightSum = applicable.reduce((s, c) => s + c.weight, 0);
+    const overall = Math.round(applicable.reduce((s, c) => s + c.pct * (c.weight / weightSum), 0));
+    displayEl.textContent = `${overall}%`;
+    displayEl.style.color = overall >= 90 ? '#00612C' : (overall >= 70 ? '#8a6d00' : '#b3261e');
+    breakdownEl.textContent = OPS_METRIC_CATEGORIES
+      .filter(cat => byCategory[cat.weightKey] !== null)
+      .map(cat => `${cat.label} ${byCategory[cat.weightKey]}%`)
+      .join(' \u00b7 ');
+  }
+
   async function loadOpsMetricsData(){
     try{
       await window.ensureAppSettingsLoaded();
-      const configuredResetDate = (window.appSettings.opsManagerMetrics && window.appSettings.opsManagerMetrics.resetDate) || '';
+      const omSettings = window.appSettings.opsManagerMetrics || {};
+      const configuredResetDate = omSettings.resetDate || '';
       // A future reset date schedules the reset rather than applying it
       // immediately -- everything keeps counting normally right up until
       // that day arrives, then the cutoff kicks in on its own from there.
       const todayStr = new Date().toISOString().slice(0,10);
       const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
+      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 7;
+      const weights = omSettings.weights || { paperworkCloseout: 50, reviewCloseout: 50 };
 
-      const [archiveResult, uploads] = await Promise.all([
+      const [archiveResult, uploads, reviewItemsResult] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
-        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, [])
+        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
+        window.dashboardApi.get('manager-review-items', [])
       ]);
       // Nothing dated before the reset date counts toward Ops Manager
       // Metrics -- filtered here, centrally, before rendering. Records
@@ -18736,7 +18933,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             return !d || d >= resetDate;
           })
         : (archiveResult || []);
-      renderPaperworkCloseout(archive, uploads || []);
+      const reviewItems = resetDate
+        ? (reviewItemsResult || []).filter(i => !i.createdAt || i.createdAt.slice(0,10) >= resetDate)
+        : (reviewItemsResult || []);
+
+      const paperworkPct = renderPaperworkCloseout(archive, uploads || []);
+      const reviewPct = renderReviewCloseout(reviewItems, reviewWindowDays);
+      renderOmOverallScore({ paperworkCloseout: paperworkPct, reviewCloseout: reviewPct }, weights);
     }catch(err){
       console.error('Ops Metrics load failed:', err);
     }
@@ -20307,7 +20510,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       summaryEl.textContent = '';
       rowsEl.innerHTML = '';
       emptyNote.style.display = 'block';
-      return;
+      return null;
     }
     emptyNote.style.display = 'none';
 
@@ -20332,18 +20535,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       summaryEl.textContent = '';
       rowsEl.innerHTML = '';
       emptyNote.style.display = 'block';
-      return;
+      return null;
     }
 
     const completeCount = statused.filter(s => s.status === 'complete').length;
     summaryEl.textContent = `${completeCount} of ${statused.length} jobs fully closed out (uploaded, emailed, and HunkWare invoice reconciled) in the last 90 days.`;
+    const pct = Math.round((completeCount / statused.length) * 100);
 
     const incomplete = statused.filter(s => s.status !== 'complete')
       .sort((a,b) => (a.job.assignmentDate || a.job.savedAt || '').localeCompare(b.job.assignmentDate || b.job.savedAt || ''));
 
     if(incomplete.length === 0){
       rowsEl.innerHTML = '<p class="form-note" style="margin:0;">Everything\u2019s closed out \u2014 nothing needs follow-up right now.</p>';
-      return;
+      return pct;
     }
 
     const STATUS_LABELS = {
@@ -20363,6 +20567,75 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <td style="text-align:right;"><span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${bg}; color:${color};">${label}</span></td>
         </tr>`;
       }).join('') + '</tbody></table>';
+    return pct;
+  }
+
+  // Manager Review items that actually go through a reviewedAt-based
+  // closeout workflow -- credit card transactions are pulled live from
+  // Square with no persisted review item, and Junk Removal/Moving are pure
+  // documentation lists with no closeout concept, so managerReviewItems
+  // naturally only ever contains Underbilled Jobs and Truck Conditions
+  // items already; nothing further to filter by type here.
+  function mgrReviewItemLabel(item){
+    if(item.type === 'underbilled') return `Underbilled \u2014 Job #${cmEsc(item.jobNumber || '\u2014')}`;
+    if(item.type === 'truck-condition') return `Truck Condition \u2014 ${cmEsc(item.driverName || '\u2014')} / ${cmEsc(item.truckNickname || '\u2014')}`;
+    return item.type || '\u2014';
+  }
+
+  function renderReviewCloseout(reviewItems, windowDays){
+    const summaryEl = document.getElementById('om_reviewCloseoutSummary');
+    const rowsEl = document.getElementById('om_reviewCloseoutRows');
+    const emptyNote = document.getElementById('om_reviewCloseoutEmptyNote');
+    document.getElementById('om_reviewCloseoutDesc').textContent = `Percentage of Manager Review items (Underbilled Jobs, Truck Conditions) closed out within ${windowDays} day${windowDays === 1 ? '' : 's'} of being created. An item still inside that window isn\u2019t counted yet either way.`;
+
+    const nowMs = Date.now();
+    const windowMs = windowDays * 24 * 60 * 60 * 1000;
+    const statused = reviewItems.map(item => {
+      const createdMs = item.createdAt ? new Date(item.createdAt).getTime() : NaN;
+      if(Number.isNaN(createdMs)) return null;
+      if(item.reviewedAt){
+        const closedWithinWindow = (new Date(item.reviewedAt).getTime() - createdMs) <= windowMs;
+        return { item, applicable: true, pass: closedWithinWindow, status: closedWithinWindow ? 'closed-in-window' : 'closed-late' };
+      }
+      const stillOpenPastWindow = (nowMs - createdMs) > windowMs;
+      if(!stillOpenPastWindow) return { item, applicable: false }; // not yet due
+      return { item, applicable: true, pass: false, status: 'still-open' };
+    }).filter(Boolean).filter(s => s.applicable);
+
+    if(statused.length === 0){
+      summaryEl.textContent = '';
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return null;
+    }
+    emptyNote.style.display = 'none';
+
+    const passCount = statused.filter(s => s.pass).length;
+    summaryEl.textContent = `${passCount} of ${statused.length} Manager Review items closed out within ${windowDays} day${windowDays === 1 ? '' : 's'}.`;
+    const pct = Math.round((passCount / statused.length) * 100);
+
+    const misses = statused.filter(s => !s.pass)
+      .sort((a,b) => (a.item.createdAt || '').localeCompare(b.item.createdAt || ''));
+
+    if(misses.length === 0){
+      rowsEl.innerHTML = '<p class="form-note" style="margin:0;">Everything\u2019s been closed out within the window \u2014 nothing needs follow-up right now.</p>';
+      return pct;
+    }
+
+    const STATUS_LABELS = {
+      'closed-late': { label: 'Closed Late', color: '#8a6d00', bg: '#fdf6e3' },
+      'still-open': { label: 'Still Open', color: '#b3261e', bg: '#fdecea' }
+    };
+    rowsEl.innerHTML = '<table><thead><tr><th>Item</th><th>Created</th><th style="text-align:right;">Status</th></tr></thead><tbody>' +
+      misses.map(({item, status}) => {
+        const { label, color, bg } = STATUS_LABELS[status];
+        return `<tr>
+          <td>${mgrReviewItemLabel(item)}</td>
+          <td>${item.createdAt ? window.fmtDate(item.createdAt.slice(0,10)) : '\u2014'}</td>
+          <td style="text-align:right;"><span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${bg}; color:${color};">${label}</span></td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
+    return pct;
   }
 
   // ---------- Manager Review ----------
