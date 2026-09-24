@@ -3953,6 +3953,7 @@
       <h3>Year-to-Date Trend</h3>
       <p class="form-note" style="margin-top:0;">Each line is a running total for the selected year, resetting to zero every January &mdash; so a rising line reflects cumulative performance building through the year, not a single month's figure. Total Equity is the one exception: it's a snapshot of the business's balance as of each month's end, not a monthly flow, so it's plotted at its own actual value each month rather than summed. Owner Wages and Net Income are charted together as one line &mdash; a rough proxy for total owner benefit, similar to Seller's Discretionary Earnings, so a buyer isn't left to add the two together themselves. Both are still recorded and shown separately, at their individual monthly values, in the table below.</p>
       <label style="max-width:160px; margin-bottom:12px;">Year <select id="mf_chartYear"></select></label>
+      <div id="mf_owNiCallout" style="display:none; background:#7A4FA3; color:#fff; font-weight:600; font-size:12.5px; padding:8px 14px; border-radius:6px; margin-bottom:10px;"></div>
       <canvas id="mf_trendChart"></canvas>
       <p class="form-note" id="mf_chartEmptyNote" style="display:none;">Add at least one month above to see the trend chart.</p>
     </div>
@@ -17516,6 +17517,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(monthlyFinancialsRecords.length === 0){
       canvas.style.display = 'none';
       emptyNote.style.display = 'block';
+      document.getElementById('mf_owNiCallout').style.display = 'none';
       if(mfChart){ mfChart.destroy(); mfChart = null; }
       return;
     }
@@ -17548,82 +17550,35 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       { label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] }
     ].map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
 
-    // Draws a small callout box on the most recent (rightmost) point of
-    // the Owner Wages + Net Income line specifically -- it's the one line
-    // that isn't a raw ledger figure, so it's easy to read past in a
-    // legend with five other lines. A native Chart.js draw plugin, not a
-    // third-party dependency, so there's nothing extra to load.
-    const ownerWagesCalloutPlugin = {
-      id: 'ownerWagesCallout',
-      afterDatasetsDraw(chart){
-        // The ENTIRE body is wrapped -- this is a decorative annotation on
-        // top of an already-rendered chart, not something the chart's own
-        // correctness should ever depend on. A failure here must never be
-        // able to prevent the chart itself (with the actual financial
-        // data) from rendering; at worst, the callout box is silently
-        // skipped for this render.
-        try{
-          const datasetIndex = chart.data.datasets.findIndex(ds => ds.label === 'Owner Wages + Net Income');
-          if(datasetIndex === -1) return;
-          const values = chart.data.datasets[datasetIndex].data;
-          let lastIndex = -1;
-          for(let i = values.length - 1; i >= 0; i--){
-            if(values[i] != null){ lastIndex = i; break; }
-          }
-          if(lastIndex === -1) return; // no data at all for this line in the selected year
-          const meta = chart.getDatasetMeta(datasetIndex);
-          const point = meta && meta.data ? meta.data[lastIndex] : null;
-          if(!point || typeof point.x !== 'number' || typeof point.y !== 'number') return;
-
-          const ctx = chart.ctx;
-          const label = `Owner Wages + Net Income: ${mfMoney(values[lastIndex])}`;
-          ctx.save();
-          ctx.font = 'bold 11px sans-serif';
-          const padding = 7;
-          const boxWidth = ctx.measureText(label).width + padding * 2;
-          const boxHeight = 22;
-          const area = chart.chartArea;
-          if(!area) { ctx.restore(); return; }
-          // Centered above the point by default, clamped to stay fully
-          // inside the plotted area so it's never cut off near either edge.
-          let boxX = point.x - boxWidth / 2;
-          boxX = Math.max(area.left, Math.min(boxX, area.right - boxWidth));
-          let boxY = point.y - boxHeight - 14;
-          if(boxY < area.top) boxY = point.y + 14; // flip below the point if there's no room above
-
-          const r = 5;
-          ctx.beginPath();
-          ctx.moveTo(boxX + r, boxY);
-          ctx.arcTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + boxHeight, r);
-          ctx.arcTo(boxX + boxWidth, boxY + boxHeight, boxX, boxY + boxHeight, r);
-          ctx.arcTo(boxX, boxY + boxHeight, boxX, boxY, r);
-          ctx.arcTo(boxX, boxY, boxX + boxWidth, boxY, r);
-          ctx.closePath();
-          ctx.fillStyle = '#7A4FA3';
-          ctx.fill();
-
-          ctx.fillStyle = '#fff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2);
-
-          // Small triangle connecting the box to the actual point, so it
-          // reads as an annotation on that point rather than a floating label.
-          const pointingDown = boxY < point.y;
-          const tipY = pointingDown ? boxY + boxHeight : boxY;
-          const tipDir = pointingDown ? 6 : -6;
-          ctx.beginPath();
-          ctx.moveTo(point.x - 5, tipY);
-          ctx.lineTo(point.x + 5, tipY);
-          ctx.lineTo(point.x, tipY + tipDir);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-        }catch(err){
-          console.error('Owner Wages + Net Income callout failed to draw (chart itself is unaffected):', err);
+    // Shows the latest Owner Wages + Net Income figure in a plain HTML
+    // badge above the chart, rather than drawing a callout box on the
+    // canvas itself. This line often sits close to Operating Profit and
+    // Total Equity, and exactly which lines are nearby shifts from year to
+    // year -- a callout positioned on the canvas can end up sitting right
+    // on top of a different line depending on how that particular year's
+    // values happen to be spaced. A separate HTML element above the chart
+    // can never overlap chart data, since it isn't drawn on top of it at
+    // all -- and it doesn't depend on Chart.js succeeding either, so it
+    // still shows correctly even if the canvas itself fails to render.
+    try{
+      const calloutEl = document.getElementById('mf_owNiCallout');
+      const owNiDatasetIndex = datasets.findIndex(ds => ds.label === 'Owner Wages + Net Income');
+      let lastOwNiIndex = -1;
+      if(owNiDatasetIndex !== -1){
+        const owNiValues = datasets[owNiDatasetIndex].data;
+        for(let i = owNiValues.length - 1; i >= 0; i--){
+          if(owNiValues[i] != null){ lastOwNiIndex = i; break; }
         }
       }
-    };
+      if(lastOwNiIndex !== -1){
+        calloutEl.textContent = `Owner Wages + Net Income (through ${MF_MONTH_ABBR[lastOwNiIndex]}): ${mfMoney(datasets[owNiDatasetIndex].data[lastOwNiIndex])}`;
+        calloutEl.style.display = 'inline-block';
+      } else {
+        calloutEl.style.display = 'none';
+      }
+    }catch(err){
+      console.error('Owner Wages + Net Income badge failed to update (chart itself is unaffected):', err);
+    }
 
     const ctx = canvas.getContext('2d');
     // Isolated from the caller -- a save has already durably succeeded in
@@ -17636,7 +17591,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       mfChart = new Chart(ctx, {
         type: 'line',
         data: { labels: MF_MONTH_ABBR, datasets },
-        plugins: [ownerWagesCalloutPlugin],
         options: {
           responsive: true,
           plugins: {
