@@ -7901,18 +7901,31 @@
     try{
       extraPayExpandedWeeks = new Set(); // reset each time the tile is freshly opened
       const mostRecentWeekStart = extraPayGetMostRecentCompleteWeekStart();
+      await window.ensureAppSettingsLoaded();
+      const commission = window.appSettings.commission || {};
+      const omSettings = window.appSettings.opsManagerMetrics || {};
+      const omWeights = omSettings.weights || { paperworkCloseout: 50, reviewCloseout: 50 };
+      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 7;
 
-      const [roster, tipsData, manualData, laborWeeks] = await Promise.all([
+      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult] = await Promise.all([
         window.getCurrentEmployeeRoster(),
         window.dashboardApi.get('square-tip-allocations', {allocations:{}, overrides:{}}),
         window.dashboardApi.get(EXTRA_PAY_MANUAL_KEY, {}),
-        window.dashboardApi.get('labor-weeks', [])
+        window.dashboardApi.get('labor-weeks', []),
+        window.dashboardApi.get('paperwork-job-archive', []),
+        window.dashboardApi.get('paperwork-uploads', []),
+        window.dashboardApi.get('manager-review-items', []),
+        window.dashboardApi.get('compliance-drivers', [])
       ]);
       extraPayManualData = manualData || {};
       const allocations = (tipsData && tipsData.allocations) || {};
       // A week's ADP payroll report has been uploaded once Labor Cost has
       // a record for it -- that's the trigger to auto-collapse it here.
       const adpUploadedWeeks = new Set((laborWeeks || []).map(w => w.weekStart));
+      const laborWeeksByStart = {};
+      (laborWeeks || []).forEach(w => { laborWeeksByStart[w.weekStart] = w; });
+      const activeDriverKeys = new Set((driversResult || []).filter(d => d.active).map(d => nameDedupKey(d.employeeName)));
+      const opsManagerAssignmentKey = commission.opsManagerAssignment ? nameDedupKey(commission.opsManagerAssignment) : null;
 
       if(!roster || roster.length === 0){
         document.getElementById('extraPay_weeksList').innerHTML = '';
@@ -7935,7 +7948,7 @@
         weekStartsToShow.add(cursor);
       }
 
-      const weeksData = [...weekStartsToShow].sort((a,b) => b.localeCompare(a)).map(weekStart => {
+      const weeksDataRaw = [...weekStartsToShow].sort((a,b) => b.localeCompare(a)).map(weekStart => {
         const week = extraPayGetWeekBounds(weekStart);
         const tipTotals = {};
         Object.values(allocations).forEach(a => {
@@ -7957,7 +7970,65 @@
       }).filter(w => w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips);
 
       // Default expanded unless ADP's already been uploaded for that week.
-      weeksData.forEach(w => { if(!w.adpUploaded) extraPayExpandedWeeks.add(w.weekStart); });
+      weeksDataRaw.forEach(w => { if(!w.adpUploaded) extraPayExpandedWeeks.add(w.weekStart); });
+
+      // Commission auto-fill: revenue and hours only ever exist for a week
+      // once that week's ADP report has been uploaded to Labor Cost --
+      // which is the exact same event that locks the week. So commission
+      // can only ever be calculated for LOCKED weeks, never unlocked ones
+      // (there's simply no revenue/hours data yet for a week that hasn't
+      // had its ADP report uploaded). Only fetch Captain Metrics scores
+      // for weeks that actually have that data, not every week shown.
+      const weeksWithRevenueData = weeksDataRaw.filter(w => w.adpUploaded && laborWeeksByStart[w.weekStart]);
+      const captainScoresByWeek = {};
+      await Promise.all(weeksWithRevenueData.map(async w => {
+        try{
+          const res = await fetch(`${API_BASE}/api/admin/captain-metrics/for-week?weekStart=${w.weekStart}`, { headers: authHeaders() });
+          if(!res.ok){ captainScoresByWeek[w.weekStart] = {}; return; }
+          const data = await res.json();
+          captainScoresByWeek[w.weekStart] = data.scores || {};
+        }catch(err){
+          console.error('Captain Metrics for-week fetch failed:', err);
+          captainScoresByWeek[w.weekStart] = {};
+        }
+      }));
+
+      const weeksData = weeksDataRaw.map(w => {
+        const commissionCalc = {};
+        const laborWeek = laborWeeksByStart[w.weekStart];
+        const revenue = laborWeek ? Number(laborWeek.revenue) || 0 : 0;
+        if(revenue > 0){
+          const hoursByKey = {};
+          if(laborWeek && Array.isArray(laborWeek.employees)){
+            laborWeek.employees.forEach(e => { hoursByKey[nameDedupKey(e.name)] = (Number(e.regHrs)||0) + (Number(e.otHrs)||0); });
+          }
+          const paperworkPct = window.computeOpsManagerPaperworkCloseoutForWeek(archiveResult || [], uploadsResult || [], w.week.weekStart, w.week.weekEnd);
+          const reviewPct = window.computeOpsManagerReviewCloseoutForWeek(reviewItemsResult || [], reviewWindowDays, w.week.weekStart, w.week.weekEnd);
+          const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(paperworkPct, reviewPct, omWeights);
+          const captainScores = captainScoresByWeek[w.weekStart] || {};
+
+          w.names.forEach(name => {
+            const key = nameDedupKey(name);
+            const hours = hoursByKey[key] || 0;
+            let total = 0;
+
+            if(activeDriverKeys.has(key)){
+              // Match by normalized name against whatever spelling
+              // Captain Metrics used for that week.
+              const captainEntry = Object.keys(captainScores).find(cn => nameDedupKey(cn) === key);
+              const captainScore = captainEntry ? captainScores[captainEntry].overall : null;
+              if(captainScore !== null && captainScore !== undefined){
+                total += revenue * ((Number(commission.driverRate)||0)/100) * (captainScore/100) * (hours/40);
+              }
+            }
+            if(opsManagerAssignmentKey && key === opsManagerAssignmentKey && opsManagerScore !== null){
+              total += revenue * ((Number(commission.opsManagerRate)||0)/100) * (opsManagerScore/100) * (hours/40);
+            }
+            if(total > 0) commissionCalc[name] = total;
+          });
+        }
+        return Object.assign({}, w, { commissionCalc });
+      });
 
       renderExtraPayWeeksList(weeksData);
     }catch(err){
@@ -7999,11 +8070,14 @@
     const rowsHtml = w.names.map(name => {
       const tips = w.tipTotals[name] || 0;
       const manual = weekManualData[name] || {};
+      const isAutoCalculated = manual.commission === undefined && w.commissionCalc && w.commissionCalc[name] !== undefined;
+      const commissionValue = manual.commission !== undefined ? manual.commission : ((w.commissionCalc && w.commissionCalc[name]) || 0);
+      const commissionTitle = isAutoCalculated ? ' title="Auto-calculated from revenue \u00d7 rate \u00d7 score \u00d7 hours worked"' : '';
       return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" value="${Number(manual.reviewBonus)||0}" style="${inputStyle}" ${disabledAttr}></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${Number(manual.commission)||0}" style="${inputStyle}" ${disabledAttr}></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${inputStyle}" ${disabledAttr}${commissionTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}" ${disabledAttr}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
@@ -21109,6 +21183,61 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }).join('') + '</tbody></table>';
     return pct;
   }
+
+  // Pure, non-rendering versions of the two categories above, scoped to a
+  // single week's dates instead of "since reset date to now" -- used for
+  // commission calculation, where a specific week's own Ops Manager
+  // Metrics score is needed regardless of what's currently showing live
+  // on the tile itself. Same underlying definitions, just re-scoped.
+  function computeOpsManagerPaperworkCloseoutForWeek(archive, uploads, weekStart, weekEnd){
+    const weekJobs = archive.filter(j => j.jobNumber && j.assignmentDate && j.assignmentDate >= weekStart && j.assignmentDate < weekEnd);
+    if(weekJobs.length === 0) return null;
+    const uploadsByJob = {};
+    uploads.forEach(u => { if(u.jobNumber) uploadsByJob[u.jobNumber] = u; });
+    const statused = weekJobs.map(j => {
+      const upload = uploadsByJob[j.jobNumber];
+      const complete = !!(upload && upload.emailSentAt && upload.invoiceUploadedAt && (Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden));
+      return { upload, complete };
+    }).filter(s => !(s.upload && s.upload.satisfaction === 'angry'));
+    if(statused.length === 0) return null;
+    const completeCount = statused.filter(s => s.complete).length;
+    return Math.round((completeCount / statused.length) * 100);
+  }
+
+  function computeOpsManagerReviewCloseoutForWeek(reviewItems, windowDays, weekStart, weekEnd){
+    const nowMs = Date.now();
+    const windowMs = windowDays * 24 * 60 * 60 * 1000;
+    const weekItems = reviewItems.filter(i => i.createdAt && i.createdAt.slice(0,10) >= weekStart && i.createdAt.slice(0,10) < weekEnd);
+    const statused = weekItems.map(item => {
+      const createdMs = item.createdAt ? new Date(item.createdAt).getTime() : NaN;
+      if(Number.isNaN(createdMs)) return null;
+      if(item.reviewedAt){
+        return { pass: (new Date(item.reviewedAt).getTime() - createdMs) <= windowMs };
+      }
+      const stillOpenPastWindow = (nowMs - createdMs) > windowMs;
+      if(!stillOpenPastWindow) return null; // not yet due
+      return { pass: false };
+    }).filter(Boolean);
+    if(statused.length === 0) return null;
+    const passCount = statused.filter(s => s.pass).length;
+    return Math.round((passCount / statused.length) * 100);
+  }
+
+  function computeOpsManagerOverallScoreForWeek(paperworkPct, reviewPct, weights){
+    const categories = [
+      { pct: paperworkPct, weight: Number(weights.paperworkCloseout) || 0 },
+      { pct: reviewPct, weight: Number(weights.reviewCloseout) || 0 }
+    ].filter(c => c.pct !== null && c.weight > 0);
+    if(categories.length === 0) return null;
+    const weightSum = categories.reduce((s,c)=>s+c.weight, 0);
+    return Math.round(categories.reduce((s,c)=>s + c.pct * (c.weight/weightSum), 0));
+  }
+  // Exposed globally -- this file has multiple separate <script> blocks,
+  // each with its own const/function scope, and loadExtraPayData (which
+  // needs these three) lives in an earlier one.
+  window.computeOpsManagerPaperworkCloseoutForWeek = computeOpsManagerPaperworkCloseoutForWeek;
+  window.computeOpsManagerReviewCloseoutForWeek = computeOpsManagerReviewCloseoutForWeek;
+  window.computeOpsManagerOverallScoreForWeek = computeOpsManagerOverallScoreForWeek;
 
   // ---------- Manager Review ----------
   const MANAGER_REVIEW_ITEMS_KEY = 'manager-review-items';
