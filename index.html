@@ -1347,16 +1347,43 @@
     }
     emptyNote.style.display = 'none';
 
+    // Score color matches the same >=90 green / >=70 amber / else red
+    // convention already used everywhere else this app shows a Captain
+    // Metrics percentage (Settings, the admin tile, etc.).
+    const scoreColor = v => v >= 90 ? '#00612C' : (v >= 70 ? '#8a6d00' : '#b3261e');
+    // Top 3 get a distinct medal color; everyone else a plain neutral badge.
+    const rankStyle = i => i === 0 ? 'background:#D4AF37; color:#fff;'
+      : i === 1 ? 'background:#A8A8A8; color:#fff;'
+      : i === 2 ? 'background:#B87333; color:#fff;'
+      : 'background:var(--offwhite); color:var(--muted); border:1px solid var(--line);';
+
     container.innerHTML = driverLbCategories.map(cat => {
       const rows = cat.entries.map((entry, i) => {
         const isMe = currentDriverName && entry.name === currentDriverName;
-        return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-radius:6px; ${isMe ? 'background:#e8f5e9; font-weight:700;' : ''} font-size:13px;">
-          <span>${i+1}. ${driverLbEsc(entry.name)}${isMe ? ' (you)' : ''}</span>
-          <span>${entry.value}% <span style="color:var(--muted); font-weight:400; font-size:11.5px;">(${driverLbEsc(entry.detail)})</span></span>
+        const color = scoreColor(entry.value);
+        // The backend's detail string is "Label XX% \u00b7 Label XX% \u00b7 ..."
+        // -- split into individual chips without needing to know what the
+        // underlying category names are, so a new metric added later still
+        // renders correctly with no frontend change.
+        const chips = (entry.detail || '').split(' \u00b7 ').filter(Boolean).map(part =>
+          `<span style="display:inline-block; background:var(--offwhite); color:var(--muted); font-size:10.5px; padding:2px 7px; border-radius:10px; margin:2px 4px 0 0;">${driverLbEsc(part)}</span>`
+        ).join('');
+        return `<div class="driver-lb-card" style="border:1px solid ${isMe ? '#00612C' : 'var(--line)'}; ${isMe ? 'background:#e8f5e9;' : 'background:#fff;'} border-radius:10px; padding:10px 12px; margin-bottom:8px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="flex-shrink:0; width:24px; height:24px; border-radius:50%; ${rankStyle(i)} display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">${i+1}</div>
+            <div style="flex:1; min-width:0; font-weight:700; font-size:13.5px;">
+              ${driverLbEsc(entry.name)}${isMe ? ' <span style="background:#00612C; color:#fff; font-size:9.5px; font-weight:700; padding:1px 6px; border-radius:8px; vertical-align:middle;">YOU</span>' : ''}
+            </div>
+            <div style="flex-shrink:0; font-size:18px; font-weight:800; color:${color};">${entry.value}%</div>
+          </div>
+          <div style="margin-top:7px; height:5px; background:var(--offwhite); border-radius:3px; overflow:hidden;">
+            <div style="height:100%; width:${Math.max(0, Math.min(100, entry.value))}%; background:${color};"></div>
+          </div>
+          ${chips ? `<div style="margin-top:6px;">${chips}</div>` : ''}
         </div>`;
       }).join('');
       return `<div style="margin-bottom:14px;">
-        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:4px; font-family:'Barlow Condensed',sans-serif;">${driverLbEsc(cat.title)}</div>
+        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:8px; font-family:'Barlow Condensed',sans-serif;">${driverLbEsc(cat.title)}</div>
         ${rows}
       </div>`;
     }).join('');
