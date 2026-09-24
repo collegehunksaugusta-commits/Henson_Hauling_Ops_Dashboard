@@ -3842,7 +3842,7 @@
       <h3>Junk Removal</h3>
       <p class="form-note">Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. Each job's on-site and loaded-truck photos, and Claude's volume estimates for both. Photos are kept for 30 days, then removed automatically; the estimate itself is kept indefinitely.</p>
       <div id="jr_jobRows"></div>
-      <p class="form-note" id="jr_emptyNote" style="display:none;">No junk removal jobs yet.</p>
+      <p class="form-note" id="jr_emptyNote" style="display:none;">No junk removal jobs assigned today.</p>
     </div>
 
     <div class="panel" id="mgrreview_panel_moving" style="display:none;">
@@ -19298,10 +19298,34 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return changed;
   }
 
+  // The dashboard list is only meant to be a same-day working queue, so a
+  // Captain can be reassigned throughout the day -- not a growing backlog.
+  // Once a job's assignment date is no longer today, it drops off the
+  // rendered list (see renderJunkRemovalJobs) and its active-workflow
+  // fields (who's assigned, what stage it's in) are cleared here, since
+  // neither means anything once the day is over. The record itself stays,
+  // along with everything worth keeping long-term: job number, client
+  // name, photos, and both estimates. Returns true if anything changed,
+  // so the caller knows whether a save is needed.
+  function pruneStaleJunkRemovalAssignments(){
+    const today = new Date().toISOString().slice(0,10);
+    let changed = false;
+    for(const job of junkRemovalJobs){
+      if(job.assignmentDate && job.assignmentDate !== today && (job.captainName || job.status)){
+        delete job.captainName;
+        delete job.status;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   async function loadJunkRemovalJobs(){
     try{
       junkRemovalJobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []) || [];
-      if(await pruneOldJunkRemovalPhotos()) await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, junkRemovalJobs);
+      const photosChanged = await pruneOldJunkRemovalPhotos();
+      const assignmentsChanged = pruneStaleJunkRemovalAssignments();
+      if(photosChanged || assignmentsChanged) await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, junkRemovalJobs);
       await renderJunkRemovalJobs();
     }catch(err){ console.error('Junk removal jobs load failed:', err); }
   }
@@ -19310,14 +19334,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function renderJunkRemovalJobs(){
     const rowsEl = document.getElementById('jr_jobRows');
     const emptyNote = document.getElementById('jr_emptyNote');
-    if(junkRemovalJobs.length === 0){
+    // Same-day working queue, not a growing backlog -- a job whose
+    // assignment date isn't today has already served its purpose here
+    // (same-day reassignment) and drops off the visible list, even though
+    // its record (photos, estimates, job number, client name) stays in
+    // storage indefinitely for the estimate-vs-actual record-keeping this
+    // tile is for.
+    const today = new Date().toISOString().slice(0,10);
+    const todaysJobs = junkRemovalJobs.filter(j => j.assignmentDate === today);
+    if(todaysJobs.length === 0){
       rowsEl.innerHTML = '';
       emptyNote.style.display = 'block';
       return;
     }
     emptyNote.style.display = 'none';
 
-    const sorted = [...junkRemovalJobs].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+    const sorted = [...todaysJobs].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
     rowsEl.innerHTML = sorted.map(j => {
       const status = JUNK_REMOVAL_STATUS_LABELS[j.status] || JUNK_REMOVAL_STATUS_LABELS.assigned;
       const hasDetail = j.initialEstimate || j.finalEstimate;
