@@ -1441,10 +1441,19 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     }
   });
 
-  // ---- 5. Underbilled Jobs -- only jobs that actually had materials
-  // checked out are applicable (a job with nothing checked out can't be
-  // underbilled). Not underbilled = every checked-out item was billed for
-  // at least as much as was pulled. ----
+  // ---- 5. Underbilled Jobs -- a job is applicable to this category if
+  // EITHER of two independent conditions apply, and fails (counts as
+  // underbilled) if that applicable condition isn't met:
+  //   (a) it had materials checked out -- not underbilled means every
+  //       checked-out item was billed for at least as much as was pulled.
+  //   (b) it's a Move or Move Labor job -- not underbilled means the
+  //       invoice has a billed line item whose description includes the
+  //       word "travel", regardless of whether materials were involved
+  //       at all. An invoice that hasn't been (re-)processed with this
+  //       check counts as failing it, not as skipped.
+  // A job meeting neither condition (no materials checked out, and not a
+  // Move/Move Labor job) isn't counted either way. A job meeting both
+  // must pass both to count as not underbilled.
   const billableItemIds = new Set((materialsItems || []).filter(i => !i.neverBilled).map(i => i.id));
   const checkedOutByJob = {};
   (materialsCheckouts || []).forEach(co => {
@@ -1457,22 +1466,37 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     });
   });
   const billedByJob = {};
+  const travelConfirmedByJob = {};
   uploads.forEach(u => {
-    if (!u.jobNumber || !Array.isArray(u.materialsBilled)) return;
-    if (!billedByJob[u.jobNumber]) billedByJob[u.jobNumber] = {};
-    u.materialsBilled.forEach(b => {
-      billedByJob[u.jobNumber][b.itemId] = (billedByJob[u.jobNumber][b.itemId] || 0) + Number(b.quantity || 0);
-    });
+    if (!u.jobNumber) return;
+    if (Array.isArray(u.materialsBilled)) {
+      if (!billedByJob[u.jobNumber]) billedByJob[u.jobNumber] = {};
+      u.materialsBilled.forEach(b => {
+        billedByJob[u.jobNumber][b.itemId] = (billedByJob[u.jobNumber][b.itemId] || 0) + Number(b.quantity || 0);
+      });
+    }
+    if (u.hasTravelLineItem === true) travelConfirmedByJob[u.jobNumber] = true;
   });
+  const MOVE_JOB_TYPES_FOR_TRAVEL_CHECK = new Set(['move', 'movelabor']);
   const underbilledByCaptain = {};
   monthJobs.forEach(j => {
     const checkedOut = checkedOutByJob[j.jobNumber];
-    if (!checkedOut || Object.keys(checkedOut).length === 0) return; // not applicable
+    const hasMaterialsCheckedOut = !!(checkedOut && Object.keys(checkedOut).length > 0);
+    const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType);
+    if (!hasMaterialsCheckedOut && !needsTravelLine) return; // not applicable either way
+
     if (!underbilledByCaptain[j.captainName]) underbilledByCaptain[j.captainName] = { ok: 0, total: 0 };
     underbilledByCaptain[j.captainName].total++;
-    const billed = billedByJob[j.jobNumber] || {};
-    const isUnderbilled = Object.keys(checkedOut).some(itemId => (billed[itemId] || 0) < checkedOut[itemId]);
-    if (!isUnderbilled) underbilledByCaptain[j.captainName].ok++;
+
+    let failed = false;
+    if (hasMaterialsCheckedOut) {
+      const billed = billedByJob[j.jobNumber] || {};
+      const materialsUnderbilled = Object.keys(checkedOut).some(itemId => (billed[itemId] || 0) < checkedOut[itemId]);
+      if (materialsUnderbilled) failed = true;
+    }
+    if (needsTravelLine && !travelConfirmedByJob[j.jobNumber]) failed = true;
+
+    if (!failed) underbilledByCaptain[j.captainName].ok++;
   });
 
   // ---- Combine into per-category percentages + one weighted overall
@@ -2033,9 +2057,10 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
         },
         description: 'Every billed line item that looks like a packing/moving material or physical good (boxes, tape, wrap, crates, etc.) -- not labor, mileage, or other service fees. Include unusual or one-off items too (e.g. "TV Crate", "Wardrobe Box") even if they look uncommon -- do not skip a line just because it seems unfamiliar. Empty array if invoicePageFound is false.'
       },
-      confident: { type: 'boolean', description: 'True only if invoicePageFound is true AND the Balance Due, Total Sale, and Tax lines were all read clearly and unambiguously from that genuine invoice/receipt page. False otherwise, including whenever invoicePageFound is false.' }
+      confident: { type: 'boolean', description: 'True only if invoicePageFound is true AND the Balance Due, Total Sale, and Tax lines were all read clearly and unambiguously from that genuine invoice/receipt page. False otherwise, including whenever invoicePageFound is false.' },
+      hasTravelLineItem: { type: 'boolean', description: 'True only if a billed line item ANYWHERE on the invoice -- including labor, mileage, or service-fee lines that are otherwise excluded from lineItems above -- has a description containing the word "travel" (case-insensitive), e.g. "Travel Fee", "Travel Time". This checks the whole invoice, not just the physical-goods lineItems list. False if no such line exists, or if invoicePageFound is false.' }
     },
-    required: ['invoicePageFound', 'balanceDue', 'lineItems', 'confident']
+    required: ['invoicePageFound', 'balanceDue', 'lineItems', 'confident', 'hasTravelLineItem']
   }
 };
 
@@ -2140,7 +2165,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       // call needed. jobType/originAddress from step 1 still carry through,
       // since those can come from a work order page even with no invoice.
       console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] no invoice page found -- returning early with all-zero financials`);
-      return res.json({ ...baseResult, invoicePageFound: false, balanceDue: 0, totalSale: 0, tax: 0, lineItems: [], confident: false });
+      return res.json({ ...baseResult, invoicePageFound: false, balanceDue: 0, totalSale: 0, tax: 0, lineItems: [], confident: false, hasTravelLineItem: false });
     }
 
     // Step 2: extract financial figures using ONLY the pages step 1
@@ -2155,7 +2180,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       : `Find every billed line item that represents a physical good sold -- not labor, mileage, or other service fees.`;
     const extraction = await callClaude([EXTRACT_CLIENT_INVOICE_TOOL], 'extract_client_invoice', [
       ...pageContentBlocks(invoicePageIndices),
-      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal/Product Total amount, and the Tax amount. ${lineItemInstruction} For each reported line item, include the exact dollar amount billed for it, since that is what was actually charged to the client and is what matters for sales tax, not any catalog or cost price. Before reporting the Total Sale, Tax, and each line item's dollar amount, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted, taxLineAsPrinted, and lineTotalAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
+      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal/Product Total amount, and the Tax amount. ${lineItemInstruction} For each reported line item, include the exact dollar amount billed for it, since that is what was actually charged to the client and is what matters for sales tax, not any catalog or cost price. Before reporting the Total Sale, Tax, and each line item's dollar amount, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted, taxLineAsPrinted, and lineTotalAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing. Separately from lineItems, also check the ENTIRE invoice -- including labor, mileage, and other service-fee lines you would otherwise leave out of lineItems -- for any billed line whose description contains the word "travel" (e.g. "Travel Fee", "Travel Time"), and report that in hasTravelLineItem.` }
     ]);
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
 
@@ -2243,6 +2268,9 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     // than discarding an otherwise well-grounded extraction; an explicit
     // confident:false from the model is still respected as-is.
     if (extraction.confident === undefined) extraction.confident = true;
+    // Unlike confident above, a missing hasTravelLineItem defaults to
+    // false -- "not confirmed" should fail the travel-line check, not pass it.
+    extraction.hasTravelLineItem = !!extraction.hasTravelLineItem;
 
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] FINAL result: ${JSON.stringify({ ...baseResult, invoicePageFound: true, ...extraction })}`);
     res.json({ ...baseResult, invoicePageFound: true, ...extraction });
