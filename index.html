@@ -6629,13 +6629,22 @@
   // exposes the rebuilt PDF, not the individual page images).
   async function renderAllPdfPagesToImages(file, targetWidth){
     targetWidth = targetWidth || 1400;
+    // Anthropic's API applies a stricter 2000px-per-side limit to any image
+    // once a single request has more than 20 images -- which now happens
+    // routinely with the 80-page batch ceiling. Capping scale by width
+    // alone is fine for a standard portrait page, but an unusually tall or
+    // narrow page (a long receipt-style scan, extra whitespace, etc.)
+    // could still end up taller than that even at a modest width. 1900px
+    // leaves a small safety margin under the actual 2000px limit.
+    const MAX_DIMENSION = 1900;
     const typedArray = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
     const images = [];
     for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
       const page = await pdf.getPage(pageNum);
       const baseViewport = page.getViewport({ scale: 1 });
-      const scale = Math.min(targetWidth / baseViewport.width, 2);
+      let scale = Math.min(targetWidth / baseViewport.width, 2);
+      scale = Math.min(scale, MAX_DIMENSION / baseViewport.width, MAX_DIMENSION / baseViewport.height);
       const viewport = page.getViewport({ scale });
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
@@ -14879,8 +14888,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       } else {
         throw new Error('Unsupported file type.');
       }
-      if(allPageDataUris.length > 24){
-        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+      if(allPageDataUris.length > 80){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (80 pages or fewer each).`;
         statusEl.className = 'status-msg err';
         return;
       }
@@ -17197,8 +17206,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       } else {
         throw new Error('Unsupported file type.');
       }
-      if(allPageDataUris.length > 24){
-        statusEl.textContent = `That file has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+      if(allPageDataUris.length > 80){
+        statusEl.textContent = `That file has ${allPageDataUris.length} pages \u2014 please split it into smaller files (80 pages or fewer each).`;
         statusEl.className = 'status-msg err';
         return;
       }
@@ -18741,8 +18750,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       } else {
         throw new Error('Unsupported file type.');
       }
-      if(allPageDataUris.length > 24){
-        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer).`;
+      if(allPageDataUris.length > 80){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (80 pages or fewer).`;
         statusEl.className = 'status-msg err';
         return;
       }
@@ -20344,8 +20353,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       } else {
         throw new Error('Unsupported file type.');
       }
-      if(allPageDataUris.length > 24){
-        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+      if(allPageDataUris.length > 80){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (80 pages or fewer each).`;
         statusEl.className = 'status-msg err';
         return;
       }
@@ -20745,8 +20754,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       } else {
         throw new Error('Unsupported file type.');
       }
-      if(allPageDataUris.length > 24){
-        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (24 pages or fewer each).`;
+      if(allPageDataUris.length > 80){
+        statusEl.textContent = `That PDF has ${allPageDataUris.length} pages \u2014 please split it into smaller files (80 pages or fewer each).`;
         statusEl.className = 'status-msg err';
         return;
       }
