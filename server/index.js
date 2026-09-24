@@ -1715,8 +1715,8 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
   if (!Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ error: 'At least one image is required.' });
   }
-  if (images.length > 24) {
-    return res.status(400).json({ error: 'Please split this into invoices of 24 pages or fewer.' });
+  if (images.length > 80) {
+    return res.status(400).json({ error: 'Please split this into invoices of 80 pages or fewer.' });
   }
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -1965,8 +1965,8 @@ app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) 
   if (!Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ error: 'At least one image is required.' });
   }
-  if (images.length > 24) {
-    return res.status(400).json({ error: 'Please split this into files of 24 pages or fewer.' });
+  if (images.length > 80) {
+    return res.status(400).json({ error: 'Please split this into files of 80 pages or fewer.' });
   }
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -2808,7 +2808,7 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
     if (parsedFiles.every(blocks => blocks.length === 0)) {
       return res.status(400).json({ error: 'No valid pages were provided.' });
     }
-    const MAX_PAGES_PER_FILE = 24; // roomy enough for ~8 combined work orders at ~3 pages each
+    const MAX_PAGES_PER_FILE = 80; // Anthropic's API allows up to 100 images per request for this model; 80 leaves comfortable headroom below both that cap and the 32MB total request-size limit
     for (const blocks of parsedFiles) {
       if (blocks.length > MAX_PAGES_PER_FILE) {
         return res.status(400).json({ error: `One of the files has more than ${MAX_PAGES_PER_FILE} pages -- please split it into smaller files.` });
@@ -3107,8 +3107,8 @@ app.post('/api/admin/extract-invoice-items', requireAuth, async (req, res) => {
   if (!Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ error: 'At least one image is required.' });
   }
-  if (images.length > 24) {
-    return res.status(400).json({ error: 'Please split this into invoices of 24 pages or fewer.' });
+  if (images.length > 80) {
+    return res.status(400).json({ error: 'Please split this into invoices of 80 pages or fewer.' });
   }
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
