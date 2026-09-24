@@ -1678,6 +1678,34 @@ app.post('/api/admin/captain-metrics/check-month-lock', requireAuth, requireAdmi
 // scoring logic as the monthly figures (computeCaptainScoresForRange),
 // just at week granularity -- this is for trend-spotting only, not tied
 // to commission, so it needs no lock/snapshot system of its own.
+// A single week's Captain Metrics scores, for commission calculation --
+// distinct from the always-current-month "live" scores shown on the tile
+// itself, and from the 12-week trend graph, since commission needs to be
+// able to look at exactly one specific week regardless of how long ago it
+// was. Reuses the identical scoring function both of those already use.
+app.get('/api/admin/captain-metrics/for-week', requireAuth, async (req, res) => {
+  const { weekStart } = req.query;
+  if (!weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+    return res.status(400).json({ error: 'weekStart (YYYY-MM-DD) is required.' });
+  }
+  try {
+    const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+    const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
+    const weights = settings.captainMetrics.weights;
+    const data = await fetchCaptainMetricsRawData();
+
+    const weekEndDate = new Date(weekStart + 'T00:00:00Z');
+    weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
+    const weekEnd = weekEndDate.toISOString().slice(0, 10);
+
+    const scores = computeCaptainScoresForRange(weekStart, weekEnd, data, weights, data.opsManagerNames, data.activeDriverNames);
+    res.json({ weekStart, scores });
+  } catch (err) {
+    console.error('Captain Metrics for-week fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load Captain Metrics for that week.' });
+  }
+});
+
 app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res) => {
   try {
     const settingsRaw = await redis.get(APP_SETTINGS_KEY);
