@@ -13465,6 +13465,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return d.innerHTML;
   }
 
+  // Fills in {{fieldName}}-style placeholders in a hand-edited email
+  // template. Case-insensitive and tolerant of stray whitespace inside the
+  // braces (so "{{ReviewLink}}" or "{{ reviewLink }}" both still match
+  // "reviewLink") -- these templates are edited by non-developers in
+  // Settings, and a small casing/spacing slip would otherwise silently
+  // leave the raw placeholder sitting in a sent email instead of the
+  // actual value. Replacement values are inserted via a function, not a
+  // plain string, so a value containing a literal "$" (a formatted dollar
+  // amount, say) is never misread as a special replacement pattern.
+  function mergeEmailTemplate(template, fields){
+    let result = String(template || '');
+    Object.keys(fields).forEach(key => {
+      const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const value = fields[key];
+      result = result.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, 'gi'), () => (value == null ? '' : String(value)));
+    });
+    return result;
+  }
+
   // Browsers block navigating a new tab directly to a data: URI (a phishing
   // protection), so PDFs must be converted to a blob: URL first to display reliably.
   function dataUriToBlobUrl(dataUri){
@@ -13622,13 +13641,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const { val2a } = computeEstimateFigures();
     const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
     const template = ldQuote.emailBodyTemplate || '';
-    const body = template
-      .split('{{clientName}}').join(clientName)
-      .split('{{clientFirstName}}').join(clientFirstName)
-      .split('{{weight}}').join(Math.round(window.__calc.weight).toLocaleString())
-      .split('{{miles}}').join(Math.round(window.__calc.miles).toLocaleString())
-      .split('{{total}}').join(money(window.__calc.total))
-      .split('{{valuationCost}}').join(money(val2a));
+    const body = mergeEmailTemplate(template, {
+      clientName, clientFirstName,
+      weight: Math.round(window.__calc.weight).toLocaleString(),
+      miles: Math.round(window.__calc.miles).toLocaleString(),
+      total: money(window.__calc.total),
+      valuationCost: money(val2a)
+    });
     const subject = 'College Hunks - Weight and Distance Quote';
     const cc = ldQuote.ccEmails || '';
 
@@ -17194,9 +17213,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           angry: pw.emailBodyAngry || 'Hi {{clientFirstName}},\n\nThank you for choosing College Hunks Hauling Junk & Moving for your recent move! Attached is a copy of your completed paperwork for your records.\n\nIf anything about your experience wasn\'t up to standard, please give us a call so we can make it right.\n\nPlease don\'t hesitate to reach out if you have any questions.\n\nThanks again for your business!\n\n- The College Hunks Team'
         };
         const template = templatesBySatisfaction[upload.satisfaction] || templatesBySatisfaction.sad;
-        const body = template
-          .split('{{clientFirstName}}').join(firstName)
-          .split('{{reviewLink}}').join(reviewLink);
+        const body = mergeEmailTemplate(template, { clientFirstName: firstName, reviewLink });
         const cc = pw.completedPaperworkCc || 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com';
 
         let clipboardOk = false;
@@ -20010,7 +20027,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const dc = window.appSettings.damageClaims || {};
     const link = `${location.origin}${location.pathname}#claim-${token}`;
     const template = dc.emailBodyTemplate || 'Please upload photos of the damage here: {{link}}';
-    const body = template.split('{{link}}').join(link);
+    const body = mergeEmailTemplate(template, { link });
     const subject = `RE: Damage Claim ${jobNumber}`;
 
     let clipboardOk = false;
