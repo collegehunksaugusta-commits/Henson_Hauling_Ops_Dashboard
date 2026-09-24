@@ -1311,10 +1311,10 @@ function monthAfter(monthStr) {
 // has no applicable data for (e.g. no move jobs that month) is left out of
 // their score entirely rather than counted as a 0 -- see the weight
 // re-normalization below.
-function computeCaptainScoresForMonth(monthStr, data, weights, opsManagerNames) {
+function computeCaptainScoresForMonth(monthStr, data, weights, opsManagerNames, activeDriverNames) {
   const rangeStart = monthStr + '-01';
   const rangeEnd = monthAfter(monthStr) + '-01'; // exclusive upper bound
-  return computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames);
+  return computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames);
 }
 
 // Same scoring logic as computeCaptainScoresForMonth, generalized to any
@@ -1330,10 +1330,18 @@ function nameDedupKey(name) {
   return String(name || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
 }
 
-function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames) {
+function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems } = data;
   const opsManagerKeys = new Set((opsManagerNames || []).map(nameDedupKey));
+  // Only someone currently checked as a driver on Compliance is eligible
+  // to be scored -- the Captain-selection dropdown on Job Data Entry pulls
+  // from the full employee roster, not filtered by driver status, so
+  // anyone could technically end up as a job's captainName even without
+  // ever being marked a driver. undefined means "no driver list available"
+  // (an older caller, or the data genuinely couldn't be fetched) -- treated
+  // as no restriction, rather than silently excluding everyone.
+  const activeDriverKeys = activeDriverNames ? new Set(activeDriverNames.map(nameDedupKey)) : null;
 
   // Only jobs whose scheduled day has actually passed count toward
   // anything here -- a job later in the range hasn't had a chance to be
@@ -1344,7 +1352,8 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
   const monthJobsRaw = archive.filter(j =>
     j.captainName && j.jobNumber && j.assignmentDate &&
     j.assignmentDate >= rangeStart && j.assignmentDate < rangeEnd && j.assignmentDate < todayStr &&
-    !opsManagerKeys.has(nameDedupKey(j.captainName))
+    !opsManagerKeys.has(nameDedupKey(j.captainName)) &&
+    (activeDriverKeys === null || activeDriverKeys.has(nameDedupKey(j.captainName)))
   );
 
   // Normalize Captain identity BEFORE any category computation runs --
@@ -1501,14 +1510,21 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
 }
 
 async function fetchCaptainMetricsRawData() {
-  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw] = await Promise.all([
+  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
     redis.get('paperwork-uploads'), redis.get('compliance-eod-inspections'),
     redis.get('attendance-records'), redis.get('moving-damage-reports'),
     redis.get('materials-checkouts'), redis.get('materials-items'),
-    redis.get('settings-captain-metrics-excluded-employees')
+    redis.get('settings-captain-metrics-excluded-employees'), redis.get('compliance-drivers')
   ]);
   const opsManagerNames = excludedRaw ? JSON.parse(excludedRaw) : [];
+  // Distinguish "the key was never set" (driver data genuinely
+  // unavailable -- fail open, apply no restriction) from "the key exists
+  // but happens to list no one as currently active" (a real, deliberate
+  // state that correctly restricts scoring to no one). Using driversRaw
+  // itself for this, not the parsed array's length, since an empty array
+  // is a valid, real value once the key exists.
+  const activeDriverNames = driversRaw ? JSON.parse(driversRaw).filter(d => d.active).map(d => d.employeeName) : null;
   return {
     archive: archiveRaw ? JSON.parse(archiveRaw) : [],
     ptiRecords: ptiRaw ? JSON.parse(ptiRaw) : [],
@@ -1518,7 +1534,8 @@ async function fetchCaptainMetricsRawData() {
     movingReports: movingRaw ? JSON.parse(movingRaw) : [],
     materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
     materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
-    opsManagerNames
+    opsManagerNames,
+    activeDriverNames
   };
 }
 
@@ -1551,7 +1568,7 @@ async function getActiveCaptainMetricsMonth(weights) {
     let changed = false;
     while (activeMonth < latestPayrollMonth) {
       if (!lockedMonthSet.has(activeMonth)) {
-        const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames);
+        const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames);
         locks.push({ month: activeMonth, lockedAt: new Date().toISOString(), scores });
         lockedMonthSet.add(activeMonth);
         changed = true;
@@ -1572,7 +1589,7 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
 
     const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
     const data = await fetchCaptainMetricsRawData();
-    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames);
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames);
 
     const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing' };
     const entries = Object.keys(scores)
@@ -1605,7 +1622,7 @@ app.get('/api/admin/captain-metrics/current', requireAuth, async (req, res) => {
     const weights = settings.captainMetrics.weights;
     const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
     const data = await fetchCaptainMetricsRawData();
-    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames);
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames);
     res.json({ month: activeMonth, scores });
   } catch (err) {
     console.error('Captain Metrics current-month fetch failed:', err.message);
@@ -1658,7 +1675,7 @@ app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res)
       const weekEndDate = new Date(weekStart);
       weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
       const weekEndStr = weekEndDate.toISOString().slice(0, 10);
-      const scores = computeCaptainScoresForRange(weekStartStr, weekEndStr, data, weights, data.opsManagerNames);
+      const scores = computeCaptainScoresForRange(weekStartStr, weekEndStr, data, weights, data.opsManagerNames, data.activeDriverNames);
       weeks.push({ weekStart: weekStartStr, label: weekStartStr.slice(5), scores });
     }
 
