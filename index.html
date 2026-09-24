@@ -7971,15 +7971,18 @@
   function extraPayWeekPanelHtml(w){
     const isExpanded = extraPayExpandedWeeks.has(w.weekStart);
     const weekManualData = extraPayManualData[w.weekStart] || {};
+    const locked = w.adpUploaded; // payroll's already run for this week -- the numbers are final
+    const inputStyle = `width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px; ${locked ? 'background:var(--offwhite); color:var(--muted); cursor:not-allowed;' : ''}`;
+    const disabledAttr = locked ? 'disabled' : '';
     const rowsHtml = w.names.map(name => {
       const tips = w.tipTotals[name] || 0;
       const manual = weekManualData[name] || {};
       return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" value="${Number(manual.reviewBonus)||0}" style="width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${Number(manual.commission)||0}" style="width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" value="${Number(manual.reviewBonus)||0}" style="${inputStyle}" ${disabledAttr}></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${Number(manual.commission)||0}" style="${inputStyle}" ${disabledAttr}></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}" ${disabledAttr}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
     }).join('');
@@ -8011,10 +8014,12 @@
             </tr>
           </tfoot>
         </table>
-        <div class="form-actions" style="margin-top:14px;">
+        ${locked
+          ? `<p class="form-note" style="margin-top:14px;">Locked &mdash; this week's ADP payroll report has already been uploaded, so these figures are final.</p>`
+          : `<div class="form-actions" style="margin-top:14px;">
           <button type="button" class="btn-primary extraPay-save-btn" data-week="${w.weekStart}">Save</button>
           <span class="status-msg extraPay-save-status"></span>
-        </div>
+        </div>`}
       </div>
     </div>`;
   }
