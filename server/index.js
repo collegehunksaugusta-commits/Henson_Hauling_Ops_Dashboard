@@ -1501,13 +1501,14 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
 }
 
 async function fetchCaptainMetricsRawData() {
-  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, opsManagersRaw] = await Promise.all([
+  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
     redis.get('paperwork-uploads'), redis.get('compliance-eod-inspections'),
     redis.get('attendance-records'), redis.get('moving-damage-reports'),
     redis.get('materials-checkouts'), redis.get('materials-items'),
-    redis.get('settings-ops-managers')
+    redis.get('settings-captain-metrics-excluded-employees')
   ]);
+  const opsManagerNames = excludedRaw ? JSON.parse(excludedRaw) : [];
   return {
     archive: archiveRaw ? JSON.parse(archiveRaw) : [],
     ptiRecords: ptiRaw ? JSON.parse(ptiRaw) : [],
@@ -1517,7 +1518,7 @@ async function fetchCaptainMetricsRawData() {
     movingReports: movingRaw ? JSON.parse(movingRaw) : [],
     materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
     materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
-    opsManagerNames: opsManagersRaw ? JSON.parse(opsManagersRaw) : []
+    opsManagerNames
   };
 }
 
@@ -1668,29 +1669,32 @@ app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res)
   }
 });
 
-// Names designated as Operations Manager -- excluded from Captain Metrics
-// scoring entirely, even on a day they're listed as a job's Captain.
-app.get('/api/admin/ops-managers', requireAuth, async (req, res) => {
+// A direct list of employee names excluded from Captain Metrics scoring
+// entirely -- independent of the Compliance tile's Driver checkbox, so
+// excluding someone here (an owner or manager who drives trucks when
+// needed, say) doesn't touch their Driver Portal access or anything else
+// tied to being a driver.
+app.get('/api/admin/captain-metrics-excluded-employees', requireAuth, async (req, res) => {
   try {
-    const raw = await redis.get('settings-ops-managers');
+    const raw = await redis.get('settings-captain-metrics-excluded-employees');
     res.json({ names: raw ? JSON.parse(raw) : [] });
   } catch (err) {
-    console.error('Get Operations Manager list failed:', err.message);
-    res.status(500).json({ error: 'Could not load the Operations Manager list.' });
+    console.error('Get Captain Metrics exclusions failed:', err.message);
+    res.status(500).json({ error: 'Could not load Captain Metrics exclusions.' });
   }
 });
 
-app.post('/api/admin/ops-managers', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/captain-metrics-excluded-employees', requireAuth, requireAdmin, async (req, res) => {
   const { names } = req.body || {};
   if (!Array.isArray(names)) {
     return res.status(400).json({ error: 'names must be an array.' });
   }
   try {
-    await redis.set('settings-ops-managers', JSON.stringify(names.filter(n => typeof n === 'string' && n.trim())));
+    await redis.set('settings-captain-metrics-excluded-employees', JSON.stringify(names.filter(n => typeof n === 'string' && n.trim())));
     res.json({ ok: true });
   } catch (err) {
-    console.error('Save Operations Manager list failed:', err.message);
-    res.status(500).json({ error: 'Could not save the Operations Manager list.' });
+    console.error('Save Captain Metrics exclusions failed:', err.message);
+    res.status(500).json({ error: 'Could not save Captain Metrics exclusions.' });
   }
 });
 
