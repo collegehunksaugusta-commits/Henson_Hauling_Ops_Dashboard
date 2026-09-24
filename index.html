@@ -3264,7 +3264,7 @@
 
         <div id="pwBatch_junkRemovalWrap" style="display:none; margin-top:20px;">
           <h4 style="margin-bottom:6px;">Junk Removal &mdash; Assign a Captain</h4>
-          <p class="form-note">Every junk removal job that isn't finished yet, from any day &mdash; assign or change the Captain here anytime, including mid-day if plans change. Changing it here updates what shows in that Captain's Driver Portal right away.</p>
+          <p class="form-note">Today's junk removal jobs &mdash; assign or change the Captain here anytime during the day, including mid-day if plans change. Changing it here updates what shows in that Captain's Driver Portal right away. A job moves off this list once the day is over; find it afterward, along with its photos and estimate, under Manager Review &rarr; Junk Removal &rarr; Older Jobs.</p>
           <div id="pwBatch_junkRemovalRows"></div>
         </div>
 
@@ -15328,17 +15328,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }));
   }
 
-  // Loads every active (not yet completed) junk removal job, whenever this
-  // screen is opened -- not just right after the batch that created one.
-  // Merges with whatever's already showing (e.g. from a batch just
-  // uploaded this same session, which carries a thumbnail) rather than
-  // replacing outright, so Cam or Aaron can reassign a Captain on any
-  // active job at any point in the day, not only in the moment right after
-  // the morning upload.
+  // Loads today's junk removal jobs, whenever this screen is opened -- not
+  // just right after the batch that created one. Merges with whatever's
+  // already showing (e.g. from a batch just uploaded this same session,
+  // which carries a thumbnail) rather than replacing outright, so Cam or
+  // Aaron can reassign a Captain on any of today's jobs at any point in
+  // the day, not only in the moment right after the morning upload.
+  // Scoped to today specifically (not "not yet completed" -- status never
+  // actually transitions away from its initial value anywhere in this
+  // app, so that filter never excluded anything and jobs piled up here
+  // indefinitely) so this stays a working queue, not a growing backlog.
   async function loadPwBatchJunkRemovalPersistent(){
     try{
       const jobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []);
-      const active = (jobs || []).filter(j => j.status !== 'completed');
+      const today = new Date().toISOString().slice(0,10);
+      const active = (jobs || []).filter(j => j.assignmentDate === today);
       const existingById = new Map(pwBatchJunkRemoval.map(j => [j.id, j]));
       pwBatchJunkRemoval = active.map(j => existingById.get(j.id) || j);
       await renderPwBatchJunkRemoval();
@@ -15353,6 +15357,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const container = document.getElementById('pwBatch_junkRemovalRows');
     if(pwBatchJunkRemoval.length === 0){
       wrap.style.display = 'none';
+      container.innerHTML = '';
       return;
     }
     wrap.style.display = 'block';
@@ -15371,11 +15376,32 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${x.assignmentDate ? `<div class="form-note" style="margin:2px 0 0;">${pwBatchEsc(x.assignmentDate)}</div>` : ''}
         </div>
         <select class="pwBatch-junk-captain" data-id="${x.id}" style="font-size:12.5px;">${captainOptions}</select>
+        <button type="button" class="pwBatch-junk-remove" data-id="${x.id}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer; flex-shrink:0;">Remove</button>
       </div>`).join('');
 
     container.querySelectorAll('.pwBatch-junk-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = pwBatchJunkRemoval[parseInt(e.currentTarget.dataset.index, 10)];
       if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+    }));
+
+    container.querySelectorAll('.pwBatch-junk-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.target.dataset.id;
+      const job = pwBatchJunkRemoval.find(x => x.id === id);
+      if(!job) return;
+      if(!confirm(`Remove job ${job.jobNumber || id}${job.clientName ? ' (' + job.clientName + ')' : ''} from the record? This deletes its photos and estimate too, and cannot be undone.`)) return;
+      try{
+        const jobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []) || [];
+        const fullJob = jobs.find(x => x.id === id) || job;
+        for(const key of [...(fullJob.initialPhotoKeys||[]), ...(fullJob.finalPhotoKeys||[])]){
+          try{ await window.dashboardApi.delete(key); }catch(err){ console.error('Junk removal photo delete failed:', err); }
+        }
+        await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, jobs.filter(x => x.id !== id));
+        pwBatchJunkRemoval = pwBatchJunkRemoval.filter(x => x.id !== id);
+        await renderPwBatchJunkRemoval();
+      }catch(err){
+        console.error('Could not remove junk removal job:', err);
+        alert('Could not remove that job \u2014 check your connection and try again.');
+      }
     }));
 
     container.querySelectorAll('.pwBatch-junk-captain').forEach(sel => {
