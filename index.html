@@ -4913,6 +4913,14 @@
           <p class="form-note">Each employee logs into the Driver Portal with the last 4 digits of their own Social Security Number. Two things have to line up: their SSN has to be on the most recent weekly ADP Payroll Detail upload, and they have to be checkmarked as a driver on the Compliance tile's Driver List &mdash; being on payroll alone isn't enough, so office staff never get access just by having SSN data on file. Both update automatically: someone who leaves payroll, or gets unchecked as a driver, loses access right away with nothing else to do.</p>
           <div id="set_driverAccessList" style="font-size:13px; color:var(--charcoal); line-height:1.7;">Loading...</div>
         </div>
+
+        <div class="panel" id="set_opsManagerPanel">
+          <h3>Operations Manager Designation</h3>
+          <p class="form-note">Checkmark anyone who is an Operations Manager. That role is excluded from Captain Metrics scoring entirely, even for a day they're listed as a job's Captain.</p>
+          <div id="set_opsManagerList" style="font-size:13px; color:var(--charcoal); line-height:1.9;">Loading...</div>
+          <p class="form-note" id="set_opsManagerEmptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
+          <span class="status-msg" id="set_opsManagerStatus"></span>
+        </div>
       </div>
 
       <!-- ---- CONFIGURATION ---- -->
@@ -6302,6 +6310,12 @@
       // housekeeping, not something worth blocking the save confirmation on.
       fetch(`${API_BASE}/api/admin/captain-metrics/check-month-lock`, { method: 'POST', headers: authHeaders() })
         .catch(err => console.error('Captain Metrics month-lock check failed:', err));
+      // Real payroll data for this week just arrived -- if any of these
+      // employees were previously only in the manually-added roster list
+      // (added before they'd shown up in a real payroll upload), that
+      // manual entry is now superseded and should be cleaned up, with any
+      // per-person records carried forward to the new, canonical name.
+      reconcileManualRosterAdditions(employees.map(e => e.name).filter(Boolean));
     }
     renderAll();
   });
@@ -7749,6 +7763,71 @@
   }
   window.getCurrentEmployeeRoster = getCurrentEmployeeRoster;
 
+  // When real payroll data arrives for someone who was previously only in
+  // the manually-added roster list (added before they'd shown up in a
+  // real payroll upload), that manual entry is now superseded. Removes it,
+  // and carries forward any per-person records saved under the old,
+  // differently-formatted name -- a driver checkbox on Compliance, and
+  // attendance history -- to the new, canonical payroll name, so nothing
+  // silently disappears (like driver-portal access) or stops matching
+  // (like Captain Metrics' attendance scoring) once the old name is gone.
+  async function reconcileManualRosterAdditions(payrollEmployeeNames){
+    try{
+      const manualAdditions = await window.dashboardApi.get('roster-manual-additions', []) || [];
+      if(manualAdditions.length === 0) return;
+      const payrollByKey = {};
+      payrollEmployeeNames.forEach(name => { payrollByKey[nameDedupKey(name)] = name; });
+
+      const stillManual = [];
+      const supersededPairs = []; // [oldName, newName]
+      manualAdditions.forEach(oldName => {
+        const newName = payrollByKey[nameDedupKey(oldName)];
+        if(newName){ supersededPairs.push([oldName, newName]); }
+        else { stillManual.push(oldName); }
+      });
+      if(supersededPairs.length === 0) return;
+
+      await window.dashboardApi.set('roster-manual-additions', stillManual);
+
+      const [compDriversRaw, attendanceRaw] = await Promise.all([
+        window.dashboardApi.get('compliance-drivers', []),
+        window.dashboardApi.get('attendance-records', [])
+      ]);
+      const compDriversList = compDriversRaw || [];
+      let compDriversChanged = false;
+      supersededPairs.forEach(([oldName, newName]) => {
+        if(oldName === newName) return; // nothing to migrate, just superseded
+        const oldRec = compDriversList.find(d => d.employeeName === oldName);
+        if(!oldRec) return;
+        const newRec = compDriversList.find(d => d.employeeName === newName);
+        if(!newRec){
+          oldRec.employeeName = newName;
+        } else {
+          // A record already exists under the new name too -- keep it
+          // active if either was, fill in a blank expiration from the old
+          // one, then drop the old, now-duplicate record.
+          newRec.active = newRec.active || oldRec.active;
+          if(!newRec.physicalExpiration && oldRec.physicalExpiration) newRec.physicalExpiration = oldRec.physicalExpiration;
+          const idx = compDriversList.indexOf(oldRec);
+          if(idx > -1) compDriversList.splice(idx, 1);
+        }
+        compDriversChanged = true;
+      });
+      if(compDriversChanged) await window.dashboardApi.set('compliance-drivers', compDriversList);
+
+      const attendanceList = attendanceRaw || [];
+      let attendanceChanged = false;
+      supersededPairs.forEach(([oldName, newName]) => {
+        if(oldName === newName) return;
+        attendanceList.forEach(r => {
+          if(r.employeeName === oldName){ r.employeeName = newName; attendanceChanged = true; }
+        });
+      });
+      if(attendanceChanged) await window.dashboardApi.set('attendance-records', attendanceList);
+    }catch(err){ console.error('Roster manual-addition reconciliation failed:', err); }
+  }
+  window.reconcileManualRosterAdditions = reconcileManualRosterAdditions;
+
   function setAttManualMode(isManual){
     const sel = document.getElementById('att_employee');
     const manualWrap = document.getElementById('att_employee_manual_wrap');
@@ -7882,24 +7961,32 @@
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
     const cutoff = oneMonthAgo.toISOString().slice(0,10);
 
+    // Grouped by normalized name key, not the raw string, so two records
+    // for the same person logged with differently-formatted names (e.g.
+    // "Gilbert Holland" vs "Holland, Gilbert") combine into one row
+    // instead of showing as separate people. The most recently logged
+    // spelling is shown as the display name, since it's the most likely
+    // to be current.
     const counts = {};
-    attendanceRecords.filter(r => r.date >= cutoff).forEach(r => {
-      if(!counts[r.employeeName]) counts[r.employeeName] = { tardy: 0, absence: 0 };
-      if(r.type === 'tardy') counts[r.employeeName].tardy++;
-      else if(r.type === 'absence') counts[r.employeeName].absence++;
+    attendanceRecords.filter(r => r.date >= cutoff && r.employeeName).forEach(r => {
+      const key = nameDedupKey(r.employeeName);
+      if(!counts[key]) counts[key] = { tardy: 0, absence: 0, displayName: r.employeeName, latestDate: r.date };
+      if(r.date >= counts[key].latestDate) counts[key].displayName = r.employeeName;
+      if(r.type === 'tardy') counts[key].tardy++;
+      else if(r.type === 'absence') counts[key].absence++;
     });
 
-    const names = Object.keys(counts).sort();
+    const keys = Object.keys(counts).sort((a,b) => counts[a].displayName.localeCompare(counts[b].displayName));
     const tbody = document.getElementById('att_summaryRows');
-    if(names.length === 0){
+    if(keys.length === 0){
       tbody.innerHTML = '<tr><td colspan="3" style="padding:8px 4px; color:var(--muted);">No occurrences logged in the last month.</td></tr>';
       return;
     }
-    tbody.innerHTML = names.map(name => `
+    tbody.innerHTML = keys.map(key => `
       <tr>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${attEsc(name)}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${counts[name].tardy}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${counts[name].absence}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${attEsc(counts[key].displayName)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${counts[key].tardy}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${counts[key].absence}</td>
       </tr>`).join('');
   }
 
