@@ -1311,27 +1311,59 @@ function monthAfter(monthStr) {
 // has no applicable data for (e.g. no move jobs that month) is left out of
 // their score entirely rather than counted as a 0 -- see the weight
 // re-normalization below.
-function computeCaptainScoresForMonth(monthStr, data, weights) {
+function computeCaptainScoresForMonth(monthStr, data, weights, opsManagerNames) {
   const rangeStart = monthStr + '-01';
   const rangeEnd = monthAfter(monthStr) + '-01'; // exclusive upper bound
-  return computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights);
+  return computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames);
 }
 
 // Same scoring logic as computeCaptainScoresForMonth, generalized to any
 // [rangeStart, rangeEnd) date range -- reused by the weekly trend graph,
 // which needs the identical formula at a finer granularity, not a
 // second, drifting implementation of it.
-function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights) {
+// Normalizes a name for matching regardless of "Last, First" vs "First
+// Last" order, casing, or extra whitespace -- ported from the frontend's
+// identical nameDedupKey, so the same person is recognized consistently
+// wherever their name might be typed slightly differently (a manually
+// logged attendance record vs. the payroll-sourced Captain name, say).
+function nameDedupKey(name) {
+  return String(name || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+}
+
+function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems } = data;
+  const opsManagerKeys = new Set((opsManagerNames || []).map(nameDedupKey));
 
   // Only jobs whose scheduled day has actually passed count toward
   // anything here -- a job later in the range hasn't had a chance to be
-  // late/incomplete/etc. yet.
-  const monthJobs = archive.filter(j =>
+  // late/incomplete/etc. yet. An Operations Manager is excluded from
+  // scoring entirely, even on a day they're listed as a job's Captain --
+  // that role doesn't get measured by Captain Metrics regardless of how
+  // the job happened to be assigned.
+  const monthJobsRaw = archive.filter(j =>
     j.captainName && j.jobNumber && j.assignmentDate &&
-    j.assignmentDate >= rangeStart && j.assignmentDate < rangeEnd && j.assignmentDate < todayStr
+    j.assignmentDate >= rangeStart && j.assignmentDate < rangeEnd && j.assignmentDate < todayStr &&
+    !opsManagerKeys.has(nameDedupKey(j.captainName))
   );
+
+  // Normalize Captain identity BEFORE any category computation runs --
+  // two jobs with differently-spelled names for the same person (e.g.
+  // "Gilbert Holland" vs "Holland, Gilbert") must be scored as ONE
+  // Captain everywhere below, never as two separate people. Whichever
+  // spelling appears on the most recently assigned job is used as that
+  // person's display name, since it's the most likely to reflect the
+  // current, correct spelling.
+  const canonicalNameByKey = {};
+  const latestDateByKey = {};
+  monthJobsRaw.forEach(j => {
+    const key = nameDedupKey(j.captainName);
+    if (!latestDateByKey[key] || j.assignmentDate >= latestDateByKey[key]) {
+      canonicalNameByKey[key] = j.captainName;
+      latestDateByKey[key] = j.assignmentDate;
+    }
+  });
+  const monthJobs = monthJobsRaw.map(j => Object.assign({}, j, { captainName: canonicalNameByKey[nameDedupKey(j.captainName)] }));
 
   // ---- 1. Completed Paperwork -- uploaded, emailed, and invoice
   // reconciled, matching the same definition already used by Ops Manager
@@ -1352,12 +1384,20 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights) {
 
   // ---- 2. Attendance -- any unexcused tardy or absence on file for a
   // Captain this month drops that category to 0% outright; otherwise 100%.
-  // Only scored for a Captain who actually had a job this month. ----
+  // Only scored for a Captain who actually had a job this month. Matched
+  // by normalized name, not exact string -- an attendance record logged
+  // as "Gilbert Holland" must still count against a job archive's
+  // "Holland, Gilbert" for the same person. ----
   const attendanceByCaptain = {};
   const captainsThisMonth = new Set(monthJobs.map(j => j.captainName));
   captainsThisMonth.forEach(captain => { attendanceByCaptain[captain] = 100; });
+  const captainByNormalizedKey = {};
+  captainsThisMonth.forEach(captain => { captainByNormalizedKey[nameDedupKey(captain)] = captain; });
   (attendanceRecords || []).filter(r => r.employeeName && r.date && r.date >= rangeStart && r.date < rangeEnd)
-    .forEach(r => { if (captainsThisMonth.has(r.employeeName)) attendanceByCaptain[r.employeeName] = 0; });
+    .forEach(r => {
+      const matchedCaptain = captainByNormalizedKey[nameDedupKey(r.employeeName)];
+      if (matchedCaptain) attendanceByCaptain[matchedCaptain] = 0;
+    });
 
   // ---- 3. Pre-Trip + End of Day Inspection Completion -- a day only
   // counts as compliant if BOTH are on file for that Captain that day.
@@ -1372,9 +1412,10 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights) {
   Object.keys(assignedDaysByCaptain).forEach(captain => {
     const days = [...assignedDaysByCaptain[captain]];
     if (days.length === 0) return;
+    const captainKey = nameDedupKey(captain);
     const compliant = days.filter(day =>
-      ptiRecords.some(p => p.driverName === captain && p.date === day) &&
-      eodRecords.some(e => e.driverName === captain && e.date === day)
+      ptiRecords.some(p => nameDedupKey(p.driverName) === captainKey && p.date === day) &&
+      eodRecords.some(e => nameDedupKey(e.driverName) === captainKey && e.date === day)
     ).length;
     ptiEodByCaptain[captain] = { pct: (compliant / days.length) * 100 };
   });
@@ -1460,11 +1501,12 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights) {
 }
 
 async function fetchCaptainMetricsRawData() {
-  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw] = await Promise.all([
+  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, opsManagersRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
     redis.get('paperwork-uploads'), redis.get('compliance-eod-inspections'),
     redis.get('attendance-records'), redis.get('moving-damage-reports'),
-    redis.get('materials-checkouts'), redis.get('materials-items')
+    redis.get('materials-checkouts'), redis.get('materials-items'),
+    redis.get('settings-ops-managers')
   ]);
   return {
     archive: archiveRaw ? JSON.parse(archiveRaw) : [],
@@ -1474,7 +1516,8 @@ async function fetchCaptainMetricsRawData() {
     attendanceRecords: attendanceRaw ? JSON.parse(attendanceRaw) : [],
     movingReports: movingRaw ? JSON.parse(movingRaw) : [],
     materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
-    materialsItems: itemsRaw ? JSON.parse(itemsRaw) : []
+    materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
+    opsManagerNames: opsManagersRaw ? JSON.parse(opsManagersRaw) : []
   };
 }
 
@@ -1507,7 +1550,7 @@ async function getActiveCaptainMetricsMonth(weights) {
     let changed = false;
     while (activeMonth < latestPayrollMonth) {
       if (!lockedMonthSet.has(activeMonth)) {
-        const scores = computeCaptainScoresForMonth(activeMonth, data, weights);
+        const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames);
         locks.push({ month: activeMonth, lockedAt: new Date().toISOString(), scores });
         lockedMonthSet.add(activeMonth);
         changed = true;
@@ -1528,7 +1571,7 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
 
     const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
     const data = await fetchCaptainMetricsRawData();
-    const scores = computeCaptainScoresForMonth(activeMonth, data, weights);
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames);
 
     const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing' };
     const entries = Object.keys(scores)
@@ -1561,7 +1604,7 @@ app.get('/api/admin/captain-metrics/current', requireAuth, async (req, res) => {
     const weights = settings.captainMetrics.weights;
     const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
     const data = await fetchCaptainMetricsRawData();
-    const scores = computeCaptainScoresForMonth(activeMonth, data, weights);
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames);
     res.json({ month: activeMonth, scores });
   } catch (err) {
     console.error('Captain Metrics current-month fetch failed:', err.message);
@@ -1614,7 +1657,7 @@ app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res)
       const weekEndDate = new Date(weekStart);
       weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
       const weekEndStr = weekEndDate.toISOString().slice(0, 10);
-      const scores = computeCaptainScoresForRange(weekStartStr, weekEndStr, data, weights);
+      const scores = computeCaptainScoresForRange(weekStartStr, weekEndStr, data, weights, data.opsManagerNames);
       weeks.push({ weekStart: weekStartStr, label: weekStartStr.slice(5), scores });
     }
 
@@ -1622,6 +1665,32 @@ app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res)
   } catch (err) {
     console.error('Captain Metrics weekly trend fetch failed:', err.message);
     res.status(500).json({ error: 'Could not load Captain Metrics weekly trend.' });
+  }
+});
+
+// Names designated as Operations Manager -- excluded from Captain Metrics
+// scoring entirely, even on a day they're listed as a job's Captain.
+app.get('/api/admin/ops-managers', requireAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('settings-ops-managers');
+    res.json({ names: raw ? JSON.parse(raw) : [] });
+  } catch (err) {
+    console.error('Get Operations Manager list failed:', err.message);
+    res.status(500).json({ error: 'Could not load the Operations Manager list.' });
+  }
+});
+
+app.post('/api/admin/ops-managers', requireAuth, requireAdmin, async (req, res) => {
+  const { names } = req.body || {};
+  if (!Array.isArray(names)) {
+    return res.status(400).json({ error: 'names must be an array.' });
+  }
+  try {
+    await redis.set('settings-ops-managers', JSON.stringify(names.filter(n => typeof n === 'string' && n.trim())));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Save Operations Manager list failed:', err.message);
+    res.status(500).json({ error: 'Could not save the Operations Manager list.' });
   }
 });
 
