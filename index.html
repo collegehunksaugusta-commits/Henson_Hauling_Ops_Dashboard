@@ -4913,14 +4913,6 @@
           <p class="form-note">Each employee logs into the Driver Portal with the last 4 digits of their own Social Security Number. Two things have to line up: their SSN has to be on the most recent weekly ADP Payroll Detail upload, and they have to be checkmarked as a driver on the Compliance tile's Driver List &mdash; being on payroll alone isn't enough, so office staff never get access just by having SSN data on file. Both update automatically: someone who leaves payroll, or gets unchecked as a driver, loses access right away with nothing else to do.</p>
           <div id="set_driverAccessList" style="font-size:13px; color:var(--charcoal); line-height:1.7;">Loading...</div>
         </div>
-
-        <div class="panel" id="set_opsManagerPanel">
-          <h3>Operations Manager Designation</h3>
-          <p class="form-note">Checkmark anyone who is an Operations Manager. That role is excluded from Captain Metrics scoring entirely, even for a day they're listed as a job's Captain.</p>
-          <div id="set_opsManagerList" style="font-size:13px; color:var(--charcoal); line-height:1.9;">Loading...</div>
-          <p class="form-note" id="set_opsManagerEmptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
-          <span class="status-msg" id="set_opsManagerStatus"></span>
-        </div>
       </div>
 
       <!-- ---- CONFIGURATION ---- -->
@@ -5059,6 +5051,15 @@
           <div class="form-actions">
             <button type="button" id="appset_cmWeightSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Weights</button>
             <span class="status-msg" id="appset_cmWeightStatus"></span>
+          </div>
+
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Excluded From Captain Metrics</h4>
+          <p class="form-note" style="margin-top:0;">Checkmark anyone who should never be scored by Captain Metrics, even on a day they're listed as a job's Captain &mdash; someone who drives trucks when needed but whose primary role isn't Captain, say. This is independent of the Driver checkbox on the Compliance tile, so excluding someone here doesn't affect their Driver Portal access or anything else tied to being a driver.</p>
+          <div id="appset_cmExclusionList" style="font-size:13px; color:var(--charcoal); line-height:1.9;">Loading...</div>
+          <p class="form-note" id="appset_cmExclusionEmptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
+          <div class="form-actions" style="margin-top:8px;">
+            <button type="button" id="appset_cmExclusionSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:9px 14px; border-radius:6px; cursor:pointer; font-size:13px;">Save Exclusions</button>
+            <span class="status-msg" id="appset_cmExclusionStatus"></span>
           </div>
         </div>
 
@@ -12486,6 +12487,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
     document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(captainMetrics.resetDate, 'Captain Metrics');
     renderCmWeightRows(captainMetrics.weights || { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 });
+    loadCaptainMetricsExclusions();
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
     document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
@@ -12672,6 +12674,69 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
     }
   });
+
+  // ---- Captain Metrics: Excluded From Captain Metrics ----
+  // Independent of the Compliance tile's Driver checkbox by design -- this
+  // is a direct list of specific people who should never be scored by
+  // Captain Metrics, even on a day they're listed as a job's Captain (a
+  // manager who drives trucks when needed but whose primary role isn't
+  // Captain, say), without touching anything tied to being a driver
+  // (DOT physicals, Driver Portal access) for that same person.
+  async function loadCaptainMetricsExclusions(){
+    const listEl = document.getElementById('appset_cmExclusionList');
+    const emptyNote = document.getElementById('appset_cmExclusionEmptyNote');
+    try{
+      const [roster, res] = await Promise.all([
+        getCurrentEmployeeRoster(),
+        fetch(`${API_BASE}/api/admin/captain-metrics-excluded-employees`, { headers: authHeaders() })
+      ]);
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      const excluded = new Set(data.names || []);
+
+      if(roster.length === 0){
+        listEl.innerHTML = '';
+        emptyNote.style.display = 'block';
+        return;
+      }
+      emptyNote.style.display = 'none';
+      listEl.innerHTML = roster.map(name => `
+        <label style="display:block;">
+          <input type="checkbox" class="appset-cm-exclude" value="${settingsEsc(name)}" ${excluded.has(name) ? 'checked' : ''}> ${settingsEsc(name)}
+        </label>`).join('');
+    }catch(err){
+      console.error('Load Captain Metrics exclusions failed:', err);
+    }
+  }
+  window.loadCaptainMetricsExclusions = loadCaptainMetricsExclusions;
+
+  document.getElementById('appset_cmExclusionSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_cmExclusionStatus');
+    const names = Array.from(document.querySelectorAll('.appset-cm-exclude:checked')).map(cb => cb.value);
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/captain-metrics-excluded-employees`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ names })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save exclusions.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Exclusions saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save Captain Metrics exclusions failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
 
   function renderJunkPricingRows(pricing){
     const tbody = document.getElementById('appset_junkPricingRows');
