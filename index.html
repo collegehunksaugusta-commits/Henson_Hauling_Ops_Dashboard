@@ -5172,33 +5172,38 @@
         </div>
 
         <div class="panel" id="set_configUploadPanel">
-          <h3>Dashboard Source Code</h3>
-          <p class="form-note">Store the current source files here as you update the dashboard over time, so the full build history lives inside the app itself &mdash; not just in GitHub or a chat history that might not transfer to a future owner.</p>
-          <label>File Type
-            <select id="set_configFileType">
-              <option value="html">Dashboard (index.html)</option>
-              <option value="server">Backend (server/index.js)</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label>Notes (optional, e.g. "Added Regulatory Compliance tile") <input type="text" id="set_configNotes"></label>
-          <div id="set_configDropzone" style="border:2px dashed var(--line); border-radius:8px; padding:24px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer;">
-            <div style="font-size:14px; font-weight:600;">Drag &amp; drop a file here</div>
-            <div style="font-size:12px; color:var(--muted);">or click to browse</div>
-            <input type="file" id="set_configFileInput" style="display:none;">
-          </div>
-          <div class="status-msg" id="set_configStatus" style="margin-top:8px;"></div>
+          <button type="button" id="set_configUploadToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+            <h3 style="margin:0;">Dashboard Source Code</h3>
+            <span id="set_configUploadChevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;">&#9656;</span>
+          </button>
+          <div id="set_configUploadBody" style="display:none; margin-top:10px;">
+            <p class="form-note" style="margin-top:0;">Store the current source files here as you update the dashboard over time, so the full build history lives inside the app itself &mdash; not just in GitHub or a chat history that might not transfer to a future owner.</p>
+            <label>File Type
+              <select id="set_configFileType">
+                <option value="html">Dashboard (index.html)</option>
+                <option value="server">Backend (server/index.js)</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Notes (optional, e.g. "Added Regulatory Compliance tile") <input type="text" id="set_configNotes"></label>
+            <div id="set_configDropzone" style="border:2px dashed var(--line); border-radius:8px; padding:24px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer;">
+              <div style="font-size:14px; font-weight:600;">Drag &amp; drop a file here</div>
+              <div style="font-size:12px; color:var(--muted);">or click to browse</div>
+              <input type="file" id="set_configFileInput" style="display:none;">
+            </div>
+            <div class="status-msg" id="set_configStatus" style="margin-top:8px;"></div>
 
-          <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:16px;">
-            <thead><tr>
-              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Type</th>
-              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
-              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Notes</th>
-              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Uploaded</th>
-              <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
-            </tr></thead>
-            <tbody id="set_configRows"></tbody>
-          </table>
+            <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:16px;">
+              <thead><tr>
+                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Type</th>
+                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
+                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Notes</th>
+                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Uploaded</th>
+                <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+              </tr></thead>
+              <tbody id="set_configRows"></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="panel" id="set_handoffPanel">
@@ -13476,6 +13481,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     renderConfigFilesList();
   }
+
+  document.getElementById('set_configUploadToggle').addEventListener('click', ()=>{
+    const body = document.getElementById('set_configUploadBody');
+    const chevron = document.getElementById('set_configUploadChevron');
+    const expanded = body.style.display !== 'none';
+    body.style.display = expanded ? 'none' : 'block';
+    chevron.style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
+  });
 
   const setConfigDropzone = document.getElementById('set_configDropzone');
   const setConfigFileInput = document.getElementById('set_configFileInput');
