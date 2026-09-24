@@ -4958,12 +4958,12 @@
 
       <!-- ---- CONFIGURATION ---- -->
       <div id="set_config" class="set-section" style="display:none;">
-        <div class="panel" id="set_appSettingsPanel">
+        <div class="panel" id="set_appSettingsPanel" data-collapsible="true">
           <h3>App Settings</h3>
           <p class="form-note">Settings used elsewhere in the dashboard, grouped by which tile they belong to. Change these here instead of asking Claude to edit the code each time &mdash; helpful as things like search sources or contact emails change over time, and for handing this off to a future owner. Each section below saves independently, so saving one never depends on any other section being filled in.</p>
         </div>
 
-        <div class="panel" id="set_marketingPanel">
+        <div class="panel" id="set_marketingPanel" data-collapsible="true">
           <h3>Marketing</h3>
           <label>South Carolina Search URL <input type="url" id="appset_redfinSouthCarolina"></label>
           <label>Evans and Martinez Search URL <input type="url" id="appset_redfinEvansMartinez"></label>
@@ -4975,7 +4975,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_paperworkPanel">
+        <div class="panel" id="set_paperworkPanel" data-collapsible="true">
           <h3>Job Paperwork</h3>
           <label>Completed Paperwork Email CC List <input type="text" id="appset_completedPaperworkCc" placeholder="email1@example.com, email2@example.com"></label>
           <p class="form-note">Comma-separated. These addresses get CC'd whenever the "Email Client" button is used after uploading completed paperwork.</p>
@@ -4991,7 +4991,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_materialsPanel">
+        <div class="panel" id="set_materialsPanel" data-collapsible="true">
           <h3>Materials</h3>
           <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
             <label>Supplier Phone Number <input type="text" id="appset_supplierPhone" placeholder="e.g. (706) 555-0100"></label>
@@ -5032,7 +5032,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_damageClaimsPanel">
+        <div class="panel" id="set_damageClaimsPanel" data-collapsible="true">
           <h3>Damage Claims</h3>
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
           <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim.</p>
@@ -5042,7 +5042,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_ldQuotePanel">
+        <div class="panel" id="set_ldQuotePanel" data-collapsible="true">
           <h3>Long Distance Quote Email</h3>
           <label>CC Recipients <input type="text" id="appset_ldQuoteCc" placeholder="name@chhj.com, name2@chhj.com"></label>
           <p class="form-note" style="margin-top:0;">Comma-separated. Every quote email sent from the Long Distance Estimates tile CC's these addresses.</p>
@@ -5054,7 +5054,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_photoStoragePanel">
+        <div class="panel" id="set_photoStoragePanel" data-collapsible="true">
           <h3>Photo Storage</h3>
           <p class="form-note" id="appset_storageUsageNote" style="margin-top:0;"></p>
           <p class="form-note">Re-compresses every stored Pre-Trip, End of Day, Damage Claim, and Junk Removal photo at today's tighter settings &mdash; smaller file, same photo, still clear. Estimates, reasoning, and every other record are never touched, and a photo already smaller than the new setting is left alone. New uploads already use the tighter setting automatically; this catches up everything already stored. Can take a few minutes depending on how many photos there are &mdash; leave this tab open until it finishes.</p>
@@ -5064,7 +5064,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_captainMetricsPanel">
+        <div class="panel" id="set_captainMetricsPanel" data-collapsible="true">
           <h3>Captain Metrics</h3>
           <p class="form-note" id="appset_cmResetDateCurrent" style="margin-top:0;"></p>
           <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
@@ -5077,7 +5077,7 @@
           <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from every section of Captain Metrics &mdash; Pre-Trip/End of Day Compliance, Truck Condition Issues, and Paperwork Quality &mdash; for every Captain. Nothing is deleted; it's just left out of the scoring. Since this changes how every Captain's performance is measured, it requires your Override PIN to change.</p>
         </div>
 
-        <div class="panel" id="set_captainMetricsWeightsPanel">
+        <div class="panel" id="set_captainMetricsWeightsPanel" data-collapsible="true">
           <h3>Captain Metrics Settings</h3>
           <p class="form-note" style="margin-top:0;">Each category below produces its own percentage for a Captain. These weights control how much each one counts toward the single overall score shown on the Driver Portal's Captain Leaderboard &mdash; they don't change what's shown on the Captain Metrics tile itself, which always shows each category's own percentage on its own panel. Weights must add up to 100%.</p>
           <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
@@ -5104,7 +5104,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_opsManagerMetricsPanel">
+        <div class="panel" id="set_opsManagerMetricsPanel" data-collapsible="true">
           <h3>Ops Manager Metrics</h3>
           <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
           <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
@@ -5143,7 +5143,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_junkPricingPanel">
+        <div class="panel" id="set_junkPricingPanel" data-collapsible="true">
           <h3>Junk Removal Pricing</h3>
           <p class="form-note" style="margin-top:0;">Target price per tier &mdash; Captains are shown this amount &plusmn; $40 as the range to quote on-site, based on Claude's photo estimate.</p>
           <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
@@ -5160,7 +5160,7 @@
           </div>
         </div>
 
-        <div class="panel" id="set_overridePinPanel">
+        <div class="panel" id="set_overridePinPanel" data-collapsible="true">
           <h4 style="margin:0 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Materials</h4>
           <p class="form-note" style="margin-top:0;">Administrator Override PIN &mdash; lets Cameron close out a job whose HunkWare invoice still shows a Balance Due, for the rare case a payment is genuinely delayed, without it counting against his Ops Manager Metrics. Kept separate from the settings above and never displayed once set.</p>
           <p class="form-note" id="appset_pinStatus" style="margin-top:0;">Checking current status...</p>
@@ -5171,42 +5171,37 @@
           </div>
         </div>
 
-        <div class="panel" id="set_configUploadPanel">
-          <button type="button" id="set_configUploadToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
-            <h3 style="margin:0;">Dashboard Source Code</h3>
-            <span id="set_configUploadChevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;">&#9656;</span>
-          </button>
-          <div id="set_configUploadBody" style="display:none; margin-top:10px;">
-            <p class="form-note" style="margin-top:0;">Store the current source files here as you update the dashboard over time, so the full build history lives inside the app itself &mdash; not just in GitHub or a chat history that might not transfer to a future owner.</p>
-            <label>File Type
-              <select id="set_configFileType">
-                <option value="html">Dashboard (index.html)</option>
-                <option value="server">Backend (server/index.js)</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <label>Notes (optional, e.g. "Added Regulatory Compliance tile") <input type="text" id="set_configNotes"></label>
-            <div id="set_configDropzone" style="border:2px dashed var(--line); border-radius:8px; padding:24px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer;">
-              <div style="font-size:14px; font-weight:600;">Drag &amp; drop a file here</div>
-              <div style="font-size:12px; color:var(--muted);">or click to browse</div>
-              <input type="file" id="set_configFileInput" style="display:none;">
-            </div>
-            <div class="status-msg" id="set_configStatus" style="margin-top:8px;"></div>
-
-            <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:16px;">
-              <thead><tr>
-                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Type</th>
-                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
-                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Notes</th>
-                <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Uploaded</th>
-                <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
-              </tr></thead>
-              <tbody id="set_configRows"></tbody>
-            </table>
+        <div class="panel" id="set_configUploadPanel" data-collapsible="true">
+          <h3>Dashboard Source Code</h3>
+          <p class="form-note" style="margin-top:0;">Store the current source files here as you update the dashboard over time, so the full build history lives inside the app itself &mdash; not just in GitHub or a chat history that might not transfer to a future owner.</p>
+          <label>File Type
+            <select id="set_configFileType">
+              <option value="html">Dashboard (index.html)</option>
+              <option value="server">Backend (server/index.js)</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>Notes (optional, e.g. "Added Regulatory Compliance tile") <input type="text" id="set_configNotes"></label>
+          <div id="set_configDropzone" style="border:2px dashed var(--line); border-radius:8px; padding:24px 16px; text-align:center; margin-top:12px; background:var(--offwhite); cursor:pointer;">
+            <div style="font-size:14px; font-weight:600;">Drag &amp; drop a file here</div>
+            <div style="font-size:12px; color:var(--muted);">or click to browse</div>
+            <input type="file" id="set_configFileInput" style="display:none;">
           </div>
+          <div class="status-msg" id="set_configStatus" style="margin-top:8px;"></div>
+
+          <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:16px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Type</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">File</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Notes</th>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Uploaded</th>
+              <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="set_configRows"></tbody>
+          </table>
         </div>
 
-        <div class="panel" id="set_handoffPanel">
+        <div class="panel" id="set_handoffPanel" data-collapsible="true">
           <h3>Business Handoff Guide</h3>
           <p class="form-note">Instructions for re-establishing this dashboard under a new owner. Edit freely as things change.</p>
           <textarea id="set_handoffText" rows="16" style="width:100%; padding:12px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; box-sizing:border-box; line-height:1.5;"></textarea>
@@ -5267,6 +5262,50 @@
   </div>
 
 </div>
+
+<script>
+(function(){
+  // Turns every panel marked data-collapsible="true" into a collapsible
+  // section: its first child (the h3/h4 title) becomes a toggle header
+  // with a chevron, and everything else in the panel is moved into a
+  // collapsed-by-default body. One generic mechanism for all Configuration
+  // panels, rather than one-off markup per panel -- a new panel added
+  // later only needs the data-collapsible attribute, nothing else.
+  function initCollapsiblePanels(){
+    document.querySelectorAll('.panel[data-collapsible="true"]').forEach(panel => {
+      const header = panel.firstElementChild;
+      if(!header) return;
+      const restNodes = Array.from(panel.children).slice(1);
+      if(restNodes.length === 0) return;
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.style.cssText = 'display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; margin:0; cursor:pointer; text-align:left;';
+
+      const chevron = document.createElement('span');
+      chevron.innerHTML = '&#9656;';
+      chevron.style.cssText = 'font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;';
+
+      const body = document.createElement('div');
+      body.style.cssText = 'display:none; margin-top:16px;';
+      restNodes.forEach(el => body.appendChild(el));
+
+      header.style.margin = '0';
+      panel.insertBefore(toggle, panel.firstChild);
+      toggle.appendChild(header);
+      toggle.appendChild(chevron);
+      panel.appendChild(body);
+
+      toggle.addEventListener('click', ()=>{
+        const collapsed = body.style.display === 'none';
+        body.style.display = collapsed ? 'block' : 'none';
+        chevron.style.transform = collapsed ? 'rotate(90deg)' : 'rotate(0deg)';
+      });
+    });
+  }
+  initCollapsiblePanels();
+})();
+</script>
 
 <script>
 (function(){
@@ -13481,14 +13520,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     renderConfigFilesList();
   }
-
-  document.getElementById('set_configUploadToggle').addEventListener('click', ()=>{
-    const body = document.getElementById('set_configUploadBody');
-    const chevron = document.getElementById('set_configUploadChevron');
-    const expanded = body.style.display !== 'none';
-    body.style.display = expanded ? 'none' : 'block';
-    chevron.style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
-  });
 
   const setConfigDropzone = document.getElementById('set_configDropzone');
   const setConfigFileInput = document.getElementById('set_configFileInput');
