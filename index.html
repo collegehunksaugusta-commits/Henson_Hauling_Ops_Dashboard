@@ -3840,9 +3840,16 @@
 
     <div class="panel" id="mgrreview_panel_junkremoval" style="display:none;">
       <h3>Junk Removal</h3>
-      <p class="form-note">Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. Each job's on-site and loaded-truck photos, and Claude's volume estimates for both. Photos are kept for 30 days, then removed automatically; the estimate itself is kept indefinitely.</p>
+      <p class="form-note">Jobs land here automatically when the morning work order batch in Job Paperwork identifies them, where a Captain also gets assigned. Each job's on-site and loaded-truck photos, and Claude's volume estimates for both. Only today's jobs are listed here, so Captains can be reassigned throughout the day without the list growing indefinitely -- older jobs move to "Older Jobs" below, with the Captain assignment cleared but the record, photos, and estimates kept. Photos are kept for 30 days, then removed automatically; the estimate itself is kept indefinitely, unless removed by hand.</p>
       <div id="jr_jobRows"></div>
       <p class="form-note" id="jr_emptyNote" style="display:none;">No junk removal jobs assigned today.</p>
+
+      <details style="margin-top:16px;">
+        <summary style="cursor:pointer; font-weight:600; font-size:13px; color:var(--charcoal);">Older Jobs <span id="jr_olderCount" style="font-weight:400; color:var(--muted); font-size:12px;"></span></summary>
+        <p class="form-note">Jobs from before today -- Captain assignment already cleared. Remove any you don't need to keep on record.</p>
+        <div id="jr_olderJobRows" style="margin-top:8px;"></div>
+        <p class="form-note" id="jr_olderEmptyNote" style="display:none;">Nothing here.</p>
+      </details>
     </div>
 
     <div class="panel" id="mgrreview_panel_moving" style="display:none;">
@@ -19331,6 +19338,52 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.loadJunkRemovalJobs = loadJunkRemovalJobs;
 
+  function jrRenderJobRow(j){
+    const status = JUNK_REMOVAL_STATUS_LABELS[j.status] || null;
+    const hasDetail = j.initialEstimate || j.finalEstimate;
+    return `
+      <div data-id="${j.id}" style="padding:14px 0; border-bottom:1px solid var(--line);">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700; font-size:14px;">${jrEsc(j.jobNumber)} ${j.clientName ? '\u2014 ' + jrEsc(j.clientName) : ''}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${jrEsc(j.assignmentDate)}${j.captainName !== undefined ? ' &middot; Captain: ' + (j.captainName ? jrEsc(j.captainName) : 'Unassigned') : ''}</div>
+          </div>
+          ${status ? `<span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>` : ''}
+        </div>
+        <div style="margin-top:10px; display:flex; gap:8px;">
+          ${hasDetail ? `<button type="button" class="jr-view-detail" data-id="${j.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">View Estimate${j.finalEstimate ? 's' : ''}</button>` : ''}
+          <button type="button" class="jr-remove-job" data-id="${j.id}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">Remove</button>
+        </div>
+      </div>`;
+  }
+
+  function jrWireRowButtons(container){
+    container.querySelectorAll('.jr-view-detail').forEach(btn => btn.addEventListener('click', (e)=> viewJunkRemovalDetail(e.target.dataset.id)));
+    container.querySelectorAll('.jr-remove-job').forEach(btn => btn.addEventListener('click', (e)=> removeJunkRemovalJob(e.target.dataset.id)));
+  }
+
+  // Permanently deletes one job record -- unlike the automatic same-day
+  // hiding above (which only clears the Captain/status fields and keeps
+  // everything else on record), this is an explicit, irreversible removal
+  // the admin asked for by name, so any photo blobs are deleted too rather
+  // than left orphaned in storage with nothing left to reference them.
+  async function removeJunkRemovalJob(id){
+    const job = junkRemovalJobs.find(j => j.id === id);
+    if(!job) return;
+    if(!confirm(`Remove job ${job.jobNumber || id}${job.clientName ? ' (' + job.clientName + ')' : ''} from the record? This deletes its photos and estimate too, and cannot be undone.`)) return;
+    for(const key of [...(job.initialPhotoKeys||[]), ...(job.finalPhotoKeys||[])]){
+      try{ await window.dashboardApi.delete(key); }catch(err){ console.error('Junk removal photo delete failed:', err); }
+    }
+    junkRemovalJobs = junkRemovalJobs.filter(j => j.id !== id);
+    try{
+      await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, junkRemovalJobs);
+      renderJunkRemovalJobs();
+    }catch(err){
+      console.error('Junk removal job removal failed to save:', err);
+      alert('Could not remove that job \u2014 check your connection and try again.');
+    }
+  }
+
   function renderJunkRemovalJobs(){
     const rowsEl = document.getElementById('jr_jobRows');
     const emptyNote = document.getElementById('jr_emptyNote');
@@ -19342,31 +19395,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // tile is for.
     const today = new Date().toISOString().slice(0,10);
     const todaysJobs = junkRemovalJobs.filter(j => j.assignmentDate === today);
+    const olderJobs = junkRemovalJobs.filter(j => j.assignmentDate !== today);
+
     if(todaysJobs.length === 0){
       rowsEl.innerHTML = '';
       emptyNote.style.display = 'block';
-      return;
+    } else {
+      emptyNote.style.display = 'none';
+      const sorted = [...todaysJobs].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+      rowsEl.innerHTML = sorted.map(jrRenderJobRow).join('');
+      jrWireRowButtons(rowsEl);
     }
-    emptyNote.style.display = 'none';
 
-    const sorted = [...todaysJobs].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
-    rowsEl.innerHTML = sorted.map(j => {
-      const status = JUNK_REMOVAL_STATUS_LABELS[j.status] || JUNK_REMOVAL_STATUS_LABELS.assigned;
-      const hasDetail = j.initialEstimate || j.finalEstimate;
-      return `
-      <div data-id="${j.id}" style="padding:14px 0; border-bottom:1px solid var(--line);">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
-          <div>
-            <div style="font-weight:700; font-size:14px;">${jrEsc(j.jobNumber)} ${j.clientName ? '\u2014 ' + jrEsc(j.clientName) : ''}</div>
-            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${jrEsc(j.assignmentDate)} &middot; Captain: ${j.captainName ? jrEsc(j.captainName) : 'Unassigned'}</div>
-          </div>
-          <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
-        </div>
-        ${hasDetail ? `<div style="margin-top:10px;"><button type="button" class="jr-view-detail" data-id="${j.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">View Estimate${j.finalEstimate ? 's' : ''}</button></div>` : ''}
-      </div>`;
-    }).join('');
-
-    rowsEl.querySelectorAll('.jr-view-detail').forEach(btn => btn.addEventListener('click', (e)=> viewJunkRemovalDetail(e.target.dataset.id)));
+    const olderRowsEl = document.getElementById('jr_olderJobRows');
+    const olderEmptyNote = document.getElementById('jr_olderEmptyNote');
+    const olderCountEl = document.getElementById('jr_olderCount');
+    olderCountEl.textContent = olderJobs.length > 0 ? `(${olderJobs.length})` : '';
+    if(olderJobs.length === 0){
+      olderRowsEl.innerHTML = '';
+      olderEmptyNote.style.display = 'block';
+    } else {
+      olderEmptyNote.style.display = 'none';
+      const sortedOlder = [...olderJobs].sort((a,b) => (b.assignmentDate||'').localeCompare(a.assignmentDate||'') || (b.createdAt||'').localeCompare(a.createdAt||''));
+      olderRowsEl.innerHTML = sortedOlder.map(jrRenderJobRow).join('');
+      jrWireRowButtons(olderRowsEl);
+    }
   }
 
   function jrEsc(s){
