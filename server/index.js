@@ -1812,6 +1812,11 @@ const DEFAULT_APP_SETTINGS = {
   opsManagerMetrics: {
     resetDate: ''
   },
+  commission: {
+    driverRate: 0,
+    opsManagerRate: 0,
+    opsManagerAssignment: ''
+  },
   junkRemoval: {
     pricing: [
       { tier: '1/8', label: '1/8 Truckload', price: 119 },
