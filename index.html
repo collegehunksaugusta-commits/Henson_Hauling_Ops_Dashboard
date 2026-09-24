@@ -2675,10 +2675,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">💰</span>
             <span>Pay</span>
-            <span class="dashSectionCount">(2)</span>
+            <span class="dashSectionCount">(3)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-pay">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">ADP, Labor Cost</div>
+          <div class="dashSectionTileList">ADP, Labor Cost, Extra Pay</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2692,6 +2692,11 @@
         <span class="icon">💲</span>
         <h3>Labor Cost</h3>
         <p>Weekly labor cost vs. revenue, overtime exposure, and per-employee OT detail.</p>
+      </div>
+      <div class="tile" id="tile-extrapay" tabindex="0" role="button" aria-label="Open Extra Pay">
+        <span class="icon">🎁</span>
+        <h3>Extra Pay</h3>
+        <p>Tips, review bonuses, commission, and misc pay due to each employee for the prior pay week.</p>
       </div>
         </div>
       </div>
@@ -3569,6 +3574,44 @@
   </div>
 
   <!-- ============ OPS MANAGER METRICS DETAIL ============ -->
+  <div id="extraPayDetail" style="display:none;">
+    <button class="backlink" id="extraPayBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Extra Pay</h2>
+    </div>
+    <p class="form-note" style="margin-top:-8px;" id="extraPay_weekLabel"></p>
+    <p class="form-note">Tips pull in automatically from the prior pay week's allocated Square tips (same week the Manager Review Tips panel treats as due). Review Bonus, Commission, and Misc are entered manually here and saved per employee, per week.</p>
+
+    <div class="panel" id="extraPayPanel">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Tips</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Review Bonus</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Commission</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
+        </tr></thead>
+        <tbody id="extraPay_rows"></tbody>
+        <tfoot id="extraPay_totalRow" style="display:none;">
+          <tr style="font-weight:700;">
+            <td style="padding:8px 4px; border-top:2px solid var(--line);">Total</td>
+            <td id="extraPay_totalTips" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+            <td id="extraPay_totalReviewBonus" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+            <td id="extraPay_totalCommission" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+            <td id="extraPay_totalMisc" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+            <td id="extraPay_totalGrand" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+          </tr>
+        </tfoot>
+      </table>
+      <p class="form-note" id="extraPay_emptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
+      <div class="form-actions" style="margin-top:14px;">
+        <button class="btn-primary" id="extraPay_saveBtn" type="button">Save</button>
+        <span class="status-msg" id="extraPay_saveStatus"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="opsMetricsDetail" style="display:none;">
     <button class="backlink" id="opsMetricsBackBtn">&larr; Dispatch</button>
     <div class="detail-head">
@@ -5485,6 +5528,7 @@
   const mailRouteDetail = document.getElementById('mailRouteDetail');
   const captainDetail = document.getElementById('captainDetail');
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
+  const extraPayDetail = document.getElementById('extraPayDetail');
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
   const managerReviewDetail = document.getElementById('managerReviewDetail');
@@ -5512,6 +5556,7 @@
     mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
     captainDetail.style.display = view === 'captain' ? 'block' : 'none';
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
+    extraPayDetail.style.display = view === 'extrapay' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
     managerReviewDetail.style.display = view === 'managerreview' ? 'block' : 'none';
@@ -5571,6 +5616,9 @@
     }
     if(view === 'opsmetrics'){
       window.loadOpsMetricsData();
+    }
+    if(view === 'extrapay'){
+      window.loadExtraPayData();
     }
     return view;
   }
@@ -5706,6 +5754,8 @@
 
   document.getElementById('tile-opsmetrics').addEventListener('click', ()=> navigateTo('opsmetrics'));
   document.getElementById('tile-opsmetrics').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('opsmetrics'); }});
+  document.getElementById('tile-extrapay').addEventListener('click', ()=> navigateTo('extrapay'));
+  document.getElementById('tile-extrapay').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('extrapay'); }});
   document.getElementById('tile-materials').addEventListener('click', ()=> navigateTo('materials'));
   document.getElementById('tile-materials').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('materials'); }});
   document.getElementById('materialsBackBtn').addEventListener('click', ()=> history.back());
@@ -5722,6 +5772,7 @@
   document.getElementById('stateTaxesBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('extraPayBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
 
@@ -7805,6 +7856,169 @@
     if(section === 'all') window.loadMgrReviewSquareTransactions();
   }
   document.querySelectorAll('.tips-section-btn').forEach(btn => btn.addEventListener('click', ()=> showTipsSection(btn.dataset.section)));
+
+  // ---------- Extra Pay ----------
+  // Tips pulls from the same Monday-Sunday "most recent complete week"
+  // concept Tips (above) already uses -- computed independently here
+  // rather than calling into that script block's functions, since Tips'
+  // own data (tipsAllocations) only loads once Manager Review has actually
+  // been opened this session, and this tile needs to work standalone.
+  const EXTRA_PAY_MANUAL_KEY = 'extra-pay-manual';
+  let extraPayManualData = {}; // { [weekStart]: { [employeeName]: { reviewBonus, commission, misc } } }
+  let extraPayCurrentWeekStart = null;
+
+  function extraPayEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+  function extraPayMoney(n){
+    return '$' + (Number(n)||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+  function extraPayGetWeekBounds(dateStr){
+    const d = new Date(dateStr + 'T00:00:00');
+    const dayOfWeek = d.getDay(); // 0=Sunday .. 6=Saturday
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const toStr = (dt) => dt.toISOString().slice(0,10);
+    return { weekStart: toStr(monday), weekEnd: toStr(sunday) };
+  }
+  // The most recent COMPLETE Monday-Sunday week -- last week's Monday, not
+  // this week's, since this week isn't over yet. Same rule as Tips' own
+  // tipsGetMostRecentCompleteWeekStart.
+  function extraPayGetMostRecentCompleteWeekStart(){
+    const today = new Date().toISOString().slice(0,10);
+    const thisWeek = extraPayGetWeekBounds(today);
+    const thisMonday = new Date(thisWeek.weekStart + 'T00:00:00');
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(thisMonday.getDate() - 7);
+    return lastMonday.toISOString().slice(0,10);
+  }
+
+  async function loadExtraPayData(){
+    try{
+      const weekStart = extraPayGetMostRecentCompleteWeekStart();
+      const week = extraPayGetWeekBounds(weekStart);
+      extraPayCurrentWeekStart = weekStart;
+      document.getElementById('extraPay_weekLabel').textContent = `Prior pay week: ${window.fmtDate(week.weekStart)} \u2013 ${window.fmtDate(week.weekEnd)}`;
+
+      const [roster, tipsData, manualData] = await Promise.all([
+        window.getCurrentEmployeeRoster(),
+        window.dashboardApi.get('square-tip-allocations', {allocations:{}, overrides:{}}),
+        window.dashboardApi.get(EXTRA_PAY_MANUAL_KEY, {})
+      ]);
+      extraPayManualData = manualData || {};
+
+      // Same per-employee split as Tips' own tipsComputeWeekTotals -- a
+      // payment allocated to multiple employees splits its tip evenly
+      // among them.
+      const allocations = (tipsData && tipsData.allocations) || {};
+      const tipTotals = {};
+      Object.values(allocations).forEach(a => {
+        if(!a.date || a.date < week.weekStart || a.date > week.weekEnd) return;
+        if(!Array.isArray(a.employees) || a.employees.length === 0) return;
+        const share = a.tipAmount / a.employees.length;
+        a.employees.forEach(name => { tipTotals[name] = (tipTotals[name] || 0) + share; });
+      });
+
+      // Every current roster employee gets a row, plus anyone with an
+      // allocated tip this week who isn't currently on the roster (e.g.
+      // just left), so no tip dollars go unlisted.
+      const allNames = dedupeAndSortNames([...(roster || []), ...Object.keys(tipTotals)]);
+
+      renderExtraPayRows(allNames, tipTotals, (extraPayManualData[weekStart] || {}));
+    }catch(err){
+      console.error('Extra Pay load failed:', err);
+    }
+  }
+  window.loadExtraPayData = loadExtraPayData;
+
+  function extraPayRecalcRow(row){
+    const tips = Number(row.dataset.tips) || 0;
+    const reviewBonus = Number(row.querySelector('.extraPay-reviewBonus').value) || 0;
+    const commission = Number(row.querySelector('.extraPay-commission').value) || 0;
+    const misc = Number(row.querySelector('.extraPay-misc').value) || 0;
+    const total = tips + reviewBonus + commission + misc;
+    row.querySelector('.extraPay-total').textContent = extraPayMoney(total);
+    return { tips, reviewBonus, commission, misc, total };
+  }
+
+  function extraPayRecalcGrandTotals(){
+    const rows = document.querySelectorAll('#extraPay_rows tr');
+    let sums = { tips: 0, reviewBonus: 0, commission: 0, misc: 0, total: 0 };
+    rows.forEach(row => {
+      const r = extraPayRecalcRow(row);
+      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.misc += r.misc; sums.total += r.total;
+    });
+    document.getElementById('extraPay_totalTips').textContent = extraPayMoney(sums.tips);
+    document.getElementById('extraPay_totalReviewBonus').textContent = extraPayMoney(sums.reviewBonus);
+    document.getElementById('extraPay_totalCommission').textContent = extraPayMoney(sums.commission);
+    document.getElementById('extraPay_totalMisc').textContent = extraPayMoney(sums.misc);
+    document.getElementById('extraPay_totalGrand').textContent = extraPayMoney(sums.total);
+  }
+
+  function renderExtraPayRows(names, tipTotals, weekManualData){
+    const tbody = document.getElementById('extraPay_rows');
+    const emptyNote = document.getElementById('extraPay_emptyNote');
+    const totalRow = document.getElementById('extraPay_totalRow');
+
+    if(names.length === 0){
+      tbody.innerHTML = '';
+      emptyNote.style.display = 'block';
+      totalRow.style.display = 'none';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    totalRow.style.display = '';
+
+    tbody.innerHTML = names.map(name => {
+      const tips = tipTotals[name] || 0;
+      const manual = weekManualData[name] || {};
+      return `<tr data-name="${extraPayEsc(name)}" data-tips="${tips}">
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" value="${Number(manual.reviewBonus)||0}" style="width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${Number(manual.commission)||0}" style="width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('input').forEach(input => input.addEventListener('input', extraPayRecalcGrandTotals));
+    extraPayRecalcGrandTotals();
+  }
+
+  document.getElementById('extraPay_saveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('extraPay_saveStatus');
+    if(!extraPayCurrentWeekStart){
+      statusEl.textContent = 'Nothing to save yet.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const weekData = {};
+    document.querySelectorAll('#extraPay_rows tr').forEach(row => {
+      const name = row.dataset.name;
+      weekData[name] = {
+        reviewBonus: Number(row.querySelector('.extraPay-reviewBonus').value) || 0,
+        commission: Number(row.querySelector('.extraPay-commission').value) || 0,
+        misc: Number(row.querySelector('.extraPay-misc').value) || 0
+      };
+    });
+    extraPayManualData[extraPayCurrentWeekStart] = weekData;
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    const ok = await window.dashboardApi.set(EXTRA_PAY_MANUAL_KEY, extraPayManualData);
+    if(ok){
+      statusEl.textContent = 'Saved.';
+      statusEl.className = 'status-msg ok';
+    } else {
+      statusEl.textContent = 'Could not save \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   // ---------- Attendance Tracking ----------
   const ATTENDANCE_KEY = 'attendance-records';
