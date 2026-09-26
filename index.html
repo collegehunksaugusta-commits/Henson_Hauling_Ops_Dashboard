@@ -1425,8 +1425,7 @@
   function loadDriverPtiMaterialsItems(){ return fetchDriverMaterialsItemsInto('pti_matco_itemList', 'pti_matco_noItemsNote', 'pti-matco-qty'); }
 
   let eodCapturedPhoto = null;
-  document.getElementById('eod_photoCaptureBtn').addEventListener('click', ()=> document.getElementById('eod_photoInput').click());
-  document.getElementById('eod_photoInput').addEventListener('change', async (e)=>{
+  async function eodPhotoInputChangeHandler(e){
     const file = e.target.files[0];
     if(!file) return;
     eodCapturedPhoto = await handleTruckPhotoCapture(file, {
@@ -1434,7 +1433,9 @@
       statusElId: 'eod_photoStatus', captureBtnId: 'eod_photoCaptureBtn'
     });
     e.target.value = '';
-  });
+  }
+  document.getElementById('eod_photoCaptureBtn').addEventListener('click', ()=> freshCameraInput('eod_photoInput', eodPhotoInputChangeHandler).click());
+  document.getElementById('eod_photoInput').addEventListener('change', eodPhotoInputChangeHandler);
 
   document.getElementById('eod_submitBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('eod_submitStatus');
@@ -2025,6 +2026,23 @@
   }
 
   // ---------- Truck photo capture (shared pattern for PTI and EOD) ----------
+  // iOS Safari, especially in a home-screen PWA, can leave a
+  // <input type="file" capture="environment"> unresponsive to further
+  // .click() calls once the page has been backgrounded or silently
+  // reloaded while the native camera had focus -- a known quirk, and the
+  // same underlying iOS memory-reclamation risk the PTI draft-persistence
+  // code below is already built to recover from. Recreating the element
+  // (cloning it fresh and swapping it into the DOM) immediately before
+  // every capture attempt reliably works around this, at the cost of
+  // needing to re-attach the change listener each time rather than once.
+  function freshCameraInput(inputId, changeHandler){
+    const old = document.getElementById(inputId);
+    const fresh = old.cloneNode(true);
+    old.parentNode.replaceChild(fresh, old);
+    fresh.addEventListener('change', changeHandler);
+    return fresh;
+  }
+
   async function handleTruckPhotoCapture(file, { previewImgId, previewWrapId, statusElId, captureBtnId }){
     const statusEl = document.getElementById(statusElId);
     try{
@@ -2138,7 +2156,18 @@
     checkPtiMaterialsGate();
 
     const statusEl = document.getElementById('pti_submitStatus');
-    statusEl.textContent = 'Restored your in-progress inspection from earlier \u2014 review and submit when ready.';
+    // The photo is the one thing that can genuinely be missing from an
+    // otherwise-complete restore: it only ever gets saved to the draft
+    // after it's been taken, so if the page reloaded mid-capture (e.g. iOS
+    // reclaiming memory while the native camera had focus), everything
+    // else survives but the photo itself doesn't -- called out explicitly
+    // here so it reads as "please retake this one thing," not as if the
+    // whole inspection vanished.
+    if(draft.checklist && draft.checklist.length > 0 && !draft.photo){
+      statusEl.textContent = 'Restored your in-progress inspection from earlier \u2014 your photo didn\u2019t save though, so please retake it before submitting.';
+    } else {
+      statusEl.textContent = 'Restored your in-progress inspection from earlier \u2014 review and submit when ready.';
+    }
     statusEl.className = 'status-msg ok';
     return true;
   }
@@ -2150,8 +2179,7 @@
   }
 
   let ptiCapturedPhoto = null;
-  document.getElementById('pti_photoCaptureBtn').addEventListener('click', ()=> document.getElementById('pti_photoInput').click());
-  document.getElementById('pti_photoInput').addEventListener('change', async (e)=>{
+  async function ptiPhotoInputChangeHandler(e){
     const file = e.target.files[0];
     if(!file) return;
     ptiCapturedPhoto = await handleTruckPhotoCapture(file, {
@@ -2160,7 +2188,18 @@
     });
     if(ptiCapturedPhoto) savePtiDraft();
     e.target.value = '';
+  }
+  document.getElementById('pti_photoCaptureBtn').addEventListener('click', ()=> {
+    // Saved here, immediately, rather than relying solely on the 10-second
+    // autosave timer -- so a draft always exists before the camera opens,
+    // even if this is the very first thing the driver does. Without this,
+    // a reload during the camera-open window (see the draft-persistence
+    // note above) with no prior draft would drop the driver all the way
+    // back to the menu, not just lose the photo.
+    savePtiDraft();
+    freshCameraInput('pti_photoInput', ptiPhotoInputChangeHandler).click();
   });
+  document.getElementById('pti_photoInput').addEventListener('change', ptiPhotoInputChangeHandler);
 
   document.getElementById('pti_submitBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pti_submitStatus');
@@ -8064,21 +8103,20 @@
   function extraPayWeekPanelHtml(w){
     const isExpanded = extraPayExpandedWeeks.has(w.weekStart);
     const weekManualData = extraPayManualData[w.weekStart] || {};
-    const locked = w.adpUploaded; // payroll's already run for this week -- the numbers are final
-    const inputStyle = `width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px; ${locked ? 'background:var(--offwhite); color:var(--muted); cursor:not-allowed;' : ''}`;
-    const disabledAttr = locked ? 'disabled' : '';
+    const inputStyle = `width:90px; text-align:right; padding:4px 6px; border:1px solid var(--line); border-radius:4px;`;
     const rowsHtml = w.names.map(name => {
       const tips = w.tipTotals[name] || 0;
       const manual = weekManualData[name] || {};
       const isAutoCalculated = manual.commission === undefined && w.commissionCalc && w.commissionCalc[name] !== undefined;
       const commissionValue = manual.commission !== undefined ? manual.commission : ((w.commissionCalc && w.commissionCalc[name]) || 0);
-      const commissionTitle = isAutoCalculated ? ' title="Auto-calculated from revenue \u00d7 rate \u00d7 score \u00d7 hours worked"' : '';
+      const commissionStyle = isAutoCalculated ? `${inputStyle} background:#e8f5e9;` : inputStyle;
+      const commissionTitle = isAutoCalculated ? ' title="Auto-calculated from revenue \u00d7 rate \u00d7 score \u00d7 hours worked -- edit and save to override"' : '';
       return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" value="${Number(manual.reviewBonus)||0}" style="${inputStyle}" ${disabledAttr}></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${inputStyle}" ${disabledAttr}${commissionTitle}></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}" ${disabledAttr}></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" value="${Number(manual.reviewBonus)||0}" style="${inputStyle}"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
     }).join('');
@@ -8110,12 +8148,10 @@
             </tr>
           </tfoot>
         </table>
-        ${locked
-          ? `<p class="form-note" style="margin-top:14px;">Locked &mdash; this week's ADP payroll report has already been uploaded, so these figures are final.</p>`
-          : `<div class="form-actions" style="margin-top:14px;">
+        <div class="form-actions" style="margin-top:14px;">
           <button type="button" class="btn-primary extraPay-save-btn" data-week="${w.weekStart}">Save</button>
           <span class="status-msg extraPay-save-status"></span>
-        </div>`}
+        </div>
       </div>
     </div>`;
   }
