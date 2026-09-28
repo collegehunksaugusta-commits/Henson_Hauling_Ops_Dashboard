@@ -79,7 +79,9 @@ const ALLOWED_KEYS = new Set([
   'financial-state-tax-records',
   'monthly-financials',
   'hourly-rate-history',
-  'extra-pay-manual'
+  'extra-pay-manual',
+  'wingman-questions',
+  'wingman-ratings'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-'];
 
@@ -487,6 +489,51 @@ app.get('/api/driver/roster', requireDriverAuth, async (req, res) => {
   } catch (err) {
     console.error('Driver roster fetch failed:', err.message);
     res.status(500).json({ error: 'Could not load roster.' });
+  }
+});
+
+// The current Wingman Metrics questions -- read-only for drivers, who only
+// need to see what's currently configured, never edit it. Only non-empty
+// slots are meaningful; the frontend filters blanks before asking anything.
+app.get('/api/driver/wingman-questions', requireDriverAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('wingman-questions');
+    const questions = raw ? JSON.parse(raw) : [];
+    res.json({ questions });
+  } catch (err) {
+    console.error('Driver wingman questions fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load wingman questions.' });
+  }
+});
+
+// One wingman's set of yes/no answers from a single Captain, for a single
+// EOD inspection -- a Captain reviewing several wingmen submits one of
+// these per wingman. captainName comes from the authenticated session, not
+// the request body, so it can't be spoofed.
+app.post('/api/driver/wingman-rating', requireDriverAuth, async (req, res) => {
+  const { wingmanName, answers } = req.body || {};
+  if (typeof wingmanName !== 'string' || !wingmanName.trim()) {
+    return res.status(400).json({ error: 'wingmanName is required.' });
+  }
+  if (!Array.isArray(answers) || answers.length === 0 || answers.some(a => !a || typeof a.question !== 'string' || typeof a.answer !== 'boolean')) {
+    return res.status(400).json({ error: 'answers must be a non-empty array of { question, answer }.' });
+  }
+  try {
+    const raw = await redis.get('wingman-ratings');
+    const ratings = raw ? JSON.parse(raw) : [];
+    ratings.push({
+      id: 'wr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      captainName: req.driverName,
+      wingmanName: wingmanName.trim().slice(0, 100),
+      date: new Date().toISOString().slice(0, 10),
+      answers: answers.map(a => ({ question: String(a.question).slice(0, 300), answer: !!a.answer })),
+      createdAt: new Date().toISOString()
+    });
+    await redis.set('wingman-ratings', JSON.stringify(ratings));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Wingman rating submission failed:', err.message);
+    res.status(500).json({ error: 'Could not save that wingman review.' });
   }
 });
 
@@ -1540,6 +1587,38 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
   return scores;
 }
 
+// A wingman's score is simply the percentage of "yes" answers across every
+// rating they received (from any Captain, on any job) within a date range
+// -- no weighted categories, since these are all plain yes/no questions.
+// Matched by normalized name, same as everywhere else names get compared
+// in this app, so a roster spelling correction doesn't split one person's
+// ratings into two separate records.
+function computeWingmanScoresForRange(rangeStart, rangeEnd, ratings) {
+  const scores = {};
+  (ratings || []).forEach(r => {
+    if (!r.wingmanName || !r.date || r.date < rangeStart || r.date >= rangeEnd) return;
+    if (!Array.isArray(r.answers) || r.answers.length === 0) return;
+    const key = nameDedupKey(r.wingmanName);
+    if (!scores[key]) scores[key] = { displayName: r.wingmanName, totalYes: 0, totalQuestions: 0, ratingCount: 0 };
+    // The most recently dated rating's spelling wins for display, same
+    // canonicalization rule Captain Metrics already uses.
+    if (r.date >= (scores[key].latestDate || '')) { scores[key].displayName = r.wingmanName; scores[key].latestDate = r.date; }
+    r.answers.forEach(a => {
+      scores[key].totalQuestions++;
+      if (a.answer === true) scores[key].totalYes++;
+    });
+    scores[key].ratingCount++;
+  });
+  const byName = {};
+  Object.values(scores).forEach(s => {
+    byName[s.displayName] = {
+      overall: s.totalQuestions > 0 ? Math.round((s.totalYes / s.totalQuestions) * 100) : null,
+      totalYes: s.totalYes, totalQuestions: s.totalQuestions, ratingCount: s.ratingCount
+    };
+  });
+  return byName;
+}
+
 async function fetchCaptainMetricsRawData() {
   const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
@@ -1715,6 +1794,69 @@ app.get('/api/admin/captain-metrics/for-week', requireAuth, async (req, res) => 
   }
 });
 
+// A single week's Wingman scores, for commission calculation -- mirrors
+// Captain Metrics' own for-week endpoint.
+app.get('/api/admin/wingman-metrics/for-week', requireAuth, async (req, res) => {
+  const { weekStart } = req.query;
+  if (!weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+    return res.status(400).json({ error: 'weekStart (YYYY-MM-DD) is required.' });
+  }
+  try {
+    const ratingsRaw = await redis.get('wingman-ratings');
+    const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+
+    const weekEndDate = new Date(weekStart + 'T00:00:00Z');
+    weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
+    const weekEnd = weekEndDate.toISOString().slice(0, 10);
+
+    const scores = computeWingmanScoresForRange(weekStart, weekEnd, ratings);
+    res.json({ weekStart, scores });
+  } catch (err) {
+    console.error('Wingman Metrics for-week fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load Wingman Metrics for that week.' });
+  }
+});
+
+// Current Wingman Metrics for the admin tile -- a rolling 90-day window
+// (ratings are event-based, not tied to a calendar month the way Captain
+// Metrics is), plus each wingman's individual rating records so the tile
+// can show a full history, not just the aggregate score, for transparency
+// into exactly why someone scored the way they did.
+app.get('/api/admin/wingman-metrics/current', requireAuth, async (req, res) => {
+  try {
+    const ratingsRaw = await redis.get('wingman-ratings');
+    const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const windowStartDate = new Date();
+    windowStartDate.setDate(windowStartDate.getDate() - 90);
+    const windowStart = windowStartDate.toISOString().slice(0, 10);
+    const windowEndDate = new Date();
+    windowEndDate.setDate(windowEndDate.getDate() + 1); // exclusive upper bound -- makes today inclusive
+    const windowEnd = windowEndDate.toISOString().slice(0, 10);
+
+    const scores = computeWingmanScoresForRange(windowStart, windowEnd, ratings);
+
+    // Individual ratings within the same window, grouped by wingman
+    // (normalized name), most recent first -- the detail view behind
+    // each wingman's aggregate score.
+    const ratingsByName = {};
+    ratings.filter(r => r.date && r.date >= windowStart).forEach(r => {
+      const key = nameDedupKey(r.wingmanName || '');
+      if (!ratingsByName[key]) ratingsByName[key] = [];
+      ratingsByName[key].push(r);
+    });
+    Object.keys(ratingsByName).forEach(key => {
+      ratingsByName[key].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    });
+
+    res.json({ windowStart, scores, ratingsByName });
+  } catch (err) {
+    console.error('Wingman Metrics current fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load current Wingman Metrics.' });
+  }
+});
+
 app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res) => {
   try {
     const settingsRaw = await redis.get(APP_SETTINGS_KEY);
@@ -1859,7 +2001,8 @@ const DEFAULT_APP_SETTINGS = {
   commission: {
     driverRate: 0,
     opsManagerRate: 0,
-    opsManagerAssignment: ''
+    opsManagerAssignment: '',
+    wingmanRate: 0
   },
   junkRemoval: {
     pricing: [
