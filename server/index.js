@@ -1312,10 +1312,10 @@ function monthAfter(monthStr) {
 // has no applicable data for (e.g. no move jobs that month) is left out of
 // their score entirely rather than counted as a 0 -- see the weight
 // re-normalization below.
-function computeCaptainScoresForMonth(monthStr, data, weights, opsManagerNames, activeDriverNames) {
+function computeCaptainScoresForMonth(monthStr, data, weights, opsManagerNames, activeDriverNames, travelLineCheckStartDate) {
   const rangeStart = monthStr + '-01';
   const rangeEnd = monthAfter(monthStr) + '-01'; // exclusive upper bound
-  return computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames);
+  return computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames, travelLineCheckStartDate);
 }
 
 // Same scoring logic as computeCaptainScoresForMonth, generalized to any
@@ -1331,7 +1331,7 @@ function nameDedupKey(name) {
   return String(name || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
 }
 
-function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames) {
+function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames, travelLineCheckStartDate) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems } = data;
   const opsManagerKeys = new Set((opsManagerNames || []).map(nameDedupKey));
@@ -1447,14 +1447,19 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
   // underbilled) if that applicable condition isn't met:
   //   (a) it had materials checked out -- not underbilled means every
   //       checked-out item was billed for at least as much as was pulled.
-  //   (b) it's a Move or Move Labor job -- not underbilled means the
-  //       invoice has a billed line item whose description includes the
-  //       word "travel", regardless of whether materials were involved
-  //       at all. An invoice that hasn't been (re-)processed with this
-  //       check counts as failing it, not as skipped.
+  //   (b) it's a Move or Move Labor job dated on or after
+  //       travelLineCheckStartDate -- not underbilled means the invoice
+  //       has a billed line item whose description includes the word
+  //       "travel", regardless of whether materials were involved at all.
+  //       An invoice that hasn't been (re-)processed with this check
+  //       counts as failing it, not as skipped. Jobs before that date are
+  //       scored as if this condition didn't exist (materials-only, if
+  //       applicable) -- their invoices predate the check and were never
+  //       going to have a confirmed travel line, so this isn't scored
+  //       against them the way it is for jobs going forward.
   // A job meeting neither condition (no materials checked out, and not a
-  // Move/Move Labor job) isn't counted either way. A job meeting both
-  // must pass both to count as not underbilled.
+  // Move/Move Labor job on or after the cutoff) isn't counted either way.
+  // A job meeting both must pass both to count as not underbilled.
   const billableItemIds = new Set((materialsItems || []).filter(i => !i.neverBilled).map(i => i.id));
   const checkedOutByJob = {};
   (materialsCheckouts || []).forEach(co => {
@@ -1483,7 +1488,8 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
   monthJobs.forEach(j => {
     const checkedOut = checkedOutByJob[j.jobNumber];
     const hasMaterialsCheckedOut = !!(checkedOut && Object.keys(checkedOut).length > 0);
-    const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType);
+    const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) &&
+      (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate);
     if (!hasMaterialsCheckedOut && !needsTravelLine) return; // not applicable either way
 
     if (!underbilledByCaptain[j.captainName]) underbilledByCaptain[j.captainName] = { ok: 0, total: 0 };
@@ -1571,7 +1577,7 @@ async function fetchCaptainMetricsRawData() {
 // catch-up spanning several months at once, locking each in turn, not
 // just the immediately-next one. Call this before reading current scores
 // anywhere they're displayed, and also right after a payroll week save.
-async function getActiveCaptainMetricsMonth(weights) {
+async function getActiveCaptainMetricsMonth(weights, travelLineCheckStartDate) {
   const laborWeeksRaw = await redis.get('labor-weeks');
   const laborWeeks = laborWeeksRaw ? JSON.parse(laborWeeksRaw) : [];
   const locksRaw = await redis.get(CAPTAIN_METRICS_MONTHLY_LOCKS_KEY);
@@ -1593,7 +1599,7 @@ async function getActiveCaptainMetricsMonth(weights) {
     let changed = false;
     while (activeMonth < latestPayrollMonth) {
       if (!lockedMonthSet.has(activeMonth)) {
-        const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames);
+        const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
         locks.push({ month: activeMonth, lockedAt: new Date().toISOString(), scores });
         lockedMonthSet.add(activeMonth);
         changed = true;
@@ -1611,10 +1617,11 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
     const settingsRaw = await redis.get(APP_SETTINGS_KEY);
     const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
     const weights = settings.captainMetrics.weights;
+    const travelLineCheckStartDate = settings.captainMetrics.travelLineCheckStartDate;
 
-    const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
+    const { activeMonth } = await getActiveCaptainMetricsMonth(weights, travelLineCheckStartDate);
     const data = await fetchCaptainMetricsRawData();
-    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames);
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
 
     const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing' };
     const entries = Object.keys(scores)
@@ -1645,9 +1652,10 @@ app.get('/api/admin/captain-metrics/current', requireAuth, async (req, res) => {
     const settingsRaw = await redis.get(APP_SETTINGS_KEY);
     const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
     const weights = settings.captainMetrics.weights;
-    const { activeMonth } = await getActiveCaptainMetricsMonth(weights);
+    const travelLineCheckStartDate = settings.captainMetrics.travelLineCheckStartDate;
+    const { activeMonth } = await getActiveCaptainMetricsMonth(weights, travelLineCheckStartDate);
     const data = await fetchCaptainMetricsRawData();
-    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames);
+    const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
     res.json({ month: activeMonth, scores });
   } catch (err) {
     console.error('Captain Metrics current-month fetch failed:', err.message);
@@ -1664,7 +1672,7 @@ app.post('/api/admin/captain-metrics/check-month-lock', requireAuth, requireAdmi
   try {
     const settingsRaw = await redis.get(APP_SETTINGS_KEY);
     const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
-    const { activeMonth, locks } = await getActiveCaptainMetricsMonth(settings.captainMetrics.weights);
+    const { activeMonth, locks } = await getActiveCaptainMetricsMonth(settings.captainMetrics.weights, settings.captainMetrics.travelLineCheckStartDate);
     res.json({ ok: true, activeMonth, lockedMonths: locks.map(l => l.month) });
   } catch (err) {
     console.error('Captain Metrics month-lock check failed:', err.message);
@@ -1692,13 +1700,14 @@ app.get('/api/admin/captain-metrics/for-week', requireAuth, async (req, res) => 
     const settingsRaw = await redis.get(APP_SETTINGS_KEY);
     const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
     const weights = settings.captainMetrics.weights;
+    const travelLineCheckStartDate = settings.captainMetrics.travelLineCheckStartDate;
     const data = await fetchCaptainMetricsRawData();
 
     const weekEndDate = new Date(weekStart + 'T00:00:00Z');
     weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
     const weekEnd = weekEndDate.toISOString().slice(0, 10);
 
-    const scores = computeCaptainScoresForRange(weekStart, weekEnd, data, weights, data.opsManagerNames, data.activeDriverNames);
+    const scores = computeCaptainScoresForRange(weekStart, weekEnd, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
     res.json({ weekStart, scores });
   } catch (err) {
     console.error('Captain Metrics for-week fetch failed:', err.message);
@@ -1711,6 +1720,7 @@ app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res)
     const settingsRaw = await redis.get(APP_SETTINGS_KEY);
     const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
     const weights = settings.captainMetrics.weights;
+    const travelLineCheckStartDate = settings.captainMetrics.travelLineCheckStartDate;
     const data = await fetchCaptainMetricsRawData();
 
     const WEEKS_BACK = 12;
@@ -1728,7 +1738,7 @@ app.get('/api/admin/captain-metrics/weekly-trend', requireAuth, async (req, res)
       const weekEndDate = new Date(weekStart);
       weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
       const weekEndStr = weekEndDate.toISOString().slice(0, 10);
-      const scores = computeCaptainScoresForRange(weekStartStr, weekEndStr, data, weights, data.opsManagerNames, data.activeDriverNames);
+      const scores = computeCaptainScoresForRange(weekStartStr, weekEndStr, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
       weeks.push({ weekStart: weekStartStr, label: weekStartStr.slice(5), scores });
     }
 
@@ -1835,7 +1845,13 @@ const DEFAULT_APP_SETTINGS = {
   },
   captainMetrics: {
     resetDate: '',
-    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 }
+    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 },
+    // The travel-line-item requirement (Underbilled Jobs, for Move/Move
+    // Labor jobs) only applies to jobs on or after this date. Set to the
+    // day after that check actually went live (2026-09-24), so Captains
+    // aren't scored against invoices that predate the feature and could
+    // never have had a confirmed travel line in the first place.
+    travelLineCheckStartDate: '2026-09-25'
   },
   opsManagerMetrics: {
     resetDate: ''
