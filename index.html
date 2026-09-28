@@ -5372,6 +5372,16 @@
           </div>
         </div>
 
+        <div class="panel" id="set_wingmanMetricsPanel" data-collapsible="true">
+          <h3>Wingman Metrics</h3>
+          <p class="form-note" style="margin-top:0;">Up to 10 yes/no questions a Captain answers about each wingman during the End of Day inspection. Leave a field blank to skip it &mdash; only filled-in questions are asked. Change wording any time; past answers keep the wording they were actually asked under.</p>
+          <div id="appset_wingmanQuestionRows" style="display:flex; flex-direction:column; gap:8px;"></div>
+          <div class="form-actions" style="margin-top:14px;">
+            <button type="button" id="appset_wingmanQuestionsSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Questions</button>
+            <span class="status-msg" id="appset_wingmanQuestionsStatus"></span>
+          </div>
+        </div>
+
         <div class="panel" id="set_opsManagerMetricsPanel" data-collapsible="true">
           <h3>Ops Manager Metrics</h3>
           <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
@@ -5430,16 +5440,6 @@
           <div class="form-actions">
             <button type="button" id="appset_opsManagerAssignmentSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Assignment</button>
             <span class="status-msg" id="appset_opsManagerAssignmentStatus"></span>
-          </div>
-        </div>
-
-        <div class="panel" id="set_wingmanMetricsPanel" data-collapsible="true">
-          <h3>Wingman Metrics</h3>
-          <p class="form-note" style="margin-top:0;">Up to 10 yes/no questions a Captain answers about each wingman during the End of Day inspection. Leave a field blank to skip it &mdash; only filled-in questions are asked. Change wording any time; past answers keep the wording they were actually asked under.</p>
-          <div id="appset_wingmanQuestionRows" style="display:flex; flex-direction:column; gap:8px;"></div>
-          <div class="form-actions" style="margin-top:14px;">
-            <button type="button" id="appset_wingmanQuestionsSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Questions</button>
-            <span class="status-msg" id="appset_wingmanQuestionsStatus"></span>
           </div>
         </div>
 
