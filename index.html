@@ -671,6 +671,43 @@
       <span class="status-msg" id="eod_submitStatus" style="text-align:center;"></span>
     </div>
   </div>
+
+  <div id="driverWingmanView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="driverWingmanBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
+      <h2 class="display" style="margin:0; font-size:20px;">Wingman Review</h2>
+      <button type="button" id="driverWingmanLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div id="wingman_selectSection" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Who worked with you today?</h3>
+      <p class="form-note">Optional &mdash; rate anyone who helped you on a job today. You can review as many wingmen as worked with you.</p>
+      <label>Wingman <select id="wingman_select"></select></label>
+      <p class="form-note" id="wingman_noOptionsNote" style="display:none;">No one else is available to review right now.</p>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:14px;">
+        <button class="btn-primary" id="wingman_startReviewBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Review This Wingman</button>
+        <button type="button" id="wingman_allFinishedBtn" style="width:100%; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:14px; border-radius:6px; cursor:pointer; font-size:14px;">Finished &mdash; No One Else to Review</button>
+      </div>
+    </div>
+
+    <div id="wingman_questionsSection" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Reviewing: <span id="wingman_currentName"></span></h3>
+      <div id="wingman_questionRows"></div>
+      <p class="status-msg" id="wingman_answerStatus" style="margin-top:8px;"></p>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:6px;">
+        <button class="btn-primary" id="wingman_submitReviewBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Review</button>
+      </div>
+    </div>
+
+    <div id="wingman_nextStepSection" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; text-align:center;">
+      <p class="status-msg ok" style="font-size:15px;">Review submitted for <span id="wingman_justReviewedName" style="font-weight:700;"></span>. Thank you!</p>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:10px;">
+        <button class="btn-primary" id="wingman_reviewAnotherBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Review Another Wingman</button>
+        <button type="button" id="wingman_finishedBtn" style="width:100%; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:14px; border-radius:6px; cursor:pointer; font-size:14px;">Finished</button>
+      </div>
+    </div>
+  </div>
+
 <div id="driverJunkRemovalView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
   <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
     <button type="button" id="driverJunkRemovalBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
@@ -863,6 +900,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
   }
@@ -876,6 +914,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
     loadDriverLeaderboard();
@@ -1005,6 +1044,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
     document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
@@ -1033,6 +1073,7 @@
     document.getElementById('driverNbhdView').style.display = 'block';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
     document.getElementById('nbhd_resultsPanel').style.display = 'none';
@@ -1050,6 +1091,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'block';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
     loadDriverTruckDocsTrucks();
@@ -1064,6 +1106,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'block';
     document.getElementById('driverMovingView').style.display = 'none';
     document.getElementById('jrd_driverNameDisplay').textContent = currentDriverName || '';
@@ -1486,12 +1529,157 @@
       eodCapturedPhoto = null;
       document.getElementById('eod_photoPreviewWrap').style.display = 'none';
       document.getElementById('eod_photoCaptureBtn').textContent = 'Take Photo';
+      await startWingmanReviewFlow();
     }catch(err){
       console.error('End of day inspection submit failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
   });
+
+  // ---------- Wingman Review (driver) ----------
+  // Follows immediately after a successful EOD submission, if any
+  // questions are currently configured. Not itself part of the EOD
+  // submission -- a separate step, since a Captain can review any number
+  // of wingmen (usually up to ~5) after the truck-level inspection is done.
+  let wingmanQuestions = []; // non-empty questions only, in their configured order
+  let wingmanRoster = []; // current employee roster, excluding the Captain themself
+  let wingmanReviewedThisSession = new Set(); // exact names already reviewed this session -- just a UI hint, not a hard block
+  let wingmanCurrentName = '';
+
+  async function loadWingmanQuestionsAndRoster(){
+    try{
+      const [qRes, rRes] = await Promise.all([
+        fetch(API_BASE_AUTH + '/api/driver/wingman-questions', { headers: {'Authorization': 'Bearer ' + driverToken} }),
+        fetch(API_BASE_AUTH + '/api/driver/roster', { headers: {'Authorization': 'Bearer ' + driverToken} })
+      ]);
+      if(qRes.status === 401 || rRes.status === 401){ driverSessionExpired(); return false; }
+      const qData = await qRes.json();
+      const rData = await rRes.json();
+      wingmanQuestions = (qData.questions || []).map(q => (q || '').trim()).filter(Boolean);
+      wingmanRoster = (rData.names || []).filter(n => n !== currentDriverName);
+      return true;
+    }catch(err){
+      console.error('Wingman questions/roster load failed:', err);
+      return false;
+    }
+  }
+
+  // Called right after a successful EOD submission -- skips straight past
+  // the review flow entirely (no admin questions configured yet, or no one
+  // else on the roster to review) rather than showing an empty screen.
+  async function startWingmanReviewFlow(){
+    const ok = await loadWingmanQuestionsAndRoster();
+    if(!ok || wingmanQuestions.length === 0 || wingmanRoster.length === 0) return;
+
+    wingmanReviewedThisSession = new Set();
+    document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'block';
+    document.getElementById('wingman_selectSection').style.display = 'block';
+    document.getElementById('wingman_questionsSection').style.display = 'none';
+    document.getElementById('wingman_nextStepSection').style.display = 'none';
+    renderWingmanSelectOptions();
+  }
+
+  function renderWingmanSelectOptions(){
+    const select = document.getElementById('wingman_select');
+    const noOptionsNote = document.getElementById('wingman_noOptionsNote');
+    const startBtn = document.getElementById('wingman_startReviewBtn');
+    if(wingmanRoster.length === 0){
+      select.style.display = 'none';
+      noOptionsNote.style.display = 'block';
+      startBtn.disabled = true;
+      return;
+    }
+    select.style.display = '';
+    noOptionsNote.style.display = 'none';
+    startBtn.disabled = false;
+    select.innerHTML = wingmanRoster.map(name =>
+      `<option value="${driverLbEsc(name)}">${driverLbEsc(name)}${wingmanReviewedThisSession.has(name) ? ' (already reviewed)' : ''}</option>`
+    ).join('');
+  }
+
+  function renderWingmanQuestionRows(){
+    const rowsEl = document.getElementById('wingman_questionRows');
+    rowsEl.innerHTML = wingmanQuestions.map((q, i) => `
+      <div class="wingman-question-row" data-index="${i}" style="padding:12px 0; border-bottom:1px solid var(--line);">
+        <p style="margin:0 0 8px; font-weight:600;">${driverLbEsc(q)}</p>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="wingman-answer-btn" data-index="${i}" data-value="yes" style="flex:1; padding:10px; border-radius:6px; border:1px solid var(--line); background:#fff; color:var(--charcoal); font-weight:600; cursor:pointer;">Yes</button>
+          <button type="button" class="wingman-answer-btn" data-index="${i}" data-value="no" style="flex:1; padding:10px; border-radius:6px; border:1px solid var(--line); background:#fff; color:var(--charcoal); font-weight:600; cursor:pointer;">No</button>
+        </div>
+      </div>`
+    ).join('');
+    rowsEl.querySelectorAll('.wingman-answer-btn').forEach(btn => btn.addEventListener('click', (e)=>{
+      const index = e.currentTarget.dataset.index;
+      const row = rowsEl.querySelector(`.wingman-question-row[data-index="${index}"]`);
+      row.dataset.answer = e.currentTarget.dataset.value;
+      row.querySelectorAll('.wingman-answer-btn').forEach(b => {
+        const selected = b.dataset.value === e.currentTarget.dataset.value;
+        b.style.background = selected ? 'var(--brand-green)' : '#fff';
+        b.style.color = selected ? '#fff' : 'var(--charcoal)';
+        b.style.borderColor = selected ? 'var(--brand-green)' : 'var(--line)';
+      });
+    }));
+  }
+
+  document.getElementById('wingman_startReviewBtn').addEventListener('click', ()=>{
+    const select = document.getElementById('wingman_select');
+    if(!select.value) return;
+    wingmanCurrentName = select.value;
+    document.getElementById('wingman_currentName').textContent = wingmanCurrentName;
+    document.getElementById('wingman_answerStatus').textContent = '';
+    renderWingmanQuestionRows();
+    document.getElementById('wingman_selectSection').style.display = 'none';
+    document.getElementById('wingman_questionsSection').style.display = 'block';
+  });
+
+  document.getElementById('wingman_submitReviewBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('wingman_answerStatus');
+    const rows = Array.from(document.querySelectorAll('.wingman-question-row'));
+    const unanswered = rows.some(r => !r.dataset.answer);
+    if(unanswered){
+      statusEl.textContent = 'Answer every question before submitting.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const answers = rows.map((r, i) => ({ question: wingmanQuestions[i], answer: r.dataset.answer === 'yes' }));
+    statusEl.textContent = 'Submitting...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/wingman-rating', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ wingmanName: wingmanCurrentName, answers })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not submit that review.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      wingmanReviewedThisSession.add(wingmanCurrentName);
+      document.getElementById('wingman_justReviewedName').textContent = wingmanCurrentName;
+      document.getElementById('wingman_questionsSection').style.display = 'none';
+      document.getElementById('wingman_nextStepSection').style.display = 'block';
+    }catch(err){
+      console.error('Wingman review submit failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('wingman_reviewAnotherBtn').addEventListener('click', ()=>{
+    renderWingmanSelectOptions();
+    document.getElementById('wingman_nextStepSection').style.display = 'none';
+    document.getElementById('wingman_selectSection').style.display = 'block';
+  });
+
+  document.getElementById('wingman_allFinishedBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('wingman_finishedBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverWingmanBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverWingmanLogoutBtn').addEventListener('click', driverLogout);
 
   // ---------- Junk Removal (driver) ----------
   const JUNK_REMOVAL_TIER_OPTIONS = ['1/8','1/6','1/4','1/3','3/8','1/2','5/8','2/3','3/4','5/6','7/8','full'];
@@ -1792,6 +1980,7 @@
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
+    document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'block';
     document.getElementById('mv_driverNameDisplay').textContent = currentDriverName || '';
@@ -2686,10 +2875,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(2)</span>
+            <span class="dashSectionCount">(3)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Captain Metrics, Attendance Tracking</div>
+          <div class="dashSectionTileList">Captain Metrics, Wingman Metrics, Attendance Tracking</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -2698,6 +2887,11 @@
         <span class="icon">&#9875;</span>
         <h3>Captain Metrics</h3>
         <p>Pre-trip inspection compliance and completed paperwork quality, by Captain.</p>
+      </div>
+      <div class="tile" id="tile-wingman" tabindex="0" role="button" aria-label="Open Wingman Metrics">
+        <span class="icon">🙋</span>
+        <h3>Wingman Metrics</h3>
+        <p>Captain-reported yes/no reviews of each wingman, from the End of Day inspection.</p>
       </div>
       <div class="tile" id="tile-attendance" tabindex="0" role="button" aria-label="Open Attendance Tracking">
         <span class="icon">🕒</span>
@@ -3622,6 +3816,17 @@
 
     <div id="extraPay_weeksList"></div>
     <p class="form-note" id="extraPay_emptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
+  </div>
+
+  <div id="wingmanMetricsDetail" style="display:none;">
+    <button class="backlink" id="wingmanMetricsBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Wingman Metrics</h2>
+    </div>
+    <p class="form-note">Percentage of "yes" answers across every Captain-submitted review, per wingman, over the last 90 days. Someone with no reviews in that window doesn't appear below at all.</p>
+
+    <div id="wingman_scoreList"></div>
+    <p class="form-note" id="wingman_scoreEmptyNote" style="display:none;">No wingman reviews have been submitted in the last 90 days.</p>
   </div>
 
   <div id="opsMetricsDetail" style="display:none;">
@@ -5208,10 +5413,11 @@
 
         <div class="panel" id="set_commissionPanel" data-collapsible="true">
           <h3>Commission Rates</h3>
-          <p class="form-note" style="margin-top:0;">A commission rate for each role below. Driver applies to anyone currently checked as a driver on the Compliance tile's Driver List. Ops Manager applies to whoever is assigned that role here, independent of the Driver checkbox &mdash; someone can be both.</p>
-          <div class="form-grid" style="grid-template-columns:auto auto; align-items:end;">
+          <p class="form-note" style="margin-top:0;">A commission rate for each role below. Driver applies to anyone currently checked as a driver on the Compliance tile's Driver List. Ops Manager applies to whoever is assigned that role here, independent of the Driver checkbox &mdash; someone can be both. Wingman isn't a fixed role like the other two &mdash; it applies to whoever was actually rated as a wingman that week, using their Wingman Score for that week; someone not rated at all that week simply earns no wingman commission.</p>
+          <div class="form-grid" style="grid-template-columns:auto auto auto; align-items:end;">
             <label>Driver Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionDriverRate" style="max-width:120px;"></label>
             <label>Ops Manager Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOpsManagerRate" style="max-width:120px;"></label>
+            <label>Wingman Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionWingmanRate" style="max-width:120px;"></label>
           </div>
           <div class="form-actions">
             <button type="button" id="appset_commissionRatesSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Rates</button>
@@ -5224,6 +5430,16 @@
           <div class="form-actions">
             <button type="button" id="appset_opsManagerAssignmentSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Assignment</button>
             <span class="status-msg" id="appset_opsManagerAssignmentStatus"></span>
+          </div>
+        </div>
+
+        <div class="panel" id="set_wingmanMetricsPanel" data-collapsible="true">
+          <h3>Wingman Metrics</h3>
+          <p class="form-note" style="margin-top:0;">Up to 10 yes/no questions a Captain answers about each wingman during the End of Day inspection. Leave a field blank to skip it &mdash; only filled-in questions are asked. Change wording any time; past answers keep the wording they were actually asked under.</p>
+          <div id="appset_wingmanQuestionRows" style="display:flex; flex-direction:column; gap:8px;"></div>
+          <div class="form-actions" style="margin-top:14px;">
+            <button type="button" id="appset_wingmanQuestionsSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Questions</button>
+            <span class="status-msg" id="appset_wingmanQuestionsStatus"></span>
           </div>
         </div>
 
@@ -5572,6 +5788,7 @@
   const mailRouteDetail = document.getElementById('mailRouteDetail');
   const captainDetail = document.getElementById('captainDetail');
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
+  const wingmanMetricsDetail = document.getElementById('wingmanMetricsDetail');
   const extraPayDetail = document.getElementById('extraPayDetail');
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
@@ -5600,6 +5817,7 @@
     mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
     captainDetail.style.display = view === 'captain' ? 'block' : 'none';
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
+    wingmanMetricsDetail.style.display = view === 'wingmanmetrics' ? 'block' : 'none';
     extraPayDetail.style.display = view === 'extrapay' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
@@ -5660,6 +5878,9 @@
     }
     if(view === 'opsmetrics'){
       window.loadOpsMetricsData();
+    }
+    if(view === 'wingmanmetrics'){
+      window.loadWingmanMetricsData();
     }
     if(view === 'extrapay'){
       window.loadExtraPayData();
@@ -5798,6 +6019,8 @@
 
   document.getElementById('tile-opsmetrics').addEventListener('click', ()=> navigateTo('opsmetrics'));
   document.getElementById('tile-opsmetrics').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('opsmetrics'); }});
+  document.getElementById('tile-wingman').addEventListener('click', ()=> navigateTo('wingmanmetrics'));
+  document.getElementById('tile-wingman').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('wingmanmetrics'); }});
   document.getElementById('tile-extrapay').addEventListener('click', ()=> navigateTo('extrapay'));
   document.getElementById('tile-extrapay').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('extrapay'); }});
   document.getElementById('tile-materials').addEventListener('click', ()=> navigateTo('materials'));
@@ -5816,6 +6039,7 @@
   document.getElementById('stateTaxesBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('wingmanMetricsBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('extraPayBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
@@ -8030,17 +8254,31 @@
       // for weeks that actually have that data, not every week shown.
       const weeksWithRevenueData = weeksDataRaw.filter(w => w.adpUploaded && laborWeeksByStart[w.weekStart]);
       const captainScoresByWeek = {};
-      await Promise.all(weeksWithRevenueData.map(async w => {
-        try{
-          const res = await fetch(`${API_BASE}/api/admin/captain-metrics/for-week?weekStart=${w.weekStart}`, { headers: authHeaders() });
-          if(!res.ok){ captainScoresByWeek[w.weekStart] = {}; return; }
-          const data = await res.json();
-          captainScoresByWeek[w.weekStart] = data.scores || {};
-        }catch(err){
-          console.error('Captain Metrics for-week fetch failed:', err);
-          captainScoresByWeek[w.weekStart] = {};
-        }
-      }));
+      const wingmanScoresByWeek = {};
+      await Promise.all(weeksWithRevenueData.flatMap(w => [
+        (async () => {
+          try{
+            const res = await fetch(`${API_BASE}/api/admin/captain-metrics/for-week?weekStart=${w.weekStart}`, { headers: authHeaders() });
+            if(!res.ok){ captainScoresByWeek[w.weekStart] = {}; return; }
+            const data = await res.json();
+            captainScoresByWeek[w.weekStart] = data.scores || {};
+          }catch(err){
+            console.error('Captain Metrics for-week fetch failed:', err);
+            captainScoresByWeek[w.weekStart] = {};
+          }
+        })(),
+        (async () => {
+          try{
+            const res = await fetch(`${API_BASE}/api/admin/wingman-metrics/for-week?weekStart=${w.weekStart}`, { headers: authHeaders() });
+            if(!res.ok){ wingmanScoresByWeek[w.weekStart] = {}; return; }
+            const data = await res.json();
+            wingmanScoresByWeek[w.weekStart] = data.scores || {};
+          }catch(err){
+            console.error('Wingman Metrics for-week fetch failed:', err);
+            wingmanScoresByWeek[w.weekStart] = {};
+          }
+        })()
+      ]));
 
       const weeksData = weeksDataRaw.map(w => {
         const commissionCalc = {};
@@ -8055,6 +8293,7 @@
           const reviewPct = window.computeOpsManagerReviewCloseoutForWeek(reviewItemsResult || [], reviewWindowDays, w.week.weekStart, w.week.weekEnd);
           const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(paperworkPct, reviewPct, omWeights);
           const captainScores = captainScoresByWeek[w.weekStart] || {};
+          const wingmanScores = wingmanScoresByWeek[w.weekStart] || {};
 
           w.names.forEach(name => {
             const key = nameDedupKey(name);
@@ -8072,6 +8311,16 @@
             }
             if(opsManagerAssignmentKey && key === opsManagerAssignmentKey && opsManagerScore !== null){
               total += revenue * ((Number(commission.opsManagerRate)||0)/100) * (opsManagerScore/100) * (hours/40);
+            }
+            // Wingman isn't a fixed role like the other two -- it applies
+            // to whoever actually has a score for this week, which only
+            // exists if a Captain rated them. Someone can be a driver,
+            // the Ops Manager, AND rated as a wingman all in the same
+            // week -- every applicable piece is summed.
+            const wingmanEntry = Object.keys(wingmanScores).find(wn => nameDedupKey(wn) === key);
+            const wingmanScore = wingmanEntry ? wingmanScores[wingmanEntry].overall : null;
+            if(wingmanScore !== null && wingmanScore !== undefined){
+              total += revenue * ((Number(commission.wingmanRate)||0)/100) * (wingmanScore/100) * (hours/40);
             }
             if(total > 0) commissionCalc[name] = total;
           });
@@ -8239,6 +8488,7 @@
   function nameDedupKey(name){
     return name.replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
   }
+  window.nameDedupKey = nameDedupKey;
 
   function dedupeAndSortNames(names){
     const seen = new Set();
@@ -13018,6 +13268,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_omReviewWindowDays').value = opsManagerMetrics.reviewCloseoutWindowDays || 7;
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
     await renderCommissionSection(s.commission || {});
+    await renderWingmanQuestionsSection();
     loadOverridePinStatus();
     updateStorageUsageNote();
   }
@@ -13382,6 +13633,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function renderCommissionSection(commission){
     document.getElementById('appset_commissionDriverRate').value = commission.driverRate || 0;
     document.getElementById('appset_commissionOpsManagerRate').value = commission.opsManagerRate || 0;
+    document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
 
     const select = document.getElementById('appset_opsManagerAssignment');
     let roster = [];
@@ -13405,6 +13657,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const statusEl = document.getElementById('appset_commissionRatesStatus');
     const driverRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionDriverRate').value) || 0));
     const opsManagerRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionOpsManagerRate').value) || 0));
+    const wingmanRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionWingmanRate').value) || 0));
     const pin = prompt('Enter the Administrator Override PIN to change commission rates:');
     if(pin === null) return; // cancelled
     statusEl.textContent = 'Verifying PIN...';
@@ -13431,7 +13684,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate } } })
+        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate, wingmanRate } } })
       });
       if(handleAuthFailure(saveRes)) return;
       const saveData = await saveRes.json();
@@ -13440,7 +13693,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         statusEl.className = 'status-msg err';
         return;
       }
-      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate });
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate, wingmanRate });
       statusEl.textContent = 'Rates saved.';
       statusEl.className = 'status-msg ok';
     }catch(err){
@@ -13498,6 +13751,72 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Save Ops Manager assignment failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---- Wingman Metrics: 10 editable yes/no questions ----
+  const WINGMAN_QUESTION_COUNT = 10;
+  async function renderWingmanQuestionsSection(){
+    let questions = [];
+    try{
+      const res = await fetch(`${API_BASE}/api/data/wingman-questions`, { headers: authHeaders() });
+      if(res.ok){
+        const data = await res.json();
+        questions = Array.isArray(data.value) ? data.value : [];
+      }
+    }catch(err){ console.error('Wingman questions load failed:', err); }
+
+    const rowsEl = document.getElementById('appset_wingmanQuestionRows');
+    rowsEl.innerHTML = Array.from({length: WINGMAN_QUESTION_COUNT}, (_, i) => `
+      <label style="margin:0;">Question ${i+1}
+        <input type="text" class="appset-wingman-question" data-index="${i}" value="${settingsEsc(questions[i] || '')}" placeholder="Leave blank to skip this slot" style="width:100%;">
+      </label>`
+    ).join('');
+  }
+
+  document.getElementById('appset_wingmanQuestionsSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_wingmanQuestionsStatus');
+    const questions = Array.from(document.querySelectorAll('.appset-wingman-question')).map(input => input.value.trim());
+    const pin = prompt('Enter the Administrator Override PIN to change the wingman questions:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/data/wingman-questions`, {
+        method: 'PUT',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ value: questions })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      if(!saveRes.ok){
+        statusEl.textContent = 'Could not save the questions.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Questions saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save wingman questions failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -19591,6 +19910,87 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
   window.loadOpsMetricsData = loadOpsMetricsData;
+
+  // ---------- Wingman Metrics (admin) ----------
+  let wingmanMetricsExpanded = new Set(); // which wingmen currently have their rating history expanded (local, not persisted)
+
+  function wingmanMetricsEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  async function loadWingmanMetricsData(){
+    const listEl = document.getElementById('wingman_scoreList');
+    const emptyNote = document.getElementById('wingman_scoreEmptyNote');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/wingman-metrics/current`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        listEl.innerHTML = '';
+        emptyNote.style.display = 'block';
+        emptyNote.textContent = data.error || 'Could not load Wingman Metrics.';
+        return;
+      }
+
+      const names = Object.keys(data.scores || {}).sort((a,b) => (data.scores[b].overall||0) - (data.scores[a].overall||0));
+      if(names.length === 0){
+        listEl.innerHTML = '';
+        emptyNote.style.display = 'block';
+        emptyNote.textContent = 'No wingman reviews have been submitted in the last 90 days.';
+        return;
+      }
+      emptyNote.style.display = 'none';
+
+      listEl.innerHTML = names.map(name => {
+        const s = data.scores[name];
+        const isExpanded = wingmanMetricsExpanded.has(name);
+        const color = s.overall >= 90 ? '#00612C' : (s.overall >= 70 ? '#8a6d00' : '#b3261e');
+        const ratings = (data.ratingsByName && data.ratingsByName[window.nameDedupKey(name)]) || [];
+        const historyHtml = ratings.map(r => `
+          <div style="padding:10px 0; border-bottom:1px solid var(--line);">
+            <p style="margin:0 0 4px; font-size:12.5px; color:var(--muted);">${window.fmtDate(r.date)} \u2014 reviewed by ${wingmanMetricsEsc(r.captainName)}</p>
+            ${(r.answers||[]).map(a => `<p style="margin:2px 0; font-size:13px;">${a.answer ? '\u2705' : '\u274c'} ${wingmanMetricsEsc(a.question)}</p>`).join('')}
+          </div>`
+        ).join('');
+
+        return `<div class="panel wingman-metrics-card" data-name="${wingmanMetricsEsc(name)}" style="padding:16px 18px; margin-bottom:14px;">
+          <button type="button" class="wingman-metrics-toggle" data-name="${wingmanMetricsEsc(name)}" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+            <div>
+              <div style="font-weight:700; font-size:14px;">${wingmanMetricsEsc(name)}</div>
+              <div style="font-size:12px; color:var(--muted);">${s.ratingCount} review${s.ratingCount===1?'':'s'} \u00b7 ${s.totalYes} of ${s.totalQuestions} yes</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div style="font-size:22px; font-weight:800; color:${color};">${s.overall}%</div>
+              <span class="wingman-metrics-chevron" style="font-size:13px; color:var(--muted); transition:transform .15s; transform:${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">&#9656;</span>
+            </div>
+          </button>
+          <div class="wingman-metrics-history" style="display:${isExpanded ? 'block' : 'none'}; margin-top:12px;">
+            ${historyHtml || '<p class="form-note" style="margin:0;">No individual ratings found.</p>'}
+          </div>
+        </div>`;
+      }).join('');
+
+      listEl.querySelectorAll('.wingman-metrics-toggle').forEach(btn => btn.addEventListener('click', (e)=>{
+        const name = e.currentTarget.dataset.name;
+        if(wingmanMetricsExpanded.has(name)) wingmanMetricsExpanded.delete(name);
+        else wingmanMetricsExpanded.add(name);
+        const card = listEl.querySelector(`.wingman-metrics-card[data-name="${CSS.escape(name)}"]`);
+        const history = card.querySelector('.wingman-metrics-history');
+        const chevron = card.querySelector('.wingman-metrics-chevron');
+        const nowExpanded = wingmanMetricsExpanded.has(name);
+        history.style.display = nowExpanded ? 'block' : 'none';
+        chevron.style.transform = nowExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
+      }));
+    }catch(err){
+      console.error('Wingman Metrics load failed:', err);
+      listEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      emptyNote.textContent = 'Could not reach the server \u2014 check your connection.';
+    }
+  }
+  window.loadWingmanMetricsData = loadWingmanMetricsData;
 
   // ---------- Materials ----------
   const MATERIALS_ITEMS_KEY = 'materials-items';
