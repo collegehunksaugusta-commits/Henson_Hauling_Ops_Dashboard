@@ -5147,6 +5147,16 @@
             <span class="status-msg" id="appset_cmWeightStatus"></span>
           </div>
 
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Underbilled Jobs: Travel Line Check Start Date</h4>
+          <p class="form-note" style="margin-top:0;">Move and Move Labor jobs require a confirmed "travel" line item on the invoice, but only from this date forward. Jobs before it are scored as if that requirement didn't exist (materials only, where applicable) &mdash; their invoices predate the check and could never have had a confirmed travel line in the first place, so they aren't held to it. Nothing needs reprocessing for this to take effect.</p>
+          <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
+            <label>Start Date <input type="date" id="appset_cmTravelLineStartDate"></label>
+            <div class="form-actions" style="margin:0;">
+              <button type="button" id="appset_cmTravelLineStartDateSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Start Date</button>
+              <span class="status-msg" id="appset_cmTravelLineStartDateStatus"></span>
+            </div>
+          </div>
+
           <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Excluded From Captain Metrics</h4>
           <p class="form-note" style="margin-top:0;">Checkmark anyone who should never be scored by Captain Metrics, even on a day they're listed as a job's Captain &mdash; someone who drives trucks when needed but whose primary role isn't Captain, say. This is independent of the Driver checkbox on the Compliance tile, so excluding someone here doesn't affect their Driver Portal access or anything else tied to being a driver.</p>
           <div id="appset_cmExclusionList" style="font-size:13px; color:var(--charcoal); line-height:1.9;">Loading...</div>
@@ -13000,6 +13010,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
     document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(captainMetrics.resetDate, 'Captain Metrics');
     renderCmWeightRows(captainMetrics.weights || { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 });
+    document.getElementById('appset_cmTravelLineStartDate').value = captainMetrics.travelLineCheckStartDate || '2026-09-25';
     loadCaptainMetricsExclusions();
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
     document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
@@ -13186,6 +13197,59 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Save Captain Metrics weights failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_cmTravelLineStartDateSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_cmTravelLineStartDateStatus');
+    const travelLineCheckStartDate = document.getElementById('appset_cmTravelLineStartDate').value;
+    if(!travelLineCheckStartDate){
+      statusEl.textContent = 'Choose a date first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const pin = prompt('Enter the Administrator Override PIN to change the travel line check start date:');
+    if(pin === null) return; // cancelled
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { captainMetrics: { travelLineCheckStartDate } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save the start date.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.captainMetrics = Object.assign({}, window.appSettings.captainMetrics, { travelLineCheckStartDate });
+      statusEl.textContent = 'Start date saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save travel line check start date failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -19250,7 +19314,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { weightKey: 'attendance', label: 'Attendance', description: 'Checked against Attendance Tracking for the month. Any unexcused tardy or absence on file for a Captain drops this category to 0% for the whole month; otherwise 100%.' },
     { weightKey: 'ptiEod', label: 'Pre-Trip and EOD Inspection Completion', description: 'Any Captain assigned a job on a given day must have both a Pre-Trip and an End of Day Inspection on file for that day. Estimates are excluded, since they never generate a job record in the first place.' },
     { weightKey: 'movePhoto', label: 'Move Job Photo Upload', description: 'Each Captain assigned a Move job must upload at least one photo of pre-existing damage for that job.' },
-    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs that were fully billed. A job is applicable if it had materials checked out (every checked-out item must be billed for at least as much as was pulled) or is a Move/Move Labor job (the invoice must have a line item for travel). A job meeting neither isn\u2019t counted either way.' }
+    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs that were fully billed. A job is applicable if it had materials checked out (every checked-out item must be billed for at least as much as was pulled) or is a Move/Move Labor job dated on or after the travel line check start date set below (the invoice must have a line item for travel). A job meeting neither isn\u2019t counted either way.' }
   ];
   window.CAPTAIN_METRIC_CATEGORIES = CAPTAIN_METRIC_CATEGORIES; // this file has multiple separate <script> blocks, each with its own const scope -- window is the only thing shared across all of them, and renderCmWeightRows (Settings) lives in an earlier one
 
