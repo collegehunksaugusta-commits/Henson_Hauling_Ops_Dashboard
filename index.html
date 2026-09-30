@@ -20526,6 +20526,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // Free consumables (tape, shrink wrap, etc.) are never billed by
     // design, so checking them out should never be flagged as underbilled.
     const billableItemIds = new Set(materialsItems.filter(i => !i.neverBilled).map(i => i.id));
+    const jobDateByNumber = {};
+    (archive || []).forEach(j => { if(j.jobNumber && j.assignmentDate) jobDateByNumber[j.jobNumber] = j.assignmentDate; });
 
     const checkedOutByJob = {};
     materialsCheckouts.forEach(co => {
@@ -20593,7 +20595,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const netUsed = Math.max(0, checkedOut - returned);
         const billed = billedItems ? (billedItems[itemId] || 0) : 0;
         const quoted = quotedItems ? (quotedItems[itemId] || 0) : null;
-        if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems });
+        if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems, jobDate: jobDateByNumber[jobNumber] || null });
       });
     });
     return problems;
@@ -20665,9 +20667,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             netUsed: p.netUsed, billed: p.billed, hasBillingRecord: p.hasBillingRecord
           };
         });
+        const jobDate = byJob[jobNumber][0].jobDate || null;
         if(existing){
-          if(JSON.stringify(existing.items) !== JSON.stringify(itemsDetail)){
+          if(JSON.stringify(existing.items) !== JSON.stringify(itemsDetail) || existing.jobDate !== jobDate){
             existing.items = itemsDetail;
+            existing.jobDate = jobDate;
             changed = true;
           }
         } else {
@@ -20675,7 +20679,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + jobNumber,
             type: 'underbilled', source: 'materials',
             createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null,
-            jobNumber, items: itemsDetail
+            jobNumber, jobDate, items: itemsDetail
           });
           changed = true;
         }
@@ -21928,6 +21932,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <div style="font-weight:700;">Job # ${mgrReviewEsc(item.jobNumber)} ${item.clientName ? '\u2014 ' + mgrReviewEsc(item.clientName) : ''}</div>
           <span style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">${sourceLabel}</span>
         </div>
+        ${item.jobDate ? `<div style="font-size:12.5px; color:var(--muted);">Job Date: ${window.fmtDate(item.jobDate)}</div>` : ''}
         ${detailHtml}
         ${showCloseOut ? `<button type="button" class="mgrreview-closeout-btn btn-primary" data-id="${item.id}" style="margin-top:8px; padding:6px 14px; font-size:12.5px;">Close Out</button>` : `<div class="form-note" style="margin-top:6px;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</div>`}
       </div>`;
@@ -22754,6 +22759,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             reviewedAt: null,
             reviewedBy: null,
             jobNumber: job.jobNumber,
+            jobDate: job.assignmentDate || null,
             clientName: job.clientName,
             captainName: job.captainName,
             expectedAmount: priceLow,
