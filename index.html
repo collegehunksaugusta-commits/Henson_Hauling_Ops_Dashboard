@@ -12,6 +12,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.7/Sortable.min.js"></script>
@@ -814,6 +815,69 @@
   </div>
 </div>
 
+<div id="hiringOnboardingGate" style="display:none; position:fixed; inset:0; background:var(--offwhite); z-index:9999; overflow-y:auto; padding:16px;">
+  <div style="max-width:640px; width:100%; margin:16px auto 40px; background:#fff; border:1px solid var(--line); border-radius:10px; padding:24px 20px; box-shadow:0 4px 24px rgba(0,0,0,0.08); box-sizing:border-box;">
+    <h2 class="display" style="margin:0 0 4px; text-align:center; font-size:19px;">College Hunks-Augusta</h2>
+    <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 20px;">Onboarding Paperwork</p>
+
+    <div id="ho_loadingState">
+      <p style="text-align:center; color:var(--muted);">Loading your paperwork\u2026</p>
+    </div>
+    <div id="ho_notFoundState" style="display:none;">
+      <p style="text-align:center; color:#B3261E;">This link could not be found. Please contact our office for a new one.</p>
+    </div>
+    <div id="ho_expiredState" style="display:none;">
+      <p style="text-align:center; color:#B3261E;">This link has expired. Please contact our office for a new one.</p>
+    </div>
+    <div id="ho_alreadyCompletedState" style="display:none;">
+      <p style="text-align:center; color:var(--brand-green-dark); font-weight:600; font-size:16px;">&#10003; This paperwork has already been submitted.</p>
+      <p style="text-align:center; color:var(--muted); font-size:13.5px;">If you have questions, please contact our office.</p>
+    </div>
+
+    <div id="ho_welcomeState" style="display:none; text-align:center;">
+      <h3 id="ho_welcomeGreeting" style="margin:0 0 6px;"></h3>
+      <p class="form-note" id="ho_welcomeDetails" style="margin-top:0;"></p>
+      <p class="form-note">You'll go through <span id="ho_welcomeDocCount"></span> short documents, one at a time. Anything you enter is saved automatically, so it's safe to stop and pick back up later from this same link \u2014 this works great right from your phone.</p>
+      <button class="btn-primary" id="ho_beginBtn" type="button" style="width:100%; padding:14px; font-size:15px; margin-top:10px;">Get Started</button>
+    </div>
+
+    <div id="ho_documentState" style="display:none;">
+      <div style="background:var(--offwhite); border-radius:6px; height:6px; overflow:hidden; margin-bottom:6px;">
+        <div id="ho_progressFill" style="background:var(--brand-green); height:100%; width:0%; transition:width .2s;"></div>
+      </div>
+      <p class="form-note" id="ho_progressText" style="margin:0 0 14px; text-align:center;"></p>
+      <h3 id="ho_docTitle" style="margin:0 0 10px;"></h3>
+      <div id="ho_docContent" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); padding:14px; border-radius:6px; margin-bottom:16px; font-size:13.5px; line-height:1.5; background:var(--offwhite);"></div>
+      <div id="ho_docFields"></div>
+      <div id="ho_docSignatureWrap" style="display:none; margin-top:10px;">
+        <label style="display:block; margin-bottom:6px; font-weight:600; font-size:13px;">Sign Here</label>
+        <canvas id="ho_signatureCanvas" style="border:1px solid var(--line); border-radius:6px; touch-action:none; width:100%; height:150px; display:block; background:#fff;"></canvas>
+        <button type="button" id="ho_sigClearBtn" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:12px; margin-top:4px;">Clear Signature</button>
+      </div>
+      <p class="status-msg" id="ho_docStatus" style="margin-top:10px;"></p>
+      <div class="form-actions" style="margin-top:14px;">
+        <button type="button" id="ho_backBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:12px 18px; border-radius:6px; cursor:pointer; font-size:14px;">Back</button>
+        <button type="button" id="ho_nextBtn" class="btn-primary" style="flex:1; padding:12px; font-size:14px;">Next</button>
+      </div>
+    </div>
+
+    <div id="ho_reviewState" style="display:none;">
+      <h3 style="margin:0 0 10px;">Review &amp; Submit</h3>
+      <p class="form-note" style="margin-top:0;">You've completed every document. Tap submit below to send your onboarding paperwork to our office.</p>
+      <div id="ho_reviewMissing" style="display:none; background:#FDEDEA; border-radius:6px; padding:12px 14px; margin-bottom:14px; font-size:13px;"></div>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
+        <button class="btn-primary" id="ho_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Onboarding Package</button>
+        <span class="status-msg" id="ho_submitStatus" style="text-align:center;"></span>
+      </div>
+    </div>
+
+    <div id="ho_successState" style="display:none; text-align:center;">
+      <p style="color:var(--brand-green-dark); font-weight:600; font-size:17px; margin-bottom:6px;">&#10003; All done \u2014 welcome to the team!</p>
+      <p class="form-note">Your onboarding paperwork has been submitted. We'll be in touch with next steps before your start date.</p>
+    </div>
+  </div>
+</div>
+
 <script>
   // Shows a single image or document full-screen in the in-page modal,
   // instead of window.open() -- see the HTML comment above the modal
@@ -882,6 +946,15 @@
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('damageClaimUploadGate').style.display = 'block';
     window.__damageClaimToken = __damageClaimHashMatch[1];
+  }
+
+  // A new hire opening their onboarding link has no dashboard credentials
+  // either -- same reasoning as the Damage Claim gate above.
+  const __hiringHashMatch = (location.hash || '').match(/^#hiring-(.+)$/);
+  if(__hiringHashMatch){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('hiringOnboardingGate').style.display = 'block';
+    window.__hiringToken = __hiringHashMatch[1];
   }
 
   if(localStorage.getItem('henson_auth_token')){
@@ -3078,14 +3151,19 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(3)</span>
+            <span class="dashSectionCount">(4)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Captain Metrics, Wingman Metrics, Attendance Tracking</div>
+          <div class="dashSectionTileList">Hiring, Captain Metrics, Wingman Metrics, Attendance Tracking</div>
         </div>
       </button>
       <div class="dashSectionBody">
         <div class="tiles tilesCategory" id="tilesContainer-people">
+      <div class="tile" id="tile-hiring" tabindex="0" role="button" aria-label="Open Hiring">
+        <span class="icon">📋</span>
+        <h3>Hiring</h3>
+        <p>Send a new hire their onboarding package and track it through completion.</p>
+      </div>
       <div class="tile" id="tile-captain" tabindex="0" role="button" aria-label="Open Captain Metrics">
         <span class="icon">&#9875;</span>
         <h3>Captain Metrics</h3>
@@ -4019,6 +4097,38 @@
 
     <div id="extraPay_weeksList"></div>
     <p class="form-note" id="extraPay_emptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
+  </div>
+
+  <div id="hiringDetail" style="display:none;">
+    <button class="backlink" id="hiringBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Hiring</h2>
+    </div>
+    <p class="form-note">Only the five basics below are needed to populate and send the full onboarding package. Documents and their required fields are managed in Configuration &rarr; Hiring.</p>
+
+    <div class="panel" id="hiring_newHirePanel" style="padding:18px 20px; margin-bottom:18px;">
+      <button type="button" id="hiring_newHireToggleBtn" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+        <h3 style="margin:0;">+ New Hire</h3>
+        <span id="hiring_newHireChevron" style="font-size:13px; color:var(--muted); transition:transform .15s;">&#9656;</span>
+      </button>
+      <div id="hiring_newHireForm" style="display:none; margin-top:14px;">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <label>First Name <input type="text" id="hiring_nh_firstName"></label>
+          <label>Last Name <input type="text" id="hiring_nh_lastName"></label>
+          <label>Email Address <input type="email" id="hiring_nh_email"></label>
+          <label>Starting Pay <input type="text" id="hiring_nh_startingPay" placeholder="e.g. $16.00/hr"></label>
+          <label>Starting Date <input type="date" id="hiring_nh_startingDate"></label>
+        </div>
+        <p class="form-note" id="hiring_newHireNoDocsNote" style="display:none;">No onboarding documents are configured yet \u2014 add at least one in Configuration &rarr; Hiring before creating a new hire.</p>
+        <div class="form-actions" style="margin-top:12px;">
+          <button type="button" id="hiring_nh_createBtn" class="btn-primary">Create & Prepare to Send</button>
+          <span class="status-msg" id="hiring_nh_status"></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="hiring_candidateRows"></div>
+    <p class="form-note" id="hiring_emptyNote" style="display:none;">No candidates yet \u2014 add one above to get started.</p>
   </div>
 
   <div id="wingmanMetricsDetail" style="display:none;">
@@ -5585,6 +5695,18 @@
           </div>
         </div>
 
+        <div class="panel" id="set_hiringPanel" data-collapsible="true">
+          <h3>Hiring</h3>
+          <p class="form-note" style="margin-top:0;">Up to 30 onboarding documents, compiled in order into one package a new hire fills out and signs from their phone. Upload a PDF or Word document and Claude reads it to find every blank the new hire needs to fill in \u2014 review what it found below, since you can always edit or add a field by hand. Fields tagged with a shared type (name, SSN, address, etc.) only need to be entered once across every document that asks for it.</p>
+          <div id="appset_hiringDocRows"></div>
+          <p class="form-note" id="appset_hiringEmptyNote" style="display:none;">No onboarding documents added yet.</p>
+          <div class="form-actions" style="margin-top:14px;">
+            <button type="button" id="appset_hiringAddDocBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">+ Add Document</button>
+            <span class="form-note" id="appset_hiringCountNote" style="margin:0;"></span>
+          </div>
+          <input type="file" id="appset_hiringFileInput" accept=".pdf,.docx" multiple style="display:none;">
+        </div>
+
         <div class="panel" id="set_opsManagerMetricsPanel" data-collapsible="true">
           <h3>Ops Manager Metrics</h3>
           <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
@@ -5992,6 +6114,7 @@
   const captainDetail = document.getElementById('captainDetail');
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
   const wingmanMetricsDetail = document.getElementById('wingmanMetricsDetail');
+  const hiringDetail = document.getElementById('hiringDetail');
   const extraPayDetail = document.getElementById('extraPayDetail');
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
@@ -6021,6 +6144,7 @@
     captainDetail.style.display = view === 'captain' ? 'block' : 'none';
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     wingmanMetricsDetail.style.display = view === 'wingmanmetrics' ? 'block' : 'none';
+    hiringDetail.style.display = view === 'hiring' ? 'block' : 'none';
     extraPayDetail.style.display = view === 'extrapay' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
@@ -6084,6 +6208,9 @@
     }
     if(view === 'wingmanmetrics'){
       window.loadWingmanMetricsData();
+    }
+    if(view === 'hiring'){
+      window.loadHiringData();
     }
     if(view === 'extrapay'){
       window.loadExtraPayData();
@@ -6224,6 +6351,8 @@
   document.getElementById('tile-opsmetrics').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('opsmetrics'); }});
   document.getElementById('tile-wingman').addEventListener('click', ()=> navigateTo('wingmanmetrics'));
   document.getElementById('tile-wingman').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('wingmanmetrics'); }});
+  document.getElementById('tile-hiring').addEventListener('click', ()=> navigateTo('hiring'));
+  document.getElementById('tile-hiring').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('hiring'); }});
   document.getElementById('tile-extrapay').addEventListener('click', ()=> navigateTo('extrapay'));
   document.getElementById('tile-extrapay').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('extrapay'); }});
   document.getElementById('tile-materials').addEventListener('click', ()=> navigateTo('materials'));
@@ -6243,6 +6372,7 @@
   document.getElementById('damageClaimBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('opsMetricsBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('wingmanMetricsBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('hiringBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('extraPayBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('settingsGearBtn').addEventListener('click', ()=> navigateTo('settings'));
@@ -13449,6 +13579,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
     await renderCommissionSection(s.commission || {});
     await renderWingmanQuestionsSection();
+    await loadHiringDocsConfig();
     loadOverridePinStatus();
     updateStorageUsageNote();
   }
@@ -14001,6 +14132,263 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
     }
   });
+
+  // ---- Hiring: Onboarding Documents ----
+  const HIRING_CANONICAL_KEY_LABELS = {
+    employee_full_name: 'Full Name (shared)', employee_first_name: 'First Name (shared)', employee_last_name: 'Last Name (shared)',
+    employee_address: 'Street Address (shared)', employee_city: 'City (shared)', employee_state: 'State (shared)', employee_zip: 'ZIP Code (shared)',
+    employee_phone: 'Phone Number (shared)', employee_email: 'Email Address (shared)', employee_dob: 'Date of Birth (shared)',
+    ssn: 'Social Security Number (shared)', bank_name: 'Bank Name (shared)', account_number: 'Bank Account Number (shared)',
+    routing_number: 'Bank Routing Number (shared)', account_type: 'Account Type (shared)', today_date: '\u201cToday\u2019s Date\u201d (shared)',
+    start_date: 'Start Date (auto-filled)', starting_pay: 'Starting Pay (auto-filled)', position_title: 'Position Title (auto-filled)',
+    work_location: 'Work Location (shared)'
+  };
+  window.HIRING_CANONICAL_KEY_LABELS = HIRING_CANONICAL_KEY_LABELS;
+  const HIRING_FIELD_TYPE_LABELS = {
+    text: 'Text', ssn: 'SSN', routing_number: 'Routing Number', account_number: 'Account Number',
+    date: 'Date', phone: 'Phone', email: 'Email', address: 'Address', checkbox: 'Checkbox', number: 'Number'
+  };
+  let hiringDocuments = [];
+  let hiringUploadTargetDocId = null; // null = uploading for a brand-new document slot
+
+  function hiringEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function hiringFileToDataUri(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function loadHiringDocsConfig(){
+    try{
+      const res = await fetch(`${API_BASE}/api/data/hiring-documents`, { headers: authHeaders() });
+      if(res.ok){
+        const data = await res.json();
+        hiringDocuments = Array.isArray(data.value) ? data.value : [];
+      }
+    }catch(err){ console.error('Hiring documents load failed:', err); }
+    hiringDocuments.sort((a,b) => (a.order||0) - (b.order||0));
+    renderHiringDocRows();
+  }
+
+  async function saveHiringDocsConfig(){
+    try{
+      await fetch(`${API_BASE}/api/data/hiring-documents`, {
+        method: 'PUT', headers: authHeaders({'Content-Type':'application/json'}),
+        body: JSON.stringify({ value: hiringDocuments })
+      });
+    }catch(err){ console.error('Hiring documents save failed:', err); }
+  }
+
+  function hiringFieldRowHtml(docId, field){
+    const typeOptions = Object.keys(HIRING_FIELD_TYPE_LABELS).map(t => `<option value="${t}" ${field.type===t?'selected':''}>${HIRING_FIELD_TYPE_LABELS[t]}</option>`).join('');
+    const keyOptions = `<option value="">Document-specific</option>` + Object.keys(HIRING_CANONICAL_KEY_LABELS).map(k => `<option value="${k}" ${field.canonicalKey===k?'selected':''}>${HIRING_CANONICAL_KEY_LABELS[k]}</option>`).join('');
+    return `<div class="hiring-field-row" data-doc-id="${docId}" data-field-id="${field.id}" style="display:flex; align-items:center; gap:6px; padding:5px 0; border-bottom:1px solid var(--line); flex-wrap:wrap;">
+      <input type="text" class="hiring-field-label" value="${hiringEsc(field.label)}" placeholder="Field label" style="flex:1; min-width:140px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12.5px;">
+      <select class="hiring-field-type" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px;">${typeOptions}</select>
+      <select class="hiring-field-key" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px; max-width:170px;">${keyOptions}</select>
+      <label style="display:flex; align-items:center; gap:3px; font-size:11.5px; white-space:nowrap;"><input type="checkbox" class="hiring-field-required" ${field.required?'checked':''}> Required</label>
+      <button type="button" class="hiring-remove-field" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:11px;">Remove</button>
+    </div>`;
+  }
+
+  function hiringDocCardHtml(doc, index, total){
+    const fieldsHtml = (doc.fields || []).map(f => hiringFieldRowHtml(doc.id, f)).join('');
+    return `<div class="panel hiring-doc-card" data-doc-id="${doc.id}" style="padding:16px 18px; margin-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <button type="button" class="hiring-move-up" data-doc-id="${doc.id}" ${index===0?'disabled':''} style="background:none; border:1px solid var(--line); border-radius:4px; width:26px; height:22px; cursor:pointer; font-size:11px; ${index===0?'opacity:.3;':''}">&#9650;</button>
+          <button type="button" class="hiring-move-down" data-doc-id="${doc.id}" ${index===total-1?'disabled':''} style="background:none; border:1px solid var(--line); border-radius:4px; width:26px; height:22px; cursor:pointer; font-size:11px; ${index===total-1?'opacity:.3;':''}">&#9660;</button>
+        </div>
+        <div style="font-weight:700; color:var(--muted); font-size:13px; width:20px; text-align:center;">${index+1}</div>
+        <input type="text" class="hiring-doc-name" data-doc-id="${doc.id}" value="${hiringEsc(doc.name)}" placeholder="Document name" style="flex:1; min-width:180px; font-weight:600; padding:6px 8px; border:1px solid var(--line); border-radius:4px;">
+        <label style="display:flex; align-items:center; gap:5px; font-size:12.5px; white-space:nowrap;">
+          <input type="checkbox" class="hiring-requires-sig" data-doc-id="${doc.id}" ${doc.requiresSignature?'checked':''}> Requires Signature
+        </label>
+        <button type="button" class="hiring-remove-doc" data-doc-id="${doc.id}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Remove</button>
+      </div>
+      <div style="margin-top:8px; font-size:12px; color:var(--muted);">
+        File: ${doc.fileName ? hiringEsc(doc.fileName) : '<em>none uploaded</em>'}
+        <button type="button" class="hiring-replace-file" data-doc-id="${doc.id}" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; font-size:12px; margin-left:6px;">${doc.fileName ? 'Replace file & re-extract' : 'Upload file'}</button>
+      </div>
+      <p class="status-msg" id="hiring_status_${doc.id}" style="margin:4px 0 0;"></p>
+      <div style="margin-top:10px;">
+        ${fieldsHtml || '<p class="form-note" style="margin:4px 0;">No fields yet \u2014 upload a file to auto-detect them, or add one by hand.</p>'}
+      </div>
+      <button type="button" class="hiring-add-field" data-doc-id="${doc.id}" style="background:#fff; border:1px solid var(--line); font-size:11.5px; padding:5px 10px; border-radius:4px; cursor:pointer; margin-top:6px;">+ Add Field</button>
+    </div>`;
+  }
+
+  function renderHiringDocRows(){
+    const rowsEl = document.getElementById('appset_hiringDocRows');
+    const emptyNote = document.getElementById('appset_hiringEmptyNote');
+    const countNote = document.getElementById('appset_hiringCountNote');
+    emptyNote.style.display = hiringDocuments.length === 0 ? 'block' : 'none';
+    countNote.textContent = `${hiringDocuments.length} of 30 documents`;
+    document.getElementById('appset_hiringAddDocBtn').disabled = hiringDocuments.length >= 30;
+    rowsEl.innerHTML = hiringDocuments.map((doc, i) => hiringDocCardHtml(doc, i, hiringDocuments.length)).join('');
+    wireHiringDocCardEvents();
+  }
+
+  function wireHiringDocCardEvents(){
+    const rowsEl = document.getElementById('appset_hiringDocRows');
+
+    rowsEl.querySelectorAll('.hiring-move-up').forEach(btn => btn.addEventListener('click', (e)=>{
+      const idx = hiringDocuments.findIndex(d => d.id === e.currentTarget.dataset.docId);
+      if(idx <= 0) return;
+      [hiringDocuments[idx-1], hiringDocuments[idx]] = [hiringDocuments[idx], hiringDocuments[idx-1]];
+      hiringDocuments.forEach((d,i) => d.order = i+1);
+      saveHiringDocsConfig(); renderHiringDocRows();
+    }));
+    rowsEl.querySelectorAll('.hiring-move-down').forEach(btn => btn.addEventListener('click', (e)=>{
+      const idx = hiringDocuments.findIndex(d => d.id === e.currentTarget.dataset.docId);
+      if(idx < 0 || idx >= hiringDocuments.length - 1) return;
+      [hiringDocuments[idx], hiringDocuments[idx+1]] = [hiringDocuments[idx+1], hiringDocuments[idx]];
+      hiringDocuments.forEach((d,i) => d.order = i+1);
+      saveHiringDocsConfig(); renderHiringDocRows();
+    }));
+    rowsEl.querySelectorAll('.hiring-doc-name').forEach(input => input.addEventListener('change', (e)=>{
+      const doc = hiringDocuments.find(d => d.id === e.target.dataset.docId);
+      if(doc){ doc.name = e.target.value.trim(); saveHiringDocsConfig(); }
+    }));
+    rowsEl.querySelectorAll('.hiring-requires-sig').forEach(cb => cb.addEventListener('change', (e)=>{
+      const doc = hiringDocuments.find(d => d.id === e.target.dataset.docId);
+      if(doc){ doc.requiresSignature = e.target.checked; saveHiringDocsConfig(); }
+    }));
+    rowsEl.querySelectorAll('.hiring-remove-doc').forEach(btn => btn.addEventListener('click', (e)=>{
+      if(!confirm('Remove this document from the onboarding package?')) return;
+      hiringDocuments = hiringDocuments.filter(d => d.id !== e.currentTarget.dataset.docId);
+      hiringDocuments.forEach((d,i) => d.order = i+1);
+      saveHiringDocsConfig(); renderHiringDocRows();
+    }));
+    rowsEl.querySelectorAll('.hiring-replace-file').forEach(btn => btn.addEventListener('click', (e)=>{
+      hiringUploadTargetDocId = e.currentTarget.dataset.docId;
+      document.getElementById('appset_hiringFileInput').click();
+    }));
+    rowsEl.querySelectorAll('.hiring-add-field').forEach(btn => btn.addEventListener('click', (e)=>{
+      const doc = hiringDocuments.find(d => d.id === e.currentTarget.dataset.docId);
+      if(!doc) return;
+      doc.fields = doc.fields || [];
+      doc.fields.push({ id: 'fld_manual_' + Date.now() + '_' + Math.floor(Math.random()*1000), label: '', type: 'text', canonicalKey: null, required: true });
+      saveHiringDocsConfig(); renderHiringDocRows();
+    }));
+    rowsEl.querySelectorAll('.hiring-field-row').forEach(row => {
+      const doc = hiringDocuments.find(d => d.id === row.dataset.docId);
+      const field = doc ? (doc.fields || []).find(f => f.id === row.dataset.fieldId) : null;
+      if(!field) return;
+      row.querySelector('.hiring-field-label').addEventListener('change', (e)=>{ field.label = e.target.value.trim(); saveHiringDocsConfig(); });
+      row.querySelector('.hiring-field-type').addEventListener('change', (e)=>{ field.type = e.target.value; saveHiringDocsConfig(); });
+      row.querySelector('.hiring-field-key').addEventListener('change', (e)=>{ field.canonicalKey = e.target.value || null; saveHiringDocsConfig(); });
+      row.querySelector('.hiring-field-required').addEventListener('change', (e)=>{ field.required = e.target.checked; saveHiringDocsConfig(); });
+      row.querySelector('.hiring-remove-field').addEventListener('click', ()=>{
+        doc.fields = doc.fields.filter(f => f.id !== field.id);
+        saveHiringDocsConfig(); renderHiringDocRows();
+      });
+    });
+  }
+
+  document.getElementById('appset_hiringAddDocBtn').addEventListener('click', ()=>{
+    if(hiringDocuments.length >= 30) return;
+    hiringUploadTargetDocId = null;
+    document.getElementById('appset_hiringFileInput').click();
+  });
+
+  document.getElementById('appset_hiringFileInput').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files || []);
+    const targetDocId = hiringUploadTargetDocId; // captured now, since it could change before a later file in this batch finishes
+    e.target.value = '';
+    if(files.length === 0) return;
+    if(targetDocId){
+      // Replacing one specific existing document -- only the first
+      // selected file is relevant even if more than one got picked.
+      await handleHiringFileUpload(files[0], targetDocId);
+      return;
+    }
+    // Adding new documents -- processed one at a time (not in parallel),
+    // since each involves its own extraction call and they all write into
+    // the same shared document list.
+    for(const file of files){
+      if(hiringDocuments.length >= 30) break;
+      await handleHiringFileUpload(file, null);
+    }
+  });
+
+  async function handleHiringFileUpload(file, targetDocId){
+    let doc;
+    if(!targetDocId){
+      doc = {
+        id: 'hdoc_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        order: hiringDocuments.length + 1,
+        name: file.name.replace(/\.(pdf|docx)$/i, '').replace(/_/g, ' '),
+        fileName: file.name, fileKey: null,
+        fields: [], requiresSignature: false
+      };
+      hiringDocuments.push(doc);
+      renderHiringDocRows();
+    } else {
+      doc = hiringDocuments.find(d => d.id === targetDocId);
+      if(!doc) return;
+      doc.fileName = file.name;
+      renderHiringDocRows();
+    }
+
+    const statusEl = () => document.getElementById(`hiring_status_${doc.id}`);
+    if(statusEl()){ statusEl().textContent = 'Reading document\u2026'; statusEl().className = 'status-msg'; }
+
+    try{
+      const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+      const fileDataUri = await hiringFileToDataUri(file);
+      let body;
+      if(isPdf){
+        body = { pdfBase64: fileDataUri.split(',')[1], fileName: file.name };
+      } else {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await window.mammoth.extractRawText({ arrayBuffer });
+        body = { text: result.value, fileName: file.name };
+      }
+
+      const fileKey = 'hiring-doc-file-' + doc.id;
+      await fetch(`${API_BASE}/api/data/${fileKey}`, {
+        method: 'PUT', headers: authHeaders({'Content-Type':'application/json'}),
+        body: JSON.stringify({ value: fileDataUri })
+      });
+      doc.fileKey = fileKey;
+
+      if(statusEl()){ statusEl().textContent = 'Finding the fields a new hire needs to fill in\u2026'; }
+      const extractRes = await fetch(`${API_BASE}/api/admin/hiring/extract-fields`, {
+        method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
+        body: JSON.stringify(body)
+      });
+      const extractData = await extractRes.json();
+      if(!extractRes.ok){
+        await saveHiringDocsConfig();
+        renderHiringDocRows();
+        const sEl = statusEl();
+        if(sEl){ sEl.textContent = extractData.error || 'Could not read this document.'; sEl.className = 'status-msg err'; }
+        return;
+      }
+      doc.fields = extractData.fields || [];
+      doc.requiresSignature = !!extractData.requiresSignature;
+      await saveHiringDocsConfig();
+      renderHiringDocRows();
+      const sEl = statusEl();
+      if(sEl){
+        sEl.textContent = `Found ${doc.fields.length} field${doc.fields.length===1?'':'s'}${doc.requiresSignature ? ', plus a signature' : ''}. Review below.`;
+        sEl.className = 'status-msg ok';
+      }
+    }catch(err){
+      console.error('Hiring document upload/extraction failed:', err);
+      const sEl = statusEl();
+      if(sEl){ sEl.textContent = 'Could not process this file \u2014 check your connection and try again.'; sEl.className = 'status-msg err'; }
+    }
+  }
 
   // ---- Captain Metrics: Excluded From Captain Metrics ----
   // Independent of the Compliance tile's Driver checkbox by design -- this
@@ -20165,6 +20553,227 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.loadWingmanMetricsData = loadWingmanMetricsData;
 
+  // ---------- Hiring (admin) ----------
+  let hiringCandidates = [];
+  let hiringCandidatesDocsConfigured = 0;
+  let hiringExpandedCandidates = new Set();
+
+  function hiringAdminEsc(s){
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  const HIRING_STATUS_LABELS = {
+    draft: { label: 'Draft \u2014 Not Sent', color: 'var(--muted)', bg: 'var(--offwhite)' },
+    sent: { label: 'Sent', color: '#8a6d00', bg: '#FDF6E3' },
+    in_progress: { label: 'In Progress', color: '#8a6d00', bg: '#FDF6E3' },
+    completed: { label: 'Completed', color: '#00612C', bg: '#EAF6EE' }
+  };
+
+  async function loadHiringData(){
+    try{
+      const [candRes, docsRes] = await Promise.all([
+        fetch(`${API_BASE}/api/admin/hiring/candidates`, { headers: authHeaders() }),
+        fetch(`${API_BASE}/api/data/hiring-documents`, { headers: authHeaders() })
+      ]);
+      if(handleAuthFailure(candRes) || handleAuthFailure(docsRes)) return;
+      const candData = await candRes.json();
+      const docsData = await docsRes.json();
+      hiringCandidates = candData.candidates || [];
+      hiringCandidatesDocsConfigured = (docsData.value || []).length;
+      renderHiringCandidateRows();
+      document.getElementById('hiring_newHireNoDocsNote').style.display = hiringCandidatesDocsConfigured === 0 ? 'block' : 'none';
+      document.getElementById('hiring_nh_createBtn').disabled = hiringCandidatesDocsConfigured === 0;
+    }catch(err){
+      console.error('Hiring data load failed:', err);
+    }
+  }
+  window.loadHiringData = loadHiringData;
+
+  function hiringCandidateCardHtml(candidate){
+    const statusInfo = HIRING_STATUS_LABELS[candidate.status] || HIRING_STATUS_LABELS.draft;
+    const isExpanded = hiringExpandedCandidates.has(candidate.id);
+    const sharedEntries = Object.keys(candidate.sharedFieldValues || {});
+    const sharedHtml = sharedEntries.length > 0
+      ? sharedEntries.map(key => {
+          const value = candidate.sharedFieldValues[key];
+          const isMasked = typeof value === 'string' && value.includes('\u2022');
+          return `<div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid var(--line); font-size:12.5px;">
+            <span style="color:var(--muted);">${hiringAdminEsc(window.HIRING_CANONICAL_KEY_LABELS[key] || key)}</span>
+            <span>
+              <span class="hiring-reveal-value" data-cand-id="${candidate.id}" data-scope="shared" data-field-key="${key}">${hiringAdminEsc(value)}</span>
+              ${isMasked ? `<button type="button" class="hiring-reveal-btn" data-cand-id="${candidate.id}" data-scope="shared" data-field-key="${key}" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; font-size:11.5px; margin-left:6px;">Reveal</button>` : ''}
+            </span>
+          </div>`;
+        }).join('')
+      : '<p class="form-note" style="margin:4px 0;">Nothing entered yet.</p>';
+
+    return `<div class="panel hiring-candidate-card" data-cand-id="${candidate.id}" style="padding:16px 18px; margin-bottom:14px;">
+      <button type="button" class="hiring-candidate-toggle" data-cand-id="${candidate.id}" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+        <div>
+          <div style="font-weight:700; font-size:14.5px;">${hiringAdminEsc(candidate.firstName)} ${hiringAdminEsc(candidate.lastName)}</div>
+          <div style="font-size:12px; color:var(--muted); margin-top:2px;">${hiringAdminEsc(candidate.email)} \u00b7 Starts ${window.fmtDate ? window.fmtDate(candidate.startingDate) : hiringAdminEsc(candidate.startingDate)}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${statusInfo.bg}; color:${statusInfo.color};">${statusInfo.label}</span>
+          <span class="hiring-candidate-chevron" style="font-size:13px; color:var(--muted); transition:transform .15s; transform:${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">&#9656;</span>
+        </div>
+      </button>
+      <div class="hiring-candidate-body" style="display:${isExpanded ? 'block' : 'none'}; margin-top:14px;">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr; font-size:12.5px; margin-bottom:10px;">
+          <div><strong>Position:</strong> ${hiringAdminEsc(candidate.positionTitle)}</div>
+          <div><strong>Starting Pay:</strong> ${hiringAdminEsc(candidate.startingPay)}</div>
+          <div><strong>Created:</strong> ${new Date(candidate.createdAt).toLocaleDateString()}</div>
+          <div><strong>${candidate.status === 'completed' ? 'Completed' : 'Sent'}:</strong> ${candidate.completedAt ? new Date(candidate.completedAt).toLocaleDateString() : (candidate.sentAt ? new Date(candidate.sentAt).toLocaleDateString() : '\u2014')}</div>
+        </div>
+        <h4 style="margin:10px 0 4px; font-size:13px;">Submitted Information</h4>
+        ${sharedHtml}
+        <div class="form-actions" style="margin-top:14px;">
+          <button type="button" class="hiring-send-btn" data-cand-id="${candidate.id}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">${candidate.status === 'draft' ? 'Send Onboarding Package' : 'Resend Link'}</button>
+          <button type="button" class="hiring-delete-btn" data-cand-id="${candidate.id}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Remove</button>
+          <span class="status-msg" id="hiring_cand_status_${candidate.id}"></span>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderHiringCandidateRows(){
+    const rowsEl = document.getElementById('hiring_candidateRows');
+    const emptyNote = document.getElementById('hiring_emptyNote');
+    const sorted = [...hiringCandidates].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+    emptyNote.style.display = sorted.length === 0 ? 'block' : 'none';
+    rowsEl.innerHTML = sorted.map(hiringCandidateCardHtml).join('');
+    wireHiringCandidateCardEvents();
+  }
+
+  function wireHiringCandidateCardEvents(){
+    const rowsEl = document.getElementById('hiring_candidateRows');
+
+    rowsEl.querySelectorAll('.hiring-candidate-toggle').forEach(btn => btn.addEventListener('click', (e)=>{
+      const id = e.currentTarget.dataset.candId;
+      if(hiringExpandedCandidates.has(id)) hiringExpandedCandidates.delete(id);
+      else hiringExpandedCandidates.add(id);
+      renderHiringCandidateRows();
+    }));
+
+    rowsEl.querySelectorAll('.hiring-send-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.candId;
+      const candidate = hiringCandidates.find(c => c.id === id);
+      const statusEl = document.getElementById(`hiring_cand_status_${id}`);
+      if(!candidate) return;
+      if(statusEl){ statusEl.textContent = 'Preparing link\u2026'; statusEl.className = 'status-msg'; }
+      try{
+        const res = await fetch(`${API_BASE}/api/admin/hiring/candidates/${id}/send`, { method: 'POST', headers: authHeaders() });
+        if(handleAuthFailure(res)) return;
+        const data = await res.json();
+        if(!res.ok){
+          if(statusEl){ statusEl.textContent = data.error || 'Could not prepare this link.'; statusEl.className = 'status-msg err'; }
+          return;
+        }
+        const link = `${location.origin}${location.pathname}#hiring-${data.token}`;
+        const subject = `Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork`;
+        const body = `Hi ${candidate.firstName},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n${link}\n\nIf you have any questions, just reach out.\n\nThanks,\nCollege Hunks Hauling Junk & Moving \u2013 Augusta`;
+        const mailto = `mailto:${encodeURIComponent(candidate.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.location.href = mailto;
+        if(statusEl){ statusEl.textContent = 'Link ready \u2014 opening your email client.'; statusEl.className = 'status-msg ok'; }
+        await loadHiringData();
+      }catch(err){
+        console.error('Hiring send failed:', err);
+        if(statusEl){ statusEl.textContent = 'Could not reach the server \u2014 check your connection.'; statusEl.className = 'status-msg err'; }
+      }
+    }));
+
+    rowsEl.querySelectorAll('.hiring-delete-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.candId;
+      if(!confirm('Remove this candidate and everything they\u2019ve submitted? This cannot be undone.')) return;
+      try{
+        const res = await fetch(`${API_BASE}/api/admin/hiring/candidates/${id}`, { method: 'DELETE', headers: authHeaders() });
+        if(handleAuthFailure(res)) return;
+        await loadHiringData();
+      }catch(err){ console.error('Hiring candidate delete failed:', err); }
+    }));
+
+    rowsEl.querySelectorAll('.hiring-reveal-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const btnEl = e.currentTarget; // captured now -- currentTarget goes null after the synchronous part of dispatch ends, which an await inside this handler guarantees
+      const { candId, scope, fieldKey } = btnEl.dataset;
+      const pin = prompt('Enter the Administrator Override PIN to reveal this value:');
+      if(pin === null) return;
+      try{
+        const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+          method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ pin })
+        });
+        if(handleAuthFailure(pinRes)) return;
+        const pinData = await pinRes.json();
+        if(!pinRes.ok || !pinData.valid){ alert(pinData.error || 'Incorrect PIN.'); return; }
+
+        const revealRes = await fetch(`${API_BASE}/api/admin/hiring/candidates/${candId}/reveal`, {
+          method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ scope, fieldKey })
+        });
+        if(handleAuthFailure(revealRes)) return;
+        const revealData = await revealRes.json();
+        if(!revealRes.ok){ alert(revealData.error || 'Could not reveal this value.'); return; }
+        const valueEl = document.querySelector(`.hiring-reveal-value[data-cand-id="${candId}"][data-scope="${scope}"][data-field-key="${fieldKey}"]`);
+        if(valueEl) valueEl.textContent = revealData.value || '(empty)';
+        btnEl.remove();
+      }catch(err){
+        console.error('Hiring reveal failed:', err);
+        alert('Could not reach the server \u2014 check your connection.');
+      }
+    }));
+  }
+
+  document.getElementById('hiring_newHireToggleBtn').addEventListener('click', ()=>{
+    const form = document.getElementById('hiring_newHireForm');
+    const chevron = document.getElementById('hiring_newHireChevron');
+    const expanded = form.style.display !== 'none';
+    form.style.display = expanded ? 'none' : 'block';
+    chevron.style.transform = expanded ? '' : 'rotate(90deg)';
+  });
+
+  document.getElementById('hiring_nh_createBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('hiring_nh_status');
+    const firstName = document.getElementById('hiring_nh_firstName').value.trim();
+    const lastName = document.getElementById('hiring_nh_lastName').value.trim();
+    const email = document.getElementById('hiring_nh_email').value.trim();
+    const startingPay = document.getElementById('hiring_nh_startingPay').value.trim();
+    const startingDate = document.getElementById('hiring_nh_startingDate').value;
+    if(!firstName || !lastName || !email || !startingDate){
+      statusEl.textContent = 'First name, last name, email, and start date are all required.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Creating\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/hiring/candidates`, {
+        method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
+        body: JSON.stringify({ firstName, lastName, email, startingPay, startingDate })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not create this candidate.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Created \u2014 expand them below to send their link.';
+      statusEl.className = 'status-msg ok';
+      document.getElementById('hiring_nh_firstName').value = '';
+      document.getElementById('hiring_nh_lastName').value = '';
+      document.getElementById('hiring_nh_email').value = '';
+      document.getElementById('hiring_nh_startingPay').value = '';
+      document.getElementById('hiring_nh_startingDate').value = '';
+      hiringExpandedCandidates.add(data.candidate.id);
+      await loadHiringData();
+    }catch(err){
+      console.error('Hiring candidate create failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
   // ---------- Materials ----------
   const MATERIALS_ITEMS_KEY = 'materials-items';
   const MATERIALS_CHECKOUTS_KEY = 'materials-checkouts';
@@ -23214,6 +23823,297 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     })();
   }
 
+  // ---------- Hiring: public onboarding flow (no login required) ----------
+  if(window.__hiringToken){
+    let hoPackage = null; // { firstName, lastName, startingDate, startingPay, positionTitle, documents, sharedFieldValues, documentProgress }
+    let hoDocIndex = 0;
+    let hoSharedValues = {};
+    let hoDocProgress = {};
+    let hoSigDrawing = false;
+    let hoSigHasStroke = false;
+    let hoSigLastPoint = null;
+    const hoFileCache = {}; // documentId -> dataUri, fetched once per document
+
+    function hoShowState(stateId){
+      ['ho_loadingState','ho_notFoundState','ho_expiredState','ho_alreadyCompletedState','ho_welcomeState','ho_documentState','ho_reviewState','ho_successState']
+        .forEach(id => document.getElementById(id).style.display = (id === stateId ? 'block' : 'none'));
+    }
+
+    function hoEsc(s){
+      const d = document.createElement('div');
+      d.textContent = s == null ? '' : String(s);
+      return d.innerHTML;
+    }
+
+    async function hoApiCall(path, options){
+      const res = await fetch(`${API_BASE_AUTH}/api/hiring/package/${encodeURIComponent(window.__hiringToken)}${path}`, options);
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    function hoFieldValue(field){
+      if(field.canonicalKey) return hoSharedValues[field.canonicalKey] || '';
+      const doc = hoPackage.documents[hoDocIndex];
+      return ((hoDocProgress[doc.id] || {}).fieldValues || {})[field.id] || '';
+    }
+    function hoSetFieldValue(field, value){
+      if(field.canonicalKey){
+        hoSharedValues[field.canonicalKey] = value;
+      } else {
+        const doc = hoPackage.documents[hoDocIndex];
+        hoDocProgress[doc.id] = hoDocProgress[doc.id] || { fieldValues: {} };
+        hoDocProgress[doc.id].fieldValues = hoDocProgress[doc.id].fieldValues || {};
+        hoDocProgress[doc.id].fieldValues[field.id] = value;
+      }
+    }
+
+    function hoFieldInputHtml(field){
+      const value = hoFieldValue(field);
+      const inputType = field.type === 'date' ? 'date' : (field.type === 'email' ? 'email' : (field.type === 'phone' ? 'tel' : (field.type === 'number' ? 'number' : 'text')));
+      if(field.type === 'checkbox'){
+        return `<label style="display:flex; align-items:center; gap:8px; margin:10px 0; font-size:13.5px;">
+          <input type="checkbox" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" ${value ? 'checked' : ''}> ${hoEsc(field.label)}${field.required ? ' *' : ''}
+        </label>`;
+      }
+      const inputMode = (field.type === 'ssn' || field.type === 'routing_number' || field.type === 'account_number') ? ' inputmode="numeric"' : '';
+      return `<label style="display:block; margin:10px 0;">
+        <span style="font-size:13px; font-weight:600;">${hoEsc(field.label)}${field.required ? ' *' : ''}</span>
+        <input type="${inputType}" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}"${inputMode} value="${hoEsc(value)}" style="width:100%; box-sizing:border-box; padding:11px 12px; border:1px solid var(--line); border-radius:6px; font-size:15px; margin-top:4px;">
+      </label>`;
+    }
+
+    async function hoLoadDocContent(doc){
+      const contentEl = document.getElementById('ho_docContent');
+      contentEl.innerHTML = '<p style="color:var(--muted);">Loading\u2026</p>';
+      try{
+        let dataUri = hoFileCache[doc.id];
+        if(!dataUri){
+          const { ok, data } = await hoApiCall(`/document/${doc.id}/file`);
+          if(!ok || !data.dataUri){ contentEl.innerHTML = '<p style="color:var(--muted);">(Could not load this document\u2019s text \u2014 you can still fill in the fields below.)</p>'; return; }
+          dataUri = data.dataUri;
+          hoFileCache[doc.id] = dataUri;
+        }
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf){
+          contentEl.innerHTML = '';
+          contentEl.style.padding = '0';
+          const iframe = document.createElement('iframe');
+          iframe.src = dataUri;
+          iframe.title = doc.name;
+          iframe.style.cssText = 'width:100%; height:260px; border:none; display:block;';
+          contentEl.appendChild(iframe);
+        } else {
+          contentEl.style.padding = '14px';
+          const arrayBuffer = await (await fetch(dataUri)).arrayBuffer();
+          const result = await window.mammoth.convertToHtml({ arrayBuffer });
+          contentEl.innerHTML = result.value || '<p style="color:var(--muted);">(No preview available.)</p>';
+        }
+      }catch(err){
+        console.error('Hiring document content load failed:', err);
+        contentEl.innerHTML = '<p style="color:var(--muted);">(Could not load this document\u2019s text \u2014 you can still fill in the fields below.)</p>';
+      }
+    }
+
+    function hoSetupSignaturePad(){
+      const canvas = document.getElementById('ho_signatureCanvas');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#1C2126';
+      hoSigHasStroke = false;
+
+      function pointFromEvent(e){
+        const r = canvas.getBoundingClientRect();
+        const point = e.touches ? e.touches[0] : e;
+        return { x: point.clientX - r.left, y: point.clientY - r.top };
+      }
+      function start(e){
+        e.preventDefault();
+        hoSigDrawing = true;
+        hoSigLastPoint = pointFromEvent(e);
+      }
+      function move(e){
+        if(!hoSigDrawing) return;
+        e.preventDefault();
+        const p = pointFromEvent(e);
+        ctx.beginPath();
+        ctx.moveTo(hoSigLastPoint.x, hoSigLastPoint.y);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        hoSigLastPoint = p;
+        hoSigHasStroke = true;
+      }
+      function end(){ hoSigDrawing = false; }
+
+      canvas.addEventListener('mousedown', start);
+      canvas.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', end);
+      canvas.addEventListener('touchstart', start, { passive: false });
+      canvas.addEventListener('touchmove', move, { passive: false });
+      canvas.addEventListener('touchend', end);
+
+      document.getElementById('ho_sigClearBtn').onclick = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hoSigHasStroke = false;
+      };
+    }
+
+    async function hoRenderDocumentStep(){
+      const doc = hoPackage.documents[hoDocIndex];
+      const total = hoPackage.documents.length;
+      document.getElementById('ho_progressFill').style.width = `${Math.round((hoDocIndex / total) * 100)}%`;
+      document.getElementById('ho_progressText').textContent = `Document ${hoDocIndex + 1} of ${total}`;
+      document.getElementById('ho_docTitle').textContent = doc.name;
+      document.getElementById('ho_docStatus').textContent = '';
+      document.getElementById('ho_backBtn').style.visibility = hoDocIndex === 0 ? 'hidden' : 'visible';
+      document.getElementById('ho_nextBtn').textContent = hoDocIndex === total - 1 ? 'Finish' : 'Next';
+
+      const fieldsEl = document.getElementById('ho_docFields');
+      fieldsEl.innerHTML = (doc.fields || []).map(hoFieldInputHtml).join('');
+      fieldsEl.querySelectorAll('.ho-field-input').forEach(input => {
+        const field = (doc.fields || []).find(f => f.id === input.dataset.fieldId);
+        input.addEventListener('input', () => {
+          hoSetFieldValue(field, input.type === 'checkbox' ? input.checked : input.value);
+        });
+      });
+
+      const sigWrap = document.getElementById('ho_docSignatureWrap');
+      sigWrap.style.display = doc.requiresSignature ? 'block' : 'none';
+      if(doc.requiresSignature) hoSetupSignaturePad();
+
+      await hoLoadDocContent(doc);
+    }
+
+    function hoValidateCurrentStep(){
+      const doc = hoPackage.documents[hoDocIndex];
+      const missing = [];
+      (doc.fields || []).forEach(f => {
+        if(!f.required) return;
+        if(f.type === 'checkbox') return; // a checkbox's "required" just means it exists on the form, not that it must be checked
+        const value = hoFieldValue(f);
+        if(!value || !String(value).trim()) missing.push(f.label);
+      });
+      if(doc.requiresSignature){
+        const existingSig = (hoDocProgress[doc.id] || {}).signatureKey;
+        if(!hoSigHasStroke && !existingSig) missing.push('your signature');
+      }
+      return missing;
+    }
+
+    async function hoSaveCurrentStep(){
+      const doc = hoPackage.documents[hoDocIndex];
+      const docFieldValues = {};
+      (doc.fields || []).forEach(f => { if(!f.canonicalKey) docFieldValues[f.id] = hoFieldValue(f); });
+      const sharedToSave = {};
+      (doc.fields || []).forEach(f => { if(f.canonicalKey) sharedToSave[f.canonicalKey] = hoSharedValues[f.canonicalKey]; });
+
+      await hoApiCall('/save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ documentId: doc.id, fieldValues: docFieldValues, sharedFieldValues: sharedToSave })
+      });
+
+      if(doc.requiresSignature && hoSigHasStroke){
+        const canvas = document.getElementById('ho_signatureCanvas');
+        const signatureDataUri = canvas.toDataURL('image/png');
+        const { ok, data } = await hoApiCall('/signature', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ documentId: doc.id, signatureDataUri })
+        });
+        if(ok){ hoDocProgress[doc.id] = hoDocProgress[doc.id] || { fieldValues: {} }; hoDocProgress[doc.id].signatureKey = 'saved'; }
+      }
+    }
+
+    document.getElementById('ho_beginBtn').addEventListener('click', async () => {
+      hoDocIndex = 0;
+      hoShowState('ho_documentState');
+      await hoRenderDocumentStep();
+    });
+
+    document.getElementById('ho_backBtn').addEventListener('click', async () => {
+      if(hoDocIndex === 0) return;
+      hoDocIndex--;
+      await hoRenderDocumentStep();
+    });
+
+    document.getElementById('ho_nextBtn').addEventListener('click', async () => {
+      const statusEl = document.getElementById('ho_docStatus');
+      const missing = hoValidateCurrentStep();
+      if(missing.length > 0){
+        statusEl.textContent = `Please complete: ${missing.join(', ')}.`;
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving\u2026';
+      statusEl.className = 'status-msg';
+      try{
+        await hoSaveCurrentStep();
+      }catch(err){
+        console.error('Hiring save step failed:', err);
+        statusEl.textContent = 'Could not save \u2014 check your connection and try again.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(hoDocIndex >= hoPackage.documents.length - 1){
+        hoShowState('ho_reviewState');
+      } else {
+        hoDocIndex++;
+        await hoRenderDocumentStep();
+      }
+    });
+
+    document.getElementById('ho_submitBtn').addEventListener('click', async () => {
+      const statusEl = document.getElementById('ho_submitStatus');
+      statusEl.textContent = 'Submitting\u2026';
+      statusEl.className = 'status-msg';
+      try{
+        const { ok, data } = await hoApiCall('/submit', { method: 'POST' });
+        if(!ok){
+          const missingEl = document.getElementById('ho_reviewMissing');
+          if(data.missing && data.missing.length > 0){
+            missingEl.style.display = 'block';
+            missingEl.innerHTML = `<strong>A few things still need attention:</strong><br>${data.missing.map(hoEsc).join('<br>')}`;
+          }
+          statusEl.textContent = data.error || 'Could not submit \u2014 please try again.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+        hoShowState('ho_successState');
+      }catch(err){
+        console.error('Hiring submit failed:', err);
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection and try again.';
+        statusEl.className = 'status-msg err';
+      }
+    });
+
+    (async () => {
+      const { ok, data } = await hoApiCall('');
+      if(!ok || !data.found){
+        hoShowState(data && data.expired ? 'ho_expiredState' : 'ho_notFoundState');
+        return;
+      }
+      hoPackage = data;
+      hoSharedValues = data.sharedFieldValues || {};
+      hoDocProgress = data.documentProgress || {};
+      if(data.status === 'completed'){
+        hoShowState('ho_alreadyCompletedState');
+        return;
+      }
+      if(!hoPackage.documents || hoPackage.documents.length === 0){
+        hoShowState('ho_notFoundState');
+        return;
+      }
+      document.getElementById('ho_welcomeGreeting').textContent = `Welcome, ${hoPackage.firstName}!`;
+      document.getElementById('ho_welcomeDetails').textContent = `${hoPackage.positionTitle} \u2014 Starting ${hoPackage.startingDate}`;
+      document.getElementById('ho_welcomeDocCount').textContent = hoPackage.documents.length;
+      hoShowState('ho_welcomeState');
+    })();
+  }
+
   // Unlike other tile badges in this app (which only populate once that
   // tile has been opened this session), the whole point of this alert is to
   // catch the admin's eye from the home dashboard without them needing to
@@ -23223,7 +24123,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // Same reasoning as the Damage Claim check above -- a deadline reminder
   // that only shows up once someone has already opened the tile is not
   // much of a reminder, so this runs proactively too.
-  if(localStorage.getItem('henson_auth_token') && !window.__damageClaimToken && !window.__pendingSignHash){
+  if(localStorage.getItem('henson_auth_token') && !window.__damageClaimToken && !window.__pendingSignHash && !window.__hiringToken){
     window.loadDamageClaimsData();
     window.checkMaterialsOrderDeadline();
   }
