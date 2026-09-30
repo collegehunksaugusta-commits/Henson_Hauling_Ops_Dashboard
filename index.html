@@ -23956,6 +23956,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
     }
 
+    // These three are terms of the offer the admin already set when
+    // creating this candidate -- shown so the new hire can see and
+    // confirm them on the Offer Letter, but not something they're meant
+    // to change themselves the way they would their own address or SSN.
+    const HO_LOCKED_CANONICAL_KEYS = new Set(['start_date', 'starting_pay', 'position_title']);
+
     function hoFieldInputHtml(field){
       const value = hoFieldValue(field);
       const inputType = field.type === 'date' ? 'date' : (field.type === 'email' ? 'email' : (field.type === 'phone' ? 'tel' : (field.type === 'number' ? 'number' : 'text')));
@@ -23964,10 +23970,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <input type="checkbox" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" ${value ? 'checked' : ''}> ${hoEsc(field.label)}${field.required ? ' *' : ''}
         </label>`;
       }
+      const isLocked = HO_LOCKED_CANONICAL_KEYS.has(field.canonicalKey);
       const inputMode = (field.type === 'ssn' || field.type === 'routing_number' || field.type === 'account_number') ? ' inputmode="numeric"' : '';
+      const lockedStyle = isLocked ? ' background:var(--offwhite); color:var(--charcoal);' : '';
       return `<label style="display:block; margin:10px 0;">
         <span style="font-size:13px; font-weight:600;">${hoEsc(field.label)}${field.required ? ' *' : ''}</span>
-        <input type="${inputType}" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}"${inputMode} value="${hoEsc(value)}" style="width:100%; box-sizing:border-box; padding:11px 12px; border:1px solid var(--line); border-radius:6px; font-size:15px; margin-top:4px;">
+        <input type="${inputType === 'date' && isLocked ? 'text' : inputType}" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}"${inputMode} value="${hoEsc(value)}" ${isLocked ? 'readonly' : ''} style="width:100%; box-sizing:border-box; padding:11px 12px; border:1px solid var(--line); border-radius:6px; font-size:15px; margin-top:4px;${lockedStyle}">
       </label>`;
     }
 
@@ -24186,8 +24194,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
       hoPackage = data;
-      hoSharedValues = data.sharedFieldValues || {};
       hoDocProgress = data.documentProgress || {};
+      hoSharedValues = {
+        ...(data.sharedFieldValues || {}),
+        // Always wins over anything already saved under these keys -- set
+        // once by the admin at candidate creation, never something a new
+        // hire is meant to edit themselves.
+        employee_first_name: data.firstName || '',
+        employee_last_name: data.lastName || '',
+        employee_full_name: `${data.firstName || ''} ${data.lastName || ''}`.trim(),
+        start_date: data.startingDate || '',
+        starting_pay: data.startingPay || '',
+        position_title: data.positionTitle || ''
+      };
       if(data.status === 'completed'){
         hoShowState('ho_alreadyCompletedState');
         return;
