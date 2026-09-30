@@ -2279,8 +2279,9 @@ const EXTRACT_HIRING_DOCUMENT_FIELDS_TOOL = {
           type: 'object',
           properties: {
             label: { type: 'string', description: 'A short, human-readable label for this blank, as a new hire would understand it, e.g. "Routing Number", "Apartment/Unit Number". Do not include the word "blank" or field numbering from the form.' },
-            type: { type: 'string', enum: ['text', 'ssn', 'routing_number', 'account_number', 'date', 'phone', 'email', 'address', 'checkbox', 'number'], description: 'The kind of input this is. Use ssn/routing_number/account_number specifically for those exact values (not just anything numeric) so they can be masked correctly.' },
-            canonicalKey: { type: ['string', 'null'], enum: [...HIRING_CANONICAL_FIELD_KEYS, null], description: 'If this blank means the same thing as one of the canonical keys (the new hire\u2019s own name, address, SSN, bank info, etc.), the matching key -- so a value entered once can fill the same blank on other documents. null if this blank is specific to this one document only (e.g. a document-specific checkbox or a value only this form asks for).' },
+            type: { type: 'string', enum: ['text', 'ssn', 'routing_number', 'account_number', 'date', 'phone', 'email', 'address', 'checkbox', 'number', 'select'], description: 'The kind of input this is. Use ssn/routing_number/account_number specifically for those exact values (not just anything numeric) so they can be masked correctly. Use select whenever the form asks the new hire to pick exactly ONE option from a set of choices (a checkbox group, a lettered/numbered list of statuses, or an explicit "choose one" instruction) -- e.g. citizenship/immigration status, tax filing status, a marital-status letter code. Use checkbox only for a single, independent yes/no box (e.g. "check here if..."), never for one option within a group of mutually-exclusive choices -- that whole group is one select field, not several checkboxes.' },
+            options: { type: 'array', items: { type: 'string' }, description: 'Required when type is select, omitted otherwise. Every choice exactly as printed on the form, in the same order, e.g. ["A citizen of the United States", "A noncitizen national of the United States", "A lawful permanent resident", "A noncitizen authorized to work"]. Keep each option\u2019s own wording intact rather than summarizing it, since a new hire needs to recognize which one matches their situation.' },
+            canonicalKey: { type: ['string', 'null'], enum: [...HIRING_CANONICAL_FIELD_KEYS, null], description: 'If this blank means the same thing as one of the canonical keys (the new hire\u2019s own name, address, SSN, bank info, etc.), the matching key -- so a value entered once can fill the same blank on other documents. null if this blank is specific to this one document only (e.g. a document-specific checkbox or a value only this form asks for). A select field is almost always document-specific (null) -- different forms rarely share the exact same set of options.' },
             required: { type: 'boolean', description: 'True unless the form itself marks this as optional/conditional (e.g. "if any").' }
           },
           required: ['label', 'type', 'required']
@@ -2595,10 +2596,20 @@ app.post('/api/admin/hiring/extract-fields', requireAuth, async (req, res) => {
     const TYPE_TO_CANONICAL = { ssn: 'ssn', account_number: 'account_number', routing_number: 'routing_number' };
     const fields = (Array.isArray(result.fields) ? result.fields : []).map((f, i) => {
       const fixedCanonical = TYPE_TO_CANONICAL[f.type] || f.canonicalKey || null;
+      const cleanOptions = Array.isArray(f.options)
+        ? f.options.map(o => String(o || '').slice(0, 300)).filter(Boolean).slice(0, 20)
+        : [];
+      // A select field with no usable options is broken, not a dropdown
+      // worth showing -- falls back to a plain text field instead.
+      const isValidSelect = f.type === 'select' && cleanOptions.length > 0;
+      const type = HIRING_SENSITIVE_FIELD_TYPES.has(f.type) || ['text','date','phone','email','address','checkbox','number'].includes(f.type)
+        ? f.type
+        : (isValidSelect ? 'select' : 'text');
       return {
         id: 'fld_' + i + '_' + Math.random().toString(36).slice(2, 8),
         label: String(f.label || '').slice(0, 200),
-        type: HIRING_SENSITIVE_FIELD_TYPES.has(f.type) || ['text','date','phone','email','address','checkbox','number'].includes(f.type) ? f.type : 'text',
+        type,
+        ...(type === 'select' ? { options: cleanOptions } : {}),
         canonicalKey: HIRING_CANONICAL_FIELD_KEYS.includes(fixedCanonical) ? fixedCanonical : null,
         required: f.required !== false
       };
