@@ -14169,7 +14169,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   window.HIRING_CANONICAL_KEY_LABELS = HIRING_CANONICAL_KEY_LABELS;
   const HIRING_FIELD_TYPE_LABELS = {
     text: 'Text', ssn: 'SSN', routing_number: 'Routing Number', account_number: 'Account Number',
-    date: 'Date', phone: 'Phone', email: 'Email', address: 'Address', checkbox: 'Checkbox', number: 'Number'
+    date: 'Date', phone: 'Phone', email: 'Email', address: 'Address', checkbox: 'Checkbox', number: 'Number',
+    select: 'Selection (pick one)'
   };
   let hiringDocuments = [];
   let hiringUploadTargetDocId = null; // null = uploading for a brand-new document slot
@@ -14213,12 +14214,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function hiringFieldRowHtml(docId, field){
     const typeOptions = Object.keys(HIRING_FIELD_TYPE_LABELS).map(t => `<option value="${t}" ${field.type===t?'selected':''}>${HIRING_FIELD_TYPE_LABELS[t]}</option>`).join('');
     const keyOptions = `<option value="">Document-specific</option>` + Object.keys(HIRING_CANONICAL_KEY_LABELS).map(k => `<option value="${k}" ${field.canonicalKey===k?'selected':''}>${HIRING_CANONICAL_KEY_LABELS[k]}</option>`).join('');
-    return `<div class="hiring-field-row" data-doc-id="${docId}" data-field-id="${field.id}" style="display:flex; align-items:center; gap:6px; padding:5px 0; border-bottom:1px solid var(--line); flex-wrap:wrap;">
-      <input type="text" class="hiring-field-label" value="${hiringEsc(field.label)}" placeholder="Field label" style="flex:1; min-width:140px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12.5px;">
-      <select class="hiring-field-type" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px;">${typeOptions}</select>
-      <select class="hiring-field-key" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px; max-width:170px;">${keyOptions}</select>
-      <label style="display:flex; align-items:center; gap:3px; font-size:11.5px; white-space:nowrap;"><input type="checkbox" class="hiring-field-required" ${field.required?'checked':''}> Required</label>
-      <button type="button" class="hiring-remove-field" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:11px;">Remove</button>
+    const isSelect = field.type === 'select';
+    return `<div class="hiring-field-row-wrap" data-doc-id="${docId}" data-field-id="${field.id}" style="padding:5px 0; border-bottom:1px solid var(--line);">
+      <div class="hiring-field-row" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        <input type="text" class="hiring-field-label" value="${hiringEsc(field.label)}" placeholder="Field label" style="flex:1; min-width:140px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12.5px;">
+        <select class="hiring-field-type" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px;">${typeOptions}</select>
+        <select class="hiring-field-key" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px; max-width:170px;">${keyOptions}</select>
+        <label style="display:flex; align-items:center; gap:3px; font-size:11.5px; white-space:nowrap;"><input type="checkbox" class="hiring-field-required" ${field.required?'checked':''}> Required</label>
+        <button type="button" class="hiring-remove-field" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:11px;">Remove</button>
+      </div>
+      <div class="hiring-field-options-wrap" style="display:${isSelect ? 'block' : 'none'}; margin-top:6px;">
+        <label style="display:block; font-size:11px; color:var(--muted);">Options the new hire can choose from (one per line, in order)
+          <textarea class="hiring-field-options" rows="3" placeholder="e.g.&#10;A citizen of the United States&#10;A lawful permanent resident" style="width:100%; box-sizing:border-box; padding:5px 7px; border:1px solid var(--line); border-radius:4px; font-size:12px; font-family:inherit; margin-top:2px;">${hiringEsc((field.options||[]).join('\n'))}</textarea>
+        </label>
+      </div>
     </div>`;
   }
 
@@ -14302,14 +14311,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       doc.fields.push({ id: 'fld_manual_' + Date.now() + '_' + Math.floor(Math.random()*1000), label: '', type: 'text', canonicalKey: null, required: true });
       saveHiringDocsConfig(); renderHiringDocRows();
     }));
-    rowsEl.querySelectorAll('.hiring-field-row').forEach(row => {
+    rowsEl.querySelectorAll('.hiring-field-row-wrap').forEach(row => {
       const doc = hiringDocuments.find(d => d.id === row.dataset.docId);
       const field = doc ? (doc.fields || []).find(f => f.id === row.dataset.fieldId) : null;
       if(!field) return;
       row.querySelector('.hiring-field-label').addEventListener('change', (e)=>{ field.label = e.target.value.trim(); saveHiringDocsConfig(); });
-      row.querySelector('.hiring-field-type').addEventListener('change', (e)=>{ field.type = e.target.value; saveHiringDocsConfig(); });
+      row.querySelector('.hiring-field-type').addEventListener('change', (e)=>{
+        field.type = e.target.value;
+        if(field.type === 'select' && !Array.isArray(field.options)) field.options = [];
+        saveHiringDocsConfig(); renderHiringDocRows(); // re-render so the options editor shows/hides correctly
+      });
       row.querySelector('.hiring-field-key').addEventListener('change', (e)=>{ field.canonicalKey = e.target.value || null; saveHiringDocsConfig(); });
       row.querySelector('.hiring-field-required').addEventListener('change', (e)=>{ field.required = e.target.checked; saveHiringDocsConfig(); });
+      const optionsTextarea = row.querySelector('.hiring-field-options');
+      if(optionsTextarea){
+        optionsTextarea.addEventListener('change', (e)=>{
+          field.options = e.target.value.split('\n').map(o => o.trim()).filter(Boolean);
+          saveHiringDocsConfig();
+        });
+      }
       row.querySelector('.hiring-remove-field').addEventListener('click', ()=>{
         doc.fields = doc.fields.filter(f => f.id !== field.id);
         saveHiringDocsConfig(); renderHiringDocRows();
@@ -23968,6 +23988,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(field.type === 'checkbox'){
         return `<label style="display:flex; align-items:center; gap:8px; margin:10px 0; font-size:13.5px;">
           <input type="checkbox" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" ${value ? 'checked' : ''}> ${hoEsc(field.label)}${field.required ? ' *' : ''}
+        </label>`;
+      }
+      if(field.type === 'select'){
+        const optionsHtml = (field.options || []).map(o => `<option value="${hoEsc(o)}" ${value === o ? 'selected' : ''}>${hoEsc(o)}</option>`).join('');
+        return `<label style="display:block; margin:10px 0;">
+          <span style="font-size:13px; font-weight:600;">${hoEsc(field.label)}${field.required ? ' *' : ''}</span>
+          <select class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" style="width:100%; box-sizing:border-box; padding:11px 12px; border:1px solid var(--line); border-radius:6px; font-size:15px; margin-top:4px; background:#fff;">
+            <option value="" ${value ? '' : 'selected'}>Select one\u2026</option>
+            ${optionsHtml}
+          </select>
         </label>`;
       }
       const isLocked = HO_LOCKED_CANONICAL_KEYS.has(field.canonicalKey);
