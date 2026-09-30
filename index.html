@@ -394,6 +394,35 @@
 }
 </style>
 
+<!-- ============ PHOTO/DOCUMENT VIEWER MODAL ============ -->
+<!-- Replaces window.open() for viewing a photo or document. On a
+     home-screen mobile app (standalone PWA), window.open() either
+     replaces the app's own screen or kicks the person out to the system
+     browser entirely -- and since standalone mode has no back/forward
+     chrome, there's then no way to return short of relaunching the app.
+     This modal never navigates away from the page at all, so there's
+     nothing to return from: closing it (the X, tapping the backdrop, or
+     Escape) just goes back to exactly where the person was, on every
+     platform, with no special mobile-only handling needed. -->
+<div id="photoViewerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:99999; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
+  <button type="button" id="photoViewerModalCloseBtn" aria-label="Close" style="position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); border:none; color:#fff; width:40px; height:40px; border-radius:50%; font-size:22px; cursor:pointer; line-height:1;">&times;</button>
+  <div id="photoViewerModalTitle" style="position:absolute; top:24px; left:20px; right:70px; color:#fff; font-size:14px; font-weight:600; font-family:'Inter',sans-serif;"></div>
+  <img id="photoViewerModalImg" style="max-width:92vw; max-height:88vh; object-fit:contain; border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,0.5); display:none;">
+  <iframe id="photoViewerModalFrame" title="Document preview" style="width:94vw; height:88vh; border:none; border-radius:4px; background:#fff; display:none;"></iframe>
+</div>
+
+<!-- ============ CONTENT VIEWER MODAL ============ -->
+<!-- Same in-page philosophy as the photo modal above, for the smaller
+     number of "detail view" documents (PTI/EOD reports, Junk Removal job
+     detail, etc.) that build multi-section content rather than a single
+     image or PDF. -->
+<div id="contentViewerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:99998; align-items:flex-start; justify-content:center; padding:20px; box-sizing:border-box; overflow-y:auto;">
+  <div style="background:#fff; border-radius:10px; max-width:760px; width:100%; margin:20px auto 40px; position:relative; box-shadow:0 8px 40px rgba(0,0,0,0.3);">
+    <button type="button" id="contentViewerModalCloseBtn" aria-label="Close" style="position:absolute; top:12px; right:12px; background:var(--offwhite); border:1px solid var(--line); color:var(--charcoal); width:36px; height:36px; border-radius:50%; font-size:20px; cursor:pointer; line-height:1; z-index:1;">&times;</button>
+    <div id="contentViewerModalBody" style="padding:28px; font-family:Arial,sans-serif; color:#1a1a1a;"></div>
+  </div>
+</div>
+
 <!-- ============ LOGIN GATE ============ -->
 <div id="loginGate" style="position:fixed; inset:0; background:var(--offwhite); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;">
   <div style="max-width:380px; width:100%; background:#fff; border:1px solid var(--line); border-radius:10px; padding:32px 28px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
@@ -786,6 +815,63 @@
 </div>
 
 <script>
+  // Shows a single image or document full-screen in the in-page modal,
+  // instead of window.open() -- see the HTML comment above the modal
+  // markup for why. src is an image data: URI/URL for a photo, or a PDF
+  // URL/data: URI when opts.isPdf is true. opts.title is optional.
+  function showPhotoModal(src, opts){
+    opts = opts || {};
+    const modal = document.getElementById('photoViewerModal');
+    const img = document.getElementById('photoViewerModalImg');
+    const frame = document.getElementById('photoViewerModalFrame');
+    document.getElementById('photoViewerModalTitle').textContent = opts.title || '';
+    if(opts.isPdf){
+      img.style.display = 'none'; img.src = '';
+      frame.style.display = 'block'; frame.src = src;
+    } else {
+      frame.style.display = 'none'; frame.src = '';
+      img.style.display = 'block'; img.src = src;
+    }
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closePhotoModal(){
+    document.getElementById('photoViewerModal').style.display = 'none';
+    // about:blank, not '' -- an empty src is a relative reference that
+    // resolves to this very page, which would recursively load the whole
+    // app inside the (now-hidden) iframe rather than actually clearing it.
+    document.getElementById('photoViewerModalFrame').src = 'about:blank';
+    document.getElementById('photoViewerModalImg').src = '';
+    document.body.style.overflow = '';
+  }
+  window.showPhotoModal = showPhotoModal;
+  window.closePhotoModal = closePhotoModal;
+  document.getElementById('photoViewerModalCloseBtn').addEventListener('click', closePhotoModal);
+  document.getElementById('photoViewerModal').addEventListener('click', (e)=>{ if(e.target.id === 'photoViewerModal') closePhotoModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && document.getElementById('photoViewerModal').style.display === 'flex') closePhotoModal(); });
+
+  // html is just the inner content (no <html>/<body> wrapper) -- these
+  // documents used to be written into their own standalone popup window,
+  // so any inline onclick handlers referencing a function that popup
+  // would have defined in its own <script> tag need to be rewired to call
+  // window.showPhotoModal(...) directly instead, since a <script> tag
+  // inserted via innerHTML never executes.
+  function showContentModal(html){
+    document.getElementById('contentViewerModalBody').innerHTML = html;
+    document.getElementById('contentViewerModal').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeContentModal(){
+    document.getElementById('contentViewerModal').style.display = 'none';
+    document.getElementById('contentViewerModalBody').innerHTML = '';
+    document.body.style.overflow = '';
+  }
+  window.showContentModal = showContentModal;
+  window.closeContentModal = closeContentModal;
+  document.getElementById('contentViewerModalCloseBtn').addEventListener('click', closeContentModal);
+  document.getElementById('contentViewerModal').addEventListener('click', (e)=>{ if(e.target.id === 'contentViewerModal') closeContentModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && document.getElementById('contentViewerModal').style.display === 'flex') closeContentModal(); });
+
   const API_BASE_AUTH = 'https://henson-dashboard-backend.onrender.com';
 
   // A client clicking a Damage Claim link has no dashboard credentials at
@@ -1205,11 +1291,7 @@
         const rec = key === 'registration' ? data.registration : data.insuranceCard;
         if(!rec) return;
         const isPdf = rec.dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(tdocsDataUriToBlobUrl(rec.dataUri), '_blank'); }
-        else {
-          const win = window.open();
-          if(win) win.document.write(`<title>${rec.fileName}</title><body style="margin:0;"><img src="${rec.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`);
-        }
+        window.showPhotoModal(isPdf ? tdocsDataUriToBlobUrl(rec.dataUri) : rec.dataUri, { isPdf, title: rec.fileName || '' });
       }));
     }catch(err){
       console.error('Load truck docs failed:', err);
@@ -7121,14 +7203,7 @@
         const dataUri = await window.dashboardApi.get('fleet-invoice-' + id, null);
         if(!dataUri){ alert('Could not load this invoice.'); return; }
         const isPdf = dataUri.startsWith('data:application/pdf');
-        if(isPdf){
-          window.open(fleetDataUriToBlobUrl(dataUri), '_blank');
-        } else {
-          const win = window.open();
-          if(win){
-            win.document.write(`<title>Invoice</title><body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`);
-          }
-        }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf, title: 'Invoice' });
       }catch(err){
         console.error('Invoice view failed:', err);
         alert('Could not load this invoice \u2014 check your connection.');
@@ -9167,8 +9242,7 @@
       el.innerHTML = `On file: <b>${fleetEsc(record.fileName)}</b> (uploaded ${new Date(record.uploadedAt).toLocaleDateString()}) <button type="button" id="comp_einViewBtn" style="margin-left:8px; background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;">View</button>`;
       document.getElementById('comp_einViewBtn').addEventListener('click', ()=>{
         const isPdf = record.dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(record.dataUri), '_blank'); }
-        else { const win = window.open(); if(win) win.document.write(`<title>${fleetEsc(record.fileName)}</title><body style="margin:0;"><img src="${record.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(record.dataUri) : record.dataUri, { isPdf, title: record.fileName || '' });
       });
     }catch(err){ console.error('EIN load failed:', err); el.innerHTML = '<span style="color:#b3261e;">Could not load \u2014 check your connection.</span>'; }
   }
@@ -9346,11 +9420,7 @@
   async function viewPtiDetails(id){
     const rec = compPretripInspections.find(r => r.id === id);
     if(!rec) return;
-    // Opened synchronously, before any await, so it's never at risk of
-    // being blocked as a non-user-gesture popup -- filled in once ready.
-    const win = window.open();
-    if(!win) return;
-    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
+    window.showContentModal('<p style="color:#666;">Loading...</p>');
 
     let photoDataUri = null;
     if(rec.backPhotoKey){
@@ -9365,10 +9435,8 @@
         <td style="padding:6px 8px; border-bottom:1px solid #ddd; font-weight:600; color:${statusColors[c.status]||'#333'};">${statusLabels[c.status]||fleetEsc(c.status)}</td>
         <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(c.note || '')}</td>
       </tr>`).join('');
-    win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><title>Pre-Trip Inspection \u2014 ${fleetEsc(rec.truckNickname)} \u2014 ${fleetEsc(rec.date)}</title></head>
-      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
-        <h2 style="margin-bottom:4px;">Pre-Trip Inspection</h2>
+    window.showContentModal(`
+        <h2 style="margin:0 0 4px;">Pre-Trip Inspection</h2>
         <p style="margin-top:0; line-height:1.6;">
           <strong>Truck:</strong> ${fleetEsc(rec.truckNickname)}<br>
           <strong>Date:</strong> ${fleetEsc(rec.date)}<br>
@@ -9376,7 +9444,7 @@
           <strong>Odometer:</strong> ${fleetEsc(rec.odometer || '\u2014')}<br>
           <strong>Overall:</strong> ${rec.overallStatus === 'defects' ? '<span style="color:#B3261E;">Defects Noted</span>' : '<span style="color:#00612C;">OK</span>'}
         </p>
-        ${photoDataUri ? `<p style="margin:14px 0 6px;"><strong>Truck Photo:</strong></p><img src="${photoDataUri}" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block; margin-bottom:18px;">` : (rec.backPhotoKey ? `<p style="margin:14px 0 18px; color:#B3261E;">Could not load the truck photo \u2014 check your connection and try again.</p>` : '')}
+        ${photoDataUri ? `<p style="margin:14px 0 6px;"><strong>Truck Photo:</strong></p><img src="${photoDataUri}" onclick="window.showPhotoModal(this.src)" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block; margin-bottom:18px; cursor:zoom-in;">` : (rec.backPhotoKey ? `<p style="margin:14px 0 18px; color:#B3261E;">Could not load the truck photo \u2014 check your connection and try again.</p>` : '')}
         <table style="border-collapse:collapse; width:100%;">
           <thead><tr>
             <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Item</th>
@@ -9385,9 +9453,7 @@
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${rec.additionalNotes ? `<p style="margin-top:18px;"><strong>Additional Notes:</strong><br>${fleetEsc(rec.additionalNotes)}</p>` : ''}
-      </body></html>`);
-    win.document.close();
+        ${rec.additionalNotes ? `<p style="margin-top:18px;"><strong>Additional Notes:</strong><br>${fleetEsc(rec.additionalNotes)}</p>` : ''}`);
   }
 
   // Shared by the DOT Inspections, Safety Incidents, and Violations dropzones
@@ -9555,8 +9621,7 @@
         const dataUri = await window.dashboardApi.get('compliance-doc-' + id, null);
         if(!dataUri){ alert('Could not load this file.'); return; }
         const isPdf = dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
-        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
       }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
     }));
     tbody.querySelectorAll('.comp-dot-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
@@ -9630,8 +9695,7 @@
         const dataUri = await window.dashboardApi.get('compliance-doc-' + id, null);
         if(!dataUri){ alert('Could not load this file.'); return; }
         const isPdf = dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
-        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
       }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
     }));
     tbody.querySelectorAll('.comp-inc-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
@@ -9701,8 +9765,7 @@
         const dataUri = await window.dashboardApi.get('compliance-doc-' + id, null);
         if(!dataUri){ alert('Could not load this file.'); return; }
         const isPdf = dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
-        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
       }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
     }));
     tbody.querySelectorAll('.comp-vio-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
@@ -10030,8 +10093,7 @@
         const rec = await window.dashboardApi.get(driverDocKey(name, key), null);
         if(!rec) return;
         const isPdf = rec.dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(rec.dataUri), '_blank'); }
-        else { const win = window.open(); if(win) win.document.write(`<title>${fleetEsc(rec.fileName)}</title><body style="margin:0;"><img src="${rec.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(rec.dataUri) : rec.dataUri, { isPdf, title: rec.fileName || '' });
       }catch(err){ console.error('Driver doc view failed:', err); }
     }));
 
@@ -10448,8 +10510,7 @@
         const rec = await window.dashboardApi.get(truckDocKey(truckId, key), null);
         if(!rec) return;
         const isPdf = rec.dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(rec.dataUri), '_blank'); }
-        else { const win = window.open(); if(win) win.document.write(`<title>${fleetEsc(rec.fileName)}</title><body style="margin:0;"><img src="${rec.dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(rec.dataUri) : rec.dataUri, { isPdf, title: rec.fileName || '' });
       }catch(err){ console.error('Truck doc view failed:', err); }
     }));
 
@@ -10494,8 +10555,7 @@
         const dataUri = await window.dashboardApi.get('compliance-doc-coi-' + id, null);
         if(!dataUri) return;
         const isPdf = dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
-        else { const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
+        window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
       }catch(err){ console.error('COI view failed:', err); }
     }));
 
@@ -12816,11 +12876,8 @@
         <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(v.date)}</td>
         <td style="padding:6px 8px; border-bottom:1px solid #ddd;">${fleetEsc(v.driverName)}</td>
       </tr>`).join('');
-    const win = window.open();
-    if(!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Visit History \u2014 ${fleetEsc(rec.name)}</title></head>
-      <body style="font-family:Arial,sans-serif; padding:24px; max-width:500px; margin:0 auto; color:#1a1a1a;">
-        <h2 style="margin-bottom:4px;">${fleetEsc(rec.name)}</h2>
+    window.showContentModal(`
+        <h2 style="margin:0 0 4px;">${fleetEsc(rec.name)}</h2>
         <p style="margin-top:0; color:#555;">${fleetEsc(rec.city)}, ${fleetEsc(rec.state)} \u2014 ${visits.length} visit${visits.length===1?'':'s'} on record</p>
         <table style="border-collapse:collapse; width:100%;">
           <thead><tr>
@@ -12828,9 +12885,7 @@
             <th style="text-align:left; padding:6px 8px; border-bottom:2px solid #333;">Employee</th>
           </tr></thead>
           <tbody>${rows}</tbody>
-        </table>
-      </body></html>`);
-    win.document.close();
+        </table>`);
   }
 
   function mailNbhdParseBulkInput(text){
@@ -12979,9 +13034,13 @@
         const dataUri = await window.dashboardApi.get('marketing-material-doc-' + id, null);
         if(!dataUri){ alert('Could not load this file.'); return; }
         const isPdf = dataUri.startsWith('data:application/pdf');
-        if(isPdf){ window.open(fleetDataUriToBlobUrl(dataUri), '_blank'); }
-        else if(dataUri.startsWith('data:image')){ const win = window.open(); if(win) win.document.write(`<body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`); }
-        else { const win = window.open(); if(win) win.location.href = dataUri; }
+        if(isPdf || dataUri.startsWith('data:image')){
+          window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
+        } else {
+          const a = document.createElement('a');
+          a.href = dataUri; a.download = '';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
       }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
     };
 
@@ -16846,7 +16905,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`).join('');
     container.querySelectorAll('.pwBatch-excluded-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = pwBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
-      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+      if(x && x.thumbnail) window.showPhotoModal(x.thumbnail);
     }));
   }
 
@@ -16867,7 +16926,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`).join('');
     container.querySelectorAll('.pwBatch-unclear-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = pwBatchUnclear[parseInt(e.currentTarget.dataset.index, 10)];
-      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+      if(x && x.thumbnail) window.showPhotoModal(x.thumbnail);
     }));
     container.querySelectorAll('.pwBatch-unclear-promote').forEach(btn => btn.addEventListener('click', async (e)=>{
       const idx = parseInt(e.currentTarget.dataset.index, 10);
@@ -16947,7 +17006,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     container.querySelectorAll('.pwBatch-junk-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = pwBatchJunkRemoval[parseInt(e.currentTarget.dataset.index, 10)];
-      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+      if(x && x.thumbnail) window.showPhotoModal(x.thumbnail);
     }));
 
     container.querySelectorAll('.pwBatch-junk-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
@@ -17090,7 +17149,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     container.querySelectorAll('.pwrev-thumb').forEach(thumb => thumb.addEventListener('click', (e)=>{
       const r = pwBatchReview.find(x => x.reviewId === e.currentTarget.dataset.reviewId);
-      if(r && r.thumbnail) window.open(pwBatchDataUriToBlobUrl(r.thumbnail), '_blank');
+      if(r && r.thumbnail) window.showPhotoModal(r.thumbnail);
     }));
     container.querySelectorAll('.pwrev-field').forEach(input => {
       input.addEventListener('input', (e)=>{
@@ -18808,14 +18867,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const dataUri = await window.dashboardApi.get('paperwork-upload-' + id, null);
         if(!dataUri){ alert('Could not load this file.'); return; }
         const isPdf = dataUri.startsWith('data:application/pdf') || upload.fileName.toLowerCase().endsWith('.pdf');
-        if(isPdf){
-          window.open(dataUriToBlobUrl(dataUri), '_blank');
-        } else {
-          const win = window.open();
-          if(win){
-            win.document.write(`<title>${esc(upload.fileName)}</title><body style="margin:0;"><img src="${dataUri}" style="max-width:100%; display:block; margin:0 auto;"></body>`);
-          }
-        }
+        window.showPhotoModal(isPdf ? dataUriToBlobUrl(dataUri) : dataUri, { isPdf, title: upload.fileName || '' });
       }catch(err){
         console.error('Paperwork file view failed:', err);
         alert('Could not load this file \u2014 check your connection.');
@@ -19042,7 +19094,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }).join('');
 
     container.querySelectorAll('.mfrev-thumb').forEach(thumb => thumb.addEventListener('click', (e)=>{
-      window.open(e.currentTarget.src, '_blank');
+      window.showPhotoModal(e.currentTarget.src);
     }));
     container.querySelectorAll('.mfrev-field').forEach(input => input.addEventListener('input', (e)=>{
       const r = mfBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
@@ -21127,11 +21179,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function viewJunkRemovalDetail(id){
     const job = junkRemovalJobs.find(j => j.id === id);
     if(!job) return;
-    // Opened synchronously, before any await, so it's never at risk of
-    // being blocked as a non-user-gesture popup -- filled in once ready.
-    const win = window.open();
-    if(!win) return;
-    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
+    window.showContentModal('<p style="color:#666;">Loading...</p>');
 
     async function loadPhotos(keys){
       const uris = [];
@@ -21144,13 +21192,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const finalPhotos = await loadPhotos(job.finalPhotoKeys);
     const totalPhotoCount = initialPhotos.length + finalPhotos.length;
 
-    // Attached to the popup's own window (not the main app's) so the
-    // popup's onclick can find it -- but as a closure defined here, it
-    // still resolves window.JSZip and the photo arrays against THIS
-    // (the main app's) scope, where they actually exist. The popup itself
-    // never had JSZip loaded in it.
-    win.downloadAllJunkRemovalPhotos = async () => {
-      const statusEl = win.document.getElementById('jr-download-status');
+    async function doDownloadAllJunkRemovalPhotos(){
+      const statusEl = document.getElementById('jr-download-status');
       if(totalPhotoCount === 0) return;
       if(!window.JSZip){
         if(statusEl) statusEl.textContent = 'Download isn\u2019t available right now \u2014 check your connection and try again.';
@@ -21163,19 +21206,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         finalPhotos.forEach((p, i) => zip.file(`${job.jobNumber}_final_${i+1}.jpg`, p.split(',')[1] || '', { base64: true }));
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(zipBlob);
-        const a = win.document.createElement('a');
+        const a = document.createElement('a');
         a.href = url;
         a.download = `${job.jobNumber}-photos.zip`;
-        win.document.body.appendChild(a);
+        document.body.appendChild(a);
         a.click();
-        win.document.body.removeChild(a);
+        document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 30000);
         if(statusEl) statusEl.textContent = `Downloaded ${totalPhotoCount} photo${totalPhotoCount===1?'':'s'} as ${job.jobNumber}-photos.zip`;
       }catch(err){
         console.error('Junk removal photo zip failed:', err);
         if(statusEl) statusEl.textContent = 'Could not build the download \u2014 try again.';
       }
-    };
+    }
 
     function stageHtml(title, estimate, confirmedTier, photos){
       if(!estimate) return '';
@@ -21188,14 +21231,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <span style="color:#555;">${jrEsc(estimate.reasoning)}</span>
         </p>
         ${photos.length > 0
-          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" onclick="showLightbox(this.src)" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:zoom-in;">`).join('')}</div>`
+          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" onclick="window.showPhotoModal(this.src)" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:zoom-in;">`).join('')}</div>`
           : `<p style="color:#999; font-size:13px; font-style:italic;">Photos were automatically removed after ${JUNK_REMOVAL_PHOTO_RETENTION_DAYS} days. The estimate above is preserved.</p>`}`;
     }
 
-    win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><title>Junk Removal \u2014 ${jrEsc(job.jobNumber)}</title></head>
-      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
-        <h2 style="margin-bottom:4px;">Junk Removal</h2>
+    window.showContentModal(`
+        <h2 style="margin:0 0 4px;">Junk Removal</h2>
         <p style="margin-top:0; line-height:1.6;">
           <strong>Job:</strong> ${jrEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + jrEsc(job.clientName) : ''}<br>
           <strong>Captain:</strong> ${jrEsc(job.captainName || '\u2014')}<br>
@@ -21203,22 +21244,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </p>
         ${totalPhotoCount > 0 ? `
         <div style="margin:14px 0 20px;">
-          <button type="button" onclick="downloadAllJunkRemovalPhotos()" style="background:#00843D; border:none; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13.5px;">Download All Photos (${totalPhotoCount})</button>
+          <button type="button" id="jr-download-btn" style="background:#00843D; border:none; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13.5px;">Download All Photos (${totalPhotoCount})</button>
           <div id="jr-download-status" style="margin-top:8px; font-size:12.5px; color:#666;"></div>
         </div>` : ''}
         ${stageHtml('On-Site Estimate', job.initialEstimate, job.initialConfirmedTier, initialPhotos)}
-        ${stageHtml('Loaded Truck (Final)', job.finalEstimate, job.finalConfirmedTier, finalPhotos)}
-        <div id="lightbox" onclick="this.style.display='none'" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out;">
-          <img id="lightboxImg" style="max-width:92vw; max-height:92vh; object-fit:contain; border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,0.5);">
-        </div>
-        <script>
-          function showLightbox(src){
-            document.getElementById('lightboxImg').src = src;
-            document.getElementById('lightbox').style.display = 'flex';
-          }
-        <\/script>
-      </body></html>`);
-    win.document.close();
+        ${stageHtml('Loaded Truck (Final)', job.finalEstimate, job.finalConfirmedTier, finalPhotos)}`);
+    const downloadBtn = document.getElementById('jr-download-btn');
+    if(downloadBtn) downloadBtn.addEventListener('click', doDownloadAllJunkRemovalPhotos);
   }
 
   // ---------- Moving (damage documentation review, under Manager Review) ----------
@@ -21278,11 +21310,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function viewMovingDetail(jobNumber){
     const report = movingReports.find(r => r.jobNumber === jobNumber);
     if(!report) return;
-    // Opened synchronously, before any await, so it's never at risk of
-    // being blocked as a non-user-gesture popup -- filled in once ready.
-    const win = window.open();
-    if(!win) return;
-    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading...</p>');
+    window.showContentModal('<p style="color:#666;">Loading...</p>');
 
     async function loadPhotos(keys){
       const uris = [];
@@ -21295,8 +21323,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const causedPhotos = await loadPhotos(report.causedPhotoKeys);
     const totalPhotoCount = preExistingPhotos.length + causedPhotos.length;
 
-    win.downloadAllMovingPhotos = async () => {
-      const statusEl = win.document.getElementById('mv-download-status');
+    async function doDownloadAllMovingPhotos(){
+      const statusEl = document.getElementById('mv-download-status');
       if(totalPhotoCount === 0) return;
       if(!window.JSZip){
         if(statusEl) statusEl.textContent = 'Download isn\u2019t available right now \u2014 check your connection and try again.';
@@ -21309,19 +21337,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         causedPhotos.forEach((p, i) => zip.file(`${report.jobNumber}_crewcaused_${i+1}.jpg`, p.split(',')[1] || '', { base64: true }));
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(zipBlob);
-        const a = win.document.createElement('a');
+        const a = document.createElement('a');
         a.href = url;
         a.download = `${report.jobNumber}-moving-photos.zip`;
-        win.document.body.appendChild(a);
+        document.body.appendChild(a);
         a.click();
-        win.document.body.removeChild(a);
+        document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 30000);
         if(statusEl) statusEl.textContent = `Downloaded ${totalPhotoCount} photo${totalPhotoCount===1?'':'s'} as ${report.jobNumber}-moving-photos.zip`;
       }catch(err){
         console.error('Moving photo zip failed:', err);
         if(statusEl) statusEl.textContent = 'Could not build the download \u2014 try again.';
       }
-    };
+    }
 
     function categoryHtml(title, notes, submittedAt, photos){
       if(!submittedAt) return '';
@@ -21332,36 +21360,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <span style="font-size:12px; color:#999;">Submitted ${mvEsc(new Date(submittedAt).toLocaleString())}</span>
         </p>
         ${photos.length > 0
-          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" onclick="showLightbox(this.src)" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:zoom-in;">`).join('')}</div>`
+          ? `<div style="display:flex; gap:8px; flex-wrap:wrap;">${photos.map(p => `<img src="${p}" onclick="window.showPhotoModal(this.src)" style="width:140px; height:140px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:zoom-in;">`).join('')}</div>`
           : `<p style="color:#999; font-size:13px; font-style:italic;">Photos were automatically removed after ${MOVING_PHOTO_RETENTION_DAYS} days.</p>`}`;
     }
 
-    win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><title>Moving \u2014 ${mvEsc(report.jobNumber)}</title></head>
-      <body style="font-family:Arial,sans-serif; padding:24px; max-width:720px; margin:0 auto; color:#1a1a1a;">
-        <h2 style="margin-bottom:4px;">Moving</h2>
+    window.showContentModal(`
+        <h2 style="margin:0 0 4px;">Moving</h2>
         <p style="margin-top:0; line-height:1.6;">
           <strong>Job:</strong> ${mvEsc(report.jobNumber)} ${report.clientName ? '\u2014 ' + mvEsc(report.clientName) : ''}<br>
           <strong>Captain:</strong> ${mvEsc(report.captainName || '\u2014')}
         </p>
         ${totalPhotoCount > 0 ? `
         <div style="margin:14px 0 20px;">
-          <button type="button" onclick="downloadAllMovingPhotos()" style="background:#00843D; border:none; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13.5px;">Download All Photos (${totalPhotoCount})</button>
+          <button type="button" id="mv-download-btn" style="background:#00843D; border:none; color:#fff; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13.5px;">Download All Photos (${totalPhotoCount})</button>
           <div id="mv-download-status" style="margin-top:8px; font-size:12.5px; color:#666;"></div>
         </div>` : ''}
         ${categoryHtml('Pre-Existing Damage', report.preExistingNotes, report.preExistingSubmittedAt, preExistingPhotos)}
-        ${categoryHtml('Crew-Caused Damage', report.causedNotes, report.causedSubmittedAt, causedPhotos)}
-        <div id="lightbox" onclick="this.style.display='none'" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out;">
-          <img id="lightboxImg" style="max-width:92vw; max-height:92vh; object-fit:contain; border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,0.5);">
-        </div>
-        <script>
-          function showLightbox(src){
-            document.getElementById('lightboxImg').src = src;
-            document.getElementById('lightbox').style.display = 'flex';
-          }
-        <\/script>
-      </body></html>`);
-    win.document.close();
+        ${categoryHtml('Crew-Caused Damage', report.causedNotes, report.causedSubmittedAt, causedPhotos)}`);
+    const downloadBtn = document.getElementById('mv-download-btn');
+    if(downloadBtn) downloadBtn.addEventListener('click', doDownloadAllMovingPhotos);
   }
 
 
@@ -21470,15 +21487,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }));
       wrap.innerHTML = imgs.join('') || '<span class="form-note" style="margin:0;">Could not load these photos.</span>';
       wrap.querySelectorAll('.dc-photo-thumb').forEach(img => img.addEventListener('click', (ev)=>{
-        // Opens a real, writable HTML document with the image embedded as
-        // content, rather than navigating a new tab directly to the
-        // data: URI itself -- modern Chrome increasingly blocks that kind
-        // of top-level navigation outright (a phishing-prevention measure),
-        // which is exactly what was producing the blank tab.
-        const win = window.open();
-        if(!win) return;
-        win.document.write(`<!DOCTYPE html><html><head><title>Damage Claim Photo</title></head><body style="margin:0; background:#1a1a1a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${ev.currentTarget.src}" style="max-width:100%; max-height:100vh; object-fit:contain;"></body></html>`);
-        win.document.close();
+        window.showPhotoModal(ev.currentTarget.src, { title: 'Damage Claim Photo' });
       }));
     }));
 
@@ -21523,10 +21532,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       wrap.innerHTML = html;
       wrap.querySelectorAll('.dc-photo-thumb').forEach(img => img.addEventListener('click', (ev)=>{
-        const win = window.open();
-        if(!win) return;
-        win.document.write(`<!DOCTYPE html><html><head><title>Crew Documentation Photo</title></head><body style="margin:0; background:#1a1a1a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${ev.currentTarget.src}" style="max-width:100%; max-height:100vh; object-fit:contain;"></body></html>`);
-        win.document.close();
+        window.showPhotoModal(ev.currentTarget.src, { title: 'Crew Documentation Photo' });
       }));
     }));
 
@@ -22142,9 +22148,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // alone with no baseline to compare it against.
   async function viewMgrReviewTruckPhotos(eodRecordId){
     if(!eodRecordId) return;
-    const win = window.open(); // opened synchronously, before any await
-    if(!win) return;
-    win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#666;">Loading\u2026</p>');
+    window.showContentModal('<p style="color:#666;">Loading\u2026</p>');
 
     try{
       const [eodRaw, ptiRaw] = await Promise.all([
@@ -22155,9 +22159,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const ptiRecords = ptiRaw || [];
       const eod = eodRecords.find(r => r.id === eodRecordId);
       if(!eod){
-        win.document.open();
-        win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#B3261E;">Could not find this inspection record \u2014 it may have aged out.</p>');
-        win.document.close();
+        window.showContentModal('<p style="color:#B3261E;">Could not find this inspection record \u2014 it may have aged out.</p>');
         return;
       }
       // Same matching rule the backend uses when it originally ran the
@@ -22177,14 +22179,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <div style="flex:1; min-width:260px;">
           <p style="margin:0 0 6px; font-weight:600;">${label}</p>
           ${photo
-            ? `<img src="${photo}" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block;">`
+            ? `<img src="${photo}" onclick="window.showPhotoModal(this.src)" style="max-width:100%; border-radius:6px; border:1px solid #ddd; display:block; cursor:zoom-in;">`
             : `<p style="color:#888; font-style:italic;">${missingNote}</p>`}
         </div>`;
 
-      win.document.open();
-      win.document.write(`<!DOCTYPE html><html><head><title>Truck Condition \u2014 ${mgrReviewEsc(eod.truckNickname)} \u2014 ${mgrReviewEsc(eod.date)}</title></head>
-        <body style="font-family:Arial,sans-serif; padding:24px; max-width:900px; margin:0 auto; color:#1a1a1a;">
-          <h2 style="margin-bottom:4px;">Truck Condition</h2>
+      window.showContentModal(`
+          <h2 style="margin:0 0 4px;">Truck Condition</h2>
           <p style="margin-top:0; line-height:1.6;">
             <strong>Truck:</strong> ${mgrReviewEsc(eod.truckNickname)}<br>
             <strong>Date:</strong> ${mgrReviewEsc(eod.date)}<br>
@@ -22194,14 +22194,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:10px;">
             ${photoBlock('Before (Pre-Trip)', ptiPhoto, pti ? 'Could not load this photo.' : 'No matching Pre-Trip Inspection on file for this truck/date.')}
             ${photoBlock('After (End of Day)', eodPhoto, 'Could not load this photo.')}
-          </div>
-        </body></html>`);
-      win.document.close();
+          </div>`);
     }catch(err){
       console.error('Truck condition photo load failed:', err);
-      win.document.open();
-      win.document.write('<p style="font-family:Arial,sans-serif; padding:24px; color:#B3261E;">Could not load this inspection \u2014 check your connection and try again.</p>');
-      win.document.close();
+      window.showContentModal('<p style="color:#B3261E;">Could not load this inspection \u2014 check your connection and try again.</p>');
     }
   }
 
@@ -22331,7 +22327,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`).join('');
     container.querySelectorAll('.puBatch-excluded-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = puBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
-      if(x && x.thumbnail) window.open(pwBatchDataUriToBlobUrl(x.thumbnail), '_blank');
+      if(x && x.thumbnail) window.showPhotoModal(x.thumbnail);
     }));
   }
 
@@ -22403,8 +22399,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderPuBatchReview();
     }));
     container.querySelectorAll('.puBatchRev-thumb').forEach(img => img.addEventListener('click', (e)=>{
-      const win = window.open();
-      if(win) win.document.write(`<img src="${e.target.src}" style="max-width:100%; display:block; margin:0 auto;">`);
+      window.showPhotoModal(e.target.src);
     }));
     container.querySelectorAll('.puBatchRev-materials-qty').forEach(input => input.addEventListener('input', (e)=>{
       const r = puBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
@@ -22762,7 +22757,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     container.querySelectorAll('.jrCloseout-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const r = jrCloseoutReview[parseInt(e.currentTarget.dataset.index, 10)];
-      if(r && r.thumbnail) window.open(pwBatchDataUriToBlobUrl(r.thumbnail), '_blank');
+      if(r && r.thumbnail) window.showPhotoModal(r.thumbnail);
     }));
     container.querySelectorAll('.jrCloseout-jobnumber').forEach(inp => inp.addEventListener('input', (e)=>{
       const idx = parseInt(e.target.dataset.index, 10);
