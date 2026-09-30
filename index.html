@@ -5708,6 +5708,19 @@
           <p class="form-note" id="appset_hiringEmptyNote" style="display:none;">No onboarding documents added yet.</p>
         </div>
 
+        <div class="panel" id="set_hiringEmailPanel" data-collapsible="true">
+          <h3>Hiring: Onboarding Email</h3>
+          <p class="form-note" style="margin-top:0;">Used when you tap Send on a new hire in the Hiring tile \u2014 opens in your own email client, pre-filled, ready to send.</p>
+          <label>Subject Line <input type="text" id="appset_hiringEmailSubject" style="width:100%; box-sizing:border-box; padding:8px; border:1px solid var(--line); border-radius:4px;"></label>
+          <label style="display:block; margin-top:10px;">Email Body <textarea id="appset_hiringEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
+          <label style="display:block; margin-top:10px;">CC <input type="text" id="appset_hiringEmailCc" placeholder="e.g. hr@chhj.com, aaron.henson@chhj.com" style="width:100%; box-sizing:border-box; padding:8px; border:1px solid var(--line); border-radius:4px;"></label>
+          <p class="form-note">Include <span class="mono">{{firstName}}</span> and <span class="mono">{{link}}</span> anywhere in the subject or body \u2014 both are swapped in automatically for each new hire. CC accepts one or more addresses, comma-separated; leave blank for none.</p>
+          <div class="form-actions">
+            <button class="btn-primary" id="appset_hiringEmailSaveBtn" type="button">Save</button>
+            <span class="status-msg" id="appset_hiringEmailStatus"></span>
+          </div>
+        </div>
+
         <div class="panel" id="set_opsManagerMetricsPanel" data-collapsible="true">
           <h3>Ops Manager Metrics</h3>
           <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
@@ -6032,6 +6045,11 @@
     },
     damageClaims: {
       emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
+    },
+    hiring: {
+      emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
+      emailBody: 'Hi {{firstName}},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n{{link}}\n\nIf you have any questions, just reach out.\n\nThanks,\nCollege Hunks Hauling Junk & Moving \u2013 Augusta',
+      emailCc: ''
     },
     captainMetrics: {
       resetDate: ''
@@ -13566,6 +13584,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_orderDeadlineDay').value = (materials.orderDeadlineDay === 0 || materials.orderDeadlineDay) ? String(materials.orderDeadlineDay) : '';
     document.getElementById('appset_orderDeadlineTime').value = materials.orderDeadlineTime || '';
     document.getElementById('appset_damageClaimEmailBody').value = damageClaims.emailBodyTemplate || '';
+    const hiringEmailSettings = s.hiring || {};
+    document.getElementById('appset_hiringEmailSubject').value = hiringEmailSettings.emailSubject || '';
+    document.getElementById('appset_hiringEmailBody').value = hiringEmailSettings.emailBody || '';
+    document.getElementById('appset_hiringEmailCc').value = hiringEmailSettings.emailCc || '';
     document.getElementById('appset_ldQuoteCc').value = longDistanceQuote.ccEmails || '';
     document.getElementById('appset_ldQuoteEmailBody').value = longDistanceQuote.emailBodyTemplate || '';
     document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
@@ -14831,6 +14853,38 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Save damage claims settings failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('appset_hiringEmailSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_hiringEmailStatus');
+    const hiring = {
+      emailSubject: document.getElementById('appset_hiringEmailSubject').value,
+      emailBody: document.getElementById('appset_hiringEmailBody').value,
+      emailCc: document.getElementById('appset_hiringEmailCc').value
+    };
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { hiring } })
+      });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings = data.settings;
+      statusEl.textContent = 'Saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save hiring email settings failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -20704,9 +20758,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           return;
         }
         const link = `${location.origin}${location.pathname}#hiring-${data.token}`;
-        const subject = `Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork`;
-        const body = `Hi ${candidate.firstName},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n${link}\n\nIf you have any questions, just reach out.\n\nThanks,\nCollege Hunks Hauling Junk & Moving \u2013 Augusta`;
-        const mailto = `mailto:${encodeURIComponent(candidate.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        const hiringEmailSettings = (window.appSettings && window.appSettings.hiring) || {};
+        const templateFields = { firstName: candidate.firstName, link };
+        const subject = mergeEmailTemplate(hiringEmailSettings.emailSubject || 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork', templateFields);
+        const body = mergeEmailTemplate(hiringEmailSettings.emailBody || `Hi {{firstName}},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n{{link}}`, templateFields);
+        const cc = (hiringEmailSettings.emailCc || '').trim();
+        const mailto = `mailto:${encodeURIComponent(candidate.email)}?${cc ? `cc=${encodeURIComponent(cc)}&` : ''}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         window.location.href = mailto;
         if(statusEl){ statusEl.textContent = 'Link ready \u2014 opening your email client.'; statusEl.className = 'status-msg ok'; }
         await loadHiringData();
