@@ -405,6 +405,30 @@
      nothing to return from: closing it (the X, tapping the backdrop, or
      Escape) just goes back to exactly where the person was, on every
      platform, with no special mobile-only handling needed. -->
+<div id="hiringPlacementModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:99997; overflow-y:auto; padding:20px; box-sizing:border-box;">
+  <div style="max-width:920px; width:100%; margin:0 auto; background:#fff; border-radius:10px; padding:20px 22px; box-sizing:border-box;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <h3 id="hiringPlacementTitle" style="margin:0; font-size:17px;">Place Fields</h3>
+      <button type="button" id="hiringPlacementCloseBtn" aria-label="Close" style="background:none; border:none; font-size:22px; cursor:pointer; line-height:1; color:var(--muted);">&times;</button>
+    </div>
+    <p class="form-note" style="margin-top:0;">Tap a field below, then tap the spot on the document where it belongs. Drag a placed field to move it, or tap its &times; to remove it.</p>
+    <div id="hiringPlacementPageNav" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+      <button type="button" id="hiringPlacementPrevPage" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&larr;</button>
+      <span id="hiringPlacementPageLabel" style="font-size:12.5px; color:var(--muted);"></span>
+      <button type="button" id="hiringPlacementNextPage" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&rarr;</button>
+    </div>
+    <div id="hiringPlacementPageWrap" style="position:relative; border:1px solid var(--line); overflow:auto; max-height:56vh; background:var(--offwhite); touch-action:none;"></div>
+    <div style="margin-top:14px;">
+      <p style="font-weight:600; font-size:13px; margin:0 0 6px;">Unplaced Fields <span id="hiringPlacementUnplacedCount" style="font-weight:400; color:var(--muted);"></span></p>
+      <div id="hiringPlacementUnplacedList" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+      <p class="form-note" id="hiringPlacementAllPlacedNote" style="display:none;">Every field has been placed.</p>
+    </div>
+    <div class="form-actions" style="margin-top:16px;">
+      <button type="button" id="hiringPlacementDoneBtn" class="btn-primary">Done</button>
+    </div>
+  </div>
+</div>
+
 <div id="photoViewerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:99999; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
   <button type="button" id="photoViewerModalCloseBtn" aria-label="Close" style="position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); border:none; color:#fff; width:40px; height:40px; border-radius:50%; font-size:22px; cursor:pointer; line-height:1;">&times;</button>
   <div id="photoViewerModalTitle" style="position:absolute; top:24px; left:20px; right:70px; color:#fff; font-size:14px; font-weight:600; font-family:'Inter',sans-serif;"></div>
@@ -14167,6 +14191,32 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     work_location: 'Work Location (shared)'
   };
   window.HIRING_CANONICAL_KEY_LABELS = HIRING_CANONICAL_KEY_LABELS;
+  // Renders every page of a PDF (given as a data: URI) to an offscreen
+  // canvas, for both the admin field-placement UI and the new-hire-facing
+  // flow -- an iframe can show a PDF but gives no way to overlay real,
+  // readable input boxes on top of it at exact positions, which is the
+  // whole point of DocuSign-style in-place field placement.
+  async function hiringRenderPdfPages(dataUri, scale){
+    const base64 = dataUri.split(',')[1];
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for(let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    const pages = [];
+    for(let i = 1; i <= pdf.numPages; i++){
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: scale || 1.5 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      pages.push({ canvas, width: viewport.width, height: viewport.height });
+    }
+    return pages;
+  }
+  window.hiringRenderPdfPages = hiringRenderPdfPages;
+
   const HIRING_FIELD_TYPE_LABELS = {
     text: 'Text', ssn: 'SSN', routing_number: 'Routing Number', account_number: 'Account Number',
     date: 'Date', phone: 'Phone', email: 'Email', address: 'Address', checkbox: 'Checkbox', number: 'Number',
@@ -14211,12 +14261,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Hiring documents save failed:', err); }
   }
 
-  function hiringFieldRowHtml(docId, field){
+  function hiringFieldRowHtml(docId, field, isPdfDoc){
     const typeOptions = Object.keys(HIRING_FIELD_TYPE_LABELS).map(t => `<option value="${t}" ${field.type===t?'selected':''}>${HIRING_FIELD_TYPE_LABELS[t]}</option>`).join('');
     const keyOptions = `<option value="">Document-specific</option>` + Object.keys(HIRING_CANONICAL_KEY_LABELS).map(k => `<option value="${k}" ${field.canonicalKey===k?'selected':''}>${HIRING_CANONICAL_KEY_LABELS[k]}</option>`).join('');
     const isSelect = field.type === 'select';
+    const isPlaced = !!field.position;
+    const placementBadge = isPdfDoc
+      ? `<span style="font-size:10.5px; font-weight:600; padding:2px 6px; border-radius:8px; white-space:nowrap; background:${isPlaced ? '#EAF6EE' : '#FDF6E3'}; color:${isPlaced ? '#00612C' : '#8a6d00'};">${isPlaced ? '\u2713 Placed' : 'Not placed'}</span>`
+      : '';
     return `<div class="hiring-field-row-wrap" data-doc-id="${docId}" data-field-id="${field.id}" style="padding:5px 0; border-bottom:1px solid var(--line);">
       <div class="hiring-field-row" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        ${placementBadge}
         <input type="text" class="hiring-field-label" value="${hiringEsc(field.label)}" placeholder="Field label" style="flex:1; min-width:140px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12.5px;">
         <select class="hiring-field-type" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px;">${typeOptions}</select>
         <select class="hiring-field-key" style="padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12px; max-width:170px;">${keyOptions}</select>
@@ -14232,7 +14287,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   function hiringDocCardHtml(doc, index, total){
-    const fieldsHtml = (doc.fields || []).map(f => hiringFieldRowHtml(doc.id, f)).join('');
+    const isPdfDoc = !!(doc.fileName && /\.pdf$/i.test(doc.fileName));
+    const fieldsHtml = (doc.fields || []).map(f => hiringFieldRowHtml(doc.id, f, isPdfDoc)).join('');
     return `<div class="panel hiring-doc-card" data-doc-id="${doc.id}" style="padding:16px 18px; margin-bottom:14px;">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <div style="display:flex; flex-direction:column; gap:2px;">
@@ -14249,6 +14305,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       <div style="margin-top:8px; font-size:12px; color:var(--muted);">
         File: ${doc.fileName ? hiringEsc(doc.fileName) : '<em>none uploaded</em>'}
         <button type="button" class="hiring-replace-file" data-doc-id="${doc.id}" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; font-size:12px; margin-left:6px;">${doc.fileName ? 'Replace file & re-extract' : 'Upload file'}</button>
+        ${doc.fileName && /\.pdf$/i.test(doc.fileName) ? `<button type="button" class="hiring-place-fields-btn" data-doc-id="${doc.id}" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; font-size:12px; margin-left:10px;">Place Fields on Document</button>` : ''}
       </div>
       <p class="status-msg" id="hiring_status_${doc.id}" style="margin:4px 0 0;"></p>
       <div style="margin-top:10px;">
@@ -14303,6 +14360,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     rowsEl.querySelectorAll('.hiring-replace-file').forEach(btn => btn.addEventListener('click', (e)=>{
       hiringUploadTargetDocId = e.currentTarget.dataset.docId;
       document.getElementById('appset_hiringFileInput').click();
+    }));
+    rowsEl.querySelectorAll('.hiring-place-fields-btn').forEach(btn => btn.addEventListener('click', (e)=>{
+      openHiringPlacementModal(e.currentTarget.dataset.docId);
     }));
     rowsEl.querySelectorAll('.hiring-add-field').forEach(btn => btn.addEventListener('click', (e)=>{
       const doc = hiringDocuments.find(d => d.id === e.currentTarget.dataset.docId);
@@ -14463,6 +14523,206 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(sEl){ sEl.textContent = 'Could not process this file \u2014 check your connection and try again.'; sEl.className = 'status-msg err'; }
     }
   }
+
+  // ---- Hiring: Field Placement on PDF Documents ----
+  // Default box size per field type, as a percentage of the page -- the
+  // admin can still drag to reposition, but doesn't need to resize by
+  // hand for a reasonable starting size.
+  const HIRING_DEFAULT_FIELD_SIZE = {
+    checkbox: { widthPct: 4, heightPct: 2.5 },
+    select: { widthPct: 32, heightPct: 3.2 },
+    ssn: { widthPct: 18, heightPct: 3.2 },
+    routing_number: { widthPct: 18, heightPct: 3.2 },
+    account_number: { widthPct: 22, heightPct: 3.2 },
+    date: { widthPct: 15, heightPct: 3.2 },
+    phone: { widthPct: 18, heightPct: 3.2 },
+    email: { widthPct: 28, heightPct: 3.2 },
+    address: { widthPct: 40, heightPct: 3.2 },
+    number: { widthPct: 12, heightPct: 3.2 },
+    text: { widthPct: 30, heightPct: 3.2 }
+  };
+
+  let hiringPlacementDoc = null;
+  let hiringPlacementPages = [];
+  let hiringPlacementCurrentPage = 0;
+  let hiringPlacementArmedFieldId = null;
+  let hiringPlacementDragFieldId = null;
+  let hiringPlacementDragStart = null;
+
+  async function openHiringPlacementModal(docId){
+    const doc = hiringDocuments.find(d => d.id === docId);
+    if(!doc || !doc.fileKey) return;
+    hiringPlacementDoc = doc;
+    hiringPlacementCurrentPage = 0;
+    hiringPlacementArmedFieldId = null;
+
+    document.getElementById('hiringPlacementTitle').textContent = `Place Fields \u2014 ${doc.name}`;
+    document.getElementById('hiringPlacementModal').style.display = 'block';
+    document.getElementById('hiringPlacementPageWrap').innerHTML = '<p style="padding:30px; text-align:center; color:var(--muted);">Loading document\u2026</p>';
+    document.getElementById('hiringPlacementUnplacedList').innerHTML = '';
+
+    try{
+      const fileRes = await fetch(`${API_BASE}/api/data/${doc.fileKey}`, { headers: authHeaders() });
+      if(!fileRes.ok) throw new Error('Could not load the file.');
+      const fileData = await fileRes.json();
+      if(!fileData.value) throw new Error('No file data found.');
+      hiringPlacementPages = await hiringRenderPdfPages(fileData.value, 1.5);
+    }catch(err){
+      console.error('Hiring placement: could not render PDF', err);
+      document.getElementById('hiringPlacementPageWrap').innerHTML = '<p style="padding:30px; text-align:center; color:#b3261e;">Could not load this document.</p>';
+      return;
+    }
+
+    renderHiringPlacementPage();
+    renderHiringPlacementUnplacedList();
+  }
+
+  function closeHiringPlacementModal(){
+    document.getElementById('hiringPlacementModal').style.display = 'none';
+    hiringPlacementDoc = null;
+    hiringPlacementPages = [];
+    hiringPlacementArmedFieldId = null;
+    hiringPlacementDragFieldId = null;
+    renderHiringDocRows(); // refresh the placement badges on the card behind the modal
+  }
+
+  function renderHiringPlacementPage(){
+    const pageWrap = document.getElementById('hiringPlacementPageWrap');
+    const pageData = hiringPlacementPages[hiringPlacementCurrentPage];
+    if(!pageData) return;
+
+    pageWrap.innerHTML = '';
+    pageWrap.style.cursor = hiringPlacementArmedFieldId ? 'crosshair' : 'default';
+
+    const canvasWrap = document.createElement('div');
+    canvasWrap.style.cssText = `position:relative; width:${pageData.width}px; height:${pageData.height}px;`;
+    pageData.canvas.style.cssText = 'display:block; width:100%; height:100%;';
+    canvasWrap.appendChild(pageData.canvas);
+
+    (hiringPlacementDoc.fields || []).forEach(field => {
+      if(!field.position || field.position.page !== hiringPlacementCurrentPage) return;
+      const box = document.createElement('div');
+      box.className = 'hiring-placement-box';
+      box.dataset.fieldId = field.id;
+      box.style.cssText = `position:absolute; left:${field.position.xPct}%; top:${field.position.yPct}%; width:${field.position.widthPct}%; height:${field.position.heightPct}%; background:rgba(0,97,44,0.18); border:1.5px solid var(--brand-green-dark); border-radius:3px; cursor:move; display:flex; align-items:center; justify-content:space-between; padding:0 4px; box-sizing:border-box; overflow:hidden;`;
+      box.innerHTML = `<span style="font-size:10px; color:var(--brand-green-dark); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${hiringEsc(field.label)}</span><button type="button" class="hiring-placement-unplace" data-field-id="${field.id}" style="background:none; border:none; color:#b3261e; font-size:13px; font-weight:700; cursor:pointer; padding:0 2px; line-height:1;">&times;</button>`;
+      canvasWrap.appendChild(box);
+    });
+
+    pageWrap.appendChild(canvasWrap);
+    document.getElementById('hiringPlacementPageLabel').textContent = `Page ${hiringPlacementCurrentPage + 1} of ${hiringPlacementPages.length}`;
+    document.getElementById('hiringPlacementPrevPage').disabled = hiringPlacementCurrentPage === 0;
+    document.getElementById('hiringPlacementNextPage').disabled = hiringPlacementCurrentPage === hiringPlacementPages.length - 1;
+
+    wireHiringPlacementPageEvents(canvasWrap);
+  }
+
+  function wireHiringPlacementPageEvents(canvasWrap){
+    canvasWrap.addEventListener('click', (e)=>{
+      if(!hiringPlacementArmedFieldId) return;
+      if(e.target.closest('.hiring-placement-box')) return; // an existing box's own click/drag handles itself
+      const field = (hiringPlacementDoc.fields || []).find(f => f.id === hiringPlacementArmedFieldId);
+      if(!field) return;
+      const rect = canvasWrap.getBoundingClientRect();
+      const clickXPct = ((e.clientX - rect.left) / rect.width) * 100;
+      const clickYPct = ((e.clientY - rect.top) / rect.height) * 100;
+      const size = HIRING_DEFAULT_FIELD_SIZE[field.type] || HIRING_DEFAULT_FIELD_SIZE.text;
+      const xPct = Math.max(0, Math.min(100 - size.widthPct, clickXPct - size.widthPct / 2));
+      const yPct = Math.max(0, Math.min(100 - size.heightPct, clickYPct - size.heightPct / 2));
+      field.position = { page: hiringPlacementCurrentPage, xPct, yPct, widthPct: size.widthPct, heightPct: size.heightPct };
+      hiringPlacementArmedFieldId = null;
+      saveHiringDocsConfig();
+      renderHiringPlacementPage();
+      renderHiringPlacementUnplacedList();
+      renderHiringDocRows();
+    });
+
+    canvasWrap.querySelectorAll('.hiring-placement-box').forEach(box => {
+      const fieldId = box.dataset.fieldId;
+      const field = (hiringPlacementDoc.fields || []).find(f => f.id === fieldId);
+      if(!field) return;
+
+      function startDrag(e){
+        if(e.target.closest('.hiring-placement-unplace')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const point = e.touches ? e.touches[0] : e;
+        hiringPlacementDragFieldId = fieldId;
+        hiringPlacementDragStart = { clientX: point.clientX, clientY: point.clientY, startXPct: field.position.xPct, startYPct: field.position.yPct, canvasWrap };
+      }
+      box.addEventListener('mousedown', startDrag);
+      box.addEventListener('touchstart', startDrag, { passive: false });
+
+      box.querySelector('.hiring-placement-unplace').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        field.position = null;
+        saveHiringDocsConfig();
+        renderHiringPlacementPage();
+        renderHiringPlacementUnplacedList();
+        renderHiringDocRows();
+      });
+    });
+  }
+
+  // Attached once, ever -- not per-render -- so dragging never accumulates
+  // duplicate window-level listeners across repeated placements/moves.
+  (function setupHiringPlacementDragListeners(){
+    function move(e){
+      if(!hiringPlacementDragFieldId || !hiringPlacementDoc) return;
+      e.preventDefault();
+      const field = (hiringPlacementDoc.fields || []).find(f => f.id === hiringPlacementDragFieldId);
+      if(!field || !field.position) return;
+      const rect = hiringPlacementDragStart.canvasWrap.getBoundingClientRect();
+      const point = e.touches ? e.touches[0] : e;
+      const dxPct = ((point.clientX - hiringPlacementDragStart.clientX) / rect.width) * 100;
+      const dyPct = ((point.clientY - hiringPlacementDragStart.clientY) / rect.height) * 100;
+      const newX = Math.max(0, Math.min(100 - field.position.widthPct, hiringPlacementDragStart.startXPct + dxPct));
+      const newY = Math.max(0, Math.min(100 - field.position.heightPct, hiringPlacementDragStart.startYPct + dyPct));
+      field.position.xPct = newX;
+      field.position.yPct = newY;
+      const box = hiringPlacementDragStart.canvasWrap.querySelector(`.hiring-placement-box[data-field-id="${hiringPlacementDragFieldId}"]`);
+      if(box){ box.style.left = newX + '%'; box.style.top = newY + '%'; }
+    }
+    function up(){
+      if(!hiringPlacementDragFieldId) return;
+      hiringPlacementDragFieldId = null;
+      hiringPlacementDragStart = null;
+      saveHiringDocsConfig();
+    }
+    window.addEventListener('mousemove', move);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchend', up);
+  })();
+
+  function renderHiringPlacementUnplacedList(){
+    const listEl = document.getElementById('hiringPlacementUnplacedList');
+    const countEl = document.getElementById('hiringPlacementUnplacedCount');
+    const allPlacedNote = document.getElementById('hiringPlacementAllPlacedNote');
+    const unplaced = (hiringPlacementDoc.fields || []).filter(f => !f.position);
+    countEl.textContent = unplaced.length > 0 ? `(${unplaced.length} left)` : '';
+    allPlacedNote.style.display = unplaced.length === 0 ? 'block' : 'none';
+    listEl.innerHTML = unplaced.map(f => {
+      const armed = hiringPlacementArmedFieldId === f.id;
+      return `<button type="button" class="hiring-placement-chip" data-field-id="${f.id}" style="background:${armed ? 'var(--brand-orange)' : '#fff'}; color:${armed ? '#fff' : 'var(--charcoal)'}; border:1px solid ${armed ? 'var(--brand-orange)' : 'var(--line)'}; border-radius:14px; padding:6px 12px; font-size:12px; cursor:pointer;">${hiringEsc(f.label) || '(untitled field)'}</button>`;
+    }).join('');
+    listEl.querySelectorAll('.hiring-placement-chip').forEach(chip => {
+      chip.addEventListener('click', ()=>{
+        hiringPlacementArmedFieldId = hiringPlacementArmedFieldId === chip.dataset.fieldId ? null : chip.dataset.fieldId;
+        renderHiringPlacementUnplacedList();
+        renderHiringPlacementPage();
+      });
+    });
+  }
+
+  document.getElementById('hiringPlacementPrevPage').addEventListener('click', ()=>{
+    if(hiringPlacementCurrentPage > 0){ hiringPlacementCurrentPage--; renderHiringPlacementPage(); }
+  });
+  document.getElementById('hiringPlacementNextPage').addEventListener('click', ()=>{
+    if(hiringPlacementCurrentPage < hiringPlacementPages.length - 1){ hiringPlacementCurrentPage++; renderHiringPlacementPage(); }
+  });
+  document.getElementById('hiringPlacementCloseBtn').addEventListener('click', closeHiringPlacementModal);
+  document.getElementById('hiringPlacementDoneBtn').addEventListener('click', closeHiringPlacementModal);
 
   // ---- Captain Metrics: Excluded From Captain Metrics ----
   // Independent of the Compliance tile's Driver checkbox by design -- this
@@ -23942,6 +24202,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     let hoSigHasStroke = false;
     let hoSigLastPoint = null;
     const hoFileCache = {}; // documentId -> dataUri, fetched once per document
+    let hoPdfPages = []; // rendered pages for the current document's placed-fields view, if any
+    let hoPdfCurrentPage = 0;
 
     function hoShowState(stateId){
       ['ho_loadingState','ho_notFoundState','ho_expiredState','ho_alreadyCompletedState','ho_welcomeState','ho_documentState','ho_reviewState','ho_successState']
@@ -23974,6 +24236,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         hoDocProgress[doc.id].fieldValues = hoDocProgress[doc.id].fieldValues || {};
         hoDocProgress[doc.id].fieldValues[field.id] = value;
       }
+    }
+
+    function hoWireFieldInput(input, field){
+      if(!field) return;
+      input.addEventListener('input', () => {
+        hoSetFieldValue(field, input.type === 'checkbox' ? input.checked : input.value);
+      });
     }
 
     // These three are terms of the offer the admin already set when
@@ -24009,13 +24278,100 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </label>`;
     }
 
+    // Renders one field as a small, absolutely-positioned box sitting
+    // directly on top of the rendered PDF page, at the spot the admin
+    // placed it -- the classic DocuSign highlighted-box look. No visible
+    // label here (the document's own printed text already says what it
+    // is); the label survives as a title tooltip for accessibility.
+    function hoPlacedFieldOverlayHtml(field){
+      const value = hoFieldValue(field);
+      const pos = field.position;
+      const isLocked = HO_LOCKED_CANONICAL_KEYS.has(field.canonicalKey);
+      const baseStyle = `position:absolute; left:${pos.xPct}%; top:${pos.yPct}%; width:${pos.widthPct}%; height:${pos.heightPct}%; box-sizing:border-box; font-size:clamp(9px, 1.6vw, 13px); font-family:inherit;`;
+
+      if(field.type === 'checkbox'){
+        return `<input type="checkbox" class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" title="${hoEsc(field.label)}" ${value ? 'checked' : ''} style="${baseStyle} width:auto; height:auto; accent-color:#f9a825;">`;
+      }
+      if(field.type === 'select'){
+        const optionsHtml = (field.options || []).map(o => `<option value="${hoEsc(o)}" ${value === o ? 'selected' : ''}>${hoEsc(o)}</option>`).join('');
+        return `<select class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" title="${hoEsc(field.label)}" style="${baseStyle} background:rgba(255,241,118,0.9); border:1.5px solid #f9a825; border-radius:2px; padding:0 2px;">
+          <option value="">\u2014</option>${optionsHtml}
+        </select>`;
+      }
+      const inputType = field.type === 'date' ? 'date' : (field.type === 'email' ? 'email' : (field.type === 'phone' ? 'tel' : (field.type === 'number' ? 'number' : 'text')));
+      const inputMode = (field.type === 'ssn' || field.type === 'routing_number' || field.type === 'account_number') ? ' inputmode="numeric"' : '';
+      const bg = isLocked ? 'rgba(210,210,210,0.75)' : 'rgba(255,241,118,0.9)';
+      const border = isLocked ? '#999' : '#f9a825';
+      return `<input type="${inputType === 'date' && isLocked ? 'text' : inputType}" class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}"${inputMode} title="${hoEsc(field.label)}" value="${hoEsc(value)}" ${isLocked ? 'readonly' : ''} style="${baseStyle} background:${bg}; border:1.5px solid ${border}; border-radius:2px; padding:0 3px;">`;
+    }
+
+    // Renders the PDF page the placed fields live on, with those fields
+    // as real overlay inputs on top of it -- page navigation shown only
+    // when the document has more than one page.
+    function renderHoPlacedFieldsPage(doc, placedFields){
+      const contentEl = document.getElementById('ho_docContent');
+      const pageData = hoPdfPages[hoPdfCurrentPage];
+      if(!pageData) return;
+
+      contentEl.innerHTML = '';
+      contentEl.style.padding = '0';
+
+      if(hoPdfPages.length > 1){
+        const navBar = document.createElement('div');
+        navBar.style.cssText = 'display:flex; align-items:center; justify-content:center; gap:10px; padding:8px; background:var(--offwhite); border-bottom:1px solid var(--line);';
+        navBar.innerHTML = `<button type="button" id="ho_pdfPrevPage" ${hoPdfCurrentPage===0?'disabled':''} style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&larr;</button>
+          <span style="font-size:12px; color:var(--muted);">Page ${hoPdfCurrentPage+1} of ${hoPdfPages.length}</span>
+          <button type="button" id="ho_pdfNextPage" ${hoPdfCurrentPage===hoPdfPages.length-1?'disabled':''} style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&rarr;</button>`;
+        contentEl.appendChild(navBar);
+        navBar.querySelector('#ho_pdfPrevPage').addEventListener('click', ()=>{
+          if(hoPdfCurrentPage > 0){ hoPdfCurrentPage--; renderHoPlacedFieldsPage(doc, placedFields); }
+        });
+        navBar.querySelector('#ho_pdfNextPage').addEventListener('click', ()=>{
+          if(hoPdfCurrentPage < hoPdfPages.length - 1){ hoPdfCurrentPage++; renderHoPlacedFieldsPage(doc, placedFields); }
+        });
+      }
+
+      const wrap = document.createElement('div');
+      wrap.style.cssText = `position:relative; width:100%; max-width:${pageData.width}px; aspect-ratio:${pageData.width}/${pageData.height}; margin:0 auto;`;
+      pageData.canvas.style.cssText = 'display:block; width:100%; height:100%;';
+      wrap.appendChild(pageData.canvas);
+
+      placedFields.forEach(field => {
+        if(!field.position || field.position.page !== hoPdfCurrentPage) return;
+        const holder = document.createElement('div');
+        holder.innerHTML = hoPlacedFieldOverlayHtml(field);
+        const el = holder.firstElementChild;
+        wrap.appendChild(el);
+        hoWireFieldInput(el, field);
+      });
+
+      contentEl.appendChild(wrap);
+    }
+
+    // Tries the placed-fields view for a PDF; returns true if it rendered
+    // (the document has at least one field with a saved position),
+    // false if the caller should fall back to the plain iframe preview.
+    async function hoTryRenderPlacedFieldsPdf(doc, dataUri){
+      const placedFields = (doc.fields || []).filter(f => f.position);
+      if(placedFields.length === 0) return null;
+      try{
+        hoPdfPages = await window.hiringRenderPdfPages(dataUri, 1.5);
+      }catch(err){
+        console.error('Hiring: could not render placed-field PDF', err);
+        return null;
+      }
+      hoPdfCurrentPage = 0;
+      renderHoPlacedFieldsPage(doc, placedFields);
+      return new Set(placedFields.map(f => f.id));
+    }
+
     // Only applies to docx content, which renders into real, editable DOM
     // nodes -- a PDF is just an embedded file in an iframe, with no text
     // to manipulate this way.
     const HO_CONTENT_INJECTABLE_KEYS = ['start_date', 'starting_pay', 'position_title'];
 
     function hoStripBoilerplateAndInjectValues(contentEl, doc){
-      const injectedKeys = new Set();
+      const handledFieldIds = new Set();
 
       // Stale DocuSign-era boilerplate -- this flow IS the onboarding
       // process now, so a line pointing the new hire at a separate
@@ -24040,11 +24396,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           .find(el => labelPattern.test((el.textContent || '').trim()));
         if(target){
           target.textContent = `${label}: ${value}`;
-          injectedKeys.add(field.canonicalKey);
+          handledFieldIds.add(field.id);
         }
       });
 
-      return injectedKeys;
+      return handledFieldIds;
     }
 
     async function hoLoadDocContent(doc){
@@ -24060,6 +24416,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         }
         const isPdf = dataUri.startsWith('data:application/pdf');
         if(isPdf){
+          const placedResult = await hoTryRenderPlacedFieldsPdf(doc, dataUri);
+          if(placedResult) return placedResult;
+
           contentEl.innerHTML = '';
           contentEl.style.padding = '0';
           const iframe = document.createElement('iframe');
@@ -24141,16 +24500,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('ho_backBtn').style.visibility = hoDocIndex === 0 ? 'hidden' : 'visible';
       document.getElementById('ho_nextBtn').textContent = hoDocIndex === total - 1 ? 'Finish' : 'Next';
 
-      const injectedKeys = await hoLoadDocContent(doc);
+      const handledFieldIds = await hoLoadDocContent(doc);
 
       const fieldsEl = document.getElementById('ho_docFields');
-      const remainingFields = (doc.fields || []).filter(f => !injectedKeys.has(f.canonicalKey));
+      const remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id));
       fieldsEl.innerHTML = remainingFields.map(hoFieldInputHtml).join('');
       fieldsEl.querySelectorAll('.ho-field-input').forEach(input => {
         const field = remainingFields.find(f => f.id === input.dataset.fieldId);
-        input.addEventListener('input', () => {
-          hoSetFieldValue(field, input.type === 'checkbox' ? input.checked : input.value);
-        });
+        hoWireFieldInput(input, field);
       });
 
       const sigWrap = document.getElementById('ho_docSignatureWrap');
