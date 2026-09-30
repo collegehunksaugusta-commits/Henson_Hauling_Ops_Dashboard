@@ -81,9 +81,12 @@ const ALLOWED_KEYS = new Set([
   'hourly-rate-history',
   'extra-pay-manual',
   'wingman-questions',
-  'wingman-ratings'
+  'wingman-ratings',
+  'hiring-documents',
+  'hiring-candidates',
+  'hiring-reveal-log'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-'];
+const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -2244,6 +2247,46 @@ function verifyAgainstSourceText(sourceText, amount, keyword) {
   return 0; // the claimed amount doesn't appear anywhere in the real text with the keyword nearby, in any occurrence
 }
 
+// A fixed, shared vocabulary of field meanings that repeat across hiring
+// documents -- letting a value entered once (or known up front, like the
+// candidate's name) carry across every document that needs it, instead of
+// a new hire retyping their name and SSN on all eleven forms. null means
+// the field is genuinely specific to that one document.
+const HIRING_CANONICAL_FIELD_KEYS = [
+  'employee_full_name', 'employee_first_name', 'employee_last_name',
+  'employee_address', 'employee_city', 'employee_state', 'employee_zip',
+  'employee_phone', 'employee_email', 'employee_dob',
+  'ssn', 'bank_name', 'account_number', 'routing_number', 'account_type',
+  'today_date', 'start_date', 'starting_pay', 'position_title', 'work_location'
+];
+const HIRING_SENSITIVE_FIELD_TYPES = new Set(['ssn', 'account_number', 'routing_number']);
+
+const EXTRACT_HIRING_DOCUMENT_FIELDS_TOOL = {
+  name: 'extract_hiring_document_fields',
+  description: 'Identify every blank a new hire must personally fill in on this onboarding document (not fields an employer/HR person fills in, like Form I-9 Section 2), plus whether the new hire needs to sign it.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      requiresSignature: { type: 'boolean', description: 'True if this document has a line for the new hire (not the employer) to sign and/or date as their own acknowledgment/signature.' },
+      fields: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', description: 'A short, human-readable label for this blank, as a new hire would understand it, e.g. "Routing Number", "Apartment/Unit Number". Do not include the word "blank" or field numbering from the form.' },
+            type: { type: 'string', enum: ['text', 'ssn', 'routing_number', 'account_number', 'date', 'phone', 'email', 'address', 'checkbox', 'number'], description: 'The kind of input this is. Use ssn/routing_number/account_number specifically for those exact values (not just anything numeric) so they can be masked correctly.' },
+            canonicalKey: { type: ['string', 'null'], enum: [...HIRING_CANONICAL_FIELD_KEYS, null], description: 'If this blank means the same thing as one of the canonical keys (the new hire\u2019s own name, address, SSN, bank info, etc.), the matching key -- so a value entered once can fill the same blank on other documents. null if this blank is specific to this one document only (e.g. a document-specific checkbox or a value only this form asks for).' },
+            required: { type: 'boolean', description: 'True unless the form itself marks this as optional/conditional (e.g. "if any").' }
+          },
+          required: ['label', 'type', 'required']
+        },
+        description: 'Every blank the new hire (not the employer) must fill in. Do not include employer-only sections (e.g. Form I-9 Section 2, "Employer Review and Verification"), the document title, or purely informational text. Do not include a field for the new hire\u2019s signature itself -- that is covered by requiresSignature, not a field.'
+      }
+    },
+    required: ['requiresSignature', 'fields']
+  }
+};
+
 const EXTRACT_CLIENT_INVOICE_TOOL = {
   name: 'extract_client_invoice',
   description: 'Extract the balance due, total sale, tax, and billed line items from a HunkWare completed job invoice or receipt page specifically -- never from a work order, contract, or estimate page, even if one is included alongside it.',
@@ -2490,6 +2533,405 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Client invoice extraction failed:', err.message);
     res.status(err.status || 500).json({ error: err.status ? err.message : ('Extraction failed: ' + err.message) });
+  }
+});
+
+// ============ Hiring: Document Field Extraction ============
+// Accepts either a PDF (sent to Claude natively as a document block, which
+// reads both a real text layer and a scanned/flat PDF) or plain text
+// (for docx files, which aren't a Claude-native document type -- the
+// frontend extracts their text client-side via mammoth.js first).
+app.post('/api/admin/hiring/extract-fields', requireAuth, async (req, res) => {
+  const { pdfBase64, text, fileName } = req.body || {};
+  if (!pdfBase64 && !text) {
+    return res.status(400).json({ error: 'Provide either pdfBase64 or text.' });
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Hiring field extraction requested but ANTHROPIC_API_KEY is not set on this service.');
+    return res.status(500).json({ error: 'Extraction is not configured on the server yet.' });
+  }
+  try {
+    const content = pdfBase64
+      ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } }]
+      : [{ type: 'text', text }];
+    content.push({ type: 'text', text: `This is an onboarding document${fileName ? ` named "${fileName}"` : ''} a new hire at a moving/junk removal company must fill in and, if applicable, sign. Identify every blank the new hire themself must fill in, and whether they need to sign it.` });
+
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        tools: [EXTRACT_HIRING_DOCUMENT_FIELDS_TOOL],
+        tool_choice: { type: 'tool', name: 'extract_hiring_document_fields' },
+        messages: [{ role: 'user', content }]
+      })
+    });
+    if (!anthropicRes.ok) {
+      const errBody = await anthropicRes.text().catch(() => '');
+      console.error('Hiring field extraction call failed:', anthropicRes.status, errBody);
+      let detail = '';
+      try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
+      return res.status(502).json({ error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` });
+    }
+    const data = await anthropicRes.json();
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_hiring_document_fields');
+    if (!toolUseBlock) {
+      console.error('Hiring field extraction: no tool_use block. stop_reason=', data.stop_reason);
+      return res.status(502).json({ error: 'Could not read a structured response from the extraction service.' });
+    }
+    const result = toolUseBlock.input || {};
+    // Belt-and-suspenders: never trust the model's type/canonicalKey pairing
+    // blindly for the sensitive types -- if it labels something ssn/
+    // account_number/routing_number but hands it a non-matching or missing
+    // canonical key, correct the canonical key so downstream masking still
+    // applies correctly regardless of the model's own consistency.
+    const TYPE_TO_CANONICAL = { ssn: 'ssn', account_number: 'account_number', routing_number: 'routing_number' };
+    const fields = (Array.isArray(result.fields) ? result.fields : []).map((f, i) => {
+      const fixedCanonical = TYPE_TO_CANONICAL[f.type] || f.canonicalKey || null;
+      return {
+        id: 'fld_' + i + '_' + Math.random().toString(36).slice(2, 8),
+        label: String(f.label || '').slice(0, 200),
+        type: HIRING_SENSITIVE_FIELD_TYPES.has(f.type) || ['text','date','phone','email','address','checkbox','number'].includes(f.type) ? f.type : 'text',
+        canonicalKey: HIRING_CANONICAL_FIELD_KEYS.includes(fixedCanonical) ? fixedCanonical : null,
+        required: f.required !== false
+      };
+    });
+    res.json({ requiresSignature: !!result.requiresSignature, fields });
+  } catch (err) {
+    console.error('Hiring field extraction failed:', err.message);
+    res.status(500).json({ error: 'Extraction failed: ' + err.message });
+  }
+});
+
+// ============ Hiring: Candidates & Public Onboarding Flow ============
+const HIRING_LINK_VALID_DAYS = 14; // longer than Damage Claims' 7 -- gathering bank/ID info can take a new hire longer
+const HIRING_CANDIDATES_KEY = 'hiring-candidates';
+const HIRING_DOCUMENTS_KEY = 'hiring-documents';
+
+function isHiringLinkExpired(candidate) {
+  if (!candidate.tokenCreatedAt) return false;
+  const ageMs = Date.now() - new Date(candidate.tokenCreatedAt).getTime();
+  return ageMs > HIRING_LINK_VALID_DAYS * 24 * 60 * 60 * 1000;
+}
+
+// Last 4 only, consistent regardless of the original value's length -- a
+// masked view is what every admin sees by default; only the explicit,
+// logged reveal endpoint below ever returns the real value.
+function maskHiringValue(value) {
+  const s = String(value || '');
+  if (s.length <= 4) return '\u2022'.repeat(s.length);
+  return '\u2022'.repeat(s.length - 4) + s.slice(-4);
+}
+const HIRING_SENSITIVE_TYPES = new Set(['ssn', 'account_number', 'routing_number']);
+
+async function getHiringDocumentsList() {
+  const raw = await redis.get(HIRING_DOCUMENTS_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+function maskCandidateForAdmin(candidate, documents) {
+  // Builds a type lookup across every document's extracted fields (shared
+  // canonical fields carry one type; document-specific fields are looked
+  // up per document) so masking is correct regardless of which field or
+  // document a value came from.
+  const typeByCanonicalKey = {};
+  const typeByDocField = {}; // `${documentId}:${fieldId}` -> type
+  (documents || []).forEach(doc => {
+    (doc.fields || []).forEach(f => {
+      if (f.canonicalKey) typeByCanonicalKey[f.canonicalKey] = f.type;
+      typeByDocField[`${doc.id}:${f.id}`] = f.type;
+    });
+  });
+
+  const maskedShared = {};
+  Object.keys(candidate.sharedFieldValues || {}).forEach(key => {
+    const value = candidate.sharedFieldValues[key];
+    maskedShared[key] = HIRING_SENSITIVE_TYPES.has(typeByCanonicalKey[key]) ? maskHiringValue(value) : value;
+  });
+
+  const maskedDocProgress = {};
+  Object.keys(candidate.documentProgress || {}).forEach(docId => {
+    const prog = candidate.documentProgress[docId] || {};
+    const maskedFields = {};
+    Object.keys(prog.fieldValues || {}).forEach(fieldId => {
+      const value = prog.fieldValues[fieldId];
+      const type = typeByDocField[`${docId}:${fieldId}`];
+      maskedFields[fieldId] = HIRING_SENSITIVE_TYPES.has(type) ? maskHiringValue(value) : value;
+    });
+    maskedDocProgress[docId] = { ...prog, fieldValues: maskedFields };
+  });
+
+  return { ...candidate, sharedFieldValues: maskedShared, documentProgress: maskedDocProgress };
+}
+
+app.get('/api/admin/hiring/candidates', requireAuth, async (req, res) => {
+  try {
+    const [candidatesRaw, documents] = await Promise.all([redis.get(HIRING_CANDIDATES_KEY), getHiringDocumentsList()]);
+    const candidates = candidatesRaw ? JSON.parse(candidatesRaw) : [];
+    res.json({ candidates: candidates.map(c => maskCandidateForAdmin(c, documents)) });
+  } catch (err) {
+    console.error('GET /api/admin/hiring/candidates failed:', err.message);
+    res.status(500).json({ error: 'Could not load candidates.' });
+  }
+});
+
+app.post('/api/admin/hiring/candidates', requireAuth, async (req, res) => {
+  const { firstName, lastName, email, startingPay, startingDate, positionTitle } = req.body || {};
+  if (!firstName || !lastName || !email || !startingDate) {
+    return res.status(400).json({ error: 'First name, last name, email, and start date are required.' });
+  }
+  try {
+    const raw = await redis.get(HIRING_CANDIDATES_KEY);
+    const candidates = raw ? JSON.parse(raw) : [];
+    const now = new Date().toISOString();
+    const candidate = {
+      id: 'cand_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      firstName: String(firstName).trim().slice(0, 100),
+      lastName: String(lastName).trim().slice(0, 100),
+      email: String(email).trim().slice(0, 200),
+      startingPay: startingPay || '',
+      startingDate: String(startingDate).slice(0, 10),
+      positionTitle: (positionTitle || 'General Laborer').slice(0, 100),
+      createdAt: now,
+      createdBy: req.userEmail || '',
+      token: crypto.randomBytes(32).toString('hex'),
+      tokenCreatedAt: now,
+      status: 'draft',
+      sharedFieldValues: {},
+      documentProgress: {},
+      sentAt: null,
+      completedAt: null
+    };
+    candidates.push(candidate);
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    res.json({ candidate });
+  } catch (err) {
+    console.error('POST /api/admin/hiring/candidates failed:', err.message);
+    res.status(500).json({ error: 'Could not create this candidate.' });
+  }
+});
+
+// Marks a candidate as sent, and (re)issues a fresh link -- called right
+// before the admin's mailto: link opens, same "generate link, admin's own
+// email client sends it" pattern Damage Claims already uses. Re-sending
+// later (link expired, or a typo in the email) issues a new token and
+// resets the expiry window, without touching anything the candidate has
+// already filled in.
+app.post('/api/admin/hiring/candidates/:id/send', requireAuth, async (req, res) => {
+  try {
+    const raw = await redis.get(HIRING_CANDIDATES_KEY);
+    const candidates = raw ? JSON.parse(raw) : [];
+    const candidate = candidates.find(c => c.id === req.params.id);
+    if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
+    const now = new Date().toISOString();
+    candidate.token = crypto.randomBytes(32).toString('hex');
+    candidate.tokenCreatedAt = now;
+    candidate.sentAt = now;
+    if (candidate.status === 'draft') candidate.status = 'sent';
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    res.json({ token: candidate.token });
+  } catch (err) {
+    console.error('POST /api/admin/hiring/candidates/:id/send failed:', err.message);
+    res.status(500).json({ error: 'Could not prepare this link.' });
+  }
+});
+
+app.delete('/api/admin/hiring/candidates/:id', requireAuth, async (req, res) => {
+  try {
+    const raw = await redis.get(HIRING_CANDIDATES_KEY);
+    const candidates = raw ? JSON.parse(raw) : [];
+    const filtered = candidates.filter(c => c.id !== req.params.id);
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(filtered));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/admin/hiring/candidates/:id failed:', err.message);
+    res.status(500).json({ error: 'Could not remove this candidate.' });
+  }
+});
+
+// Reveals one field's true value. Not re-gated by PIN server-side -- same
+// established pattern as every other PIN-protected action in this app
+// (the frontend verifies via /api/verify-override-pin first, then calls
+// this). What this endpoint alone provides is the audit trail: every
+// reveal is logged, regardless of where the request came from.
+app.post('/api/admin/hiring/candidates/:id/reveal', requireAuth, async (req, res) => {
+  const { scope, documentId, fieldKey } = req.body || {}; // scope: 'shared' | 'document'
+  if (!fieldKey || (scope === 'document' && !documentId)) {
+    return res.status(400).json({ error: 'fieldKey (and documentId, for a document-specific field) is required.' });
+  }
+  try {
+    const raw = await redis.get(HIRING_CANDIDATES_KEY);
+    const candidates = raw ? JSON.parse(raw) : [];
+    const candidate = candidates.find(c => c.id === req.params.id);
+    if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
+
+    const value = scope === 'document'
+      ? ((candidate.documentProgress[documentId] || {}).fieldValues || {})[fieldKey]
+      : (candidate.sharedFieldValues || {})[fieldKey];
+
+    const logRaw = await redis.get('hiring-reveal-log');
+    const log = logRaw ? JSON.parse(logRaw) : [];
+    log.push({
+      candidateId: candidate.id, candidateName: `${candidate.firstName} ${candidate.lastName}`,
+      scope, documentId: documentId || null, fieldKey,
+      revealedBy: req.userEmail || '', revealedAt: new Date().toISOString()
+    });
+    await redis.set('hiring-reveal-log', JSON.stringify(log.slice(-1000))); // capped -- an audit trail, not an unbounded log
+
+    res.json({ value: value || '' });
+  } catch (err) {
+    console.error('POST /api/admin/hiring/candidates/:id/reveal failed:', err.message);
+    res.status(500).json({ error: 'Could not reveal this value.' });
+  }
+});
+
+// ---- Public onboarding flow -- no login, reached only via the unique link ----
+
+// The candidate's own token is the only authorization here -- same as
+// every other endpoint in this flow -- but it's still scoped to a
+// specific document that's actually part of THIS candidate's package,
+// rather than trusting any fileKey the client might send.
+app.get('/api/hiring/package/:token/document/:documentId/file', async (req, res) => {
+  try {
+    const [candidatesRaw, documents] = await Promise.all([redis.get(HIRING_CANDIDATES_KEY), getHiringDocumentsList()]);
+    const candidates = candidatesRaw ? JSON.parse(candidatesRaw) : [];
+    const candidate = candidates.find(c => c.token === req.params.token);
+    if (!candidate) return res.status(404).json({ error: 'This link could not be found.' });
+    if (isHiringLinkExpired(candidate)) return res.status(410).json({ error: 'This link has expired.', expired: true });
+
+    const doc = documents.find(d => d.id === req.params.documentId);
+    if (!doc || !doc.fileKey) return res.status(404).json({ error: 'This document could not be found.' });
+    const fileRaw = await redis.get(doc.fileKey);
+    if (!fileRaw) return res.status(404).json({ error: 'This document\u2019s file could not be found.' });
+    res.json({ dataUri: JSON.parse(fileRaw) });
+  } catch (err) {
+    console.error('GET /api/hiring/package/:token/document/:documentId/file failed:', err.message);
+    res.status(500).json({ error: 'Could not load this document.' });
+  }
+});
+
+app.get('/api/hiring/package/:token', async (req, res) => {
+  try {
+    const [candidatesRaw, documents] = await Promise.all([redis.get(HIRING_CANDIDATES_KEY), getHiringDocumentsList()]);
+    const candidates = candidatesRaw ? JSON.parse(candidatesRaw) : [];
+    const candidate = candidates.find(c => c.token === req.params.token);
+    if (!candidate) return res.json({ found: false });
+    if (isHiringLinkExpired(candidate)) return res.json({ found: false, expired: true });
+
+    // This is the candidate's own in-progress data, in their own active
+    // session -- not masked, the same way a web form doesn't mask what you
+    // just typed into it.
+    res.json({
+      found: true,
+      firstName: candidate.firstName, lastName: candidate.lastName,
+      startingDate: candidate.startingDate, startingPay: candidate.startingPay,
+      positionTitle: candidate.positionTitle,
+      status: candidate.status,
+      sharedFieldValues: candidate.sharedFieldValues || {},
+      documentProgress: candidate.documentProgress || {},
+      documents: documents
+        .slice().sort((a, b) => (a.order || 0) - (b.order || 0))
+        .map(d => ({ id: d.id, name: d.name, fileName: d.fileName, fields: d.fields || [], requiresSignature: !!d.requiresSignature }))
+    });
+  } catch (err) {
+    console.error('GET /api/hiring/package/:token failed:', err.message);
+    res.status(500).json({ error: 'Could not load this link.' });
+  }
+});
+
+async function loadCandidateByToken(token) {
+  const raw = await redis.get(HIRING_CANDIDATES_KEY);
+  const candidates = raw ? JSON.parse(raw) : [];
+  const candidate = candidates.find(c => c.token === token);
+  return { candidates, candidate };
+}
+
+// Saved progressively as the new hire moves through each document -- so
+// leaving and coming back (this needs to work well on a phone, where
+// getting interrupted mid-form is routine) never loses what they already
+// entered. sharedFieldValues are merged in, not replaced, since different
+// documents contribute different shared fields over time.
+app.post('/api/hiring/package/:token/save', async (req, res) => {
+  const { documentId, fieldValues, sharedFieldValues } = req.body || {};
+  try {
+    const { candidates, candidate } = await loadCandidateByToken(req.params.token);
+    if (!candidate) return res.status(404).json({ error: 'This link could not be found.' });
+    if (isHiringLinkExpired(candidate)) return res.status(410).json({ error: 'This link has expired. Please contact us for a new one.', expired: true });
+    if (candidate.status === 'completed') return res.status(409).json({ error: 'This onboarding package has already been submitted.' });
+
+    if (sharedFieldValues && typeof sharedFieldValues === 'object') {
+      candidate.sharedFieldValues = { ...(candidate.sharedFieldValues || {}), ...sharedFieldValues };
+    }
+    if (documentId && fieldValues && typeof fieldValues === 'object') {
+      candidate.documentProgress = candidate.documentProgress || {};
+      const existing = candidate.documentProgress[documentId] || { fieldValues: {} };
+      candidate.documentProgress[documentId] = { ...existing, fieldValues: { ...existing.fieldValues, ...fieldValues } };
+    }
+    if (candidate.status === 'sent') candidate.status = 'in_progress';
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/hiring/package/:token/save failed:', err.message);
+    res.status(500).json({ error: 'Could not save your progress \u2014 please check your connection and try again.' });
+  }
+});
+
+app.post('/api/hiring/package/:token/signature', async (req, res) => {
+  const { documentId, signatureDataUri } = req.body || {};
+  if (!documentId || typeof signatureDataUri !== 'string' || !signatureDataUri.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'A signature image and document are required.' });
+  }
+  try {
+    const { candidates, candidate } = await loadCandidateByToken(req.params.token);
+    if (!candidate) return res.status(404).json({ error: 'This link could not be found.' });
+    if (isHiringLinkExpired(candidate)) return res.status(410).json({ error: 'This link has expired. Please contact us for a new one.', expired: true });
+    if (candidate.status === 'completed') return res.status(409).json({ error: 'This onboarding package has already been submitted.' });
+
+    const signatureKey = `hiring-signature-${candidate.id}-${documentId}`;
+    await redis.set(signatureKey, JSON.stringify(signatureDataUri));
+    candidate.documentProgress = candidate.documentProgress || {};
+    const existing = candidate.documentProgress[documentId] || { fieldValues: {} };
+    candidate.documentProgress[documentId] = { ...existing, signatureKey, completedAt: new Date().toISOString() };
+    if (candidate.status === 'sent') candidate.status = 'in_progress';
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/hiring/package/:token/signature failed:', err.message);
+    res.status(500).json({ error: 'Could not save your signature \u2014 please check your connection and try again.' });
+  }
+});
+
+app.post('/api/hiring/package/:token/submit', async (req, res) => {
+  try {
+    const { candidates, candidate } = await loadCandidateByToken(req.params.token);
+    if (!candidate) return res.status(404).json({ error: 'This link could not be found.' });
+    if (isHiringLinkExpired(candidate)) return res.status(410).json({ error: 'This link has expired. Please contact us for a new one.', expired: true });
+    if (candidate.status === 'completed') return res.json({ ok: true }); // already done -- idempotent, not an error
+
+    const documents = await getHiringDocumentsList();
+    const missing = [];
+    documents.forEach(doc => {
+      const prog = (candidate.documentProgress || {})[doc.id] || { fieldValues: {} };
+      (doc.fields || []).forEach(f => {
+        if (!f.required) return;
+        const value = f.canonicalKey ? (candidate.sharedFieldValues || {})[f.canonicalKey] : (prog.fieldValues || {})[f.id];
+        if (value === undefined || value === null || String(value).trim() === '') missing.push(`${doc.name}: ${f.label}`);
+      });
+      if (doc.requiresSignature && !prog.signatureKey) missing.push(`${doc.name}: signature`);
+    });
+    if (missing.length > 0) {
+      return res.status(400).json({ error: 'A few things still need to be filled in before this can be submitted.', missing });
+    }
+
+    candidate.status = 'completed';
+    candidate.completedAt = new Date().toISOString();
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/hiring/package/:token/submit failed:', err.message);
+    res.status(500).json({ error: 'Could not submit \u2014 please check your connection and try again.' });
   }
 });
 
