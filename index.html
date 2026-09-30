@@ -5700,10 +5700,11 @@
           <p class="form-note" style="margin-top:0;">Up to 30 onboarding documents, compiled in order into one package a new hire fills out and signs from their phone. Upload a PDF or Word document and Claude reads it to find every blank the new hire needs to fill in \u2014 review what it found below, since you can always edit or add a field by hand. Fields tagged with a shared type (name, SSN, address, etc.) only need to be entered once across every document that asks for it.</p>
           <div id="appset_hiringDocRows"></div>
           <p class="form-note" id="appset_hiringEmptyNote" style="display:none;">No onboarding documents added yet.</p>
-          <div class="form-actions" style="margin-top:14px;">
-            <button type="button" id="appset_hiringAddDocBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">+ Add Document</button>
-            <span class="form-note" id="appset_hiringCountNote" style="margin:0;"></span>
+          <div id="appset_hiringDropzone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:20px; text-align:center; cursor:pointer; background:#fafafa; outline:none; margin-top:14px;">
+            <p style="margin:0; color:var(--muted); font-size:13.5px;">Drag &amp; drop documents here &mdash; PDF or Word, any number at once</p>
+            <p style="margin:4px 0 0; font-size:12px; color:var(--muted);">or <button type="button" id="appset_hiringChooseFileBtn" style="background:none; border:none; color:var(--charcoal); text-decoration:underline; cursor:pointer; padding:0; font-size:12px;">browse files</button></p>
           </div>
+          <p class="form-note" id="appset_hiringCountNote" style="margin-top:8px;"></p>
           <input type="file" id="appset_hiringFileInput" accept=".pdf,.docx" multiple style="display:none;">
         </div>
 
@@ -14232,7 +14233,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const countNote = document.getElementById('appset_hiringCountNote');
     emptyNote.style.display = hiringDocuments.length === 0 ? 'block' : 'none';
     countNote.textContent = `${hiringDocuments.length} of 30 documents`;
-    document.getElementById('appset_hiringAddDocBtn').disabled = hiringDocuments.length >= 30;
+    document.getElementById('appset_hiringDropzone').style.display = hiringDocuments.length >= 30 ? 'none' : 'block';
     rowsEl.innerHTML = hiringDocuments.map((doc, i) => hiringDocCardHtml(doc, i, hiringDocuments.length)).join('');
     wireHiringDocCardEvents();
   }
@@ -14294,30 +14295,61 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     });
   }
 
-  document.getElementById('appset_hiringAddDocBtn').addEventListener('click', ()=>{
+  // Shared by both the file input's change event and a drop onto the
+  // dropzone, so drag-and-drop and click-to-browse behave identically --
+  // one file replaces a specific existing document when targetDocId is
+  // set, otherwise every valid file in the list is added as a new
+  // document, one at a time (not in parallel, since each involves its own
+  // extraction call and they all write into the same shared list).
+  async function hiringProcessFileList(fileList, targetDocId){
+    const files = Array.from(fileList || []).filter(f => /\.(pdf|docx)$/i.test(f.name));
+    if(files.length === 0) return;
+    if(targetDocId){
+      await handleHiringFileUpload(files[0], targetDocId);
+      return;
+    }
+    for(const file of files){
+      if(hiringDocuments.length >= 30) break;
+      await handleHiringFileUpload(file, null);
+    }
+  }
+
+  document.getElementById('appset_hiringChooseFileBtn').addEventListener('click', (e)=>{
+    e.stopPropagation(); // the dropzone itself also opens the picker on click -- without this, clicking the button fires both
     if(hiringDocuments.length >= 30) return;
     hiringUploadTargetDocId = null;
     document.getElementById('appset_hiringFileInput').click();
   });
 
+  const hiringDropzoneEl = document.getElementById('appset_hiringDropzone');
+  hiringDropzoneEl.addEventListener('click', ()=>{
+    if(hiringDocuments.length >= 30) return;
+    hiringUploadTargetDocId = null;
+    document.getElementById('appset_hiringFileInput').click();
+  });
+  hiringDropzoneEl.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    hiringDropzoneEl.style.borderColor = 'var(--brand-orange)';
+    hiringDropzoneEl.style.background = '#fff';
+  });
+  hiringDropzoneEl.addEventListener('dragleave', ()=>{
+    hiringDropzoneEl.style.borderColor = 'var(--line)';
+    hiringDropzoneEl.style.background = '#fafafa';
+  });
+  hiringDropzoneEl.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    hiringDropzoneEl.style.borderColor = 'var(--line)';
+    hiringDropzoneEl.style.background = '#fafafa';
+    if(hiringDocuments.length >= 30) return;
+    hiringUploadTargetDocId = null;
+    await hiringProcessFileList(e.dataTransfer && e.dataTransfer.files, null);
+  });
+
   document.getElementById('appset_hiringFileInput').addEventListener('change', async (e)=>{
-    const files = Array.from(e.target.files || []);
     const targetDocId = hiringUploadTargetDocId; // captured now, since it could change before a later file in this batch finishes
+    const files = Array.from(e.target.files || []); // a real snapshot -- e.target.files is a live view that clearing .value below would otherwise wipe out
     e.target.value = '';
-    if(files.length === 0) return;
-    if(targetDocId){
-      // Replacing one specific existing document -- only the first
-      // selected file is relevant even if more than one got picked.
-      await handleHiringFileUpload(files[0], targetDocId);
-      return;
-    }
-    // Adding new documents -- processed one at a time (not in parallel),
-    // since each involves its own extraction call and they all write into
-    // the same shared document list.
-    for(const file of files){
-      if(hiringDocuments.length >= 30) break;
-      await handleHiringFileUpload(file, null);
-    }
+    await hiringProcessFileList(files, targetDocId);
   });
 
   async function handleHiringFileUpload(file, targetDocId){
