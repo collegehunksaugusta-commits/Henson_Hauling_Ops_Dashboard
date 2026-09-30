@@ -20831,7 +20831,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       let changed = reviewItems.length !== beforeCount;
 
       Object.keys(byJob).forEach(jobNumber => {
-        const existing = reviewItems.find(item => item.source === 'materials' && item.type === 'underbilled' && item.jobNumber === jobNumber && !item.reviewedAt);
+        // Matched regardless of reviewedAt -- an already-reviewed item for
+        // this job still counts as "existing", so its data gets updated in
+        // place (never its reviewedAt/reviewedBy) instead of spawning a
+        // second, unreviewed duplicate every time this sync re-runs.
+        const existing = reviewItems.find(item => item.source === 'materials' && item.type === 'underbilled' && item.jobNumber === jobNumber);
         const itemsDetail = byJob[jobNumber].map(p => {
           const item = materialsItems.find(mi => mi.id === p.itemId);
           return {
@@ -22867,21 +22871,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         savedCount++;
 
         if(isUnderbilled){
-          reviewItems.push({
-            id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000),
-            type: 'underbilled',
-            source: 'junk-removal',
-            createdAt: new Date().toISOString(),
-            reviewedAt: null,
-            reviewedBy: null,
-            jobNumber: job.jobNumber,
-            jobDate: job.assignmentDate || null,
-            clientName: job.clientName,
-            captainName: job.captainName,
-            expectedAmount: priceLow,
-            billedAmount: invoiceTotal,
-            shortfall: priceLow - invoiceTotal
-          });
+          const existingJrItem = reviewItems.find(ri => ri.source === 'junk-removal' && ri.type === 'underbilled' && ri.jobNumber === job.jobNumber);
+          if(existingJrItem){
+            existingJrItem.jobDate = job.assignmentDate || null;
+            existingJrItem.clientName = job.clientName;
+            existingJrItem.captainName = job.captainName;
+            existingJrItem.expectedAmount = priceLow;
+            existingJrItem.billedAmount = invoiceTotal;
+            existingJrItem.shortfall = priceLow - invoiceTotal;
+          } else {
+            reviewItems.push({
+              id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+              type: 'underbilled',
+              source: 'junk-removal',
+              createdAt: new Date().toISOString(),
+              reviewedAt: null,
+              reviewedBy: null,
+              jobNumber: job.jobNumber,
+              jobDate: job.assignmentDate || null,
+              clientName: job.clientName,
+              captainName: job.captainName,
+              expectedAmount: priceLow,
+              billedAmount: invoiceTotal,
+              shortfall: priceLow - invoiceTotal
+            });
+          }
           flaggedCount++;
         }
       }
