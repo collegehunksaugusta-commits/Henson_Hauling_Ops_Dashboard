@@ -522,11 +522,17 @@
 
     <div id="pti_materialsSection" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <h3 style="margin-top:0;">Materials Checkout</h3>
-      <p class="form-note">Report what you pulled from the racks today &mdash; this clears you to submit your inspection below. If you didn't take anything, leave everything at 0 and submit anyway.</p>
-      <label>Job Number(s) <input type="text" id="pti_matco_jobNumbers" placeholder="e.g. 11699257, 11700412" inputmode="numeric"></label>
-      <p class="form-note">Separate multiple job numbers with a comma. Only needed if you're taking something below.</p>
+      <p class="form-note">Report what you pulled from the racks today, one job at a time &mdash; this clears you to submit your inspection below. If you didn't take anything, leave everything at 0 and submit anyway.</p>
+
+      <div id="pti_matco_loggedList"></div>
+
+      <label>Job <select id="pti_matco_jobSelect"><option value="">Select a job\u2026</option><option value="__other__">Other / job not listed</option></select></label>
+      <label id="pti_matco_jobOtherWrap" style="display:none;">Job Number <input type="text" id="pti_matco_jobOther" inputmode="numeric" placeholder="e.g. 11789777"></label>
       <div id="pti_matco_itemList" style="margin-top:10px;"></div>
       <p class="form-note" id="pti_matco_noItemsNote" style="display:none;">No materials are set up yet &mdash; ask your administrator to add some on the Materials tile.</p>
+      <p class="status-msg" id="pti_matco_logStatus" style="margin-top:4px;"></p>
+      <button type="button" id="pti_matco_logJobBtn" style="width:100%; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:12px; border-radius:6px; cursor:pointer; font-size:13.5px; margin-top:6px;">Log This Job's Materials</button>
+      <p class="form-note" style="margin-top:8px;">Got materials for more than one job today? Log the first one above, then pick the next job and log again &mdash; as many as you need.</p>
     </div>
 
     <p class="form-note" id="pti_materialsAlreadyDoneNote" style="display:none; background:#EAF6EE; border:1px solid #B7E0C4; border-radius:10px; padding:14px 16px; margin:0 0 16px; color:var(--brand-green-dark); font-weight:600;">&#10003; Materials Checkout already logged for today.</p>
@@ -1055,10 +1061,13 @@
     document.getElementById('pti_photoStatus').textContent = '';
 
     document.getElementById('pti_driverNameDisplay').textContent = currentDriverName || '';
+    ptiLoggedMaterialsCheckouts = [];
+    document.getElementById('pti_matco_loggedList').innerHTML = '';
+    document.getElementById('pti_matco_jobOtherWrap').style.display = 'none';
     // Restoring a draft needs the truck <select>'s options already populated,
     // or setting .value on it silently does nothing -- so this waits for
     // both loads before attempting it.
-    await Promise.all([loadDriverTrucks(), loadDriverPtiMaterialsItems()]);
+    await Promise.all([loadDriverTrucks(), loadDriverPtiMaterialsItems(), loadPtiTodayJobs()]);
     checkPtiMaterialsGate();
     restorePtiDraftIfAny();
     startPtiDraftAutosave();
@@ -2274,8 +2283,10 @@
         truckId: document.getElementById('pti_truck').value,
         odometer: document.getElementById('pti_odometer').value,
         additionalNotes: document.getElementById('pti_additionalNotes').value,
-        matcoJobNumbers: document.getElementById('pti_matco_jobNumbers').value,
+        matcoJobSelect: document.getElementById('pti_matco_jobSelect').value,
+        matcoJobOther: document.getElementById('pti_matco_jobOther').value,
         matcoItems,
+        loggedMaterialsCheckouts: ptiLoggedMaterialsCheckouts,
         checklist,
         photo: ptiCapturedPhoto,
         savedAt: new Date().toISOString()
@@ -2316,12 +2327,19 @@
     if(draft.truckId) document.getElementById('pti_truck').value = draft.truckId;
     document.getElementById('pti_odometer').value = draft.odometer || '';
     document.getElementById('pti_additionalNotes').value = draft.additionalNotes || '';
-    document.getElementById('pti_matco_jobNumbers').value = draft.matcoJobNumbers || '';
+    if(draft.matcoJobSelect){
+      document.getElementById('pti_matco_jobSelect').value = draft.matcoJobSelect;
+      document.getElementById('pti_matco_jobOtherWrap').style.display = draft.matcoJobSelect === '__other__' ? 'block' : 'none';
+    }
+    document.getElementById('pti_matco_jobOther').value = draft.matcoJobOther || '';
 
     (draft.matcoItems || []).forEach(saved => {
       const input = document.querySelector(`.pti-matco-qty[data-item-id="${saved.itemId}"]`);
       if(input) input.value = saved.quantity;
     });
+
+    ptiLoggedMaterialsCheckouts = draft.loggedMaterialsCheckouts || [];
+    renderPtiMatcoLoggedList();
 
     const checklistItems = document.querySelectorAll('#pti_checklist .pti-item');
     (draft.checklist || []).forEach((saved, i) => {
@@ -2367,6 +2385,92 @@
     ptiDraftAutosaveTimer = setInterval(savePtiDraft, 10000);
   }
 
+  let ptiLoggedMaterialsCheckouts = []; // [{jobNumber, items: [{itemId, quantity}]}], one entry per job logged this session
+  let ptiTodayJobs = []; // [{jobNumber, clientName}] -- the driver's own jobs for today
+
+  async function loadPtiTodayJobs(){
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/today-jobs', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      ptiTodayJobs = data.jobs || [];
+    }catch(err){
+      console.error('PTI today-jobs load failed:', err);
+      ptiTodayJobs = [];
+    }
+    const select = document.getElementById('pti_matco_jobSelect');
+    select.innerHTML = '<option value="">Select a job\u2026</option>' +
+      ptiTodayJobs.map(j => `<option value="${driverLbEsc(j.jobNumber)}">${driverLbEsc(j.jobNumber)}${j.clientName ? ' \u2014 ' + driverLbEsc(j.clientName) : ''}</option>`).join('') +
+      '<option value="__other__">Other / job not listed</option>';
+  }
+
+  document.getElementById('pti_matco_jobSelect').addEventListener('change', (e)=>{
+    document.getElementById('pti_matco_jobOtherWrap').style.display = e.target.value === '__other__' ? 'block' : 'none';
+  });
+
+  function ptiMatcoCurrentJobSelection(){
+    const select = document.getElementById('pti_matco_jobSelect');
+    if(select.value === '__other__'){
+      return document.getElementById('pti_matco_jobOther').value.trim() || null;
+    }
+    return select.value || null;
+  }
+
+  function ptiMatcoCurrentItems(){
+    return Array.from(document.querySelectorAll('.pti-matco-qty'))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .filter(i => i.quantity > 0);
+  }
+
+  function ptiMatcoItemDescription(itemId){
+    const item = driverMaterialsItems.find(i => i.id === itemId);
+    return item ? (item.nickname || item.description) : '(item no longer on file)';
+  }
+
+  function renderPtiMatcoLoggedList(){
+    const listEl = document.getElementById('pti_matco_loggedList');
+    if(ptiLoggedMaterialsCheckouts.length === 0){ listEl.innerHTML = ''; return; }
+    listEl.innerHTML = ptiLoggedMaterialsCheckouts.map((entry, i) => `
+      <div style="display:flex; justify-content:space-between; align-items:start; gap:10px; background:var(--offwhite); border-radius:6px; padding:10px 12px; margin-bottom:8px;">
+        <div>
+          <div style="font-weight:600; font-size:13.5px;">Job # ${driverLbEsc(entry.jobNumber)}</div>
+          <div style="font-size:12.5px; color:var(--muted);">${entry.items.map(it => `${it.quantity} ${driverLbEsc(ptiMatcoItemDescription(it.itemId))}`).join(', ')}</div>
+        </div>
+        <button type="button" class="pti-matco-remove-btn" data-index="${i}" style="background:none; border:none; color:#b3261e; font-size:12px; cursor:pointer; font-weight:600; flex-shrink:0;">Remove</button>
+      </div>`
+    ).join('');
+    listEl.querySelectorAll('.pti-matco-remove-btn').forEach(btn => btn.addEventListener('click', (e)=>{
+      ptiLoggedMaterialsCheckouts.splice(Number(e.currentTarget.dataset.index), 1);
+      renderPtiMatcoLoggedList();
+      savePtiDraft();
+    }));
+  }
+
+  document.getElementById('pti_matco_logJobBtn').addEventListener('click', ()=>{
+    const statusEl = document.getElementById('pti_matco_logStatus');
+    const jobNumber = ptiMatcoCurrentJobSelection();
+    const items = ptiMatcoCurrentItems();
+    if(!jobNumber){
+      statusEl.textContent = 'Select a job first (or choose "Other" and type the job number).';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    if(items.length === 0){
+      statusEl.textContent = 'Enter at least one quantity before logging.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    ptiLoggedMaterialsCheckouts.push({ jobNumber, items });
+    renderPtiMatcoLoggedList();
+    document.getElementById('pti_matco_jobSelect').value = '';
+    document.getElementById('pti_matco_jobOtherWrap').style.display = 'none';
+    document.getElementById('pti_matco_jobOther').value = '';
+    document.querySelectorAll('.pti-matco-qty').forEach(input => input.value = '');
+    statusEl.textContent = `Logged for Job # ${jobNumber}. Select another job if you have more, or submit below when done.`;
+    statusEl.className = 'status-msg ok';
+    savePtiDraft();
+  });
+
   let ptiCapturedPhoto = null;
   async function ptiPhotoInputChangeHandler(e){
     const file = e.target.files[0];
@@ -2407,17 +2511,26 @@
 
     // Materials Checkout is embedded right here at the top of the form when
     // it's still needed for today -- validated in the same place a driver
-    // encounters it, before the checklist/photo checks below.
+    // encounters it, before the checklist/photo checks below. Each job
+    // logged there becomes its own separate checkout record below, rather
+    // than one record covering multiple jobs -- a single record used to
+    // credit its full quantity to every job number listed on it, which is
+    // exactly what caused underbilled jobs to be misattributed.
     const materialsSectionVisible = document.getElementById('pti_materialsSection').style.display !== 'none';
-    const matcoJobNumbers = document.getElementById('pti_matco_jobNumbers').value
-      .split(',').map(s => s.trim()).filter(Boolean);
-    const matcoItems = Array.from(document.querySelectorAll('.pti-matco-qty'))
-      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
-      .filter(i => i.quantity > 0);
-    if(materialsSectionVisible && matcoItems.length > 0 && matcoJobNumbers.length === 0){
-      statusEl.textContent = 'Enter at least one Job Number for the materials you took, or clear the quantities if you took nothing.';
-      statusEl.className = 'status-msg err';
-      return;
+    if(materialsSectionVisible){
+      // A forgiving safety net: if quantities were entered but the driver
+      // forgot to tap "Log This Job's Materials" before submitting, log it
+      // for them now rather than silently losing it.
+      const unloggedItems = ptiMatcoCurrentItems();
+      if(unloggedItems.length > 0){
+        const unloggedJobNumber = ptiMatcoCurrentJobSelection();
+        if(!unloggedJobNumber){
+          statusEl.textContent = 'Select the job for the materials you entered, or clear the quantities if you took nothing.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+        ptiLoggedMaterialsCheckouts.push({ jobNumber: unloggedJobNumber, items: unloggedItems });
+      }
     }
 
     const items = document.querySelectorAll('#pti_checklist .pti-item');
@@ -2441,27 +2554,30 @@
       return;
     }
 
-    if(materialsSectionVisible){
+    if(materialsSectionVisible && ptiLoggedMaterialsCheckouts.length > 0){
       statusEl.textContent = 'Submitting Materials Checkout...';
       statusEl.className = 'status-msg';
-      try{
-        const matcoRes = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-          body: JSON.stringify({ jobNumbers: matcoJobNumbers, items: matcoItems, date: new Date().toISOString().slice(0,10) })
-        });
-        if(matcoRes.status === 401){ driverSessionExpired(); return; }
-        const matcoData = await matcoRes.json();
-        if(!matcoRes.ok){
-          statusEl.textContent = matcoData.error || 'Could not submit Materials Checkout.';
+      const todayStr = new Date().toISOString().slice(0,10);
+      for(const entry of ptiLoggedMaterialsCheckouts){
+        try{
+          const matcoRes = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+            body: JSON.stringify({ jobNumbers: [entry.jobNumber], items: entry.items, date: todayStr })
+          });
+          if(matcoRes.status === 401){ driverSessionExpired(); return; }
+          const matcoData = await matcoRes.json();
+          if(!matcoRes.ok){
+            statusEl.textContent = (matcoData.error || 'Could not submit Materials Checkout.') + ` (Job # ${entry.jobNumber})`;
+            statusEl.className = 'status-msg err';
+            return;
+          }
+        }catch(err){
+          console.error('Materials checkout submit (from PTI) failed:', err);
+          statusEl.textContent = `Could not reach the server \u2014 check your connection. (Job # ${entry.jobNumber})`;
           statusEl.className = 'status-msg err';
           return;
         }
-      }catch(err){
-        console.error('Materials checkout submit (from PTI) failed:', err);
-        statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
-        statusEl.className = 'status-msg err';
-        return;
       }
     }
 
@@ -2485,7 +2601,12 @@
       document.getElementById('pti_odometer').value = '';
       document.getElementById('pti_additionalNotes').value = '';
       document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
-      document.getElementById('pti_matco_jobNumbers').value = '';
+      ptiLoggedMaterialsCheckouts = [];
+      document.getElementById('pti_matco_loggedList').innerHTML = '';
+      document.getElementById('pti_matco_jobSelect').value = '';
+      document.getElementById('pti_matco_jobOtherWrap').style.display = 'none';
+      document.getElementById('pti_matco_jobOther').value = '';
+      document.getElementById('pti_matco_logStatus').textContent = '';
       document.querySelectorAll('.pti-matco-qty').forEach(input => input.value = '');
       ptiCapturedPhoto = null;
       document.getElementById('pti_photoPreviewWrap').style.display = 'none';
