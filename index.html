@@ -23979,6 +23979,44 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </label>`;
     }
 
+    // Only applies to docx content, which renders into real, editable DOM
+    // nodes -- a PDF is just an embedded file in an iframe, with no text
+    // to manipulate this way.
+    const HO_CONTENT_INJECTABLE_KEYS = ['start_date', 'starting_pay', 'position_title'];
+
+    function hoStripBoilerplateAndInjectValues(contentEl, doc){
+      const injectedKeys = new Set();
+
+      // Stale DocuSign-era boilerplate -- this flow IS the onboarding
+      // process now, so a line pointing the new hire at a separate
+      // envelope/next step no longer applies to any document.
+      Array.from(contentEl.querySelectorAll('p, div, li')).forEach(el => {
+        if(/^\s*next\s+steps\s*:/i.test(el.textContent || '')) el.remove();
+      });
+
+      // For each employer-known field, look for a line that's JUST its
+      // label followed by a colon (a genuinely blank line in the
+      // template, like "Start Date:") and fold the value directly into
+      // it -- never touches a line that already has something printed
+      // after the colon (e.g. "Position: General Laborer*"), so nothing
+      // already filled in on the template gets overwritten.
+      (doc.fields || []).forEach(field => {
+        if(!HO_CONTENT_INJECTABLE_KEYS.includes(field.canonicalKey)) return;
+        const value = hoSharedValues[field.canonicalKey];
+        const label = (field.label || '').trim();
+        if(!value || !label) return;
+        const labelPattern = new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:\\s*$`, 'i');
+        const target = Array.from(contentEl.querySelectorAll('p, div, li, td'))
+          .find(el => labelPattern.test((el.textContent || '').trim()));
+        if(target){
+          target.textContent = `${label}: ${value}`;
+          injectedKeys.add(field.canonicalKey);
+        }
+      });
+
+      return injectedKeys;
+    }
+
     async function hoLoadDocContent(doc){
       const contentEl = document.getElementById('ho_docContent');
       contentEl.innerHTML = '<p style="color:var(--muted);">Loading\u2026</p>';
@@ -23986,7 +24024,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         let dataUri = hoFileCache[doc.id];
         if(!dataUri){
           const { ok, data } = await hoApiCall(`/document/${doc.id}/file`);
-          if(!ok || !data.dataUri){ contentEl.innerHTML = '<p style="color:var(--muted);">(Could not load this document\u2019s text \u2014 you can still fill in the fields below.)</p>'; return; }
+          if(!ok || !data.dataUri){ contentEl.innerHTML = '<p style="color:var(--muted);">(Could not load this document\u2019s text \u2014 you can still fill in the fields below.)</p>'; return new Set(); }
           dataUri = data.dataUri;
           hoFileCache[doc.id] = dataUri;
         }
@@ -23999,15 +24037,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           iframe.title = doc.name;
           iframe.style.cssText = 'width:100%; height:260px; border:none; display:block;';
           contentEl.appendChild(iframe);
+          return new Set();
         } else {
           contentEl.style.padding = '14px';
           const arrayBuffer = await (await fetch(dataUri)).arrayBuffer();
           const result = await window.mammoth.convertToHtml({ arrayBuffer });
           contentEl.innerHTML = result.value || '<p style="color:var(--muted);">(No preview available.)</p>';
+          return hoStripBoilerplateAndInjectValues(contentEl, doc);
         }
       }catch(err){
         console.error('Hiring document content load failed:', err);
         contentEl.innerHTML = '<p style="color:var(--muted);">(Could not load this document\u2019s text \u2014 you can still fill in the fields below.)</p>';
+        return new Set();
       }
     }
 
@@ -24070,10 +24111,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('ho_backBtn').style.visibility = hoDocIndex === 0 ? 'hidden' : 'visible';
       document.getElementById('ho_nextBtn').textContent = hoDocIndex === total - 1 ? 'Finish' : 'Next';
 
+      const injectedKeys = await hoLoadDocContent(doc);
+
       const fieldsEl = document.getElementById('ho_docFields');
-      fieldsEl.innerHTML = (doc.fields || []).map(hoFieldInputHtml).join('');
+      const remainingFields = (doc.fields || []).filter(f => !injectedKeys.has(f.canonicalKey));
+      fieldsEl.innerHTML = remainingFields.map(hoFieldInputHtml).join('');
       fieldsEl.querySelectorAll('.ho-field-input').forEach(input => {
-        const field = (doc.fields || []).find(f => f.id === input.dataset.fieldId);
+        const field = remainingFields.find(f => f.id === input.dataset.fieldId);
         input.addEventListener('input', () => {
           hoSetFieldValue(field, input.type === 'checkbox' ? input.checked : input.value);
         });
@@ -24082,8 +24126,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const sigWrap = document.getElementById('ho_docSignatureWrap');
       sigWrap.style.display = doc.requiresSignature ? 'block' : 'none';
       if(doc.requiresSignature) hoSetupSignaturePad();
-
-      await hoLoadDocContent(doc);
     }
 
     function hoValidateCurrentStep(){
