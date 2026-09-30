@@ -642,6 +642,26 @@ app.get('/api/driver/materials-items', requireDriverAuth, async (req, res) => {
   }
 });
 
+// The authenticated driver's own jobs scheduled for today -- powers the
+// Materials Checkout job dropdown in Pre-Trip Inspection, so a Captain
+// with more than one job that day can tie each checkout to the correct
+// one instead of typing job numbers freehand (which used to double-count
+// the full quantity against every job typed, rather than splitting it).
+app.get('/api/driver/today-jobs', requireDriverAuth, async (req, res) => {
+  try {
+    const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
+    const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const jobs = archive
+      .filter(j => j.captainName === req.driverName && j.assignmentDate === todayStr && j.jobNumber)
+      .map(j => ({ jobNumber: j.jobNumber, clientName: j.clientName || '' }));
+    res.json({ jobs });
+  } catch (err) {
+    console.error('Driver today-jobs fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load today\u2019s jobs.' });
+  }
+});
+
 // Lets the driver portal check -- before a driver fills out the whole
 // Pre-Trip Inspection form -- whether today's Materials Checkout is already
 // on file, so it can redirect them proactively instead of only rejecting
