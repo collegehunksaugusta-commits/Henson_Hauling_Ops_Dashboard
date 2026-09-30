@@ -2008,6 +2008,11 @@ const DEFAULT_APP_SETTINGS = {
   damageClaims: {
     emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
   },
+  hiring: {
+    emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
+    emailBody: 'Hi {{firstName}},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n{{link}}\n\nIf you have any questions, just reach out.\n\nThanks,\nCollege Hunks Hauling Junk & Moving \u2013 Augusta',
+    emailCc: ''
+  },
   captainMetrics: {
     resetDate: '',
     weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 },
