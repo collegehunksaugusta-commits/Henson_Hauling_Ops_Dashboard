@@ -1731,7 +1731,7 @@
   // submission -- a separate step, since a Captain can review any number
   // of wingmen (usually up to ~5) after the truck-level inspection is done.
   let wingmanQuestions = []; // non-empty questions only, in their configured order
-  let wingmanRoster = []; // current employee roster, excluding the Captain themself
+  let wingmanRoster = []; // current employee roster, excluding the Captain themself and (server-side) every active driver -- a Captain is never presented as someone to rate as a wingman
   let wingmanReviewedThisSession = new Set(); // exact names already reviewed this session -- just a UI hint, not a hard block
   let wingmanCurrentName = '';
 
