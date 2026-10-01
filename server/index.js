@@ -1404,7 +1404,7 @@ function nameDedupKey(name) {
 
 function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames, travelLineCheckStartDate) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems } = data;
+  const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems, managerReviewItems } = data;
   const opsManagerKeys = new Set((opsManagerNames || []).map(nameDedupKey));
   // Only someone currently checked as a driver on Compliance is eligible
   // to be scored -- the Captain-selection dropdown on Job Data Entry pulls
@@ -1513,68 +1513,61 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     }
   });
 
-  // ---- 5. Underbilled Jobs -- a job is applicable to this category if
-  // EITHER of two independent conditions apply, and fails (counts as
-  // underbilled) if that applicable condition isn't met:
-  //   (a) it had materials checked out -- not underbilled means every
-  //       checked-out item was billed for at least as much as was pulled.
-  //   (b) it's a Move or Move Labor job dated on or after
-  //       travelLineCheckStartDate -- not underbilled means the invoice
-  //       has a billed line item whose description includes the word
-  //       "travel", regardless of whether materials were involved at all.
-  //       An invoice that hasn't been (re-)processed with this check
-  //       counts as failing it, not as skipped. Jobs before that date are
-  //       scored as if this condition didn't exist (materials-only, if
-  //       applicable) -- their invoices predate the check and were never
-  //       going to have a confirmed travel line, so this isn't scored
-  //       against them the way it is for jobs going forward.
-  // A job meeting neither condition (no materials checked out, and not a
-  // Move/Move Labor job on or after the cutoff) isn't counted either way.
-  // A job meeting both must pass both to count as not underbilled.
-  const billableItemIds = new Set((materialsItems || []).filter(i => !i.neverBilled).map(i => i.id));
-  const checkedOutByJob = {};
-  (materialsCheckouts || []).forEach(co => {
-    (co.jobNumbers || []).forEach(jobNumber => {
-      if (!checkedOutByJob[jobNumber]) checkedOutByJob[jobNumber] = {};
-      (co.items || []).forEach(it => {
-        if (!billableItemIds.has(it.itemId)) return;
-        checkedOutByJob[jobNumber][it.itemId] = (checkedOutByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
-      });
-    });
-  });
-  const billedByJob = {};
-  const travelConfirmedByJob = {};
-  uploads.forEach(u => {
-    if (!u.jobNumber) return;
-    if (Array.isArray(u.materialsBilled)) {
-      if (!billedByJob[u.jobNumber]) billedByJob[u.jobNumber] = {};
-      u.materialsBilled.forEach(b => {
-        billedByJob[u.jobNumber][b.itemId] = (billedByJob[u.jobNumber][b.itemId] || 0) + Number(b.quantity || 0);
-      });
-    }
-    if (u.hasTravelLineItem === true) travelConfirmedByJob[u.jobNumber] = true;
-  });
-  const MOVE_JOB_TYPES_FOR_TRAVEL_CHECK = new Set(['move', 'movelabor']);
+  // ---- 5. Underbilled Jobs -- driven entirely by the Manager's reviewed
+  // Pass/Fail verdict on items the AI initially flagged on the Manager
+  // Review tile, not by independently recomputing billing status here.
+  // An item not yet reviewed isn't counted either way -- same "not yet
+  // due" pattern used everywhere else in this app; the Manager's call is
+  // final once made. Three kinds of flagged item roll into this category:
+  // materials-underbilled, junk-removal-underbilled, and a missing
+  // travel-line item (Move/Move Labor jobs, now also manager-reviewed
+  // rather than silently auto-scored). travelLineCheckStartDate is still
+  // accepted as a parameter for every caller's convenience, but is no
+  // longer used inside this function -- that cutoff now only governs the
+  // frontend sync that creates the travel-line review items in the first
+  // place.
+  const jobCaptainByNumber = {};
+  archive.forEach(j => { if (j.jobNumber && j.captainName) jobCaptainByNumber[j.jobNumber] = j.captainName; });
   const underbilledByCaptain = {};
-  monthJobs.forEach(j => {
-    const checkedOut = checkedOutByJob[j.jobNumber];
-    const hasMaterialsCheckedOut = !!(checkedOut && Object.keys(checkedOut).length > 0);
-    const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) &&
-      (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate);
-    if (!hasMaterialsCheckedOut && !needsTravelLine) return; // not applicable either way
+  (managerReviewItems || []).forEach(item => {
+    if (item.type !== 'underbilled') return;
+    if (!item.reviewedAt || (item.outcome !== 'pass' && item.outcome !== 'fail')) return;
 
-    if (!underbilledByCaptain[j.captainName]) underbilledByCaptain[j.captainName] = { ok: 0, total: 0 };
-    underbilledByCaptain[j.captainName].total++;
+    const rawCaptainName = jobCaptainByNumber[item.jobNumber] || item.captainName || null;
+    const itemDate = item.jobDate || null;
+    if (!rawCaptainName || !itemDate || itemDate < rangeStart || itemDate >= rangeEnd) return;
+    if (opsManagerKeys.has(nameDedupKey(rawCaptainName))) return;
+    if (activeDriverKeys !== null && !activeDriverKeys.has(nameDedupKey(rawCaptainName))) return;
 
-    let failed = false;
-    if (hasMaterialsCheckedOut) {
-      const billed = billedByJob[j.jobNumber] || {};
-      const materialsUnderbilled = Object.keys(checkedOut).some(itemId => (billed[itemId] || 0) < checkedOut[itemId]);
-      if (materialsUnderbilled) failed = true;
-    }
-    if (needsTravelLine && !travelConfirmedByJob[j.jobNumber]) failed = true;
+    const captainKey = nameDedupKey(rawCaptainName);
+    const captainName = canonicalNameByKey[captainKey] || rawCaptainName;
+    if (!underbilledByCaptain[captainName]) underbilledByCaptain[captainName] = { ok: 0, total: 0 };
+    underbilledByCaptain[captainName].total++;
+    if (item.outcome === 'pass') underbilledByCaptain[captainName].ok++;
+  });
 
-    if (!failed) underbilledByCaptain[j.captainName].ok++;
+  // ---- 6. Truck Conditions -- its own category, separate from
+  // Underbilled Jobs, driven the same way: the Manager's reviewed
+  // Pass/Fail verdict on AI-flagged truck condition issues, attributed to
+  // whichever Captain drove that truck that day via the same normalized
+  // driver-name match PTI/EOD compliance already uses. An item not yet
+  // reviewed isn't counted either way.
+  const truckConditionsByCaptain = {};
+  (managerReviewItems || []).forEach(item => {
+    if (item.type !== 'truck-condition') return;
+    if (!item.reviewedAt || (item.outcome !== 'pass' && item.outcome !== 'fail')) return;
+
+    const rawCaptainName = item.driverName || null;
+    const itemDate = item.date || null;
+    if (!rawCaptainName || !itemDate || itemDate < rangeStart || itemDate >= rangeEnd) return;
+    if (opsManagerKeys.has(nameDedupKey(rawCaptainName))) return;
+    if (activeDriverKeys !== null && !activeDriverKeys.has(nameDedupKey(rawCaptainName))) return;
+
+    const captainKey = nameDedupKey(rawCaptainName);
+    const captainName = canonicalNameByKey[captainKey] || rawCaptainName;
+    if (!truckConditionsByCaptain[captainName]) truckConditionsByCaptain[captainName] = { ok: 0, total: 0 };
+    truckConditionsByCaptain[captainName].total++;
+    if (item.outcome === 'pass') truckConditionsByCaptain[captainName].ok++;
   });
 
   // ---- Combine into per-category percentages + one weighted overall
@@ -1586,12 +1579,14 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     { key: 'attendance', weight: Number(weights.attendance) || 0, get: c => (attendanceByCaptain[c] != null ? attendanceByCaptain[c] : null) },
     { key: 'ptiEod', weight: Number(weights.ptiEod) || 0, get: c => (ptiEodByCaptain[c] ? ptiEodByCaptain[c].pct : null) },
     { key: 'movePhoto', weight: Number(weights.movePhoto) || 0, get: c => pct(moveJobsByCaptain[c], 'withPhoto', 'total') },
-    { key: 'underbilled', weight: Number(weights.underbilled) || 0, get: c => pct(underbilledByCaptain[c], 'ok', 'total') }
+    { key: 'underbilled', weight: Number(weights.underbilled) || 0, get: c => pct(underbilledByCaptain[c], 'ok', 'total') },
+    { key: 'truckConditions', weight: Number(weights.truckConditions) || 0, get: c => pct(truckConditionsByCaptain[c], 'ok', 'total') }
   ];
 
   const allCaptains = new Set([
     ...Object.keys(paperworkByCaptain), ...Object.keys(attendanceByCaptain),
-    ...Object.keys(ptiEodByCaptain), ...Object.keys(moveJobsByCaptain), ...Object.keys(underbilledByCaptain)
+    ...Object.keys(ptiEodByCaptain), ...Object.keys(moveJobsByCaptain), ...Object.keys(underbilledByCaptain),
+    ...Object.keys(truckConditionsByCaptain)
   ]);
 
   const scores = {};
@@ -1670,12 +1665,13 @@ async function getActiveWingmanMetricsMonth() {
 }
 
 async function fetchCaptainMetricsRawData() {
-  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw] = await Promise.all([
+  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw, reviewItemsRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
     redis.get('paperwork-uploads'), redis.get('compliance-eod-inspections'),
     redis.get('attendance-records'), redis.get('moving-damage-reports'),
     redis.get('materials-checkouts'), redis.get('materials-items'),
-    redis.get('settings-captain-metrics-excluded-employees'), redis.get('compliance-drivers')
+    redis.get('settings-captain-metrics-excluded-employees'), redis.get('compliance-drivers'),
+    redis.get('manager-review-items')
   ]);
   const opsManagerNames = excludedRaw ? JSON.parse(excludedRaw) : [];
   // Distinguish "the key was never set" (driver data genuinely
@@ -1694,6 +1690,7 @@ async function fetchCaptainMetricsRawData() {
     movingReports: movingRaw ? JSON.parse(movingRaw) : [],
     materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
     materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
+    managerReviewItems: reviewItemsRaw ? JSON.parse(reviewItemsRaw) : [],
     opsManagerNames,
     activeDriverNames
   };
@@ -1768,12 +1765,12 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
     const data = await fetchCaptainMetricsRawData();
     const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
 
-    const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing' };
+    const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing', truckConditions: 'Truck Conditions' };
     const entries = Object.keys(scores)
       .filter(captain => scores[captain].overall !== null)
       .map(captain => {
         const s = scores[captain];
-        const breakdown = ['completedPaperwork', 'attendance', 'ptiEod', 'movePhoto', 'underbilled']
+        const breakdown = ['completedPaperwork', 'attendance', 'ptiEod', 'movePhoto', 'underbilled', 'truckConditions']
           .filter(k => s[k] !== null).map(k => `${labelMap[k]} ${s[k]}%`).join(' \u00b7 ');
         return { name: captain, value: s.overall, detail: breakdown };
       })
@@ -2122,7 +2119,7 @@ const DEFAULT_APP_SETTINGS = {
     emailCc: ''
   },
   captainMetrics: {
-    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 },
+    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10, truckConditions: 0 },
     // The travel-line-item requirement (Underbilled Jobs, for Move/Move
     // Labor jobs) only applies to jobs on or after this date. Set to the
     // day after that check actually went live (2026-09-24), so Captains
