@@ -4117,6 +4117,13 @@
       <div id="cm_underbilledRows"></div>
       <p class="form-note" id="cm_underbilledEmptyNote" style="display:none;">No applicable jobs yet this month.</p>
     </div>
+
+    <div class="panel" id="cmTruckConditionsPanel">
+      <h3>Truck Conditions</h3>
+      <p class="form-note" id="cm_truckConditionsDesc"></p>
+      <div id="cm_truckConditionsRows"></div>
+      <p class="form-note" id="cm_truckConditionsEmptyNote" style="display:none;">No applicable truck condition reviews yet this month.</p>
+    </div>
   </div>
 
   <!-- ============ OPS MANAGER METRICS DETAIL ============ -->
@@ -4506,7 +4513,7 @@
 
     <div class="panel" id="mgrreview_panel_underbilled" style="display:none;">
       <h3>Underbilled Jobs</h3>
-      <p class="form-note">Jobs where billing came in under the expected amount &mdash; from Junk Removal closeout (invoice vs. the final-photo price point) and Materials reconciliation (billed vs. what was actually used).</p>
+      <p class="form-note">Jobs the AI flagged as potentially underbilled &mdash; from Junk Removal closeout (invoice vs. the final-photo price point), Materials reconciliation (billed vs. what was actually used), and Move/Move Labor jobs missing a confirmed travel line item. Mark each Pass or Fail &mdash; that call is what counts toward the Captain's Underbilled Jobs score in Captain Metrics, not the AI's initial flag.</p>
       <div id="mgrreview_underbilledOpenRows"></div>
       <p class="form-note" id="mgrreview_underbilledEmptyNote" style="display:none;">Nothing needs review right now.</p>
 
@@ -4519,7 +4526,7 @@
 
     <div class="panel" id="mgrreview_panel_truckconditions" style="display:none;">
       <h3>Truck Conditions</h3>
-      <p class="form-note">AI-flagged truck condition issues from End of Day Inspection photo comparisons.</p>
+      <p class="form-note">AI-flagged truck condition issues from End of Day Inspection photo comparisons. Mark each Pass or Fail &mdash; that call is what counts toward the Captain's own Truck Conditions score in Captain Metrics, not the AI's initial flag.</p>
       <div id="mgrreview_truckOpenRows"></div>
       <p class="form-note" id="mgrreview_truckEmptyNote" style="display:none;">Nothing needs review right now.</p>
 
@@ -5712,7 +5719,7 @@
           </div>
 
           <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Underbilled Jobs: Travel Line Check Start Date</h4>
-          <p class="form-note" style="margin-top:0;">Move and Move Labor jobs require a confirmed "travel" line item on the invoice, but only from this date forward. Jobs before it are scored as if that requirement didn't exist (materials only, where applicable) &mdash; their invoices predate the check and could never have had a confirmed travel line in the first place, so they aren't held to it. Nothing needs reprocessing for this to take effect.</p>
+          <p class="form-note" style="margin-top:0;">Move and Move Labor jobs require a confirmed "travel" line item on the invoice, but only from this date forward. A job missing one gets flagged on the Manager Review tile's Underbilled Jobs tab for the Manager to review; jobs before this date are never flagged for it at all &mdash; their invoices predate the check and could never have had a confirmed travel line in the first place, so they aren't held to it. Nothing needs reprocessing for this to take effect.</p>
           <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
             <label>Start Date <input type="date" id="appset_cmTravelLineStartDate"></label>
             <div class="form-actions" style="margin:0;">
@@ -20536,7 +20543,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { weightKey: 'attendance', label: 'Attendance', description: 'Checked against Attendance Tracking for the month. Any unexcused tardy or absence on file for a Captain drops this category to 0% for the whole month; otherwise 100%.' },
     { weightKey: 'ptiEod', label: 'Pre-Trip and EOD Inspection Completion', description: 'Any Captain assigned a job on a given day must have both a Pre-Trip and an End of Day Inspection on file for that day. Estimates are excluded, since they never generate a job record in the first place.' },
     { weightKey: 'movePhoto', label: 'Move Job Photo Upload', description: 'Each Captain assigned a Move job must upload at least one photo of pre-existing damage for that job.' },
-    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs that were fully billed. A job is applicable if it had materials checked out (every checked-out item must be billed for at least as much as was pulled) or is a Move/Move Labor job dated on or after the travel line check start date set below (the invoice must have a line item for travel). A job meeting neither isn\u2019t counted either way.' }
+    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s AI-flagged underbilled jobs -- materials not billed, a Junk Removal shortfall, or a Move/Move Labor job missing a confirmed travel line item -- that the Manager reviewed and marked Pass on the Manager Review tile. The Manager\u2019s call is final; an item still awaiting review isn\u2019t counted either way.' },
+    { weightKey: 'truckConditions', label: 'Truck Conditions', description: 'Percentage of a Captain\u2019s AI-flagged truck condition issues (from End of Day Inspection photo comparisons) that the Manager reviewed and marked Pass on the Manager Review tile, attributed to whichever Captain drove that truck that day. The Manager\u2019s call is final; an item still awaiting review isn\u2019t counted either way.' }
   ];
   window.CAPTAIN_METRIC_CATEGORIES = CAPTAIN_METRIC_CATEGORIES; // this file has multiple separate <script> blocks, each with its own const scope -- window is the only thing shared across all of them, and renderCmWeightRows (Settings) lives in an earlier one
 
@@ -20556,7 +20564,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const monthLabel = new Date(data.month + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
       document.getElementById('cm_activeMonthNote').textContent = `Showing ${monthLabel} so far \u2014 live. Held at month-end until next month's first payroll upload.`;
 
-      const descElIdByKey = { completedPaperwork: 'paperwork', attendance: 'attendance', ptiEod: 'ptiEod', movePhoto: 'movePhoto', underbilled: 'underbilled' };
+      const descElIdByKey = { completedPaperwork: 'paperwork', attendance: 'attendance', ptiEod: 'ptiEod', movePhoto: 'movePhoto', underbilled: 'underbilled', truckConditions: 'truckConditions' };
       window.CAPTAIN_METRIC_CATEGORIES.forEach(cat => {
         const el = document.getElementById(`cm_${descElIdByKey[cat.weightKey]}Desc`);
         if(el) el.textContent = cat.description;
@@ -20567,6 +20575,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderCmCategoryTable('cm_ptiEodRows', 'cm_ptiEodEmptyNote', data.scores, 'ptiEod');
       renderCmCategoryTable('cm_movePhotoRows', 'cm_movePhotoEmptyNote', data.scores, 'movePhoto');
       renderCmCategoryTable('cm_underbilledRows', 'cm_underbilledEmptyNote', data.scores, 'underbilled');
+      renderCmCategoryTable('cm_truckConditionsRows', 'cm_truckConditionsEmptyNote', data.scores, 'truckConditions');
 
       const captainSelect = document.getElementById('cm_trendCaptainSelect');
       const existingValue = captainSelect.value;
@@ -20722,6 +20731,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           createdAt: new Date().toISOString(),
           reviewedAt: null,
           reviewedBy: null,
+          outcome: null,
           eodRecordId: e.id,
           driverName: e.driverName,
           truckNickname: e.truckNickname || '',
@@ -20733,6 +20743,65 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
       if(changed) await window.dashboardApi.set('manager-review-items', reviewItems);
     }catch(err){ console.error('Truck conditions sync to Manager Review failed:', err); }
+  }
+
+  // Move/Move Labor jobs dated on or after the configured cutoff that are
+  // missing a confirmed "travel" line item on their invoice -- previously
+  // a silent, purely automatic check feeding straight into Captain
+  // Metrics; now surfaced here like every other underbilled problem, for
+  // the Manager to make the final call on.
+  const MOVE_JOB_TYPES_FOR_TRAVEL_CHECK = new Set(['move', 'movelabor']);
+  function computeTravelLineUnderbilledProblems(archive, uploads, travelLineCheckStartDate){
+    const travelConfirmedByJob = {};
+    (uploads || []).forEach(u => { if(u.jobNumber && u.hasTravelLineItem === true) travelConfirmedByJob[u.jobNumber] = true; });
+    return (archive || []).filter(j => {
+      if(!j.jobNumber || !j.assignmentDate) return false;
+      const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) &&
+        (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate);
+      return needsTravelLine && !travelConfirmedByJob[j.jobNumber];
+    }).map(j => ({ jobNumber: j.jobNumber, jobDate: j.assignmentDate, clientName: j.clientName, captainName: j.captainName }));
+  }
+
+  // Keeps Manager Review's Underbilled Jobs tab in sync with this live
+  // check, same upsert pattern as the materials sync: adds a new entry
+  // for a newly-detected problem, refreshes an existing unreviewed one in
+  // place, and drops an unreviewed entry whose invoice has since picked
+  // up a confirmed travel line. Already-reviewed history is never touched.
+  async function syncTravelLineUnderbilledToManagerReview(problems){
+    try{
+      let reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
+      const currentJobNumbers = new Set(problems.map(p => p.jobNumber));
+
+      const beforeCount = reviewItems.length;
+      reviewItems = reviewItems.filter(item => {
+        if(item.source !== 'travel-line' || item.type !== 'underbilled') return true;
+        if(item.reviewedAt) return true;
+        return currentJobNumbers.has(item.jobNumber);
+      });
+      let changed = reviewItems.length !== beforeCount;
+
+      problems.forEach(p => {
+        const existing = reviewItems.find(item => item.source === 'travel-line' && item.type === 'underbilled' && item.jobNumber === p.jobNumber);
+        if(existing){
+          if(existing.jobDate !== p.jobDate || existing.clientName !== p.clientName || existing.captainName !== p.captainName){
+            existing.jobDate = p.jobDate;
+            existing.clientName = p.clientName;
+            existing.captainName = p.captainName;
+            changed = true;
+          }
+        } else {
+          reviewItems.push({
+            id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + p.jobNumber,
+            type: 'underbilled', source: 'travel-line',
+            createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, outcome: null,
+            jobNumber: p.jobNumber, jobDate: p.jobDate, clientName: p.clientName, captainName: p.captainName
+          });
+          changed = true;
+        }
+      });
+
+      if(changed) await window.dashboardApi.set('manager-review-items', reviewItems);
+    }catch(err){ console.error('Travel-line underbilled sync to Manager Review failed:', err); }
   }
 
   // ---------- Ops Manager Metrics ----------
@@ -22077,7 +22146,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           reviewItems.push({
             id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + jobNumber,
             type: 'underbilled', source: 'materials',
-            createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null,
+            createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, outcome: null,
             jobNumber, jobDate, items: itemsDetail
           });
           changed = true;
@@ -23181,13 +23250,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       managerReviewItems = kept;
       if(changed) await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
 
-      // Both syncs below normally piggyback on the Materials and Captain
-      // Metrics tiles' own loads -- but a manager opening this tile
-      // directly, without having visited either of those first this
+      // All three syncs below normally piggyback on the Materials and
+      // Captain Metrics tiles' own loads -- but a manager opening this
+      // tile directly, without having visited any of those first this
       // session, should still see current data, not an empty list. So
       // this fetches the same underlying records those tiles use and
-      // runs both syncs here too. Harmless to run twice in the same
-      // session -- both syncs are idempotent upserts.
+      // runs all three syncs here too. Harmless to run twice in the same
+      // session -- all three syncs are idempotent upserts.
+      await window.ensureAppSettingsLoaded();
+      const travelLineCheckStartDate = (window.appSettings.captainMetrics || {}).travelLineCheckStartDate || '';
       const [matItemsRaw, matCheckoutsRaw, uploadsRaw, archiveRaw, eodRaw] = await Promise.all([
         window.dashboardApi.get(MATERIALS_ITEMS_KEY, []),
         window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []),
@@ -23202,12 +23273,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const problems = computeMaterialsUnderbilledProblems(uploadsRaw || [], archiveRaw || [], eodRecords);
       await syncMaterialsUnderbilledToManagerReview(problems);
 
+      const travelLineProblems = computeTravelLineUnderbilledProblems(archiveRaw || [], uploadsRaw || [], travelLineCheckStartDate);
+      await syncTravelLineUnderbilledToManagerReview(travelLineProblems);
+
       const flaggedTruckIssues = eodRecords
         .filter(e => e.visionStatus === 'issues_found' && Array.isArray(e.visionIssues) && e.visionIssues.length > 0);
       await syncTruckConditionsToManagerReview(flaggedTruckIssues);
 
-      // Re-read once more since both syncs above may have just changed
-      // what's actually stored.
+      // Re-read once more since all three syncs above may have just
+      // changed what's actually stored.
       items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
       managerReviewItems = items;
 
@@ -23307,12 +23381,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </tr>`).join('');
   }
 
-  // ---- Shared close-out action ----
-  async function mgrReviewCloseOut(id){
+  // ---- Shared review action -- the AI's initial flag is never the final
+  // word; the Manager's Pass/Fail verdict here is what actually counts
+  // toward Captain Metrics' Underbilled Jobs score. An item left open
+  // (not yet reviewed) isn't counted toward that score either way. ----
+  async function mgrReviewMarkOutcome(id, outcome){
     const item = managerReviewItems.find(i => i.id === id);
     if(!item) return;
     item.reviewedAt = new Date().toISOString();
     item.reviewedBy = localStorage.getItem('henson_auth_email') || '';
+    item.outcome = outcome;
     const ok = await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
     if(ok){
       renderMgrReviewTabCounts();
@@ -23322,12 +23400,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
 
+  // Shared by both card types -- a still-open item gets Pass/Fail
+  // buttons; a reviewed one shows who decided, when, and which way.
+  function mgrReviewOutcomeButtonsHtml(id){
+    return `<button type="button" class="mgrreview-pass-btn" data-id="${id}" style="padding:6px 14px; font-size:12.5px; font-weight:600; border-radius:6px; border:1px solid #00612C; background:#fff; color:#00612C; cursor:pointer;">Pass</button>
+      <button type="button" class="mgrreview-fail-btn" data-id="${id}" style="padding:6px 14px; font-size:12.5px; font-weight:600; border-radius:6px; border:1px solid #B3261E; background:#fff; color:#B3261E; cursor:pointer;">Fail</button>`;
+  }
+  function mgrReviewReviewedNoteHtml(item){
+    const passed = item.outcome === 'pass';
+    const badge = `<span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; background:${passed ? '#E6F4EA' : '#FCDCD6'}; color:${passed ? '#00612C' : '#B3261E'};">${passed ? 'Pass' : 'Fail'}</span>`;
+    return `<div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${badge}<span class="form-note" style="margin:0;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</span></div>`;
+  }
+  function wireMgrReviewOutcomeButtons(scopeSelector){
+    document.querySelectorAll(`${scopeSelector} .mgrreview-pass-btn`).forEach(btn => btn.addEventListener('click', (e)=> mgrReviewMarkOutcome(e.currentTarget.dataset.id, 'pass')));
+    document.querySelectorAll(`${scopeSelector} .mgrreview-fail-btn`).forEach(btn => btn.addEventListener('click', (e)=> mgrReviewMarkOutcome(e.currentTarget.dataset.id, 'fail')));
+  }
+
   // ---- Underbilled Jobs ----
-  function mgrReviewUnderbilledCardHtml(item, showCloseOut){
-    const sourceLabel = item.source === 'junk-removal' ? 'Junk Removal' : 'Materials';
+  function mgrReviewUnderbilledCardHtml(item, showButtons){
+    const sourceLabels = { 'junk-removal': 'Junk Removal', 'travel-line': 'Travel Line', materials: 'Materials' };
+    const sourceLabel = sourceLabels[item.source] || 'Materials';
     let detailHtml;
     if(item.source === 'junk-removal'){
       detailHtml = `<div style="font-size:12.5px;">Expected at least $${(item.expectedAmount||0).toFixed(2)}, billed $${(item.billedAmount||0).toFixed(2)} \u2014 short by $${(item.shortfall||0).toFixed(2)}.</div>`;
+    } else if(item.source === 'travel-line'){
+      detailHtml = `<div style="font-size:12.5px;">Move/Move Labor job with no confirmed "travel" line item on the invoice.</div>`;
     } else {
       detailHtml = (item.items || []).map(d => {
         const returnedNote = d.returned > 0 ? `, returned ${d.returned}, net used ${d.netUsed}` : '';
@@ -23341,8 +23438,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <span style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">${sourceLabel}</span>
         </div>
         ${item.jobDate ? `<div style="font-size:12.5px; color:var(--muted);">Job Date: ${window.fmtDate(item.jobDate)}</div>` : ''}
+        ${item.captainName ? `<div style="font-size:12.5px; color:var(--muted);">Captain: ${mgrReviewEsc(item.captainName)}</div>` : ''}
         ${detailHtml}
-        ${showCloseOut ? `<button type="button" class="mgrreview-closeout-btn btn-primary" data-id="${item.id}" style="margin-top:8px; padding:6px 14px; font-size:12.5px;">Close Out</button>` : `<div class="form-note" style="margin-top:6px;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</div>`}
+        ${showButtons ? `<div style="display:flex; gap:8px; margin-top:8px;">${mgrReviewOutcomeButtonsHtml(item.id)}</div>` : mgrReviewReviewedNoteHtml(item)}
       </div>`;
   }
 
@@ -23366,7 +23464,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     reviewedCountEl.textContent = `(${reviewed.length})`;
     reviewedRowsEl.innerHTML = reviewed.map(i => mgrReviewUnderbilledCardHtml(i, false)).join('');
 
-    document.querySelectorAll('#mgrreview_panel_underbilled .mgrreview-closeout-btn').forEach(btn => btn.addEventListener('click', (e)=> mgrReviewCloseOut(e.currentTarget.dataset.id)));
+    wireMgrReviewOutcomeButtons('#mgrreview_panel_underbilled');
   }
 
   document.getElementById('mgrreview_underbilledReviewedToggle').addEventListener('click', ()=>{
@@ -23378,7 +23476,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   });
 
   // ---- Truck Conditions ----
-  function mgrReviewTruckCardHtml(item, showCloseOut){
+  function mgrReviewTruckCardHtml(item, showButtons){
     return `
       <div style="border:1px solid #E8A69C; background:#FDEDEA; border-radius:8px; padding:12px 14px; margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
@@ -23391,9 +23489,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </ul>
         <div style="display:flex; gap:8px; margin-top:8px;">
           <button type="button" class="mgrreview-viewphotos-btn btn-secondary" data-eod-id="${mgrReviewEsc(item.eodRecordId)}" style="padding:6px 14px; font-size:12.5px;">View Photos</button>
-          ${showCloseOut ? `<button type="button" class="mgrreview-closeout-btn btn-primary" data-id="${item.id}" style="padding:6px 14px; font-size:12.5px;">Close Out</button>` : ''}
+          ${showButtons ? mgrReviewOutcomeButtonsHtml(item.id) : ''}
         </div>
-        ${!showCloseOut ? `<div class="form-note" style="margin-top:6px;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</div>` : ''}
+        ${!showButtons ? mgrReviewReviewedNoteHtml(item) : ''}
       </div>`;
   }
 
@@ -23417,7 +23515,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     reviewedCountEl.textContent = `(${reviewed.length})`;
     reviewedRowsEl.innerHTML = reviewed.map(i => mgrReviewTruckCardHtml(i, false)).join('');
 
-    document.querySelectorAll('#mgrreview_panel_truckconditions .mgrreview-closeout-btn').forEach(btn => btn.addEventListener('click', (e)=> mgrReviewCloseOut(e.currentTarget.dataset.id)));
+    wireMgrReviewOutcomeButtons('#mgrreview_panel_truckconditions');
     document.querySelectorAll('#mgrreview_panel_truckconditions .mgrreview-viewphotos-btn').forEach(btn => btn.addEventListener('click', (e)=> viewMgrReviewTruckPhotos(e.currentTarget.dataset.eodId)));
   }
 
@@ -24164,6 +24262,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
               createdAt: new Date().toISOString(),
               reviewedAt: null,
               reviewedBy: null,
+              outcome: null,
               jobNumber: job.jobNumber,
               jobDate: job.assignmentDate || null,
               clientName: job.clientName,
