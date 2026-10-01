@@ -3122,10 +3122,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
             <span>Operations</span>
-            <span class="dashSectionCount">(9)</span>
+            <span class="dashSectionCount">(8)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Ops Manager Metrics, Materials, Damage Claim, Manager Review</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Materials, Damage Claim, Manager Review</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -3149,11 +3149,6 @@
         <span class="icon">📄</span>
         <h3>Job Paperwork</h3>
         <p>Pre-filled job paperwork &mdash; Bill of Lading, Liability Waiver, Declaration of Value, and more.</p>
-      </div>
-      <div class="tile" id="tile-opsmetrics" tabindex="0" role="button" aria-label="Open Ops Manager Metrics">
-        <span class="icon">📊</span>
-        <h3>Ops Manager Metrics</h3>
-        <p>Paperwork close-out and Manager Review item closeout tracking, weighted into a single overall score.</p>
       </div>
       <div class="tile" id="tile-materials" tabindex="0" role="button" aria-label="Open Materials">
         <span class="badge" id="materialsTileBadge" style="display:none;">Low Stock</span>
@@ -3183,10 +3178,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(4)</span>
+            <span class="dashSectionCount">(5)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Hiring, Captain Metrics, Wingman Metrics, Attendance Tracking</div>
+          <div class="dashSectionTileList">Hiring, Captain Metrics, Ops Manager Metrics, Wingman Metrics, Attendance Tracking</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -3200,6 +3195,11 @@
         <span class="icon">&#9875;</span>
         <h3>Captain Metrics</h3>
         <p>Pre-trip inspection compliance and completed paperwork quality, by Captain.</p>
+      </div>
+      <div class="tile" id="tile-opsmetrics" tabindex="0" role="button" aria-label="Open Ops Manager Metrics">
+        <span class="icon">📊</span>
+        <h3>Ops Manager Metrics</h3>
+        <p>Timely job closeout and Manager Review item closeout tracking, weighted into a single overall score.</p>
       </div>
       <div class="tile" id="tile-wingman" tabindex="0" role="button" aria-label="Open Wingman Metrics">
         <span class="icon">🙋</span>
@@ -4168,10 +4168,22 @@
     <div class="detail-head">
       <h2 class="display">Wingman Metrics</h2>
     </div>
-    <p class="form-note">Percentage of "yes" answers across every Captain-submitted review, per wingman, over the last 90 days. Someone with no reviews in that window doesn't appear below at all.</p>
+    <p class="form-note">Percentage of "yes" answers across every Captain-submitted review, per wingman.</p>
+    <p class="form-note" id="wm_activeMonthNote" style="font-weight:600;"></p>
 
-    <div id="wingman_scoreList"></div>
-    <p class="form-note" id="wingman_scoreEmptyNote" style="display:none;">No wingman reviews have been submitted in the last 90 days.</p>
+    <div class="panel" id="wmTrendPanel">
+      <h3>Score Trend</h3>
+      <p class="form-note">Each wingman's overall score, by week. Weeks with no applicable data for a wingman are skipped for them, rather than shown as a 0.</p>
+      <label style="max-width:260px; margin-bottom:12px;">Wingman <select id="wm_trendWingmanSelect"><option value="__all__">All Wingmen</option></select></label>
+      <canvas id="wm_trendChart"></canvas>
+      <p class="form-note" id="wm_trendEmptyNote" style="display:none;">Not enough weekly data yet to show a trend.</p>
+    </div>
+
+    <div class="panel" id="wmScorePanel">
+      <h3>This Month</h3>
+      <div id="wingman_scoreList"></div>
+      <p class="form-note" id="wingman_scoreEmptyNote" style="display:none;">No wingman reviews have been submitted this month.</p>
+    </div>
   </div>
 
   <div id="opsMetricsDetail" style="display:none;">
@@ -4180,12 +4192,19 @@
       <h2 class="display">Ops Manager Metrics</h2>
     </div>
     <p class="form-note" id="om_assignedToNote"></p>
-    <p class="form-note">More operational metrics will be added here over time.</p>
+    <p class="form-note" id="om_activeMonthNote" style="font-weight:600;"></p>
 
     <div class="panel" id="omOverallScorePanel">
       <h3>Overall Score</h3>
       <div id="om_overallScoreDisplay" style="font-size:36px; font-weight:800; line-height:1.1;"></div>
       <div id="om_overallScoreBreakdown" style="font-size:13px; color:var(--muted); margin-top:6px;"></div>
+    </div>
+
+    <div class="panel" id="omTrendPanel">
+      <h3>Score Trend</h3>
+      <p class="form-note">The Ops Manager's overall weighted score, by week. Weeks with no applicable data for a category are skipped for it, rather than shown as a 0.</p>
+      <canvas id="om_trendChart"></canvas>
+      <p class="form-note" id="om_trendEmptyNote" style="display:none;">Not enough weekly data yet to show a trend.</p>
     </div>
 
     <div class="panel" id="omPaperworkCloseoutPanel">
@@ -5675,19 +5694,6 @@
           </div>
         </div>
 
-        <div class="panel" id="set_captainMetricsPanel" data-collapsible="true">
-          <h3>Captain Metrics</h3>
-          <p class="form-note" id="appset_cmResetDateCurrent" style="margin-top:0;"></p>
-          <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
-            <label>Metrics Reset Date <input type="date" id="appset_cmResetDate"></label>
-            <div class="form-actions" style="margin:0;">
-              <button type="button" id="appset_cmResetDateBtn" style="background:#B3261E; border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Set Reset Date</button>
-              <span class="status-msg" id="appset_cmResetDateStatus"></span>
-            </div>
-          </div>
-          <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from every section of Captain Metrics &mdash; Pre-Trip/End of Day Compliance, Truck Condition Issues, and Paperwork Quality &mdash; for every Captain. Nothing is deleted; it's just left out of the scoring. Since this changes how every Captain's performance is measured, it requires your Override PIN to change.</p>
-        </div>
-
         <div class="panel" id="set_captainMetricsWeightsPanel" data-collapsible="true">
           <h3>Captain Metrics Settings</h3>
           <p class="form-note" style="margin-top:0;">Each category below produces its own percentage for a Captain. These weights control how much each one counts toward the single overall score shown on the Driver Portal's Captain Leaderboard &mdash; they don't change what's shown on the Captain Metrics tile itself, which always shows each category's own percentage on its own panel. Weights must add up to 100%.</p>
@@ -5763,17 +5769,8 @@
 
         <div class="panel" id="set_opsManagerMetricsPanel" data-collapsible="true">
           <h3>Ops Manager Metrics</h3>
-          <p class="form-note" id="appset_omResetDateCurrent" style="margin-top:0;"></p>
-          <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
-            <label>Metrics Reset Date <input type="date" id="appset_omResetDate"></label>
-            <div class="form-actions" style="margin:0;">
-              <button type="button" id="appset_omResetDateBtn" style="background:#B3261E; border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Set Reset Date</button>
-              <span class="status-msg" id="appset_omResetDateStatus"></span>
-            </div>
-          </div>
-          <p class="form-note">A future date schedules the reset rather than applying it immediately &mdash; everything keeps counting normally right up until that day, then everything dated before it is automatically excluded from Ops Manager Metrics. Nothing is deleted; it's just left out of the scoring. Set independently from the Captain Metrics reset date above, since these track different things. Requires your Override PIN to change.</p>
 
-          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Category Weights</h4>
+          <h4 style="margin:0 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Category Weights</h4>
           <p class="form-note" style="margin-top:0;">Each category below produces its own percentage. These weights control how much each one counts toward the single overall score shown at the top of Ops Manager Metrics. Weights must add up to 100%.</p>
           <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
             <thead><tr>
@@ -6101,12 +6098,8 @@
       emailBody: 'Hi {{firstName}},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n{{link}}\n\nIf you have any questions, just reach out.\n\nThanks,\nCollege Hunks Hauling Junk & Moving \u2013 Augusta',
       emailCc: ''
     },
-    captainMetrics: {
-      resetDate: ''
-    },
-    opsManagerMetrics: {
-      resetDate: ''
-    },
+    captainMetrics: {},
+    opsManagerMetrics: {},
     junkRemoval: {
       pricing: [
         { tier: '1/8', label: '1/8 Truckload', price: 119 },
@@ -6145,18 +6138,6 @@
     return window.appSettings;
   }
   window.ensureAppSettingsLoaded = ensureAppSettingsLoaded;
-
-  // A future reset date is scheduled, not yet active -- everything still
-  // counts normally until that day arrives. Shared so this reads the same
-  // way everywhere it's shown (Captain Metrics and Ops Manager Metrics).
-  function formatResetDateStatus(resetDate, metricsLabel){
-    if(!resetDate) return `Not currently set \u2014 ${metricsLabel} includes all history.`;
-    const todayStr = new Date().toISOString().slice(0,10);
-    if(resetDate > todayStr){
-      return `Scheduled for ${window.fmtDate(resetDate)} \u2014 still counting all history until then. Nothing will be excluded from ${metricsLabel} until that day arrives.`;
-    }
-    return `Active since ${window.fmtDate(resetDate)} \u2014 nothing before that date counts toward ${metricsLabel}.`;
-  }
 
   let weeks = [];
   let chart = null;
@@ -7134,12 +7115,16 @@
         document.getElementById(id).value = '';
       });
       document.getElementById('payrollUploadStatus').textContent = '';
-      // A payroll week dated in a later month is what triggers Captain
-      // Metrics to lock the prior month's scores (tied to monthly
-      // commission) -- fire-and-forget, since this is background
-      // housekeeping, not something worth blocking the save confirmation on.
+      // A payroll week dated in a later month is what triggers Captain,
+      // Wingman, and Ops Manager Metrics to each lock the prior month's
+      // scores (tied to monthly commission) -- fire-and-forget, since this
+      // is background housekeeping, not something worth blocking the save
+      // confirmation on.
       fetch(`${API_BASE}/api/admin/captain-metrics/check-month-lock`, { method: 'POST', headers: authHeaders() })
         .catch(err => console.error('Captain Metrics month-lock check failed:', err));
+      fetch(`${API_BASE}/api/admin/wingman-metrics/check-month-lock`, { method: 'POST', headers: authHeaders() })
+        .catch(err => console.error('Wingman Metrics month-lock check failed:', err));
+      if(window.checkOpsManagerMetricsMonthLock) window.checkOpsManagerMetricsMonthLock();
       // Real payroll data for this week just arrived -- if any of these
       // employees were previously only in the manually-added roster list
       // (added before they'd shown up in a real payroll upload), that
@@ -13686,13 +13671,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_hiringEmailCc').value = hiringEmailSettings.emailCc || '';
     document.getElementById('appset_ldQuoteCc').value = longDistanceQuote.ccEmails || '';
     document.getElementById('appset_ldQuoteEmailBody').value = longDistanceQuote.emailBodyTemplate || '';
-    document.getElementById('appset_cmResetDate').value = captainMetrics.resetDate || '';
-    document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(captainMetrics.resetDate, 'Captain Metrics');
     renderCmWeightRows(captainMetrics.weights || { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 });
     document.getElementById('appset_cmTravelLineStartDate').value = captainMetrics.travelLineCheckStartDate || '2026-09-25';
     loadCaptainMetricsExclusions();
-    document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
-    document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
     renderOmWeightRows(opsManagerMetrics.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 });
     document.getElementById('appset_omReviewWindowDays').value = opsManagerMetrics.reviewCloseoutWindowDays || 2;
     document.getElementById('appset_omTimelyCloseoutWindowDays').value = opsManagerMetrics.timelyCloseoutWindowDays || 4;
@@ -14990,113 +14971,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   });
 
-  document.getElementById('appset_cmResetDateBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('appset_cmResetDateStatus');
-    const resetDate = document.getElementById('appset_cmResetDate').value;
-    if(!resetDate){
-      statusEl.textContent = 'Choose a date first.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    const pin = prompt('Enter the Administrator Override PIN to change the Captain Metrics reset date:');
-    if(pin === null) return; // cancelled
-    statusEl.textContent = 'Verifying PIN...';
-    statusEl.className = 'status-msg';
-    try{
-      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
-        method: 'POST',
-        headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ pin })
-      });
-      if(handleAuthFailure(pinRes)) return;
-      const pinData = await pinRes.json();
-      if(!pinRes.ok){
-        statusEl.textContent = pinData.error || 'Could not verify PIN.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      if(!pinData.valid){
-        statusEl.textContent = 'Incorrect PIN.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      statusEl.textContent = 'Saving...';
-      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
-        method: 'POST',
-        headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { captainMetrics: { resetDate } } })
-      });
-      if(handleAuthFailure(saveRes)) return;
-      const saveData = await saveRes.json();
-      if(!saveRes.ok){
-        statusEl.textContent = saveData.error || 'Could not save the reset date.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      window.appSettings.captainMetrics = Object.assign({}, window.appSettings.captainMetrics, { resetDate });
-      document.getElementById('appset_cmResetDateCurrent').textContent = formatResetDateStatus(resetDate, 'Captain Metrics');
-      statusEl.textContent = 'Reset date saved.';
-      statusEl.className = 'status-msg ok';
-    }catch(err){
-      console.error('Set Captain Metrics reset date failed:', err);
-      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
-      statusEl.className = 'status-msg err';
-    }
-  });
-
-  document.getElementById('appset_omResetDateBtn').addEventListener('click', async ()=>{
-    const statusEl = document.getElementById('appset_omResetDateStatus');
-    const resetDate = document.getElementById('appset_omResetDate').value;
-    if(!resetDate){
-      statusEl.textContent = 'Choose a date first.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    const pin = prompt('Enter the Administrator Override PIN to change the Ops Manager Metrics reset date:');
-    if(pin === null) return; // cancelled
-    statusEl.textContent = 'Verifying PIN...';
-    statusEl.className = 'status-msg';
-    try{
-      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
-        method: 'POST',
-        headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ pin })
-      });
-      if(handleAuthFailure(pinRes)) return;
-      const pinData = await pinRes.json();
-      if(!pinRes.ok){
-        statusEl.textContent = pinData.error || 'Could not verify PIN.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      if(!pinData.valid){
-        statusEl.textContent = 'Incorrect PIN.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      statusEl.textContent = 'Saving...';
-      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
-        method: 'POST',
-        headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { opsManagerMetrics: { resetDate } } })
-      });
-      if(handleAuthFailure(saveRes)) return;
-      const saveData = await saveRes.json();
-      if(!saveRes.ok){
-        statusEl.textContent = saveData.error || 'Could not save the reset date.';
-        statusEl.className = 'status-msg err';
-        return;
-      }
-      window.appSettings.opsManagerMetrics = Object.assign({}, window.appSettings.opsManagerMetrics, { resetDate });
-      document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(resetDate, 'Ops Manager Metrics');
-      statusEl.textContent = 'Reset date saved.';
-      statusEl.className = 'status-msg ok';
-    }catch(err){
-      console.error('Set Ops Manager Metrics reset date failed:', err);
-      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
-      statusEl.className = 'status-msg err';
-    }
-  });
 
   document.getElementById('appset_marketingSaveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('appset_marketingStatus');
@@ -20896,16 +20770,80 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       .join(' \u00b7 ');
   }
 
+  function monthAfterClient(monthStr){
+    const [y, m] = monthStr.split('-').map(Number);
+    const nm = m === 12 ? 1 : m + 1;
+    const ny = m === 12 ? y + 1 : y;
+    return `${ny}-${String(nm).padStart(2, '0')}`;
+  }
+
+  const OPS_MANAGER_METRICS_LOCKS_KEY = 'ops-manager-metrics-monthly-locks';
+
+  // Computes Ops Manager's three category scores and overall score for
+  // one explicit [rangeStart, rangeEnd) range -- shared by the monthly
+  // lock-snapshot computation and the trend chart, so there's one
+  // definition of "Ops Manager's score for a period," not several.
+  async function computeOpsManagerScoresForRange(archive, uploads, reviewItems, timelyCloseoutWindowDays, reviewWindowDays, weights, rangeStart, rangeEnd){
+    const timelyCloseoutPct = window.computeOpsManagerTimelyCloseoutForWeek(archive, uploads, timelyCloseoutWindowDays, rangeStart, rangeEnd);
+    const reviewPct = window.computeOpsManagerReviewCloseoutForWeek(reviewItems, reviewWindowDays, rangeStart, rangeEnd);
+    let captainScoresPct = null;
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/captain-metrics/for-range?rangeStart=${rangeStart}&rangeEnd=${rangeEnd}`, { headers: authHeaders() });
+      if(res.ok){
+        const data = await res.json();
+        const values = Object.values(data.scores || {}).map(s => s && s.overall).filter(v => typeof v === 'number');
+        if(values.length > 0) captainScoresPct = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+      }
+    }catch(err){ console.error('Captain Metrics for-range fetch failed:', err); }
+    const overall = window.computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, weights);
+    return { timelyCloseout: timelyCloseoutPct, reviewCloseout: reviewPct, captainScores: captainScoresPct, overall };
+  }
+
+  // Client-side counterpart to the backend's getActiveMetricsMonth --
+  // same rules, same trigger (a payroll week dated in a later month),
+  // just persisted via dashboardApi instead of redis directly, since Ops
+  // Manager's scoring itself stays computed in the browser rather than
+  // moving server-side.
+  async function getActiveOpsManagerMetricsMonth(computeMonthScoresFn){
+    const [laborWeeks, locksRaw] = await Promise.all([
+      window.dashboardApi.get('labor-weeks', []),
+      window.dashboardApi.get(OPS_MANAGER_METRICS_LOCKS_KEY, [])
+    ]);
+    let locks = locksRaw || [];
+
+    const currentCalendarMonth = new Date().toISOString().slice(0, 7);
+    const latestPayrollMonth = (laborWeeks || []).reduce((max, w) => {
+      const m = (w.weekStart || '').slice(0, 7);
+      return m > max ? m : max;
+    }, '');
+
+    let activeMonth = locks.length > 0
+      ? monthAfterClient([...locks].map(l => l.month).sort().slice(-1)[0])
+      : currentCalendarMonth;
+
+    if(latestPayrollMonth && activeMonth < latestPayrollMonth){
+      const lockedMonthSet = new Set(locks.map(l => l.month));
+      let changed = false;
+      while(activeMonth < latestPayrollMonth){
+        if(!lockedMonthSet.has(activeMonth)){
+          const scores = await computeMonthScoresFn(activeMonth);
+          locks.push({ month: activeMonth, lockedAt: new Date().toISOString(), scores });
+          lockedMonthSet.add(activeMonth);
+          changed = true;
+        }
+        activeMonth = monthAfterClient(activeMonth);
+      }
+      if(changed) await window.dashboardApi.set(OPS_MANAGER_METRICS_LOCKS_KEY, locks);
+    }
+
+    return { activeMonth, locks };
+  }
+  window.getActiveOpsManagerMetricsMonth = getActiveOpsManagerMetricsMonth;
+
   async function loadOpsMetricsData(){
     try{
       await window.ensureAppSettingsLoaded();
       const omSettings = window.appSettings.opsManagerMetrics || {};
-      const configuredResetDate = omSettings.resetDate || '';
-      // A future reset date schedules the reset rather than applying it
-      // immediately -- everything keeps counting normally right up until
-      // that day arrives, then the cutoff kicks in on its own from there.
-      const todayStr = new Date().toISOString().slice(0,10);
-      const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
       const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
       const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
       const weights = omSettings.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 };
@@ -20915,37 +20853,162 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         ? `Currently assigned to ${commission.opsManagerAssignment}.`
         : 'No one is currently assigned the Ops Manager role -- set this in Configuration \u2192 Commission Rates.';
 
-      const [archiveResult, uploads, reviewItemsResult, captainCurrentResult] = await Promise.all([
+      const [archiveResult, uploads, reviewItemsResult] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
-        window.dashboardApi.get('manager-review-items', []),
-        fetch(`${API_BASE}/api/admin/captain-metrics/current`, { headers: authHeaders() }).then(r => r.ok ? r.json() : { scores: {} }).catch(() => ({ scores: {} }))
+        window.dashboardApi.get('manager-review-items', [])
       ]);
-      // Nothing dated before the reset date counts toward Ops Manager
-      // Metrics -- filtered here, centrally, before rendering. Records
-      // themselves are never touched, only left out of the scoring.
-      // Captain Scores isn't filtered by this reset date -- it comes from
-      // Captain Metrics' own current score, which has its own separate
-      // reset date and scoring period.
-      const archive = resetDate
-        ? (archiveResult || []).filter(j => {
-            const d = j.assignmentDate || (j.savedAt ? j.savedAt.slice(0,10) : '');
-            return !d || d >= resetDate;
-          })
-        : (archiveResult || []);
-      const reviewItems = resetDate
-        ? (reviewItemsResult || []).filter(i => !i.createdAt || i.createdAt.slice(0,10) >= resetDate)
-        : (reviewItemsResult || []);
+      const archive = archiveResult || [];
+      const reviewItems = reviewItemsResult || [];
 
-      const timelyCloseoutPct = renderTimelyCloseout(archive, uploads || [], timelyCloseoutWindowDays);
-      const reviewPct = renderReviewCloseout(reviewItems, reviewWindowDays);
+      // Determines the active month (same monthly cadence, same lock
+      // trigger as Captain Metrics), computing and persisting any
+      // newly-due month locks along the way.
+      const { activeMonth } = await getActiveOpsManagerMetricsMonth(async (monthStr) => {
+        const monthStart = monthStr + '-01';
+        const monthEnd = monthAfterClient(monthStr) + '-01';
+        return await computeOpsManagerScoresForRange(archive, uploads || [], reviewItems, timelyCloseoutWindowDays, reviewWindowDays, weights, monthStart, monthEnd);
+      });
+
+      const monthLabel = new Date(activeMonth + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      document.getElementById('om_activeMonthNote').textContent = `Showing ${monthLabel} so far \u2014 live. Held at month-end until next month's first payroll upload.`;
+
+      const monthStart = activeMonth + '-01';
+      const monthEnd = monthAfterClient(activeMonth) + '-01';
+
+      // Captain Scores pulls Captain Metrics' own current-month score
+      // directly -- both metrics are on the identical monthly cadence and
+      // lock trigger, so "the active month" always means the same thing
+      // in both places.
+      const captainCurrentResult = await fetch(`${API_BASE}/api/admin/captain-metrics/current`, { headers: authHeaders() }).then(r => r.ok ? r.json() : { scores: {} }).catch(() => ({ scores: {} }));
+
+      const timelyCloseoutPct = renderTimelyCloseout(archive, uploads || [], timelyCloseoutWindowDays, monthStart, monthEnd);
+      const reviewPct = renderReviewCloseout(reviewItems, reviewWindowDays, monthStart, monthEnd);
       const captainScoresPct = renderCaptainScoresAverage(captainCurrentResult.scores || {});
       renderOmOverallScore({ timelyCloseout: timelyCloseoutPct, reviewCloseout: reviewPct, captainScores: captainScoresPct }, weights);
     }catch(err){
       console.error('Ops Metrics load failed:', err);
     }
+    loadOpsManagerMetricsTrend();
   }
   window.loadOpsMetricsData = loadOpsMetricsData;
+
+  // Called right after a payroll week is saved -- checks whether an Ops
+  // Manager Metrics month has now fallen due to be locked, and locks it
+  // (and any others still overdue) if so. Client-side counterpart to
+  // Captain and Wingman's own check-month-lock backend endpoints, since
+  // Ops Manager's scoring itself lives in the browser, not the server.
+  async function checkOpsManagerMetricsMonthLock(){
+    try{
+      await window.ensureAppSettingsLoaded();
+      const omSettings = window.appSettings.opsManagerMetrics || {};
+      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
+      const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
+      const weights = omSettings.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 };
+      const [archiveResult, uploads, reviewItemsResult] = await Promise.all([
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
+        window.dashboardApi.get('manager-review-items', [])
+      ]);
+      const archive = archiveResult || [];
+      const reviewItems = reviewItemsResult || [];
+      await getActiveOpsManagerMetricsMonth(async (monthStr) => {
+        const monthStart = monthStr + '-01';
+        const monthEnd = monthAfterClient(monthStr) + '-01';
+        return await computeOpsManagerScoresForRange(archive, uploads || [], reviewItems, timelyCloseoutWindowDays, reviewWindowDays, weights, monthStart, monthEnd);
+      });
+    }catch(err){ console.error('Ops Manager Metrics month-lock check failed:', err); }
+  }
+  window.checkOpsManagerMetricsMonthLock = checkOpsManagerMetricsMonthLock;
+
+  let omTrendChart = null;
+  let omTrendWeeksCache = null;
+
+  // Ops Manager is a single-entity metric (one role, not one score per
+  // person), so this trend is a single "Overall Score" line -- no
+  // per-person dropdown the way Captain and Wingman's trends have.
+  async function loadOpsManagerMetricsTrend(){
+    try{
+      await window.ensureAppSettingsLoaded();
+      const omSettings = window.appSettings.opsManagerMetrics || {};
+      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
+      const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
+      const weights = omSettings.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 };
+
+      const [archiveResult, uploads, reviewItemsResult] = await Promise.all([
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
+        window.dashboardApi.get('manager-review-items', [])
+      ]);
+      const archive = archiveResult || [];
+      const reviewItems = reviewItemsResult || [];
+
+      const WEEKS_BACK = 12;
+      const today = new Date();
+      const day = today.getUTCDay();
+      const diffToMonday = day === 0 ? -6 : 1 - day;
+      const thisMonday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+      thisMonday.setUTCDate(thisMonday.getUTCDate() + diffToMonday);
+
+      const weekRanges = [];
+      for(let i = WEEKS_BACK - 1; i >= 0; i--){
+        const weekStart = new Date(thisMonday);
+        weekStart.setUTCDate(weekStart.getUTCDate() - (i * 7));
+        const weekStartStr = weekStart.toISOString().slice(0, 10);
+        const weekEndDate = new Date(weekStart);
+        weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7);
+        weekRanges.push({ weekStart: weekStartStr, weekEnd: weekEndDate.toISOString().slice(0, 10) });
+      }
+
+      const weeks = await Promise.all(weekRanges.map(async (wr) => {
+        const scores = await computeOpsManagerScoresForRange(archive, uploads || [], reviewItems, timelyCloseoutWindowDays, reviewWindowDays, weights, wr.weekStart, wr.weekEnd);
+        return { weekStart: wr.weekStart, overall: scores.overall };
+      }));
+
+      omTrendWeeksCache = weeks;
+      renderOmTrendChart();
+    }catch(err){ console.error('Ops Manager Metrics trend load failed:', err); }
+  }
+
+  function renderOmTrendChart(){
+    if(!omTrendWeeksCache) return;
+    const canvas = document.getElementById('om_trendChart');
+    const emptyNote = document.getElementById('om_trendEmptyNote');
+
+    const anyData = omTrendWeeksCache.some(w => w.overall != null);
+    if(!anyData){
+      canvas.style.display = 'none';
+      emptyNote.style.display = 'block';
+      if(omTrendChart){ omTrendChart.destroy(); omTrendChart = null; }
+      return;
+    }
+    canvas.style.display = 'block';
+    emptyNote.style.display = 'none';
+
+    const labels = omTrendWeeksCache.map(w => window.fmtDate(w.weekStart));
+    const dataset = {
+      label: 'Overall Score',
+      data: omTrendWeeksCache.map(w => w.overall),
+      borderColor: '#2E5C8A',
+      backgroundColor: '#2E5C8A',
+      spanGaps: true, // a week with no applicable data is skipped, not treated as a drop to zero
+      tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: false
+    };
+
+    try{
+      if(omTrendChart) omTrendChart.destroy();
+      omTrendChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets: [dataset] },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
+        }
+      });
+      window.omTrendChart = omTrendChart; // test-only visibility
+    }catch(err){ console.error('Ops Manager Metrics trend chart render failed:', err); }
+  }
 
   // ---------- Wingman Metrics (admin) ----------
   let wingmanMetricsExpanded = new Set(); // which wingmen currently have their rating history expanded (local, not persisted)
@@ -20970,11 +21033,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return;
       }
 
+      const monthLabel = new Date(data.month + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      document.getElementById('wm_activeMonthNote').textContent = `Showing ${monthLabel} so far \u2014 live. Held at month-end until next month's first payroll upload.`;
+
+      const wingmanSelect = document.getElementById('wm_trendWingmanSelect');
+      const existingWmValue = wingmanSelect.value;
+      const wingmanNames = Object.keys(data.scores || {}).sort();
+      wingmanSelect.innerHTML = '<option value="__all__">All Wingmen</option>' + wingmanNames.map(n => `<option value="${wingmanMetricsEsc(n)}">${wingmanMetricsEsc(n)}</option>`).join('');
+      wingmanSelect.value = wingmanNames.includes(existingWmValue) ? existingWmValue : '__all__';
+
       const names = Object.keys(data.scores || {}).sort((a,b) => (data.scores[b].overall||0) - (data.scores[a].overall||0));
       if(names.length === 0){
         listEl.innerHTML = '';
         emptyNote.style.display = 'block';
-        emptyNote.textContent = 'No wingman reviews have been submitted in the last 90 days.';
+        emptyNote.textContent = 'No wingman reviews have been submitted this month.';
         return;
       }
       emptyNote.style.display = 'none';
@@ -21025,8 +21097,71 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       emptyNote.style.display = 'block';
       emptyNote.textContent = 'Could not reach the server \u2014 check your connection.';
     }
+    loadWingmanMetricsTrend();
   }
   window.loadWingmanMetricsData = loadWingmanMetricsData;
+
+  let wmTrendChart = null;
+  let wmTrendWeeksCache = null;
+
+  async function loadWingmanMetricsTrend(){
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/wingman-metrics/weekly-trend`, { headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){ console.error('Wingman Metrics trend load failed:', data.error); return; }
+      wmTrendWeeksCache = data.weeks;
+      renderWmTrendChart();
+    }catch(err){ console.error('Wingman Metrics trend load failed:', err); }
+  }
+
+  function renderWmTrendChart(){
+    if(!wmTrendWeeksCache) return;
+    const canvas = document.getElementById('wm_trendChart');
+    const emptyNote = document.getElementById('wm_trendEmptyNote');
+    const selected = document.getElementById('wm_trendWingmanSelect').value;
+
+    const allWingmen = new Set();
+    wmTrendWeeksCache.forEach(w => Object.keys(w.scores).forEach(n => allWingmen.add(n)));
+    const wingmenToShow = selected === '__all__' ? [...allWingmen].sort() : [selected];
+
+    const anyData = wmTrendWeeksCache.some(w => wingmenToShow.some(n => w.scores[n] && w.scores[n].overall != null));
+    if(wingmenToShow.length === 0 || !anyData){
+      canvas.style.display = 'none';
+      emptyNote.style.display = 'block';
+      if(wmTrendChart){ wmTrendChart.destroy(); wmTrendChart = null; }
+      return;
+    }
+    canvas.style.display = 'block';
+    emptyNote.style.display = 'none';
+
+    const palette = ['#2E5C8A','#C1392B','#00843D','#17A398','#8a6d00','#7A4FA3','#B3261E','#00612C','#C77800','#455A64'];
+    const datasets = wingmenToShow.map((name, i) => ({
+      label: name,
+      data: wmTrendWeeksCache.map(w => (w.scores[name] ? w.scores[name].overall : null)),
+      borderColor: palette[i % palette.length],
+      backgroundColor: palette[i % palette.length],
+      spanGaps: true, // a week with no applicable data for this wingman is skipped, not treated as a drop to zero
+      tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: false
+    }));
+
+    const labels = wmTrendWeeksCache.map(w => window.fmtDate(w.weekStart));
+
+    try{
+      if(wmTrendChart) wmTrendChart.destroy();
+      wmTrendChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: wingmenToShow.length > 1, labels: { boxWidth: 16, font: { size: 11 } } } },
+          scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
+        }
+      });
+      window.wmTrendChart = wmTrendChart; // test-only visibility
+    }catch(err){ console.error('Wingman Metrics trend chart render failed:', err); }
+  }
+  document.getElementById('wm_trendWingmanSelect').addEventListener('change', renderWmTrendChart);
 
   // ---------- Hiring (admin) ----------
   let hiringCandidates = [];
@@ -22771,7 +22906,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return timestamps.reduce((latest, t) => (!latest || t > latest) ? t : latest, null);
   }
 
-  function renderTimelyCloseout(archive, uploads, windowDays){
+  function renderTimelyCloseout(archive, uploads, windowDays, monthStart, monthEnd){
     const summaryEl = document.getElementById('om_closeoutSummary');
     const rowsEl = document.getElementById('om_closeoutRows');
     const emptyNote = document.getElementById('om_closeoutEmptyNote');
@@ -22781,8 +22916,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     uploads.forEach(u => { if(u.jobNumber) uploadsByJob[u.jobNumber] = u; });
     // Jobs with no assignment date on file fall back to when their
     // paperwork record was saved, so nothing with a genuinely missing
-    // date gets silently excluded from the metric altogether.
-    const jobs = archive.filter(j => j.jobNumber && (j.assignmentDate || j.savedAt));
+    // date gets silently excluded from the metric altogether. Scoped to
+    // this specific calendar month, same as every other Captain-Metrics-
+    // modeled tile.
+    const jobs = archive.filter(j => {
+      if(!j.jobNumber) return false;
+      const d = j.assignmentDate || (j.savedAt ? j.savedAt.slice(0,10) : '');
+      return !!d && d >= monthStart && d < monthEnd;
+    });
 
     const nowMs = Date.now();
     const windowMs = windowDays * 24 * 60 * 60 * 1000;
@@ -22889,7 +23030,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return item.type || '\u2014';
   }
 
-  function renderReviewCloseout(reviewItems, windowDays){
+  function renderReviewCloseout(reviewItems, windowDays, monthStart, monthEnd){
     const summaryEl = document.getElementById('om_reviewCloseoutSummary');
     const rowsEl = document.getElementById('om_reviewCloseoutRows');
     const emptyNote = document.getElementById('om_reviewCloseoutEmptyNote');
@@ -22897,7 +23038,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     const nowMs = Date.now();
     const windowMs = windowDays * 24 * 60 * 60 * 1000;
-    const statused = reviewItems.map(item => {
+    const monthItems = reviewItems.filter(i => i.createdAt && i.createdAt.slice(0,10) >= monthStart && i.createdAt.slice(0,10) < monthEnd);
+    const statused = monthItems.map(item => {
       const createdMs = item.createdAt ? new Date(item.createdAt).getTime() : NaN;
       if(Number.isNaN(createdMs)) return null;
       if(item.reviewedAt){
