@@ -4350,12 +4350,6 @@
       </div>
     </div>
 
-    <div class="panel" id="matUnderbilledPanel">
-      <h3>Underbilled Jobs</h3>
-      <p class="form-note">Compares what drivers checked materials out for against what was actually billed for that job in Completed Paperwork. A job shows up here if more was pulled from the racks than was billed.</p>
-      <div id="mat_underbilledRows"></div>
-      <p class="form-note" id="mat_underbilledEmptyNote" style="display:none;">No underbilled jobs found.</p>
-    </div>
   </div>
 
   <!-- ============ DAMAGE CLAIM DETAIL ============ -->
@@ -22274,40 +22268,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return problems;
   }
 
-  function renderMaterialsUnderbilled(uploads, archive, eodRecords){
-    const rowsEl = document.getElementById('mat_underbilledRows');
-    const emptyNote = document.getElementById('mat_underbilledEmptyNote');
-    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
-    const problems = computeMaterialsUnderbilledProblems(uploads, archive, eodRecords);
-    syncMaterialsUnderbilledToManagerReview(problems);
-
-    if(problems.length === 0){
-      rowsEl.innerHTML = '';
-      emptyNote.style.display = 'block';
-      return;
-    }
-    emptyNote.style.display = 'none';
-
-    const byJob = {};
-    problems.forEach(p => { (byJob[p.jobNumber] = byJob[p.jobNumber] || []).push(p); });
-
-    rowsEl.innerHTML = Object.keys(byJob).sort().map(jobNumber => {
-      const jobProblems = byJob[jobNumber];
-      const anyUnbilled = jobProblems.some(p => !p.hasBillingRecord);
-      return `
-        <div style="border:1px solid ${anyUnbilled ? 'var(--line)' : '#E8A69C'}; background:${anyUnbilled ? 'var(--offwhite)' : '#FCDCD6'}; border-radius:8px; padding:12px 14px; margin-bottom:8px;">
-          <div style="font-weight:700; margin-bottom:4px;">Job # ${matEsc(jobNumber)}</div>
-          ${jobProblems.map(p => {
-            const item = itemsById.get(p.itemId);
-            const label = item ? item.description : '(item no longer on file)';
-            const quotedNote = p.quoted !== null ? `quoted ${p.quoted}, ` : '';
-            const returnedNote = p.returned > 0 ? `, returned ${p.returned}, net used ${p.netUsed}` : '';
-            return `<div style="font-size:12.5px;">${matEsc(label)}: ${quotedNote}pulled ${p.checkedOut}${returnedNote}, billed ${p.billed}${!p.hasBillingRecord ? ' (materials not yet entered for this job)' : ''}</div>`;
-          }).join('')}
-        </div>`;
-    }).join('');
-  }
-
   // Keeps Manager Review's Underbilled Jobs tab in sync with this live
   // check every time it runs: adds a new entry for a newly-detected
   // problem, refreshes the detail on an existing unreviewed one (in case
@@ -22379,7 +22339,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       materialsCheckouts = checkouts || [];
       renderMaterialsItemList();
       renderMaterialsLowStock();
-      renderMaterialsUnderbilled(uploads || [], archive || [], eodRecords || []);
+      // The Materials tile no longer shows its own Underbilled Jobs list --
+      // Manager Review's Underbilled Jobs tab is the one place for these.
+      // The check still runs here so that tab stays current.
+      syncMaterialsUnderbilledToManagerReview(computeMaterialsUnderbilledProblems(uploads || [], archive || [], eodRecords || []));
       updateMaterialsTileBadge();
     }catch(err){
       console.error('Materials load failed:', err);
