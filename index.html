@@ -4522,7 +4522,11 @@
 
     <div class="panel" id="mgrreview_panel_underbilled" style="display:none;">
       <h3>Underbilled Jobs</h3>
-      <p class="form-note">Jobs the AI flagged as potentially underbilled &mdash; from Junk Removal closeout (invoice vs. the final-photo price point), Materials reconciliation (billed vs. what was actually used), and Move/Move Labor jobs missing a confirmed travel line item. Mark each Pass or Fail &mdash; that call is what counts toward the Captain's Underbilled Jobs score in Captain Metrics, not the AI's initial flag.</p>
+      <p class="form-note">Jobs the AI flagged as potentially underbilled &mdash; from Junk Removal closeout (invoice vs. the final-photo price point), Materials reconciliation (billed vs. what was actually used), and Move/Move Labor jobs whose invoice is on file but has no travel line item. Jobs still waiting on an invoice aren&rsquo;t flagged. If travel lines are being missed, Re-check Travel Lines re-reads the invoices already on file. Mark each Pass or Fail &mdash; that call is what counts toward the Captain's Underbilled Jobs score in Captain Metrics, not the AI's initial flag.</p>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
+        <button type="button" id="mgrreview_travelRecheckBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:13px;">Re-check Travel Lines</button>
+        <span class="status-msg" id="mgrreview_travelRecheckStatus"></span>
+      </div>
       <div id="mgrreview_underbilledOpenRows"></div>
       <p class="form-note" id="mgrreview_underbilledEmptyNote" style="display:none;">Nothing needs review right now.</p>
 
@@ -5771,7 +5775,7 @@
           </div>
 
           <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Underbilled Jobs: Travel Line Check Start Date</h4>
-          <p class="form-note" style="margin-top:0;">Move and Move Labor jobs require a confirmed "travel" line item on the invoice, but only from this date forward. A job missing one gets flagged on the Manager Review tile's Underbilled Jobs tab for the Manager to review; jobs before this date are never flagged for it at all &mdash; their invoices predate the check and could never have had a confirmed travel line in the first place, so they aren't held to it. Nothing needs reprocessing for this to take effect.</p>
+          <p class="form-note" style="margin-top:0;">Move and Move Labor jobs require a confirmed "travel" line item on the invoice, but only from this date forward. A job whose invoice is on file but has no travel line gets flagged on the Manager Review tile's Underbilled Jobs tab for the Manager to review; jobs before this date are never flagged for it at all &mdash; their invoices predate the check and could never have had a confirmed travel line in the first place, so they aren't held to it. Nothing needs reprocessing for this to take effect.</p>
           <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
             <label>Start Date <input type="date" id="appset_cmTravelLineStartDate"></label>
             <div class="form-actions" style="margin:0;">
@@ -18873,6 +18877,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // skipped, failed) is called after every job.
   async function backfillStateTaxData(onProgress){
     let checked = 0, recorded = 0, skipped = 0, failed = 0;
+    let travelFlagsUpdated = false;
     const existingRecords = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
     const alreadyCovered = new Set(existingRecords.map(r => r.jobNumber));
     const candidates = paperworkUploads.filter(u => u.jobNumber && u.invoiceUploadedAt && !alreadyCovered.has(u.jobNumber));
@@ -18919,6 +18924,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         });
         if(handleAuthFailure(res)) return { checked, total, recorded, skipped, failed };
         const data = await res.json();
+        // Saved even when the tax figures aren't confident -- the travel
+        // flag is decided independently of them.
+        if(res.ok && data.invoicePageFound && data.hasTravelLineItem === true && upload.hasTravelLineItem !== true){
+          upload.hasTravelLineItem = true;
+          travelFlagsUpdated = true;
+        }
         if(!res.ok || !data.confident){ failed++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
 
         const { matched: matchedMaterialsBilled, unmatchedDescriptions } = await matchLineItemsToMaterials(data.lineItems);
@@ -18930,6 +18941,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       if(onProgress) onProgress(checked, total, recorded, skipped, failed);
     }
+    if(travelFlagsUpdated) await savePaperworkUploadsList();
     return { checked, total, recorded, skipped, failed };
   }
 
@@ -20648,7 +20660,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { weightKey: 'attendance', label: 'Attendance', description: 'Checked against Attendance Tracking for the month. Any unexcused tardy or absence on file for a Captain drops this category to 0% for the whole month; otherwise 100%.' },
     { weightKey: 'ptiEod', label: 'Pre-Trip and EOD Inspection Completion', description: 'Any Captain assigned a job on a given day must have both a Pre-Trip and an End of Day Inspection on file for that day. Estimates are excluded, since they never generate a job record in the first place.' },
     { weightKey: 'movePhoto', label: 'Move Job Photo Upload', description: 'Each Captain assigned a Move job must upload at least one photo of pre-existing damage for that job.' },
-    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs -- materials checked out, a Junk Removal job once invoiced, or a Move/Move Labor job on or after the travel line check start date -- that are NOT Manager-confirmed bad. A job the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' },
+    { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs -- materials checked out, a Junk Removal job once invoiced, or a Move/Move Labor job on or after the travel line check start date once its invoice is on file -- that are NOT Manager-confirmed bad. A job the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' },
     { weightKey: 'truckConditions', label: 'Truck Conditions', description: 'Percentage of a Captain\u2019s End of Day Inspections that are NOT Manager-confirmed bad, attributed to whichever Captain drove that truck that day. An inspection the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' }
   ];
   window.CAPTAIN_METRIC_CATEGORIES = CAPTAIN_METRIC_CATEGORIES; // this file has multiple separate <script> blocks, each with its own const scope -- window is the only thing shared across all of them, and renderCmWeightRows (Settings) lives in an earlier one
@@ -20857,13 +20869,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // the Manager to make the final call on.
   const MOVE_JOB_TYPES_FOR_TRAVEL_CHECK = new Set(['move', 'movelabor']);
   function computeTravelLineUnderbilledProblems(archive, uploads, travelLineCheckStartDate){
+    // A job is only checked once its invoice is on file -- before that,
+    // "no confirmed travel line" just means "no invoice yet", which is
+    // already tracked separately and isn't an underbilling problem.
     const travelConfirmedByJob = {};
-    (uploads || []).forEach(u => { if(u.jobNumber && u.hasTravelLineItem === true) travelConfirmedByJob[u.jobNumber] = true; });
+    const invoicedByJob = {};
+    (uploads || []).forEach(u => {
+      if(!u.jobNumber) return;
+      if(u.invoiceUploadedAt) invoicedByJob[u.jobNumber] = true;
+      if(u.hasTravelLineItem === true) travelConfirmedByJob[u.jobNumber] = true;
+    });
     return (archive || []).filter(j => {
       if(!j.jobNumber || !j.assignmentDate) return false;
       const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) &&
         (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate);
-      return needsTravelLine && !travelConfirmedByJob[j.jobNumber];
+      return needsTravelLine && invoicedByJob[j.jobNumber] && !travelConfirmedByJob[j.jobNumber];
     }).map(j => ({ jobNumber: j.jobNumber, jobDate: j.assignmentDate, clientName: j.clientName, captainName: j.captainName }));
   }
 
@@ -20908,6 +20928,90 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(changed) await window.dashboardApi.set('manager-review-items', reviewItems);
     }catch(err){ console.error('Travel-line underbilled sync to Manager Review failed:', err); }
   }
+
+  // One-time (and safe to re-run) repair for invoices already on file that
+  // were never confirmed as having a travel line -- either processed
+  // before the flag existed, or read wrong by the old AI-only check.
+  // Uses the invoice text saved at upload time where it exists (a plain
+  // text search, no AI call); only invoices with no saved text (scans or
+  // photos) go back through the extraction endpoint. Only ever sets the
+  // flag to true -- it never un-confirms a job.
+  async function recheckTravelLines(onProgress){
+    await window.loadPaperworkUploads();
+    await window.ensureAppSettingsLoaded();
+    const startDate = (window.appSettings.captainMetrics || {}).travelLineCheckStartDate || '';
+    const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []) || [];
+    const moveJobNumbers = new Set(archive
+      .filter(j => j.jobNumber && MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) && (!startDate || (j.assignmentDate || '') >= startDate))
+      .map(j => j.jobNumber));
+    const candidates = paperworkUploads.filter(u =>
+      u.jobNumber && u.invoiceUploadedAt && u.hasTravelLineItem !== true && moveJobNumbers.has(u.jobNumber));
+
+    let checked = 0, confirmed = 0, stillMissing = 0, failed = 0;
+    const total = candidates.length;
+    let materialsNicknames = [];
+    try{ materialsNicknames = ((await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [])).map(mi => mi.nickname).filter(Boolean); }
+    catch(err){ console.error('Load materials nicknames for travel re-check failed:', err); }
+
+    for(const upload of candidates){
+      checked++;
+      try{
+        let hasTravel = null;
+        const savedText = await window.dashboardApi.get('paperwork-upload-invoicetext-' + upload.id, null);
+        const joined = Array.isArray(savedText) ? savedText.join(' ') : '';
+        if(joined.trim().length > 50){
+          hasTravel = /\btravel\b/i.test(joined);
+        } else {
+          const dataUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
+          if(!dataUri){ failed++; if(onProgress) onProgress(checked, total, confirmed, stillMissing, failed); continue; }
+          const images = await window.getImagesForAssessment(window.dataUriToFile(dataUri, upload.fileName));
+          if(images.length === 0){ failed++; if(onProgress) onProgress(checked, total, confirmed, stillMissing, failed); continue; }
+          const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
+            method: 'POST',
+            headers: authHeaders({'Content-Type': 'application/json'}),
+            body: JSON.stringify({ images, pageTexts: [], jobNumber: upload.jobNumber, materialsNicknames })
+          });
+          if(handleAuthFailure(res)) return { checked, total, confirmed, stillMissing, failed };
+          const data = await res.json();
+          if(!res.ok || !data.invoicePageFound){ failed++; if(onProgress) onProgress(checked, total, confirmed, stillMissing, failed); continue; }
+          hasTravel = data.hasTravelLineItem === true;
+        }
+        upload.travelRecheckedAt = new Date().toISOString();
+        if(hasTravel){ upload.hasTravelLineItem = true; confirmed++; }
+        else stillMissing++;
+      }catch(err){
+        console.error('Travel line re-check failed for job', upload.jobNumber, err);
+        failed++;
+      }
+      if(onProgress) onProgress(checked, total, confirmed, stillMissing, failed);
+    }
+    if(total > 0) await savePaperworkUploadsList();
+    return { checked, total, confirmed, stillMissing, failed };
+  }
+
+  document.getElementById('mgrreview_travelRecheckBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('mgrreview_travelRecheckBtn');
+    const statusEl = document.getElementById('mgrreview_travelRecheckStatus');
+    btn.disabled = true;
+    statusEl.textContent = 'Checking\u2026';
+    statusEl.className = 'status-msg';
+    try{
+      const r = await recheckTravelLines((checked, total, confirmed, stillMissing, failed) => {
+        statusEl.textContent = `Checked ${checked} of ${total} \u2014 ${confirmed} confirmed, ${stillMissing} still missing, ${failed} couldn\u2019t be read\u2026`;
+      });
+      statusEl.textContent = r.total === 0
+        ? 'Nothing to re-check \u2014 every invoiced Move/Move Labor job already has a confirmed travel line.'
+        : `Done. ${r.confirmed} of ${r.total} confirmed, ${r.stillMissing} genuinely have no travel line, ${r.failed} couldn\u2019t be read.`;
+      statusEl.className = 'status-msg ok';
+      await loadManagerReviewData();
+    }catch(err){
+      console.error('Travel line re-check failed:', err);
+      statusEl.textContent = 'Something went wrong partway through \u2014 jobs already confirmed are saved; re-running is safe.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.disabled = false;
+    }
+  });
 
   // ---------- Ops Manager Metrics ----------
   // A generic list, like CAPTAIN_METRIC_CATEGORIES -- adding a new metric
