@@ -4189,11 +4189,11 @@
     </div>
 
     <div class="panel" id="omPaperworkCloseoutPanel">
-      <h3>Paperwork Close-Out</h3>
-      <p class="form-note">Compares jobs that had paperwork created on Job Data Entry against completed paperwork that was actually uploaded and emailed to the client. Can only look back 90 days, since job-creation records aren't kept longer than that. Jobs not yet at their scheduled date are excluded.</p>
+      <h3>Timely Job Closeout</h3>
+      <p class="form-note" id="om_closeoutDesc"></p>
       <p class="form-note" id="om_closeoutSummary" style="font-weight:600;"></p>
       <div id="om_closeoutRows"></div>
-      <p class="form-note" id="om_closeoutEmptyNote" style="display:none;">No job-paperwork records found in the last 90 days.</p>
+      <p class="form-note" id="om_closeoutEmptyNote" style="display:none;">No job-paperwork records due for closeout yet.</p>
     </div>
 
     <div class="panel" id="omReviewCloseoutPanel">
@@ -4202,6 +4202,14 @@
       <p class="form-note" id="om_reviewCloseoutSummary" style="font-weight:600;"></p>
       <div id="om_reviewCloseoutRows"></div>
       <p class="form-note" id="om_reviewCloseoutEmptyNote" style="display:none;">No Manager Review items due for closeout yet.</p>
+    </div>
+
+    <div class="panel" id="omCaptainScoresPanel">
+      <h3>Captain Scores Average</h3>
+      <p class="form-note">The average of every active Captain's own current overall Captain Metrics score.</p>
+      <p class="form-note" id="om_captainScoresSummary" style="font-weight:600;"></p>
+      <div id="om_captainScoresRows"></div>
+      <p class="form-note" id="om_captainScoresEmptyNote" style="display:none;">No Captain scores available yet.</p>
     </div>
   </div>
 
@@ -5779,6 +5787,16 @@
           <div class="form-actions">
             <button type="button" id="appset_omWeightSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Weights</button>
             <span class="status-msg" id="appset_omWeightStatus"></span>
+          </div>
+
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Timely Job Closeout Window</h4>
+          <p class="form-note" style="margin-top:0;">A job counts toward the Timely Job Closeout category once it's due -- this many days after its own job date. It passes if closed out (uploaded, emailed, and HunkWare invoice reconciled) by then; a job still inside the window isn't counted yet either way.</p>
+          <div class="form-grid" style="grid-template-columns:auto 1fr; align-items:end;">
+            <label>Window (days) <input type="number" min="1" step="1" id="appset_omTimelyCloseoutWindowDays" style="max-width:100px;"></label>
+            <div class="form-actions" style="margin:0;">
+              <button type="button" id="appset_omTimelyCloseoutWindowSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Window</button>
+              <span class="status-msg" id="appset_omTimelyCloseoutWindowStatus"></span>
+            </div>
           </div>
 
           <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Manager Review Closeout Window</h4>
@@ -8546,6 +8564,21 @@
   function extraPayWeekLabel(week){
     return `${window.fmtDate(week.weekStart)} \u2013 ${window.fmtDate(week.weekEnd)}`;
   }
+  function extraPayJoinWithAnd(items){
+    if(items.length <= 1) return items.join('');
+    if(items.length === 2) return items.join(' and ');
+    return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
+  }
+  function extraPayOpsManagerScoreNote(timelyCloseoutPct, reviewPct, captainScoresPct, weekLabel){
+    const missing = [];
+    if(timelyCloseoutPct === null) missing.push('no job closeouts');
+    if(reviewPct === null) missing.push('no manager reviews');
+    if(captainScoresPct === null) missing.push('no Captain scores');
+    if(missing.length > 0){
+      return `Ops Manager score unavailable for ${weekLabel}: ${extraPayJoinWithAnd(missing)} were recorded that week.`;
+    }
+    return `Ops Manager score unavailable for ${weekLabel} \u2014 check the category weights in Configuration \u2192 Ops Manager Metrics Settings.`;
+  }
   // Commission for a given pay week is calculated from the PRIOR week's
   // payroll report, revenue, hours, and performance scores -- not that
   // week's own, which typically isn't uploaded yet while that week's
@@ -8565,8 +8598,9 @@
       await window.ensureAppSettingsLoaded();
       const commission = window.appSettings.commission || {};
       const omSettings = window.appSettings.opsManagerMetrics || {};
-      const omWeights = omSettings.weights || { paperworkCloseout: 50, reviewCloseout: 50 };
-      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 7;
+      const omWeights = omSettings.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 };
+      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
+      const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
 
       const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult] = await Promise.all([
         window.getCurrentEmployeeRoster(),
@@ -8681,15 +8715,21 @@
         const priorWeekBounds = extraPayGetWeekBounds(priorWeekStart);
         const laborWeek = laborWeeksByStart[priorWeekStart];
         const revenue = laborWeek ? Number(laborWeek.revenue) || 0 : 0;
+        let opsManagerScoreNote = null;
         if(revenue > 0){
           const hoursByKey = {};
           if(laborWeek && Array.isArray(laborWeek.employees)){
             laborWeek.employees.forEach(e => { hoursByKey[nameDedupKey(e.name)] = (Number(e.regHrs)||0) + (Number(e.otHrs)||0); });
           }
-          const paperworkPct = window.computeOpsManagerPaperworkCloseoutForWeek(archiveResult || [], uploadsResult || [], priorWeekBounds.weekStart, priorWeekBounds.weekEnd);
+          const timelyCloseoutPct = window.computeOpsManagerTimelyCloseoutForWeek(archiveResult || [], uploadsResult || [], timelyCloseoutWindowDays, priorWeekBounds.weekStart, priorWeekBounds.weekEnd);
           const reviewPct = window.computeOpsManagerReviewCloseoutForWeek(reviewItemsResult || [], reviewWindowDays, priorWeekBounds.weekStart, priorWeekBounds.weekEnd);
-          const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(paperworkPct, reviewPct, omWeights);
           const captainScores = captainScoresByWeek[w.weekStart] || {};
+          const captainScoreValues = Object.values(captainScores).map(s => s && s.overall).filter(v => typeof v === 'number');
+          const captainScoresPct = captainScoreValues.length > 0 ? Math.round(captainScoreValues.reduce((sum, v) => sum + v, 0) / captainScoreValues.length) : null;
+          const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, omWeights);
+          if(opsManagerAssignmentKey && opsManagerScore === null){
+            opsManagerScoreNote = extraPayOpsManagerScoreNote(timelyCloseoutPct, reviewPct, captainScoresPct, extraPayWeekLabel(priorWeekBounds));
+          }
           const wingmanScores = wingmanScoresByWeek[w.weekStart] || {};
 
           w.names.forEach(name => {
@@ -8722,7 +8762,7 @@
             if(total > 0) commissionCalc[name] = total;
           });
         }
-        return Object.assign({}, w, { commissionCalc, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0 });
+        return Object.assign({}, w, { commissionCalc, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
       });
 
       renderExtraPayWeeksList(weeksData);
@@ -8786,6 +8826,7 @@
         <p class="form-note" style="margin-top:0;">${w.commissionSourceAvailable
           ? `Commission below is calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report, revenue, and performance scores.`
           : `Commission will be calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report once it's uploaded to Labor Cost \u2014 not yet available.`}</p>
+        ${w.opsManagerScoreNote ? `<p class="form-note" style="margin-top:4px; color:#8a6d00;">${extraPayEsc(w.opsManagerScoreNote)}</p>` : ''}
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
@@ -13652,8 +13693,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     loadCaptainMetricsExclusions();
     document.getElementById('appset_omResetDate').value = opsManagerMetrics.resetDate || '';
     document.getElementById('appset_omResetDateCurrent').textContent = formatResetDateStatus(opsManagerMetrics.resetDate, 'Ops Manager Metrics');
-    renderOmWeightRows(opsManagerMetrics.weights || { paperworkCloseout: 50, reviewCloseout: 50 });
-    document.getElementById('appset_omReviewWindowDays').value = opsManagerMetrics.reviewCloseoutWindowDays || 7;
+    renderOmWeightRows(opsManagerMetrics.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 });
+    document.getElementById('appset_omReviewWindowDays').value = opsManagerMetrics.reviewCloseoutWindowDays || 2;
+    document.getElementById('appset_omTimelyCloseoutWindowDays').value = opsManagerMetrics.timelyCloseoutWindowDays || 4;
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
     await renderCommissionSection(s.commission || {});
     await renderWingmanQuestionsSection();
@@ -13984,9 +14026,38 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   });
 
+  document.getElementById('appset_omTimelyCloseoutWindowSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_omTimelyCloseoutWindowStatus');
+    const days = Math.max(1, Number(document.getElementById('appset_omTimelyCloseoutWindowDays').value) || 4);
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { opsManagerMetrics: { timelyCloseoutWindowDays: days } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save the window.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.opsManagerMetrics = Object.assign({}, window.appSettings.opsManagerMetrics, { timelyCloseoutWindowDays: days });
+      document.getElementById('appset_omTimelyCloseoutWindowDays').value = days;
+      statusEl.textContent = 'Window saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save Ops Manager Metrics timely closeout window failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
   document.getElementById('appset_omReviewWindowSaveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('appset_omReviewWindowStatus');
-    const days = Math.max(1, Number(document.getElementById('appset_omReviewWindowDays').value) || 7);
+    const days = Math.max(1, Number(document.getElementById('appset_omReviewWindowDays').value) || 2);
     statusEl.textContent = 'Saving...';
     statusEl.className = 'status-msg';
     try{
@@ -20796,8 +20867,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // here, not touching the weights panel or the overall-score renderer,
   // which both just iterate whatever's in this list.
   const OPS_METRIC_CATEGORIES = [
-    { weightKey: 'paperworkCloseout', label: 'Paperwork Close-Out', description: 'Percentage of jobs past their scheduled date that were fully closed out -- uploaded, emailed to the client, and HunkWare invoice reconciled. Can only look back 90 days, since job-creation records aren\u2019t kept longer than that.' },
-    { weightKey: 'reviewCloseout', label: 'Manager Review Item Closeout', description: 'Percentage of Manager Review items (Underbilled Jobs, Truck Conditions) closed out within the configured window of being created. An item still inside that window isn\u2019t counted yet either way.' }
+    { weightKey: 'timelyCloseout', label: 'Timely Job Closeout', description: 'Percentage of jobs closed out -- uploaded, emailed to the client, and HunkWare invoice reconciled -- within the configured window of their scheduled job date. A job still inside that window isn\u2019t counted yet either way.' },
+    { weightKey: 'reviewCloseout', label: 'Manager Review Item Closeout', description: 'Percentage of Manager Review items (Underbilled Jobs, Truck Conditions) closed out within the configured window of being created. An item still inside that window isn\u2019t counted yet either way.' },
+    { weightKey: 'captainScores', label: 'Captain Scores Average', description: 'The average of every active Captain\u2019s own overall Captain Metrics score.' }
   ];
   window.OPS_METRIC_CATEGORIES = OPS_METRIC_CATEGORIES;
 
@@ -20834,22 +20906,27 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // that day arrives, then the cutoff kicks in on its own from there.
       const todayStr = new Date().toISOString().slice(0,10);
       const resetDate = (configuredResetDate && configuredResetDate <= todayStr) ? configuredResetDate : '';
-      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 7;
-      const weights = omSettings.weights || { paperworkCloseout: 50, reviewCloseout: 50 };
+      const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
+      const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
+      const weights = omSettings.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 };
       const commission = window.appSettings.commission || {};
       const assignedNoteEl = document.getElementById('om_assignedToNote');
       assignedNoteEl.textContent = commission.opsManagerAssignment
         ? `Currently assigned to ${commission.opsManagerAssignment}.`
         : 'No one is currently assigned the Ops Manager role -- set this in Configuration \u2192 Commission Rates.';
 
-      const [archiveResult, uploads, reviewItemsResult] = await Promise.all([
+      const [archiveResult, uploads, reviewItemsResult, captainCurrentResult] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
-        window.dashboardApi.get('manager-review-items', [])
+        window.dashboardApi.get('manager-review-items', []),
+        fetch(`${API_BASE}/api/admin/captain-metrics/current`, { headers: authHeaders() }).then(r => r.ok ? r.json() : { scores: {} }).catch(() => ({ scores: {} }))
       ]);
       // Nothing dated before the reset date counts toward Ops Manager
       // Metrics -- filtered here, centrally, before rendering. Records
       // themselves are never touched, only left out of the scoring.
+      // Captain Scores isn't filtered by this reset date -- it comes from
+      // Captain Metrics' own current score, which has its own separate
+      // reset date and scoring period.
       const archive = resetDate
         ? (archiveResult || []).filter(j => {
             const d = j.assignmentDate || (j.savedAt ? j.savedAt.slice(0,10) : '');
@@ -20860,9 +20937,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         ? (reviewItemsResult || []).filter(i => !i.createdAt || i.createdAt.slice(0,10) >= resetDate)
         : (reviewItemsResult || []);
 
-      const paperworkPct = renderPaperworkCloseout(archive, uploads || []);
+      const timelyCloseoutPct = renderTimelyCloseout(archive, uploads || [], timelyCloseoutWindowDays);
       const reviewPct = renderReviewCloseout(reviewItems, reviewWindowDays);
-      renderOmOverallScore({ paperworkCloseout: paperworkPct, reviewCloseout: reviewPct }, weights);
+      const captainScoresPct = renderCaptainScoresAverage(captainCurrentResult.scores || {});
+      renderOmOverallScore({ timelyCloseout: timelyCloseoutPct, reviewCloseout: reviewPct, captainScores: captainScoresPct }, weights);
     }catch(err){
       console.error('Ops Metrics load failed:', err);
     }
@@ -22680,46 +22758,55 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     statusEl.className = 'status-msg ok';
   });
 
-  function renderPaperworkCloseout(archive, uploads){
+  // The moment a job's paperwork closeout actually became complete -- the
+  // latest of the three required timestamps, since all three have to be
+  // true before the job counts as closed out at all. Returns null if any
+  // requirement still isn't met.
+  function getJobCloseoutCompletedAt(upload){
+    if(!upload || !upload.emailSentAt || !upload.invoiceUploadedAt) return null;
+    const balanceOk = Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden;
+    if(!balanceOk) return null;
+    const timestamps = [upload.emailSentAt, upload.invoiceUploadedAt];
+    if(upload.balanceDueOverridden && upload.balanceDueOverriddenAt) timestamps.push(upload.balanceDueOverriddenAt);
+    return timestamps.reduce((latest, t) => (!latest || t > latest) ? t : latest, null);
+  }
+
+  function renderTimelyCloseout(archive, uploads, windowDays){
     const summaryEl = document.getElementById('om_closeoutSummary');
     const rowsEl = document.getElementById('om_closeoutRows');
     const emptyNote = document.getElementById('om_closeoutEmptyNote');
-
-    const todayStr = new Date().toISOString().slice(0,10);
-    // A job is "due" for close-out once its scheduled date has passed. Jobs
-    // with no assignment date on file fall back to 3+ days since paperwork was
-    // created, so there's a reasonable buffer before anything gets flagged.
-    const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    const dueJobs = archive.filter(j => {
-      if(!j.jobNumber) return false;
-      if(j.assignmentDate) return j.assignmentDate < todayStr;
-      return j.savedAt && new Date(j.savedAt) < threeDaysAgo;
-    });
-
-    if(dueJobs.length === 0){
-      summaryEl.textContent = '';
-      rowsEl.innerHTML = '';
-      emptyNote.style.display = 'block';
-      return null;
-    }
-    emptyNote.style.display = 'none';
+    document.getElementById('om_closeoutDesc').textContent = `Percentage of jobs closed out -- uploaded, emailed to the client, and HunkWare invoice reconciled -- within ${windowDays} day${windowDays === 1 ? '' : 's'} of their own job date. A job still inside that window isn\u2019t counted yet either way.`;
 
     const uploadsByJob = {};
     uploads.forEach(u => { if(u.jobNumber) uploadsByJob[u.jobNumber] = u; });
+    // Jobs with no assignment date on file fall back to when their
+    // paperwork record was saved, so nothing with a genuinely missing
+    // date gets silently excluded from the metric altogether.
+    const jobs = archive.filter(j => j.jobNumber && (j.assignmentDate || j.savedAt));
 
-    const statused = dueJobs.map(j => {
+    const nowMs = Date.now();
+    const windowMs = windowDays * 24 * 60 * 60 * 1000;
+    const statused = jobs.map(j => {
       const upload = uploadsByJob[j.jobNumber];
+      // An "angry" satisfaction rating means no email is required and this
+      // job shouldn't reflect on this metric at all.
+      if(upload && upload.satisfaction === 'angry') return null;
+      const startMs = j.assignmentDate ? new Date(j.assignmentDate + 'T00:00:00').getTime() : new Date(j.savedAt).getTime();
+      if(Number.isNaN(startMs)) return null;
+      const closeoutAt = getJobCloseoutCompletedAt(upload);
+      if(closeoutAt){
+        const closedInWindow = (new Date(closeoutAt).getTime() - startMs) <= windowMs;
+        return { job: j, upload, applicable: true, pass: closedInWindow, status: closedInWindow ? null : 'closed-late' };
+      }
+      const stillOpenPastWindow = (nowMs - startMs) > windowMs;
+      if(!stillOpenPastWindow) return { job: j, applicable: false }; // not yet due
       let status;
       if(!upload) status = 'not-uploaded';
       else if(!upload.emailSentAt) status = 'uploaded-no-email';
       else if(!upload.invoiceUploadedAt) status = 'no-invoice';
-      else if(!(Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden)) status = 'balance-due';
-      else status = 'complete';
-      return { job: j, upload, status };
-    // An "angry" satisfaction rating means no email is required and this
-    // job shouldn't reflect on this metric at all -- dropped entirely
-    // rather than counted as complete or incomplete either way.
-    }).filter(s => !(s.upload && s.upload.satisfaction === 'angry'));
+      else status = 'balance-due';
+      return { job: j, upload, applicable: true, pass: false, status };
+    }).filter(Boolean).filter(s => s.applicable);
 
     if(statused.length === 0){
       summaryEl.textContent = '';
@@ -22727,16 +22814,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       emptyNote.style.display = 'block';
       return null;
     }
+    emptyNote.style.display = 'none';
 
-    const completeCount = statused.filter(s => s.status === 'complete').length;
-    summaryEl.textContent = `${completeCount} of ${statused.length} jobs fully closed out (uploaded, emailed, and HunkWare invoice reconciled) in the last 90 days.`;
-    const pct = Math.round((completeCount / statused.length) * 100);
+    const passCount = statused.filter(s => s.pass).length;
+    summaryEl.textContent = `${passCount} of ${statused.length} jobs closed out within ${windowDays} day${windowDays === 1 ? '' : 's'} of their job date.`;
+    const pct = Math.round((passCount / statused.length) * 100);
 
-    const incomplete = statused.filter(s => s.status !== 'complete')
+    const incomplete = statused.filter(s => !s.pass)
       .sort((a,b) => (a.job.assignmentDate || a.job.savedAt || '').localeCompare(b.job.assignmentDate || b.job.savedAt || ''));
 
     if(incomplete.length === 0){
-      rowsEl.innerHTML = '<p class="form-note" style="margin:0;">Everything\u2019s closed out \u2014 nothing needs follow-up right now.</p>';
+      rowsEl.innerHTML = '<p class="form-note" style="margin:0;">Everything\u2019s closed out within the window \u2014 nothing needs follow-up right now.</p>';
       return pct;
     }
 
@@ -22744,7 +22832,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       'not-uploaded': { label: 'Not Uploaded', color: '#b3261e', bg: '#fdecea' },
       'uploaded-no-email': { label: 'Uploaded, Email Not Sent', color: '#8a6d00', bg: '#fdf6e3' },
       'no-invoice': { label: 'Invoice Not Uploaded', color: '#8a6d00', bg: '#fdf6e3' },
-      'balance-due': { label: 'Balance Due Not Reconciled', color: '#8a6d00', bg: '#fdf6e3' }
+      'balance-due': { label: 'Balance Due Not Reconciled', color: '#8a6d00', bg: '#fdf6e3' },
+      'closed-late': { label: 'Closed Late', color: '#8a6d00', bg: '#fdf6e3' }
     };
     rowsEl.innerHTML = '<table><thead><tr><th>Job #</th><th>Client</th><th>Captain</th><th>Job Date</th><th style="text-align:right;">Status</th></tr></thead><tbody>' +
       incomplete.map(({job, status}) => {
@@ -22758,6 +22847,34 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </tr>`;
       }).join('') + '</tbody></table>';
     return pct;
+  }
+
+  function renderCaptainScoresAverage(captainScores){
+    const summaryEl = document.getElementById('om_captainScoresSummary');
+    const rowsEl = document.getElementById('om_captainScoresRows');
+    const emptyNote = document.getElementById('om_captainScoresEmptyNote');
+
+    const entries = Object.keys(captainScores || {})
+      .map(name => ({ name, score: captainScores[name] && captainScores[name].overall }))
+      .filter(e => typeof e.score === 'number');
+
+    if(entries.length === 0){
+      summaryEl.textContent = '';
+      rowsEl.innerHTML = '';
+      emptyNote.style.display = 'block';
+      return null;
+    }
+    emptyNote.style.display = 'none';
+
+    const avg = Math.round(entries.reduce((sum, e) => sum + e.score, 0) / entries.length);
+    summaryEl.textContent = `Average of ${entries.length} Captain${entries.length === 1 ? '' : 's'}' current overall score${entries.length === 1 ? '' : 's'}.`;
+
+    rowsEl.innerHTML = '<table><thead><tr><th>Captain</th><th style="text-align:right;">Overall Score</th></tr></thead><tbody>' +
+      entries.sort((a,b) => a.name.localeCompare(b.name)).map(({name, score}) => `<tr>
+        <td>${cmEsc(name)}</td>
+        <td style="text-align:right; font-weight:600;">${score}%</td>
+      </tr>`).join('') + '</tbody></table>';
+    return avg;
   }
 
   // Manager Review items that actually go through a reviewedAt-based
@@ -22828,24 +22945,32 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return pct;
   }
 
-  // Pure, non-rendering versions of the two categories above, scoped to a
+  // Pure, non-rendering versions of the categories above, scoped to a
   // single week's dates instead of "since reset date to now" -- used for
   // commission calculation, where a specific week's own Ops Manager
   // Metrics score is needed regardless of what's currently showing live
   // on the tile itself. Same underlying definitions, just re-scoped.
-  function computeOpsManagerPaperworkCloseoutForWeek(archive, uploads, weekStart, weekEnd){
-    const weekJobs = archive.filter(j => j.jobNumber && j.assignmentDate && j.assignmentDate >= weekStart && j.assignmentDate < weekEnd);
-    if(weekJobs.length === 0) return null;
+  function computeOpsManagerTimelyCloseoutForWeek(archive, uploads, windowDays, weekStart, weekEnd){
     const uploadsByJob = {};
     uploads.forEach(u => { if(u.jobNumber) uploadsByJob[u.jobNumber] = u; });
+    const weekJobs = archive.filter(j => j.jobNumber && j.assignmentDate && j.assignmentDate >= weekStart && j.assignmentDate < weekEnd);
+    const nowMs = Date.now();
+    const windowMs = windowDays * 24 * 60 * 60 * 1000;
     const statused = weekJobs.map(j => {
       const upload = uploadsByJob[j.jobNumber];
-      const complete = !!(upload && upload.emailSentAt && upload.invoiceUploadedAt && (Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden));
-      return { upload, complete };
-    }).filter(s => !(s.upload && s.upload.satisfaction === 'angry'));
+      if(upload && upload.satisfaction === 'angry') return null;
+      const startMs = new Date(j.assignmentDate + 'T00:00:00').getTime();
+      const closeoutAt = getJobCloseoutCompletedAt(upload);
+      if(closeoutAt){
+        return { pass: (new Date(closeoutAt).getTime() - startMs) <= windowMs };
+      }
+      const stillOpenPastWindow = (nowMs - startMs) > windowMs;
+      if(!stillOpenPastWindow) return null; // not yet due
+      return { pass: false };
+    }).filter(Boolean);
     if(statused.length === 0) return null;
-    const completeCount = statused.filter(s => s.complete).length;
-    return Math.round((completeCount / statused.length) * 100);
+    const passCount = statused.filter(s => s.pass).length;
+    return Math.round((passCount / statused.length) * 100);
   }
 
   function computeOpsManagerReviewCloseoutForWeek(reviewItems, windowDays, weekStart, weekEnd){
@@ -22867,10 +22992,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return Math.round((passCount / statused.length) * 100);
   }
 
-  function computeOpsManagerOverallScoreForWeek(paperworkPct, reviewPct, weights){
+  function computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, weights){
     const categories = [
-      { pct: paperworkPct, weight: Number(weights.paperworkCloseout) || 0 },
-      { pct: reviewPct, weight: Number(weights.reviewCloseout) || 0 }
+      { pct: timelyCloseoutPct, weight: Number(weights.timelyCloseout) || 0 },
+      { pct: reviewPct, weight: Number(weights.reviewCloseout) || 0 },
+      { pct: captainScoresPct, weight: Number(weights.captainScores) || 0 }
     ].filter(c => c.pct !== null && c.weight > 0);
     if(categories.length === 0) return null;
     const weightSum = categories.reduce((s,c)=>s+c.weight, 0);
@@ -22878,8 +23004,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   // Exposed globally -- this file has multiple separate <script> blocks,
   // each with its own const/function scope, and loadExtraPayData (which
-  // needs these three) lives in an earlier one.
-  window.computeOpsManagerPaperworkCloseoutForWeek = computeOpsManagerPaperworkCloseoutForWeek;
+  // needs these) lives in an earlier one.
+  window.computeOpsManagerTimelyCloseoutForWeek = computeOpsManagerTimelyCloseoutForWeek;
   window.computeOpsManagerReviewCloseoutForWeek = computeOpsManagerReviewCloseoutForWeek;
   window.computeOpsManagerOverallScoreForWeek = computeOpsManagerOverallScoreForWeek;
 
