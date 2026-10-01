@@ -2709,6 +2709,14 @@
           return;
         }
         ptiLoggedMaterialsCheckouts.push({ jobNumber: unloggedJobNumber, items: unloggedItems });
+      } else if(ptiLoggedMaterialsCheckouts.length === 0){
+        // Nothing logged, nothing currently entered -- this is the "leave
+        // everything at 0 and submit anyway" case the form's own help
+        // text already promises. A zero-item checkout record (no job
+        // number needed) satisfies the server's "must have a Materials
+        // Checkout on file for today" requirement without making the
+        // driver invent a quantity for a job that needed nothing.
+        ptiLoggedMaterialsCheckouts.push({ jobNumber: null, items: [] });
       }
     }
 
@@ -2742,18 +2750,18 @@
           const matcoRes = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-            body: JSON.stringify({ jobNumbers: [entry.jobNumber], items: entry.items, date: todayStr })
+            body: JSON.stringify({ jobNumbers: entry.jobNumber ? [entry.jobNumber] : [], items: entry.items, date: todayStr })
           });
           if(matcoRes.status === 401){ driverSessionExpired(); return; }
           const matcoData = await matcoRes.json();
           if(!matcoRes.ok){
-            statusEl.textContent = (matcoData.error || 'Could not submit Materials Checkout.') + ` (Job # ${entry.jobNumber})`;
+            statusEl.textContent = (matcoData.error || 'Could not submit Materials Checkout.') + (entry.jobNumber ? ` (Job # ${entry.jobNumber})` : '');
             statusEl.className = 'status-msg err';
             return;
           }
         }catch(err){
           console.error('Materials checkout submit (from PTI) failed:', err);
-          statusEl.textContent = `Could not reach the server \u2014 check your connection. (Job # ${entry.jobNumber})`;
+          statusEl.textContent = `Could not reach the server \u2014 check your connection.` + (entry.jobNumber ? ` (Job # ${entry.jobNumber})` : '');
           statusEl.className = 'status-msg err';
           return;
         }
@@ -8538,6 +8546,17 @@
   function extraPayWeekLabel(week){
     return `${window.fmtDate(week.weekStart)} \u2013 ${window.fmtDate(week.weekEnd)}`;
   }
+  // Commission for a given pay week is calculated from the PRIOR week's
+  // payroll report, revenue, hours, and performance scores -- not that
+  // week's own, which typically isn't uploaded yet while that week's
+  // Extra Pay is actively being worked on. This guarantees the data
+  // commission depends on is always already closed out and available by
+  // the time anyone goes looking for it.
+  function extraPayPriorWeekStart(weekStart){
+    const d = new Date(weekStart + 'T00:00:00');
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().slice(0,10);
+  }
 
   async function loadExtraPayData(){
     try{
@@ -8611,55 +8630,64 @@
       // except the current week, which always shows regardless.
       }).filter(w => w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips);
 
-      // Default expanded unless ADP's already been uploaded for that week.
+      // Default expanded unless ADP's already been uploaded for that week
+      // -- this is about whether the pay period itself is closed out, and
+      // stays tied to the week's own ADP status regardless of which
+      // week's data commission is calculated from.
       weeksDataRaw.forEach(w => { if(!w.adpUploaded) extraPayExpandedWeeks.add(w.weekStart); });
 
-      // Commission auto-fill: revenue and hours only ever exist for a week
-      // once that week's ADP report has been uploaded to Labor Cost --
-      // which is the exact same event that locks the week. So commission
-      // can only ever be calculated for LOCKED weeks, never unlocked ones
-      // (there's simply no revenue/hours data yet for a week that hasn't
-      // had its ADP report uploaded). Only fetch Captain Metrics scores
-      // for weeks that actually have that data, not every week shown.
-      const weeksWithRevenueData = weeksDataRaw.filter(w => w.adpUploaded && laborWeeksByStart[w.weekStart]);
+      // Commission auto-fill is sourced from the PRIOR week throughout --
+      // revenue, hours, and every performance score -- never the panel's
+      // own week. That week's own payroll report typically isn't
+      // uploaded yet while its Extra Pay is actively being worked on, but
+      // the prior week's is always already closed out by then. Every
+      // piece of a given week's commission comes from that same one
+      // prior week, kept internally consistent rather than mixing
+      // revenue from one week with a score from another.
+      const weeksWithRevenueData = weeksDataRaw.filter(w => laborWeeksByStart[extraPayPriorWeekStart(w.weekStart)]);
       const captainScoresByWeek = {};
       const wingmanScoresByWeek = {};
-      await Promise.all(weeksWithRevenueData.flatMap(w => [
-        (async () => {
-          try{
-            const res = await fetch(`${API_BASE}/api/admin/captain-metrics/for-week?weekStart=${w.weekStart}`, { headers: authHeaders() });
-            if(!res.ok){ captainScoresByWeek[w.weekStart] = {}; return; }
-            const data = await res.json();
-            captainScoresByWeek[w.weekStart] = data.scores || {};
-          }catch(err){
-            console.error('Captain Metrics for-week fetch failed:', err);
-            captainScoresByWeek[w.weekStart] = {};
-          }
-        })(),
-        (async () => {
-          try{
-            const res = await fetch(`${API_BASE}/api/admin/wingman-metrics/for-week?weekStart=${w.weekStart}`, { headers: authHeaders() });
-            if(!res.ok){ wingmanScoresByWeek[w.weekStart] = {}; return; }
-            const data = await res.json();
-            wingmanScoresByWeek[w.weekStart] = data.scores || {};
-          }catch(err){
-            console.error('Wingman Metrics for-week fetch failed:', err);
-            wingmanScoresByWeek[w.weekStart] = {};
-          }
-        })()
-      ]));
+      await Promise.all(weeksWithRevenueData.flatMap(w => {
+        const priorStart = extraPayPriorWeekStart(w.weekStart);
+        return [
+          (async () => {
+            try{
+              const res = await fetch(`${API_BASE}/api/admin/captain-metrics/for-week?weekStart=${priorStart}`, { headers: authHeaders() });
+              if(!res.ok){ captainScoresByWeek[w.weekStart] = {}; return; }
+              const data = await res.json();
+              captainScoresByWeek[w.weekStart] = data.scores || {};
+            }catch(err){
+              console.error('Captain Metrics for-week fetch failed:', err);
+              captainScoresByWeek[w.weekStart] = {};
+            }
+          })(),
+          (async () => {
+            try{
+              const res = await fetch(`${API_BASE}/api/admin/wingman-metrics/for-week?weekStart=${priorStart}`, { headers: authHeaders() });
+              if(!res.ok){ wingmanScoresByWeek[w.weekStart] = {}; return; }
+              const data = await res.json();
+              wingmanScoresByWeek[w.weekStart] = data.scores || {};
+            }catch(err){
+              console.error('Wingman Metrics for-week fetch failed:', err);
+              wingmanScoresByWeek[w.weekStart] = {};
+            }
+          })()
+        ];
+      }));
 
       const weeksData = weeksDataRaw.map(w => {
         const commissionCalc = {};
-        const laborWeek = laborWeeksByStart[w.weekStart];
+        const priorWeekStart = extraPayPriorWeekStart(w.weekStart);
+        const priorWeekBounds = extraPayGetWeekBounds(priorWeekStart);
+        const laborWeek = laborWeeksByStart[priorWeekStart];
         const revenue = laborWeek ? Number(laborWeek.revenue) || 0 : 0;
         if(revenue > 0){
           const hoursByKey = {};
           if(laborWeek && Array.isArray(laborWeek.employees)){
             laborWeek.employees.forEach(e => { hoursByKey[nameDedupKey(e.name)] = (Number(e.regHrs)||0) + (Number(e.otHrs)||0); });
           }
-          const paperworkPct = window.computeOpsManagerPaperworkCloseoutForWeek(archiveResult || [], uploadsResult || [], w.week.weekStart, w.week.weekEnd);
-          const reviewPct = window.computeOpsManagerReviewCloseoutForWeek(reviewItemsResult || [], reviewWindowDays, w.week.weekStart, w.week.weekEnd);
+          const paperworkPct = window.computeOpsManagerPaperworkCloseoutForWeek(archiveResult || [], uploadsResult || [], priorWeekBounds.weekStart, priorWeekBounds.weekEnd);
+          const reviewPct = window.computeOpsManagerReviewCloseoutForWeek(reviewItemsResult || [], reviewWindowDays, priorWeekBounds.weekStart, priorWeekBounds.weekEnd);
           const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(paperworkPct, reviewPct, omWeights);
           const captainScores = captainScoresByWeek[w.weekStart] || {};
           const wingmanScores = wingmanScoresByWeek[w.weekStart] || {};
@@ -8694,7 +8722,7 @@
             if(total > 0) commissionCalc[name] = total;
           });
         }
-        return Object.assign({}, w, { commissionCalc });
+        return Object.assign({}, w, { commissionCalc, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0 });
       });
 
       renderExtraPayWeeksList(weeksData);
@@ -8755,6 +8783,9 @@
         <span class="extraPay-week-chevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px; transform:${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">&#9656;</span>
       </button>
       <div class="extraPay-week-body" style="display:${isExpanded ? 'block' : 'none'}; margin-top:16px;">
+        <p class="form-note" style="margin-top:0;">${w.commissionSourceAvailable
+          ? `Commission below is calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report, revenue, and performance scores.`
+          : `Commission will be calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report once it's uploaded to Labor Cost \u2014 not yet available.`}</p>
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
