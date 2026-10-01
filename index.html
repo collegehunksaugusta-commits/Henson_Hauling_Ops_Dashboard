@@ -204,6 +204,15 @@
   }
   .dashSection.expanded .dashSectionBody{display:block;}
 
+  /* Configuration page groupings -- same visual pattern as the dashboard's
+     own collapsible sections above (shares .dashSectionHeader,
+     .dashSectionChevron, etc. for identical styling), but under its own
+     .setGroup wrapper class so it's never swept up by the dashboard
+     section JS, which queries .dashSection specifically. */
+  .setGroup{margin-bottom:14px;}
+  .setGroup.expanded .dashSectionChevron{transform:rotate(90deg);}
+  .setGroup.expanded .dashSectionBody{display:block;}
+
   .comp-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
   .comp-section-btn.active{background:var(--charcoal); border-color:var(--charcoal); color:#fff;}
   .mail-section-btn{background:#fff; border:1px solid var(--line); color:var(--muted);}
@@ -5600,6 +5609,18 @@
       <div id="set_config" class="set-section" style="display:none;">
         <p id="set_appSettingsPanel" style="margin:0 0 20px; font-size:13.5px; color:var(--muted); line-height:1.6;">Settings used elsewhere in the dashboard, grouped by which tile they belong to. Change these here instead of asking Claude to edit the code each time &mdash; helpful as things like search sources or contact emails change over time, and for handing this off to a future owner. Each section below saves independently, so saving one never depends on any other section being filled in.</p>
 
+      <div class="setGroup" id="setGroup-marketing" data-setgroup="marketing">
+        <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-marketing" aria-expanded="false" aria-controls="setGroupBody-marketing">
+          <span class="dashSectionChevron">&#9656;</span>
+          <div class="dashSectionHeaderText">
+            <div class="dashSectionTitleRow">
+              <span class="dashSectionEmoji" aria-hidden="true">📣</span>
+              <span>Marketing</span>
+              <span class="dashSectionCount">(1)</span>
+            </div>
+          </div>
+        </button>
+        <div class="dashSectionBody" id="setGroupBody-marketing">
         <div class="panel" id="set_marketingPanel" data-collapsible="true">
           <h3>Marketing</h3>
           <label>South Carolina Search URL <input type="url" id="appset_redfinSouthCarolina"></label>
@@ -5611,7 +5632,21 @@
             <span class="status-msg" id="appset_marketingStatus"></span>
           </div>
         </div>
+        </div>
+      </div>
 
+      <div class="setGroup" id="setGroup-operations" data-setgroup="operations">
+        <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-operations" aria-expanded="false" aria-controls="setGroupBody-operations">
+          <span class="dashSectionChevron">&#9656;</span>
+          <div class="dashSectionHeaderText">
+            <div class="dashSectionTitleRow">
+              <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
+              <span>Operations</span>
+              <span class="dashSectionCount">(5)</span>
+            </div>
+          </div>
+        </button>
+        <div class="dashSectionBody" id="setGroupBody-operations">
         <div class="panel" id="set_paperworkPanel" data-collapsible="true">
           <h3>Job Paperwork</h3>
           <label>Completed Paperwork Email CC List <input type="text" id="appset_completedPaperworkCc" placeholder="email1@example.com, email2@example.com"></label>
@@ -5627,7 +5662,6 @@
             <span class="status-msg" id="appset_paperworkStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_materialsPanel" data-collapsible="true">
           <h3>Materials</h3>
           <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
@@ -5668,7 +5702,6 @@
             <span class="status-msg" id="appset_materialsStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_damageClaimsPanel" data-collapsible="true">
           <h3>Damage Claims</h3>
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
@@ -5678,7 +5711,6 @@
             <span class="status-msg" id="appset_damageClaimsStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_ldQuotePanel" data-collapsible="true">
           <h3>Long Distance Quote Email</h3>
           <label>CC Recipients <input type="text" id="appset_ldQuoteCc" placeholder="name@chhj.com, name2@chhj.com"></label>
@@ -5690,17 +5722,37 @@
             <span class="status-msg" id="appset_ldQuoteStatus"></span>
           </div>
         </div>
-
-        <div class="panel" id="set_photoStoragePanel" data-collapsible="true">
-          <h3>Photo Storage</h3>
-          <p class="form-note" id="appset_storageUsageNote" style="margin-top:0;"></p>
-          <p class="form-note">Re-compresses every stored Pre-Trip, End of Day, Damage Claim, and Junk Removal photo at today's tighter settings &mdash; smaller file, same photo, still clear. Estimates, reasoning, and every other record are never touched, and a photo already smaller than the new setting is left alone. New uploads already use the tighter setting automatically; this catches up everything already stored. Can take a few minutes depending on how many photos there are &mdash; leave this tab open until it finishes.</p>
-          <div class="form-actions">
-            <button type="button" id="appset_compressPhotosBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Compress Existing Photos</button>
-            <span class="status-msg" id="appset_compressPhotosStatus"></span>
+        <div class="panel" id="set_junkPricingPanel" data-collapsible="true">
+          <h3>Junk Removal Pricing</h3>
+          <p class="form-note" style="margin-top:0;">Target price per tier &mdash; Captains are shown this amount &plusmn; $40 as the range to quote on-site, based on Claude's photo estimate.</p>
+          <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+            <thead><tr>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Tier</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Target Price</th>
+              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Quoted Range</th>
+            </tr></thead>
+            <tbody id="appset_junkPricingRows"></tbody>
+          </table>
+          <div class="form-actions" style="margin-top:14px;">
+            <button type="button" id="appset_junkPricingSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Pricing</button>
+            <span class="status-msg" id="appset_junkPricingStatus"></span>
           </div>
         </div>
+        </div>
+      </div>
 
+      <div class="setGroup" id="setGroup-people" data-setgroup="people">
+        <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-people" aria-expanded="false" aria-controls="setGroupBody-people">
+          <span class="dashSectionChevron">&#9656;</span>
+          <div class="dashSectionHeaderText">
+            <div class="dashSectionTitleRow">
+              <span class="dashSectionEmoji" aria-hidden="true">👥</span>
+              <span>People</span>
+              <span class="dashSectionCount">(5)</span>
+            </div>
+          </div>
+        </button>
+        <div class="dashSectionBody" id="setGroupBody-people">
         <div class="panel" id="set_captainMetricsWeightsPanel" data-collapsible="true">
           <h3>Captain Metrics Settings</h3>
           <p class="form-note" style="margin-top:0;">Each category below produces its own percentage for a Captain. These weights control how much each one counts toward the single overall score shown on the Driver Portal's Captain Leaderboard &mdash; they don't change what's shown on the Captain Metrics tile itself, which always shows each category's own percentage on its own panel. Weights must add up to 100%.</p>
@@ -5737,7 +5789,6 @@
             <span class="status-msg" id="appset_cmExclusionStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_wingmanMetricsPanel" data-collapsible="true">
           <h3>Wingman Metrics</h3>
           <p class="form-note" style="margin-top:0;">Up to 10 yes/no questions a Captain answers about each wingman during the End of Day inspection. Leave a field blank to skip it &mdash; only filled-in questions are asked. Change wording any time; past answers keep the wording they were actually asked under.</p>
@@ -5747,7 +5798,6 @@
             <span class="status-msg" id="appset_wingmanQuestionsStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_hiringPanel" data-collapsible="true">
           <h3>Hiring</h3>
           <p class="form-note" style="margin-top:0;">Up to 30 onboarding documents, compiled in order into one package a new hire fills out and signs from their phone. Upload a PDF or Word document and Claude reads it to find every blank the new hire needs to fill in \u2014 review what it found below, since you can always edit or add a field by hand. Fields tagged with a shared type (name, SSN, address, etc.) only need to be entered once across every document that asks for it.</p>
@@ -5760,7 +5810,6 @@
           <div id="appset_hiringDocRows"></div>
           <p class="form-note" id="appset_hiringEmptyNote" style="display:none;">No onboarding documents added yet.</p>
         </div>
-
         <div class="panel" id="set_hiringEmailPanel" data-collapsible="true">
           <h3>Hiring: Onboarding Email</h3>
           <p class="form-note" style="margin-top:0;">Used when you tap Send on a new hire in the Hiring tile \u2014 opens in your own email client, pre-filled, ready to send.</p>
@@ -5773,7 +5822,6 @@
             <span class="status-msg" id="appset_hiringEmailStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_opsManagerMetricsPanel" data-collapsible="true">
           <h3>Ops Manager Metrics</h3>
 
@@ -5813,7 +5861,21 @@
             </div>
           </div>
         </div>
+        </div>
+      </div>
 
+      <div class="setGroup" id="setGroup-pay" data-setgroup="pay">
+        <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-pay" aria-expanded="false" aria-controls="setGroupBody-pay">
+          <span class="dashSectionChevron">&#9656;</span>
+          <div class="dashSectionHeaderText">
+            <div class="dashSectionTitleRow">
+              <span class="dashSectionEmoji" aria-hidden="true">💰</span>
+              <span>Pay</span>
+              <span class="dashSectionCount">(1)</span>
+            </div>
+          </div>
+        </button>
+        <div class="dashSectionBody" id="setGroupBody-pay">
         <div class="panel" id="set_commissionPanel" data-collapsible="true">
           <h3>Commission Rates</h3>
           <p class="form-note" style="margin-top:0;">A commission rate for each role below. Driver applies to anyone currently checked as a driver on the Compliance tile's Driver List. Ops Manager applies to whoever is assigned that role here, independent of the Driver checkbox &mdash; someone can be both. Wingman isn't a fixed role like the other two &mdash; it applies to whoever was actually rated as a wingman that week, using their Wingman Score for that week; someone not rated at all that week simply earns no wingman commission.</p>
@@ -5835,24 +5897,30 @@
             <span class="status-msg" id="appset_opsManagerAssignmentStatus"></span>
           </div>
         </div>
+        </div>
+      </div>
 
-        <div class="panel" id="set_junkPricingPanel" data-collapsible="true">
-          <h3>Junk Removal Pricing</h3>
-          <p class="form-note" style="margin-top:0;">Target price per tier &mdash; Captains are shown this amount &plusmn; $40 as the range to quote on-site, based on Claude's photo estimate.</p>
-          <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
-            <thead><tr>
-              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Tier</th>
-              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Target Price</th>
-              <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Quoted Range</th>
-            </tr></thead>
-            <tbody id="appset_junkPricingRows"></tbody>
-          </table>
-          <div class="form-actions" style="margin-top:14px;">
-            <button type="button" id="appset_junkPricingSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Pricing</button>
-            <span class="status-msg" id="appset_junkPricingStatus"></span>
+      <div class="setGroup" id="setGroup-general" data-setgroup="general">
+        <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-general" aria-expanded="false" aria-controls="setGroupBody-general">
+          <span class="dashSectionChevron">&#9656;</span>
+          <div class="dashSectionHeaderText">
+            <div class="dashSectionTitleRow">
+              <span class="dashSectionEmoji" aria-hidden="true">🔧</span>
+              <span>General</span>
+              <span class="dashSectionCount">(4)</span>
+            </div>
+          </div>
+        </button>
+        <div class="dashSectionBody" id="setGroupBody-general">
+        <div class="panel" id="set_photoStoragePanel" data-collapsible="true">
+          <h3>Photo Storage</h3>
+          <p class="form-note" id="appset_storageUsageNote" style="margin-top:0;"></p>
+          <p class="form-note">Re-compresses every stored Pre-Trip, End of Day, Damage Claim, and Junk Removal photo at today's tighter settings &mdash; smaller file, same photo, still clear. Estimates, reasoning, and every other record are never touched, and a photo already smaller than the new setting is left alone. New uploads already use the tighter setting automatically; this catches up everything already stored. Can take a few minutes depending on how many photos there are &mdash; leave this tab open until it finishes.</p>
+          <div class="form-actions">
+            <button type="button" id="appset_compressPhotosBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Compress Existing Photos</button>
+            <span class="status-msg" id="appset_compressPhotosStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_overridePinPanel" data-collapsible="true">
           <h3>Administrator Override PIN</h3>
           <p class="form-note" style="margin-top:0;">Administrator Override PIN &mdash; lets Cameron close out a job whose HunkWare invoice still shows a Balance Due, for the rare case a payment is genuinely delayed, without it counting against his Ops Manager Metrics. Kept separate from the settings above and never displayed once set.</p>
@@ -5863,7 +5931,6 @@
             <span class="status-msg" id="set_savePinStatus"></span>
           </div>
         </div>
-
         <div class="panel" id="set_configUploadPanel" data-collapsible="true">
           <h3>Dashboard Source Code</h3>
           <p class="form-note" style="margin-top:0;">Store the current source files here as you update the dashboard over time, so the full build history lives inside the app itself &mdash; not just in GitHub or a chat history that might not transfer to a future owner.</p>
@@ -5893,7 +5960,6 @@
             <tbody id="set_configRows"></tbody>
           </table>
         </div>
-
         <div class="panel" id="set_handoffPanel" data-collapsible="true">
           <h3>Business Handoff Guide</h3>
           <p class="form-note">Instructions for re-establishing this dashboard under a new owner. Edit freely as things change.</p>
@@ -5903,6 +5969,8 @@
             <span class="status-msg" id="set_handoffStatus"></span>
           </div>
         </div>
+        </div>
+      </div>
       </div>
 
       <div id="set_storage" class="set-section" style="display:none;">
@@ -5997,6 +6065,43 @@
     });
   }
   initCollapsiblePanels();
+
+  // Configuration page groupings -- same collapsible pattern as the main
+  // dashboard's own sections (collapsed by default, state remembered per
+  // group across visits), under its own localStorage key so it never
+  // collides with the dashboard's section-expanded state even though a
+  // group here can share a category name with a dashboard section.
+  const SET_GROUP_STATE_KEY = 'henson_set_groups_expanded';
+  function loadSetGroupState(){
+    try{ return JSON.parse(localStorage.getItem(SET_GROUP_STATE_KEY) || '{}'); }
+    catch(err){ return {}; }
+  }
+  function saveSetGroupState(state){
+    try{ localStorage.setItem(SET_GROUP_STATE_KEY, JSON.stringify(state)); }
+    catch(err){ /* ignore -- purely a UI convenience, never load-bearing */ }
+  }
+  function setGroupExpanded(groupEl, expanded, persist){
+    groupEl.classList.toggle('expanded', expanded);
+    const header = groupEl.querySelector('.setGroupHeader');
+    if(header) header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    if(persist !== false){
+      const state = loadSetGroupState();
+      state[groupEl.dataset.setgroup] = expanded;
+      saveSetGroupState(state);
+    }
+  }
+  function initSetGroups(){
+    const state = loadSetGroupState();
+    document.querySelectorAll('.setGroup').forEach(group => {
+      const cat = group.dataset.setgroup;
+      const expanded = Object.prototype.hasOwnProperty.call(state, cat) ? !!state[cat] : false; // collapsed by default
+      setGroupExpanded(group, expanded, false);
+      group.querySelector('.setGroupHeader').addEventListener('click', ()=>{
+        setGroupExpanded(group, !group.classList.contains('expanded'), true);
+      });
+    });
+  }
+  initSetGroups();
 })();
 </script>
 
