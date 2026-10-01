@@ -1543,6 +1543,10 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     });
   });
   const MOVE_JOB_TYPES_FOR_TRAVEL_CHECK = new Set(['move', 'movelabor']);
+  // Same rule as Junk Removal below: a Move/Move Labor job isn't
+  // applicable to the travel-line check until its invoice is on file.
+  // Before that, "no confirmed travel line" just means "no invoice yet."
+  const invoicedJobNumbers = new Set((uploads || []).filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
   const underbilledItemsByJob = {};
   (managerReviewItems || []).forEach(item => {
     if (item.type !== 'underbilled' || !item.jobNumber) return;
@@ -1570,7 +1574,8 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     const checkedOut = checkedOutByJob[j.jobNumber];
     const hasMaterialsCheckedOut = !!(checkedOut && Object.keys(checkedOut).length > 0);
     const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) &&
-      (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate);
+      (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate) &&
+      invoicedJobNumbers.has(j.jobNumber);
     if (!hasMaterialsCheckedOut && !needsTravelLine) return; // not applicable either way
     tallyUnderbilled(j.captainName, underbilledVerdict(j.jobNumber));
   });
@@ -2472,6 +2477,12 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
     type: 'object',
     properties: {
       invoicePageFound: { type: 'boolean', description: 'True only if at least one of the provided pages is clearly a HunkWare invoice or receipt (has a Balance Due, Subtotal, or Tax line explicitly printed and labeled as such). False if the provided pages are only a work order, contract, estimate, or signature page with no actual invoice/receipt page present. All the dollar fields below must be 0 and confident must be false when this is false.' },
+      // Travel fields deliberately sit up front, ahead of the line-item
+      // rules: as the last field the model sometimes skipped it entirely,
+      // and the line-item rules' "never include fees" wording was bleeding
+      // into this separate question.
+      hasTravelLineItem: { type: 'boolean', description: 'True if ANY billed line anywhere on the invoice has a description containing the word "travel" (case-insensitive) -- e.g. "Travel Fee", "Truck and Travel Fee", "Travel Time". This is a separate question from lineItems below: fee and labor lines that are excluded from lineItems still count here. False only if no such line exists, or if invoicePageFound is false.' },
+      travelLineAsPrinted: { type: 'string', description: 'The complete text of the travel line found above, exactly as printed, e.g. "Truck and Travel Fee    $149.00". Literal transcription only. Empty string if hasTravelLineItem is false.' },
       balanceDue: { type: 'number', description: 'The Balance Due amount, in dollars, but ONLY if read directly from a line explicitly labeled "Balance Due" on a genuine invoice/receipt page. Never estimate, calculate, or infer this. Report 0 if invoicePageFound is false, or if the invoice shows the balance is fully paid.' },
       totalSale: { type: 'number', description: 'The Total Sale / Subtotal amount, in dollars, but ONLY if read directly from a line explicitly labeled "Total Sale", "Subtotal", or "Product Total" on a genuine invoice/receipt page. Never estimate, calculate, or infer this -- and never pull this from a work order\u2019s estimated total or an unrelated dollar figure elsewhere on the page. Report 0 if invoicePageFound is false, or if totalSaleLineAsPrinted is empty.' },
       totalSaleLineAsPrinted: { type: 'string', description: 'The complete text of the line showing the Total Sale/Subtotal/Product Total, exactly as printed, e.g. "Subtotal    $412.00" or "Product Total    $753.25". This must be a literal transcription of text visible on the page -- copy it, do not summarize or compute it. Leave as an empty string if no such line exists; in that case totalSale must be 0.' },
@@ -2491,10 +2502,9 @@ const EXTRACT_CLIENT_INVOICE_TOOL = {
         },
         description: 'Every billed line item that looks like a packing/moving material or physical good (boxes, tape, wrap, crates, etc.) -- not labor, mileage, or other service fees. Include unusual or one-off items too (e.g. "TV Crate", "Wardrobe Box") even if they look uncommon -- do not skip a line just because it seems unfamiliar. Empty array if invoicePageFound is false.'
       },
-      confident: { type: 'boolean', description: 'True only if invoicePageFound is true AND the Balance Due, Total Sale, and Tax lines were all read clearly and unambiguously from that genuine invoice/receipt page. False otherwise, including whenever invoicePageFound is false.' },
-      hasTravelLineItem: { type: 'boolean', description: 'True only if a billed line item ANYWHERE on the invoice -- including labor, mileage, or service-fee lines that are otherwise excluded from lineItems above -- has a description containing the word "travel" (case-insensitive), e.g. "Travel Fee", "Travel Time". This checks the whole invoice, not just the physical-goods lineItems list. False if no such line exists, or if invoicePageFound is false.' }
+      confident: { type: 'boolean', description: 'True only if invoicePageFound is true AND the Balance Due, Total Sale, and Tax lines were all read clearly and unambiguously from that genuine invoice/receipt page. False otherwise, including whenever invoicePageFound is false.' }
     },
-    required: ['invoicePageFound', 'balanceDue', 'lineItems', 'confident', 'hasTravelLineItem']
+    required: ['invoicePageFound', 'hasTravelLineItem', 'travelLineAsPrinted', 'balanceDue', 'lineItems', 'confident']
   }
 };
 
@@ -2614,7 +2624,7 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
       : `Find every billed line item that represents a physical good sold -- not labor, mileage, or other service fees.`;
     const extraction = await callClaude([EXTRACT_CLIENT_INVOICE_TOOL], 'extract_client_invoice', [
       ...pageContentBlocks(invoicePageIndices),
-      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. Find the Balance Due amount, the Total Sale/Subtotal/Product Total amount, and the Tax amount. ${lineItemInstruction} For each reported line item, include the exact dollar amount billed for it, since that is what was actually charged to the client and is what matters for sales tax, not any catalog or cost price. Before reporting the Total Sale, Tax, and each line item's dollar amount, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted, taxLineAsPrinted, and lineTotalAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing. Separately from lineItems, also check the ENTIRE invoice -- including labor, mileage, and other service-fee lines you would otherwise leave out of lineItems -- for any billed line whose description contains the word "travel" (e.g. "Travel Fee", "Travel Time"), and report that in hasTravelLineItem.` }
+      { type: 'text', text: `${hasUsableText ? 'This is the exact text from' : 'These are'} the page(s) already confirmed to be a genuine HunkWare invoice/receipt for this job. FIRST, before anything else: check every billed line on the invoice -- fees, labor, and service charges included -- for one whose description contains the word "travel" (e.g. "Travel Fee", "Truck and Travel Fee"). Report that in hasTravelLineItem and copy that line word for word into travelLineAsPrinted. The line-item rules that follow do NOT apply to this travel check. THEN: find the Balance Due amount, the Total Sale/Subtotal/Product Total amount, and the Tax amount. ${lineItemInstruction} For each reported line item, include the exact dollar amount billed for it, since that is what was actually charged to the client and is what matters for sales tax, not any catalog or cost price. Before reporting the Total Sale, Tax, and each line item's dollar amount, transcribe the exact line each was read from, word for word, in totalSaleLineAsPrinted, taxLineAsPrinted, and lineTotalAsPrinted -- if you can't point to a specific printed line for one of them, report that figure as 0 and leave its "as printed" field blank rather than guessing.` }
     ]);
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] step2 RAW extraction (before any validation): tax=${extraction.tax} taxLineAsPrinted=${JSON.stringify(extraction.taxLineAsPrinted)} totalSale=${extraction.totalSale} totalSaleLineAsPrinted=${JSON.stringify(extraction.totalSaleLineAsPrinted)} balanceDue=${extraction.balanceDue} lineItems=${JSON.stringify(extraction.lineItems)}`);
 
@@ -2702,9 +2712,25 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     // than discarding an otherwise well-grounded extraction; an explicit
     // confident:false from the model is still respected as-is.
     if (extraction.confident === undefined) extraction.confident = true;
-    // Unlike confident above, a missing hasTravelLineItem defaults to
-    // false -- "not confirmed" should fail the travel-line check, not pass it.
-    extraction.hasTravelLineItem = !!extraction.hasTravelLineItem;
+    // Travel line: decided from the document itself wherever possible,
+    // not from the model's yes/no alone. In text mode the invoice pages'
+    // own extracted text is ground truth -- if "travel" is printed on an
+    // invoice page the line is there, whatever the model answered, and if
+    // it isn't printed the model can't have seen it either. In vision mode
+    // there is no ground-truth text, so the model's answer is accepted if
+    // it said true OR transcribed a line that actually contains "travel".
+    // An omitted answer still counts as not confirmed.
+    const TRAVEL_WORD = /\btravel\b/i;
+    const modelTravelAnswer = extraction.hasTravelLineItem;
+    const quotedTravel = TRAVEL_WORD.test(extraction.travelLineAsPrinted || '');
+    if (hasUsableText) {
+      extraction.hasTravelLineItem = TRAVEL_WORD.test(invoicePageIndices.map(i => texts[i]).join(' '));
+      extraction.travelCheckSource = 'text';
+    } else {
+      extraction.hasTravelLineItem = modelTravelAnswer === true || quotedTravel;
+      extraction.travelCheckSource = 'vision';
+    }
+    console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] travel check (${extraction.travelCheckSource}): model=${modelTravelAnswer === undefined ? 'OMITTED' : modelTravelAnswer} quoted=${JSON.stringify(extraction.travelLineAsPrinted || '')} -> ${extraction.hasTravelLineItem}`);
 
     console.log(`[TAX-EXTRACT ${reqId} job=${jobNumber || "unknown"}] FINAL result: ${JSON.stringify({ ...baseResult, invoicePageFound: true, ...extraction })}`);
     res.json({ ...baseResult, invoicePageFound: true, ...extraction });
