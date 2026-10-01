@@ -84,7 +84,8 @@ const ALLOWED_KEYS = new Set([
   'wingman-ratings',
   'hiring-documents',
   'hiring-candidates',
-  'hiring-reveal-log'
+  'hiring-reveal-log',
+  'ops-manager-metrics-monthly-locks'
 ]);
 const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
@@ -1642,6 +1643,32 @@ function computeWingmanScoresForRange(rangeStart, rangeEnd, ratings) {
   return byName;
 }
 
+function computeWingmanScoresForMonth(monthStr, ratings) {
+  const rangeStart = monthStr + '-01';
+  const rangeEnd = monthAfter(monthStr) + '-01';
+  return computeWingmanScoresForRange(rangeStart, rangeEnd, ratings);
+}
+
+const WINGMAN_METRICS_MONTHLY_LOCKS_KEY = 'wingman-metrics-monthly-locks';
+
+// Call this before reading current Wingman scores anywhere they're
+// displayed, and also right after a payroll week save -- same monthly
+// lock mechanism as Captain Metrics, same trigger.
+async function getActiveWingmanMetricsMonth() {
+  let cachedRatings = null;
+  const getRatings = async () => {
+    if (!cachedRatings) {
+      const ratingsRaw = await redis.get('wingman-ratings');
+      cachedRatings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+    }
+    return cachedRatings;
+  };
+  return getActiveMetricsMonth(WINGMAN_METRICS_MONTHLY_LOCKS_KEY, async (monthStr) => {
+    const ratings = await getRatings();
+    return computeWingmanScoresForMonth(monthStr, ratings);
+  });
+}
+
 async function fetchCaptainMetricsRawData() {
   const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
@@ -1672,17 +1699,23 @@ async function fetchCaptainMetricsRawData() {
   };
 }
 
-// The active (still-live, not yet locked) scoring month, plus locks any
-// months that have fallen due -- a month locks once a payroll week dated
-// in a LATER month has been uploaded, since that's the trigger the scores
-// (tied to monthly commission) are meant to wait for. Handles a payroll
-// catch-up spanning several months at once, locking each in turn, not
-// just the immediately-next one. Call this before reading current scores
-// anywhere they're displayed, and also right after a payroll week save.
-async function getActiveCaptainMetricsMonth(weights, travelLineCheckStartDate) {
+// The active (still-live, not yet locked) scoring month for ANY metric
+// system, plus locks any months that have fallen due -- a month locks
+// once a payroll week dated in a LATER month has been uploaded, since
+// that's the trigger these monthly scores are meant to wait for. Handles
+// a payroll catch-up spanning several months at once, locking each in
+// turn, not just the immediately-next one. Shared by Captain Metrics,
+// Wingman Metrics, and (from the frontend, since its scoring stays
+// client-side) Ops Manager Metrics -- one mechanism, one set of rules,
+// rather than three drifting copies of the same logic.
+// computeMonthScoresFn(monthStr) should compute and return that month's
+// scores; it's only ever called for months that actually need locking,
+// preserving the original "don't do the expensive work unless there's
+// locking to do" behavior.
+async function getActiveMetricsMonth(locksKey, computeMonthScoresFn) {
   const laborWeeksRaw = await redis.get('labor-weeks');
   const laborWeeks = laborWeeksRaw ? JSON.parse(laborWeeksRaw) : [];
-  const locksRaw = await redis.get(CAPTAIN_METRICS_MONTHLY_LOCKS_KEY);
+  const locksRaw = await redis.get(locksKey);
   let locks = locksRaw ? JSON.parse(locksRaw) : [];
 
   const currentCalendarMonth = new Date().toISOString().slice(0, 7);
@@ -1696,22 +1729,32 @@ async function getActiveCaptainMetricsMonth(weights, travelLineCheckStartDate) {
     : currentCalendarMonth;
 
   if (latestPayrollMonth && activeMonth < latestPayrollMonth) {
-    const data = await fetchCaptainMetricsRawData();
     const lockedMonthSet = new Set(locks.map(l => l.month));
     let changed = false;
     while (activeMonth < latestPayrollMonth) {
       if (!lockedMonthSet.has(activeMonth)) {
-        const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
+        const scores = await computeMonthScoresFn(activeMonth);
         locks.push({ month: activeMonth, lockedAt: new Date().toISOString(), scores });
         lockedMonthSet.add(activeMonth);
         changed = true;
       }
       activeMonth = monthAfter(activeMonth);
     }
-    if (changed) await redis.set(CAPTAIN_METRICS_MONTHLY_LOCKS_KEY, JSON.stringify(locks));
+    if (changed) await redis.set(locksKey, JSON.stringify(locks));
   }
 
   return { activeMonth, locks };
+}
+
+// Call this before reading current Captain scores anywhere they're
+// displayed, and also right after a payroll week save.
+async function getActiveCaptainMetricsMonth(weights, travelLineCheckStartDate) {
+  let cachedData = null;
+  const getData = async () => { if (!cachedData) cachedData = await fetchCaptainMetricsRawData(); return cachedData; };
+  return getActiveMetricsMonth(CAPTAIN_METRICS_MONTHLY_LOCKS_KEY, async (monthStr) => {
+    const data = await getData();
+    return computeCaptainScoresForMonth(monthStr, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
+  });
 }
 
 app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
@@ -1840,31 +1883,23 @@ app.get('/api/admin/wingman-metrics/for-week', requireAuth, async (req, res) => 
   }
 });
 
-// Current Wingman Metrics for the admin tile -- a rolling 90-day window
-// (ratings are event-based, not tied to a calendar month the way Captain
-// Metrics is), plus each wingman's individual rating records so the tile
-// can show a full history, not just the aggregate score, for transparency
-// into exactly why someone scored the way they did.
+// Current (live, in-progress) month's Wingman scores -- same monthly
+// cadence and month-locking as Captain Metrics, via the shared
+// getActiveMetricsMonth mechanism. Plus each wingman's individual rating
+// records for that same month, so the tile can show a full history, not
+// just the aggregate score, for transparency into exactly why someone
+// scored the way they did.
 app.get('/api/admin/wingman-metrics/current', requireAuth, async (req, res) => {
   try {
+    const { activeMonth } = await getActiveWingmanMetricsMonth();
     const ratingsRaw = await redis.get('wingman-ratings');
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+    const scores = computeWingmanScoresForMonth(activeMonth, ratings);
 
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const windowStartDate = new Date();
-    windowStartDate.setDate(windowStartDate.getDate() - 90);
-    const windowStart = windowStartDate.toISOString().slice(0, 10);
-    const windowEndDate = new Date();
-    windowEndDate.setDate(windowEndDate.getDate() + 1); // exclusive upper bound -- makes today inclusive
-    const windowEnd = windowEndDate.toISOString().slice(0, 10);
-
-    const scores = computeWingmanScoresForRange(windowStart, windowEnd, ratings);
-
-    // Individual ratings within the same window, grouped by wingman
-    // (normalized name), most recent first -- the detail view behind
-    // each wingman's aggregate score.
+    const monthStart = activeMonth + '-01';
+    const monthEnd = monthAfter(activeMonth) + '-01';
     const ratingsByName = {};
-    ratings.filter(r => r.date && r.date >= windowStart).forEach(r => {
+    ratings.filter(r => r.date && r.date >= monthStart && r.date < monthEnd).forEach(r => {
       const key = nameDedupKey(r.wingmanName || '');
       if (!ratingsByName[key]) ratingsByName[key] = [];
       ratingsByName[key].push(r);
@@ -1873,10 +1908,83 @@ app.get('/api/admin/wingman-metrics/current', requireAuth, async (req, res) => {
       ratingsByName[key].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     });
 
-    res.json({ windowStart, scores, ratingsByName });
+    res.json({ month: activeMonth, scores, ratingsByName });
   } catch (err) {
     console.error('Wingman Metrics current fetch failed:', err.message);
     res.status(500).json({ error: 'Could not load current Wingman Metrics.' });
+  }
+});
+
+// Weekly overall-score trend for the admin Wingman Metrics line graph --
+// mirrors Captain Metrics' own weekly-trend endpoint exactly: 12
+// Monday-Sunday weeks, computed fresh via the identical range-scoring
+// function at week granularity, for trend-spotting only.
+app.get('/api/admin/wingman-metrics/weekly-trend', requireAuth, async (req, res) => {
+  try {
+    const ratingsRaw = await redis.get('wingman-ratings');
+    const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+
+    const WEEKS_BACK = 12;
+    const today = new Date();
+    const day = today.getUTCDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const thisMonday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    thisMonday.setUTCDate(thisMonday.getUTCDate() + diffToMonday);
+
+    const weeks = [];
+    for (let i = WEEKS_BACK - 1; i >= 0; i--) {
+      const weekStart = new Date(thisMonday);
+      weekStart.setUTCDate(weekStart.getUTCDate() - (i * 7));
+      const weekStartStr = weekStart.toISOString().slice(0, 10);
+      const weekEndDate = new Date(weekStart);
+      weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7);
+      const weekEndStr = weekEndDate.toISOString().slice(0, 10);
+      const scores = computeWingmanScoresForRange(weekStartStr, weekEndStr, ratings);
+      weeks.push({ weekStart: weekStartStr, label: weekStartStr.slice(5), scores });
+    }
+
+    res.json({ weeks });
+  } catch (err) {
+    console.error('Wingman Metrics weekly trend fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load Wingman Metrics weekly trend.' });
+  }
+});
+
+// Triggered right after a payroll week is saved -- checks whether a
+// Wingman Metrics month has now fallen due to be locked, and locks it
+// (and any others still overdue) if so. Mirrors Captain Metrics'
+// identical check-month-lock endpoint.
+app.post('/api/admin/wingman-metrics/check-month-lock', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { activeMonth, locks } = await getActiveWingmanMetricsMonth();
+    res.json({ ok: true, activeMonth, lockedMonths: locks.map(l => l.month) });
+  } catch (err) {
+    console.error('Wingman Metrics month-lock check failed:', err.message);
+    res.status(500).json({ error: 'Could not check Wingman Metrics month lock.' });
+  }
+});
+
+// Same scoring as for-week, but for any explicit [rangeStart, rangeEnd)
+// window rather than a fixed 7-day one -- needed by Ops Manager Metrics'
+// monthly scoring, which needs a whole calendar month of Captain scores
+// at once, not week by week.
+app.get('/api/admin/captain-metrics/for-range', requireAuth, async (req, res) => {
+  const { rangeStart, rangeEnd } = req.query;
+  if (!rangeStart || !/^\d{4}-\d{2}-\d{2}$/.test(rangeStart) || !rangeEnd || !/^\d{4}-\d{2}-\d{2}$/.test(rangeEnd)) {
+    return res.status(400).json({ error: 'rangeStart and rangeEnd (YYYY-MM-DD) are both required.' });
+  }
+  try {
+    const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+    const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
+    const weights = settings.captainMetrics.weights;
+    const travelLineCheckStartDate = settings.captainMetrics.travelLineCheckStartDate;
+    const data = await fetchCaptainMetricsRawData();
+
+    const scores = computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
+    res.json({ rangeStart, rangeEnd, scores });
+  } catch (err) {
+    console.error('Captain Metrics for-range fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load Captain Metrics for that range.' });
   }
 });
 
@@ -2014,7 +2122,6 @@ const DEFAULT_APP_SETTINGS = {
     emailCc: ''
   },
   captainMetrics: {
-    resetDate: '',
     weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10 },
     // The travel-line-item requirement (Underbilled Jobs, for Move/Move
     // Labor jobs) only applies to jobs on or after this date. Set to the
@@ -2023,9 +2130,7 @@ const DEFAULT_APP_SETTINGS = {
     // never have had a confirmed travel line in the first place.
     travelLineCheckStartDate: '2026-09-25'
   },
-  opsManagerMetrics: {
-    resetDate: ''
-  },
+  opsManagerMetrics: {},
   commission: {
     driverRate: 0,
     opsManagerRate: 0,
