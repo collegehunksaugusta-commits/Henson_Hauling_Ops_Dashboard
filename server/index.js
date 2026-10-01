@@ -480,15 +480,21 @@ app.get('/api/driver/truck-docs/:truckId', requireDriverAuth, async (req, res) =
 // Same name list as the staff /api/roster endpoint (most recent ADP payroll
 // week), just reachable via the driver-scoped session instead of a regular
 // staff login. Names only -- no pay, hours, or other payroll detail.
+// This roster's only current consumer is the driver app's wingman-
+// selection dropdown (who to rate after an EOD inspection) -- active
+// drivers (Captains) are excluded entirely, since a Captain who
+// occasionally fills in as someone else's wingman on a slower day is
+// never themselves evaluated as one.
 app.get('/api/driver/roster', requireDriverAuth, async (req, res) => {
   try {
-    const [weeksRaw, manualRaw] = await Promise.all([
+    const [weeksRaw, manualRaw, activeDriverKeys] = await Promise.all([
       redis.get('labor-weeks'),
-      redis.get('roster-manual-additions')
+      redis.get('roster-manual-additions'),
+      fetchActiveDriverKeys()
     ]);
     const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
     const manualAdditions = manualRaw ? JSON.parse(manualRaw) : [];
-    const names = computeRosterNames(weeks, manualAdditions);
+    const names = computeRosterNames(weeks, manualAdditions).filter(n => !activeDriverKeys.has(nameDedupKey(n)));
     res.json({ names });
   } catch (err) {
     console.error('Driver roster fetch failed:', err.message);
@@ -1649,12 +1655,17 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
 // Matched by normalized name, same as everywhere else names get compared
 // in this app, so a roster spelling correction doesn't split one person's
 // ratings into two separate records.
-function computeWingmanScoresForRange(rangeStart, rangeEnd, ratings) {
+function computeWingmanScoresForRange(rangeStart, rangeEnd, ratings, activeDriverKeys) {
   const scores = {};
   (ratings || []).forEach(r => {
     if (!r.wingmanName || !r.date || r.date < rangeStart || r.date >= rangeEnd) return;
     if (!Array.isArray(r.answers) || r.answers.length === 0) return;
     const key = nameDedupKey(r.wingmanName);
+    // A Captain occasionally fills in as someone else's wingman on a
+    // slower day, but is never evaluated AS a wingman themselves --
+    // excluded entirely here, not just hidden from the selection list,
+    // in case a rating already exists for them from before this rule.
+    if (activeDriverKeys && activeDriverKeys.has(key)) return;
     if (!scores[key]) scores[key] = { displayName: r.wingmanName, totalYes: 0, totalQuestions: 0, ratingCount: 0 };
     // The most recently dated rating's spelling wins for display, same
     // canonicalization rule Captain Metrics already uses.
@@ -1675,10 +1686,20 @@ function computeWingmanScoresForRange(rangeStart, rangeEnd, ratings) {
   return byName;
 }
 
-function computeWingmanScoresForMonth(monthStr, ratings) {
+function computeWingmanScoresForMonth(monthStr, ratings, activeDriverKeys) {
   const rangeStart = monthStr + '-01';
   const rangeEnd = monthAfter(monthStr) + '-01';
-  return computeWingmanScoresForRange(rangeStart, rangeEnd, ratings);
+  return computeWingmanScoresForRange(rangeStart, rangeEnd, ratings, activeDriverKeys);
+}
+
+// A normalized set of every currently-active driver's name -- a Captain
+// who occasionally wingmans for someone else is still excluded from
+// ever being evaluated as one. Shared by every Wingman Metrics endpoint
+// so there's one definition of "who's excluded," not several.
+async function fetchActiveDriverKeys() {
+  const driversRaw = await redis.get('compliance-drivers');
+  const drivers = driversRaw ? JSON.parse(driversRaw) : [];
+  return new Set(drivers.filter(d => d.active).map(d => nameDedupKey(d.employeeName)));
 }
 
 const WINGMAN_METRICS_MONTHLY_LOCKS_KEY = 'wingman-metrics-monthly-locks';
@@ -1688,6 +1709,7 @@ const WINGMAN_METRICS_MONTHLY_LOCKS_KEY = 'wingman-metrics-monthly-locks';
 // lock mechanism as Captain Metrics, same trigger.
 async function getActiveWingmanMetricsMonth() {
   let cachedRatings = null;
+  let cachedDriverKeys = null;
   const getRatings = async () => {
     if (!cachedRatings) {
       const ratingsRaw = await redis.get('wingman-ratings');
@@ -1697,7 +1719,8 @@ async function getActiveWingmanMetricsMonth() {
   };
   return getActiveMetricsMonth(WINGMAN_METRICS_MONTHLY_LOCKS_KEY, async (monthStr) => {
     const ratings = await getRatings();
-    return computeWingmanScoresForMonth(monthStr, ratings);
+    if (!cachedDriverKeys) cachedDriverKeys = await fetchActiveDriverKeys();
+    return computeWingmanScoresForMonth(monthStr, ratings, cachedDriverKeys);
   });
 }
 
@@ -1903,14 +1926,17 @@ app.get('/api/admin/wingman-metrics/for-week', requireAuth, async (req, res) => 
     return res.status(400).json({ error: 'weekStart (YYYY-MM-DD) is required.' });
   }
   try {
-    const ratingsRaw = await redis.get('wingman-ratings');
+    const [ratingsRaw, activeDriverKeys] = await Promise.all([
+      redis.get('wingman-ratings'),
+      fetchActiveDriverKeys()
+    ]);
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
 
     const weekEndDate = new Date(weekStart + 'T00:00:00Z');
     weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7); // exclusive
     const weekEnd = weekEndDate.toISOString().slice(0, 10);
 
-    const scores = computeWingmanScoresForRange(weekStart, weekEnd, ratings);
+    const scores = computeWingmanScoresForRange(weekStart, weekEnd, ratings, activeDriverKeys);
     res.json({ weekStart, scores });
   } catch (err) {
     console.error('Wingman Metrics for-week fetch failed:', err.message);
@@ -1927,14 +1953,17 @@ app.get('/api/admin/wingman-metrics/for-week', requireAuth, async (req, res) => 
 app.get('/api/admin/wingman-metrics/current', requireAuth, async (req, res) => {
   try {
     const { activeMonth } = await getActiveWingmanMetricsMonth();
-    const ratingsRaw = await redis.get('wingman-ratings');
+    const [ratingsRaw, activeDriverKeys] = await Promise.all([
+      redis.get('wingman-ratings'),
+      fetchActiveDriverKeys()
+    ]);
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
-    const scores = computeWingmanScoresForMonth(activeMonth, ratings);
+    const scores = computeWingmanScoresForMonth(activeMonth, ratings, activeDriverKeys);
 
     const monthStart = activeMonth + '-01';
     const monthEnd = monthAfter(activeMonth) + '-01';
     const ratingsByName = {};
-    ratings.filter(r => r.date && r.date >= monthStart && r.date < monthEnd).forEach(r => {
+    ratings.filter(r => r.date && r.date >= monthStart && r.date < monthEnd && !activeDriverKeys.has(nameDedupKey(r.wingmanName || ''))).forEach(r => {
       const key = nameDedupKey(r.wingmanName || '');
       if (!ratingsByName[key]) ratingsByName[key] = [];
       ratingsByName[key].push(r);
@@ -1956,7 +1985,10 @@ app.get('/api/admin/wingman-metrics/current', requireAuth, async (req, res) => {
 // function at week granularity, for trend-spotting only.
 app.get('/api/admin/wingman-metrics/weekly-trend', requireAuth, async (req, res) => {
   try {
-    const ratingsRaw = await redis.get('wingman-ratings');
+    const [ratingsRaw, activeDriverKeys] = await Promise.all([
+      redis.get('wingman-ratings'),
+      fetchActiveDriverKeys()
+    ]);
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
 
     const WEEKS_BACK = 12;
@@ -1974,7 +2006,7 @@ app.get('/api/admin/wingman-metrics/weekly-trend', requireAuth, async (req, res)
       const weekEndDate = new Date(weekStart);
       weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 7);
       const weekEndStr = weekEndDate.toISOString().slice(0, 10);
-      const scores = computeWingmanScoresForRange(weekStartStr, weekEndStr, ratings);
+      const scores = computeWingmanScoresForRange(weekStartStr, weekEndStr, ratings, activeDriverKeys);
       weeks.push({ weekStart: weekStartStr, label: weekStartStr.slice(5), scores });
     }
 
