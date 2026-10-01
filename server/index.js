@@ -1404,7 +1404,7 @@ function nameDedupKey(name) {
 
 function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames, travelLineCheckStartDate) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems, managerReviewItems } = data;
+  const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems, managerReviewItems, junkRemovalJobs } = data;
   const opsManagerKeys = new Set((opsManagerNames || []).map(nameDedupKey));
   // Only someone currently checked as a driver on Compliance is eligible
   // to be scored -- the Captain-selection dropdown on Job Data Entry pulls
@@ -1513,61 +1513,98 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     }
   });
 
-  // ---- 5. Underbilled Jobs -- driven entirely by the Manager's reviewed
-  // Pass/Fail verdict on items the AI initially flagged on the Manager
-  // Review tile, not by independently recomputing billing status here.
-  // An item not yet reviewed isn't counted either way -- same "not yet
-  // due" pattern used everywhere else in this app; the Manager's call is
-  // final once made. Three kinds of flagged item roll into this category:
-  // materials-underbilled, junk-removal-underbilled, and a missing
-  // travel-line item (Move/Move Labor jobs, now also manager-reviewed
-  // rather than silently auto-scored). travelLineCheckStartDate is still
-  // accepted as a parameter for every caller's convenience, but is no
-  // longer used inside this function -- that cutoff now only governs the
-  // frontend sync that creates the travel-line review items in the first
-  // place.
-  const jobCaptainByNumber = {};
-  archive.forEach(j => { if (j.jobNumber && j.captainName) jobCaptainByNumber[j.jobNumber] = j.captainName; });
-  const underbilledByCaptain = {};
+  // ---- 5. Underbilled Jobs -- "% of applicable jobs that are NOT
+  // manager-confirmed bad." A job is applicable if it had materials
+  // checked out, is a Junk Removal job that's been invoiced, or is a
+  // Move/Move Labor job dated on or after travelLineCheckStartDate. A
+  // job the AI never flagged at all counts as good automatically --
+  // nothing to review means nothing wrong. A job the AI flagged but the
+  // Manager hasn't reviewed yet is excluded entirely (not yet due), same
+  // as everywhere else in this app. A job counts as bad only once the
+  // Manager has reviewed at least one of its flagged issues and marked
+  // it Fail; a job can have more than one flagged issue (e.g. missing
+  // materials AND a missing travel line), and any single confirmed Fail
+  // is enough to make the whole job count as bad.
+  const billableItemIds = new Set((materialsItems || []).filter(i => !i.neverBilled).map(i => i.id));
+  const checkedOutByJob = {};
+  (materialsCheckouts || []).forEach(co => {
+    (co.jobNumbers || []).forEach(jobNumber => {
+      if (!checkedOutByJob[jobNumber]) checkedOutByJob[jobNumber] = {};
+      (co.items || []).forEach(it => {
+        if (!billableItemIds.has(it.itemId)) return;
+        checkedOutByJob[jobNumber][it.itemId] = (checkedOutByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
+      });
+    });
+  });
+  const MOVE_JOB_TYPES_FOR_TRAVEL_CHECK = new Set(['move', 'movelabor']);
+  const underbilledItemsByJob = {};
   (managerReviewItems || []).forEach(item => {
-    if (item.type !== 'underbilled') return;
-    if (!item.reviewedAt || (item.outcome !== 'pass' && item.outcome !== 'fail')) return;
-
-    const rawCaptainName = jobCaptainByNumber[item.jobNumber] || item.captainName || null;
-    const itemDate = item.jobDate || null;
-    if (!rawCaptainName || !itemDate || itemDate < rangeStart || itemDate >= rangeEnd) return;
+    if (item.type !== 'underbilled' || !item.jobNumber) return;
+    if (!underbilledItemsByJob[item.jobNumber]) underbilledItemsByJob[item.jobNumber] = [];
+    underbilledItemsByJob[item.jobNumber].push(item);
+  });
+  const underbilledVerdict = (jobNumber) => {
+    const items = underbilledItemsByJob[jobNumber] || [];
+    if (items.some(i => i.reviewedAt && i.outcome === 'fail')) return 'bad';
+    if (items.some(i => !i.reviewedAt)) return 'pending';
+    return 'good';
+  };
+  const underbilledByCaptain = {};
+  const tallyUnderbilled = (rawCaptainName, verdict) => {
+    if (verdict === 'pending' || !rawCaptainName) return;
     if (opsManagerKeys.has(nameDedupKey(rawCaptainName))) return;
     if (activeDriverKeys !== null && !activeDriverKeys.has(nameDedupKey(rawCaptainName))) return;
-
     const captainKey = nameDedupKey(rawCaptainName);
     const captainName = canonicalNameByKey[captainKey] || rawCaptainName;
     if (!underbilledByCaptain[captainName]) underbilledByCaptain[captainName] = { ok: 0, total: 0 };
     underbilledByCaptain[captainName].total++;
-    if (item.outcome === 'pass') underbilledByCaptain[captainName].ok++;
+    if (verdict === 'good') underbilledByCaptain[captainName].ok++;
+  };
+  monthJobs.forEach(j => {
+    const checkedOut = checkedOutByJob[j.jobNumber];
+    const hasMaterialsCheckedOut = !!(checkedOut && Object.keys(checkedOut).length > 0);
+    const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) &&
+      (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate);
+    if (!hasMaterialsCheckedOut && !needsTravelLine) return; // not applicable either way
+    tallyUnderbilled(j.captainName, underbilledVerdict(j.jobNumber));
+  });
+  // Junk Removal jobs live in their own storage key, separate from the
+  // main job archive, so they need their own pass over the same range
+  // and exclusion rules monthJobs already applied.
+  (junkRemovalJobs || []).forEach(j => {
+    if (!j.jobNumber || !j.captainName || !j.assignmentDate) return;
+    if (!(Number(j.invoiceTotal) > 0)) return; // not yet invoiced -- not applicable yet
+    if (j.assignmentDate < rangeStart || j.assignmentDate >= rangeEnd) return;
+    tallyUnderbilled(j.captainName, underbilledVerdict(j.jobNumber));
   });
 
-  // ---- 6. Truck Conditions -- its own category, separate from
-  // Underbilled Jobs, driven the same way: the Manager's reviewed
-  // Pass/Fail verdict on AI-flagged truck condition issues, attributed to
-  // whichever Captain drove that truck that day via the same normalized
-  // driver-name match PTI/EOD compliance already uses. An item not yet
-  // reviewed isn't counted either way.
-  const truckConditionsByCaptain = {};
+  // ---- 6. Truck Conditions -- "% of EOD inspections that are NOT
+  // manager-confirmed bad," its own category separate from Underbilled
+  // Jobs. Every EOD inspection a Captain filed this month is in the
+  // denominator, attributed via the same normalized driver-name match
+  // PTI/EOD compliance already uses -- one the AI never flagged counts
+  // as good automatically. One the AI flagged but the Manager hasn't
+  // reviewed yet is excluded entirely (not yet due). One the AI flagged
+  // AND the Manager confirmed Fail counts as bad.
+  const truckConditionItemByEodId = {};
   (managerReviewItems || []).forEach(item => {
-    if (item.type !== 'truck-condition') return;
-    if (!item.reviewedAt || (item.outcome !== 'pass' && item.outcome !== 'fail')) return;
+    if (item.type === 'truck-condition' && item.eodRecordId) truckConditionItemByEodId[item.eodRecordId] = item;
+  });
+  const truckConditionsByCaptain = {};
+  (eodRecords || []).forEach(e => {
+    if (!e.driverName || !e.date || e.date < rangeStart || e.date >= rangeEnd) return;
+    if (opsManagerKeys.has(nameDedupKey(e.driverName))) return;
+    if (activeDriverKeys !== null && !activeDriverKeys.has(nameDedupKey(e.driverName))) return;
 
-    const rawCaptainName = item.driverName || null;
-    const itemDate = item.date || null;
-    if (!rawCaptainName || !itemDate || itemDate < rangeStart || itemDate >= rangeEnd) return;
-    if (opsManagerKeys.has(nameDedupKey(rawCaptainName))) return;
-    if (activeDriverKeys !== null && !activeDriverKeys.has(nameDedupKey(rawCaptainName))) return;
+    const item = truckConditionItemByEodId[e.id];
+    if (item && !item.reviewedAt) return; // flagged, still awaiting review -- excluded, not yet due
 
-    const captainKey = nameDedupKey(rawCaptainName);
-    const captainName = canonicalNameByKey[captainKey] || rawCaptainName;
+    const captainKey = nameDedupKey(e.driverName);
+    const captainName = canonicalNameByKey[captainKey] || e.driverName;
     if (!truckConditionsByCaptain[captainName]) truckConditionsByCaptain[captainName] = { ok: 0, total: 0 };
     truckConditionsByCaptain[captainName].total++;
-    if (item.outcome === 'pass') truckConditionsByCaptain[captainName].ok++;
+    const isBad = !!(item && item.reviewedAt && item.outcome === 'fail');
+    if (!isBad) truckConditionsByCaptain[captainName].ok++;
   });
 
   // ---- Combine into per-category percentages + one weighted overall
@@ -1665,13 +1702,13 @@ async function getActiveWingmanMetricsMonth() {
 }
 
 async function fetchCaptainMetricsRawData() {
-  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw, reviewItemsRaw] = await Promise.all([
+  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw, reviewItemsRaw, junkRemovalJobsRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
     redis.get('paperwork-uploads'), redis.get('compliance-eod-inspections'),
     redis.get('attendance-records'), redis.get('moving-damage-reports'),
     redis.get('materials-checkouts'), redis.get('materials-items'),
     redis.get('settings-captain-metrics-excluded-employees'), redis.get('compliance-drivers'),
-    redis.get('manager-review-items')
+    redis.get('manager-review-items'), redis.get('junk-removal-jobs')
   ]);
   const opsManagerNames = excludedRaw ? JSON.parse(excludedRaw) : [];
   // Distinguish "the key was never set" (driver data genuinely
@@ -1691,6 +1728,7 @@ async function fetchCaptainMetricsRawData() {
     materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
     materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
     managerReviewItems: reviewItemsRaw ? JSON.parse(reviewItemsRaw) : [],
+    junkRemovalJobs: junkRemovalJobsRaw ? JSON.parse(junkRemovalJobsRaw) : [],
     opsManagerNames,
     activeDriverNames
   };
