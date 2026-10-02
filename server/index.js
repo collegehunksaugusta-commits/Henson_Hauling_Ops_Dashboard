@@ -2289,6 +2289,47 @@ app.get('/api/admin/captain-metrics/current', requireAuth, async (req, res) => {
   }
 });
 
+// Wingman Reviews of Captains, for the admin Captain Metrics tile --
+// monitoring only, never part of a Captain's weighted overall score.
+// Same month the rest of the tile is showing, same yes-percentage math
+// as Wingman Metrics, plus each Captain's individual reviews so the tile
+// can show exactly who said what.
+app.get('/api/admin/captain-metrics/wingman-reviews', requireAuth, async (req, res) => {
+  try {
+    const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+    const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null);
+    const { activeMonth } = await getActiveCaptainMetricsMonth(settings.captainMetrics.weights, settings.captainMetrics.travelLineCheckStartDate);
+    const raw = await redis.get('captain-ratings');
+    const ratings = raw ? JSON.parse(raw) : [];
+    const monthStart = activeMonth + '-01';
+    const monthEnd = monthAfter(activeMonth) + '-01';
+    const byKey = {};
+    ratings
+      .filter(r => r.captainName && r.date && r.date >= monthStart && r.date < monthEnd && Array.isArray(r.answers) && r.answers.length > 0)
+      .forEach(r => {
+        const key = nameDedupKey(r.captainName);
+        if (!byKey[key]) byKey[key] = { displayName: r.captainName, latestDate: '', totalYes: 0, totalQuestions: 0, ratingCount: 0, reviews: [] };
+        const entry = byKey[key];
+        if (r.date >= entry.latestDate) { entry.displayName = r.captainName; entry.latestDate = r.date; }
+        r.answers.forEach(a => { entry.totalQuestions++; if (a.answer === true) entry.totalYes++; });
+        entry.ratingCount++;
+        entry.reviews.push({ date: r.date, wingmanName: r.wingmanName, answers: r.answers, createdAt: r.createdAt });
+      });
+    const captains = Object.values(byKey).map(e => ({
+      name: e.displayName,
+      overall: e.totalQuestions > 0 ? Math.round((e.totalYes / e.totalQuestions) * 100) : null,
+      totalYes: e.totalYes,
+      totalQuestions: e.totalQuestions,
+      ratingCount: e.ratingCount,
+      reviews: e.reviews.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''))
+    })).sort((a, b) => (a.overall ?? 101) - (b.overall ?? 101));
+    res.json({ month: activeMonth, captains });
+  } catch (err) {
+    console.error('Captain wingman-reviews fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load wingman reviews of Captains.' });
+  }
+});
+
 // Triggered right after a payroll week is saved on the Labor Cost tile --
 // checks whether that payroll week's month means an earlier Captain
 // Metrics month has now fallen due to be locked, and locks it (and any
