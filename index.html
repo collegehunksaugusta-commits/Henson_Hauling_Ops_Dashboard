@@ -5450,6 +5450,12 @@
         </div>
       </div>
 
+      <div style="display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; margin:10px 0 0; padding:10px 12px; background:var(--offwhite); border-radius:6px;">
+        <label style="margin:0; font-size:12.5px;">Credit reviews posted on or after <input type="date" id="gr_creditStartDate" style="display:block; margin-top:3px;"></label>
+        <button type="button" id="gr_creditStartSaveBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:12.5px;">Save Date</button>
+        <span class="status-msg" id="gr_creditStartStatus"></span>
+      </div>
+
       <h4 style="margin:18px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">To Allocate</h4>
       <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
         <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); width:230px;">Credit To</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th></tr></thead>
@@ -5467,6 +5473,15 @@
       <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">By Pay Week</h4>
       <div id="gr_weekSummary"></div>
       <p class="form-note" id="gr_weekSummaryEmptyNote" style="display:none;">No credited reviews yet.</p>
+
+      <div id="gr_earlierWrap" style="display:none; margin-top:22px;">
+        <button type="button" id="gr_earlierToggle" style="background:none; border:none; padding:0; cursor:pointer; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; font-weight:700; color:var(--muted);">&#9656; Earlier Reviews <span id="gr_earlierCount"></span></button>
+        <p class="form-note" style="margin:4px 0 0;">Pulled from Google but posted before the credit date above, so they aren&rsquo;t paid. Move the date back to credit any of them.</p>
+        <div id="gr_earlierBody" style="display:none; overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th></tr></thead>
+          <tbody id="gr_earlierRows"></tbody>
+        </table></div>
+      </div>
     </div>
   </div>
 
@@ -24695,10 +24710,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function grRate(){
     return Number(((window.appSettings || {}).commission || {}).reviewBonusPerReview) || 0;
   }
-  // Only reviews from when tracking began are creditable, so the older
-  // reviews already on the listing don't all turn into back pay.
+  // Only reviews posted on or after the credit date are creditable, so
+  // the older reviews already on the listing don't all turn into back
+  // pay. The date is set on this tab (saved with the Pay settings); until
+  // it's set, it's one week before the first time Google was checked.
+  function grCreditStartDate(){
+    return ((window.appSettings || {}).commission || {}).reviewCreditStartDate || grMeta.trackingStartDate || '';
+  }
   function grCreditableReviews(){
-    const start = grMeta.trackingStartDate || '';
+    const start = grCreditStartDate();
     return grReviews.filter(r => r.date && r.date >= start);
   }
 
@@ -24758,8 +24778,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       ${long ? `<button type="button" class="gr-more" data-id="${grEsc(r.id)}" style="background:none; border:none; padding:0; margin-top:2px; color:var(--brand-green-dark); font-size:12px; cursor:pointer;">${expanded ? 'Show less' : 'Show more'}</button>` : ''}`;
   }
 
+  function renderGrEarlier(){
+    const start = grCreditStartDate();
+    const earlier = grReviews.filter(r => r.date && r.date < start);
+    document.getElementById('gr_creditStartDate').value = start;
+    document.getElementById('gr_earlierWrap').style.display = earlier.length > 0 ? 'block' : 'none';
+    document.getElementById('gr_earlierCount').textContent = `(${earlier.length})`;
+    document.getElementById('gr_earlierRows').innerHTML = earlier.map(r => `
+      <tr style="vertical-align:top;">
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${window.fmtDate(r.date)}</td>
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${grReviewCellHtml(r)}</td>
+      </tr>`).join('');
+    document.querySelectorAll('#gr_earlierRows .gr-more').forEach(b => b.addEventListener('click', grToggleMore));
+  }
+
   function renderGoogleReviewsAll(){
     renderGrStats();
+    renderGrEarlier();
     renderGrAllocate();
     renderGrAllocated();
     renderGrWeekSummary();
@@ -24862,9 +24897,64 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function grToggleMore(e){
     const id = e.currentTarget.dataset.id;
     if(grExpandedText.has(id)) grExpandedText.delete(id); else grExpandedText.add(id);
+    renderGrEarlier();
     renderGrAllocate();
     renderGrAllocated();
   }
+
+  document.getElementById('gr_earlierToggle').addEventListener('click', (e)=>{
+    const body = document.getElementById('gr_earlierBody');
+    const open = body.style.display === 'none';
+    body.style.display = open ? 'block' : 'none';
+    e.currentTarget.innerHTML = `${open ? '&#9662;' : '&#9656;'} Earlier Reviews <span id="gr_earlierCount">${document.getElementById('gr_earlierCount').textContent}</span>`;
+  });
+
+  // Moving the date back makes older reviews payable, so it takes the
+  // same override PIN as every other pay setting.
+  document.getElementById('gr_creditStartSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('gr_creditStartStatus');
+    const reviewCreditStartDate = document.getElementById('gr_creditStartDate').value;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(reviewCreditStartDate)){
+      statusEl.textContent = 'Pick a date first.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const pin = prompt('Enter the Administrator Override PIN to change which reviews can be credited:');
+    if(pin === null) return;
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok || !pinData.valid){
+        statusEl.textContent = !pinRes.ok ? (pinData.error || 'Could not verify PIN.') : 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { commission: { reviewCreditStartDate } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { reviewCreditStartDate });
+      renderGoogleReviewsAll();
+      statusEl.textContent = 'Saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save review credit date failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   function renderGrWeekSummary(){
     const wrap = document.getElementById('gr_weekSummary');
