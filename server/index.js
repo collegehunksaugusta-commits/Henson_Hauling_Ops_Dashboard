@@ -5889,9 +5889,13 @@ const MAX_CLAIM_PHOTOS_PER_SUBMISSION = 15;
 const MAX_CLAIM_PHOTO_DATA_URI_LENGTH = 8 * 1024 * 1024; // ~8MB encoded, well under the global 15mb body limit even with several photos
 const CLAIM_LINK_VALID_DAYS = 7;
 
+// The 7-day window runs from the most recent time the email was sent --
+// resending a claim's email gives the client a fresh 7 days on the same
+// link (linkIssuedAt), falling back to when the claim was created.
 function isClaimLinkExpired(claim) {
-  if (!claim.createdAt) return false;
-  const ageMs = Date.now() - new Date(claim.createdAt).getTime();
+  const issuedAt = claim.linkIssuedAt || claim.createdAt;
+  if (!issuedAt) return false;
+  const ageMs = Date.now() - new Date(issuedAt).getTime();
   return ageMs > CLAIM_LINK_VALID_DAYS * 24 * 60 * 60 * 1000;
 }
 
