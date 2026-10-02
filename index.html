@@ -5450,6 +5450,15 @@
         </div>
       </div>
 
+      <div id="gr_gbpBar" style="display:none; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin:8px 0 0; padding:10px 12px; border:1px solid var(--line); border-radius:6px; font-size:13px;">
+        <span id="gr_gbpText"></span>
+        <span style="display:flex; gap:8px; align-items:center;">
+          <span class="status-msg" id="gr_gbpStatus"></span>
+          <button type="button" id="gr_gbpConnectBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:12.5px;">Connect Google Business Profile</button>
+          <button type="button" id="gr_gbpDisconnectBtn" style="display:none; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:12.5px;">Disconnect</button>
+        </span>
+      </div>
+
       <div style="display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; margin:10px 0 0; padding:10px 12px; background:var(--offwhite); border-radius:6px;">
         <label style="margin:0; font-size:12.5px;">Credit reviews posted on or after <input type="date" id="gr_creditStartDate" style="display:block; margin-top:3px;"></label>
         <button type="button" id="gr_creditStartSaveBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:12.5px;">Save Date</button>
@@ -24674,7 +24683,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
   // ---- Google Reviews ----
-  // Reviews come from the server (which checks Google hourly); this side
+  // Reviews come from the server (which checks Google hourly, from the
+  // Business Profile API once connected, else the Places API); this side
   // only decides who gets credit. Same shape and rules as Tip Allocation:
   // a checkbox list of the roster plus "No One", Monday-Sunday pay weeks
   // by the date the review was posted.
@@ -24682,6 +24692,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let grReviews = [];
   let grMeta = {};
   let grConfigured = true;
+  let grBusinessProfile = { available: false, connected: false };
   let grAllocations = {};   // reviewId -> { employees: [names], date, allocatedAt }
   let grRoster = [];
   let grExpandedText = new Set();
@@ -24734,6 +24745,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       grReviews = data.reviews || [];
       grMeta = data.meta || {};
       grConfigured = !!data.configured;
+      grBusinessProfile = data.businessProfile || grBusinessProfile;
       grAllocations = allocations || {};
       grRoster = roster || [];
       await window.ensureAppSettingsLoaded();
@@ -24777,6 +24789,67 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       ${long ? `<button type="button" class="gr-more" data-id="${grEsc(r.id)}" style="background:none; border:none; padding:0; margin-top:2px; color:var(--brand-green-dark); font-size:12px; cursor:pointer;">${expanded ? 'Show less' : 'Show more'}</button>` : ''}`;
   }
 
+  // Google Business Profile: the complete review history, once the
+  // listing's owner/manager connects their Google account.
+  function renderGrBusinessProfileBar(){
+    const bar = document.getElementById('gr_gbpBar');
+    const bp = grBusinessProfile || {};
+    if(!bp.available && !bp.connected){ bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    const text = document.getElementById('gr_gbpText');
+    document.getElementById('gr_gbpConnectBtn').style.display = bp.connected ? 'none' : '';
+    document.getElementById('gr_gbpDisconnectBtn').style.display = bp.connected ? '' : 'none';
+    if(bp.connected && grMeta.source === 'business-profile'){
+      text.innerHTML = `<strong style="color:var(--brand-green-dark);">&#10003; Google Business Profile connected</strong> &mdash; every review on ${grEsc(grMeta.gbpLocationTitle || 'the listing')}, checked hourly.`;
+    } else if(bp.connected){
+      text.innerHTML = `<strong>Google Business Profile connected</strong> but not readable yet${grMeta.gbpError ? `: <span style="color:#b3261e;">${grEsc(grMeta.gbpError)}</span>` : ' \u2014 waiting on the next check.'} Reviews still come from the Places API meanwhile.`;
+    } else {
+      text.innerHTML = 'Connect the Google account that owns or manages the listing to pull <strong>every</strong> review, not just the 5 newest.';
+    }
+  }
+
+  document.getElementById('gr_gbpConnectBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('gr_gbpStatus');
+    statusEl.textContent = 'Opening Google...';
+    statusEl.className = 'status-msg';
+    // Opened before the request finishes so the popup isn't blocked.
+    const win = window.open('', '_blank');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/google-business/auth-url`, { headers: authHeaders() });
+      if(handleAuthFailure(res)){ if(win) win.close(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        if(win) win.close();
+        statusEl.textContent = data.error || 'Could not start the Google sign-in.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(win) win.location.href = data.url; else window.location.href = data.url;
+      statusEl.textContent = 'Finish signing in with Google, then come back and tap Refresh From Google.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      if(win) win.close();
+      console.error('Business Profile connect failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  document.getElementById('gr_gbpDisconnectBtn').addEventListener('click', async ()=>{
+    if(!confirm('Disconnect Google Business Profile? Reviews will go back to coming from the Places API (5 newest only). Reviews already pulled in stay.')) return;
+    const statusEl = document.getElementById('gr_gbpStatus');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/google-business/disconnect`, { method: 'POST', headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      if(!res.ok){ statusEl.textContent = 'Could not disconnect.'; statusEl.className = 'status-msg err'; return; }
+      grBusinessProfile = Object.assign({}, grBusinessProfile, { connected: false });
+      renderGrBusinessProfileBar();
+    }catch(err){
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
   function renderGrEarlier(){
     const start = grCreditStartDate();
     const earlier = grReviews.filter(r => r.date && r.date < start);
@@ -24814,6 +24887,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(grMeta.total) parts.push(`${Number(grMeta.total).toLocaleString()} reviews on Google`);
     if(grMeta.lastCheckedAt) parts.push(`last checked ${new Date(grMeta.lastCheckedAt).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}`);
     el.innerHTML = parts.join(' &middot; ');
+    renderGrBusinessProfileBar();
     if(grMeta.source === 'places-new'){
       parts.push(`<span style="color:#8a6d00;" title="${grEsc(grMeta.classicProblem || '')}">using Google&rsquo;s &ldquo;most relevant&rdquo; reviews, not newest${grMeta.classicProblem ? ' \u2014 Places API (Legacy) unavailable' : ''}</span>`);
       el.innerHTML = parts.join(' &middot; ');
@@ -25015,6 +25089,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       grReviews = data.reviews || [];
       grMeta = data.meta || {};
       grConfigured = !!data.configured;
+      grBusinessProfile = data.businessProfile || grBusinessProfile;
       renderGoogleReviewsAll();
       statusEl.textContent = data.added > 0 ? `${data.added} new review${data.added === 1 ? '' : 's'}.` : 'Up to date.';
       statusEl.className = 'status-msg ok';
