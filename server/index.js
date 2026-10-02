@@ -1892,7 +1892,9 @@ function nameDedupKey(name) {
 
 function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames, travelLineCheckStartDate) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems, managerReviewItems, junkRemovalJobs } = data;
+  const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems, managerReviewItems, junkRemovalJobs, captainRatings } = data;
+  const nowMs = Date.now();
+  const DAY_MS = 24 * 60 * 60 * 1000;
   const opsManagerKeys = new Set((opsManagerNames || []).map(nameDedupKey));
   // Only someone currently checked as a driver on Compliance is eligible
   // to be scored -- the Captain-selection dropdown on Job Data Entry pulls
@@ -1942,12 +1944,19 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
   const uploadsByJob = {};
   uploads.forEach(u => { if (u.jobNumber) uploadsByJob[u.jobNumber] = u; });
   const paperworkByCaptain = {};
+  // A job whose paperwork isn't complete yet but is still inside the
+  // close-out window isn't due yet, so it's left out entirely rather than
+  // counted as a 0 -- the same "not yet due" rule Ops Manager Metrics'
+  // Paperwork Close-Out uses. Once the window passes, an incomplete job
+  // counts against the Captain like before.
+  const paperworkWindowMs = (Number(data.paperworkCloseoutWindowDays) || 4) * DAY_MS;
   monthJobs.forEach(j => {
     const upload = uploadsByJob[j.jobNumber];
     if (upload && upload.satisfaction === 'angry') return;
+    const complete = !!(upload && upload.emailSentAt && upload.invoiceUploadedAt && (Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden));
+    if (!complete && (nowMs - Date.parse(j.assignmentDate + 'T00:00:00Z')) <= paperworkWindowMs) return;
     if (!paperworkByCaptain[j.captainName]) paperworkByCaptain[j.captainName] = { complete: 0, total: 0 };
     paperworkByCaptain[j.captainName].total++;
-    const complete = !!(upload && upload.emailSentAt && upload.invoiceUploadedAt && (Number(upload.invoiceBalanceDue) < 1 || upload.balanceDueOverridden));
     if (complete) paperworkByCaptain[j.captainName].complete++;
   });
 
@@ -1982,11 +1991,23 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     const days = [...assignedDaysByCaptain[captain]];
     if (days.length === 0) return;
     const captainKey = nameDedupKey(captain);
-    const compliant = days.filter(day =>
+    // Inspection dates are stamped in UTC, so an End of Day submitted
+    // after 8 PM Eastern lands on the next calendar date -- one filed
+    // before 10:00 UTC (6 AM Eastern) the next morning still counts for
+    // the work day it belongs to.
+    const nextDay = d => new Date(Date.parse(d + 'T00:00:00Z') + DAY_MS).toISOString().slice(0, 10);
+    const eodCoversDay = (e, day) => e.date === day ||
+      (e.date === nextDay(day) && e.submittedAt && new Date(e.submittedAt).getUTCHours() < 10);
+    const isCompliant = day =>
       ptiRecords.some(p => nameDedupKey(p.driverName) === captainKey && p.date === day) &&
-      eodRecords.some(e => nameDedupKey(e.driverName) === captainKey && e.date === day)
-    ).length;
-    ptiEodByCaptain[captain] = { pct: (compliant / days.length) * 100 };
+      eodRecords.some(e => nameDedupKey(e.driverName) === captainKey && eodCoversDay(e, day));
+    // A day isn't due until 6 AM Eastern the next morning, unless it's
+    // already complete -- so an evening job still waiting on its End of
+    // Day doesn't show as a miss.
+    const dueDays = days.filter(day => isCompliant(day) || nowMs >= Date.parse(day + 'T00:00:00Z') + DAY_MS + 10 * 60 * 60 * 1000);
+    if (dueDays.length === 0) return;
+    const compliant = dueDays.filter(isCompliant).length;
+    ptiEodByCaptain[captain] = { pct: (compliant / dueDays.length) * 100 };
   });
 
   // ---- 4. Move Job Photo Upload -- "move" job type only, at least one
@@ -2100,6 +2121,24 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     if (!isBad) truckConditionsByCaptain[captainName].ok++;
   });
 
+  // ---- 7. Captain Reviews -- share of "Yes" answers across every
+  // Captain Review wingmen submitted about this Captain in the range.
+  // No reviews means no score for this category (left out, not 0). ----
+  const captainReviewsByCaptain = {};
+  (captainRatings || []).forEach(r => {
+    if (!r.captainName || !r.date || r.date < rangeStart || r.date >= rangeEnd) return;
+    if (!Array.isArray(r.answers) || r.answers.length === 0) return;
+    const captainKey = nameDedupKey(r.captainName);
+    if (opsManagerKeys.has(captainKey)) return;
+    if (activeDriverKeys !== null && !activeDriverKeys.has(captainKey)) return;
+    const captainName = canonicalNameByKey[captainKey] || r.captainName;
+    if (!captainReviewsByCaptain[captainName]) captainReviewsByCaptain[captainName] = { yes: 0, total: 0 };
+    r.answers.forEach(a => {
+      captainReviewsByCaptain[captainName].total++;
+      if (a.answer === true) captainReviewsByCaptain[captainName].yes++;
+    });
+  });
+
   // ---- Combine into per-category percentages + one weighted overall
   // score, re-normalizing weights among only the categories each Captain
   // actually has applicable data for. ----
@@ -2110,13 +2149,14 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     { key: 'ptiEod', weight: Number(weights.ptiEod) || 0, get: c => (ptiEodByCaptain[c] ? ptiEodByCaptain[c].pct : null) },
     { key: 'movePhoto', weight: Number(weights.movePhoto) || 0, get: c => pct(moveJobsByCaptain[c], 'withPhoto', 'total') },
     { key: 'underbilled', weight: Number(weights.underbilled) || 0, get: c => pct(underbilledByCaptain[c], 'ok', 'total') },
-    { key: 'truckConditions', weight: Number(weights.truckConditions) || 0, get: c => pct(truckConditionsByCaptain[c], 'ok', 'total') }
+    { key: 'truckConditions', weight: Number(weights.truckConditions) || 0, get: c => pct(truckConditionsByCaptain[c], 'ok', 'total') },
+    { key: 'captainReviews', weight: Number(weights.captainReviews) || 0, get: c => pct(captainReviewsByCaptain[c], 'yes', 'total') }
   ];
 
   const allCaptains = new Set([
     ...Object.keys(paperworkByCaptain), ...Object.keys(attendanceByCaptain),
     ...Object.keys(ptiEodByCaptain), ...Object.keys(moveJobsByCaptain), ...Object.keys(underbilledByCaptain),
-    ...Object.keys(truckConditionsByCaptain)
+    ...Object.keys(truckConditionsByCaptain), ...Object.keys(captainReviewsByCaptain)
   ]);
 
   const scores = {};
@@ -2212,14 +2252,16 @@ async function getActiveWingmanMetricsMonth() {
 }
 
 async function fetchCaptainMetricsRawData() {
-  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw, reviewItemsRaw, junkRemovalJobsRaw] = await Promise.all([
+  const [archiveRaw, ptiRaw, uploadsRaw, eodRaw, attendanceRaw, movingRaw, checkoutsRaw, itemsRaw, excludedRaw, driversRaw, reviewItemsRaw, junkRemovalJobsRaw, captainRatingsRaw, settingsRaw] = await Promise.all([
     redis.get('paperwork-job-archive'), redis.get('compliance-pretrip-inspections'),
     redis.get('paperwork-uploads'), redis.get('compliance-eod-inspections'),
     redis.get('attendance-records'), redis.get('moving-damage-reports'),
     redis.get('materials-checkouts'), redis.get('materials-items'),
     redis.get('settings-captain-metrics-excluded-employees'), redis.get('compliance-drivers'),
-    redis.get('manager-review-items'), redis.get('junk-removal-jobs')
+    redis.get('manager-review-items'), redis.get('junk-removal-jobs'),
+    redis.get('captain-ratings'), redis.get(APP_SETTINGS_KEY)
   ]);
+  const omSettings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null).opsManagerMetrics || {};
   const opsManagerNames = excludedRaw ? JSON.parse(excludedRaw) : [];
   // Distinguish "the key was never set" (driver data genuinely
   // unavailable -- fail open, apply no restriction) from "the key exists
@@ -2239,6 +2281,10 @@ async function fetchCaptainMetricsRawData() {
     materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
     managerReviewItems: reviewItemsRaw ? JSON.parse(reviewItemsRaw) : [],
     junkRemovalJobs: junkRemovalJobsRaw ? JSON.parse(junkRemovalJobsRaw) : [],
+    captainRatings: captainRatingsRaw ? JSON.parse(captainRatingsRaw) : [],
+    // Same close-out window Ops Manager Metrics uses (Configuration ->
+    // Ops Manager Metrics Settings), default 4 days.
+    paperworkCloseoutWindowDays: Number(omSettings.timelyCloseoutWindowDays) || 4,
     opsManagerNames,
     activeDriverNames
   };
@@ -2313,12 +2359,12 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
     const data = await fetchCaptainMetricsRawData();
     const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
 
-    const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing', truckConditions: 'Truck Conditions' };
+    const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing', truckConditions: 'Truck Conditions', captainReviews: 'Captain Reviews' };
     const entries = Object.keys(scores)
       .filter(captain => scores[captain].overall !== null)
       .map(captain => {
         const s = scores[captain];
-        const breakdown = ['completedPaperwork', 'attendance', 'ptiEod', 'movePhoto', 'underbilled', 'truckConditions']
+        const breakdown = ['completedPaperwork', 'attendance', 'ptiEod', 'movePhoto', 'underbilled', 'truckConditions', 'captainReviews']
           .filter(k => s[k] !== null).map(k => `${labelMap[k]} ${s[k]}%`).join(' \u00b7 ');
         return { name: captain, value: s.overall, detail: breakdown };
       })
@@ -2353,8 +2399,8 @@ app.get('/api/admin/captain-metrics/current', requireAuth, async (req, res) => {
   }
 });
 
-// Wingman Reviews of Captains, for the admin Captain Metrics tile --
-// monitoring only, never part of a Captain's weighted overall score.
+// Wingman Reviews of Captains, for the admin Captain Metrics tile -- the
+// individual reviews behind the Captain Reviews category.
 // Same month the rest of the tile is showing, same yes-percentage math
 // as Wingman Metrics, plus each Captain's individual reviews so the tile
 // can show exactly who said what.
@@ -2717,7 +2763,7 @@ const DEFAULT_APP_SETTINGS = {
     emailCc: ''
   },
   captainMetrics: {
-    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10, truckConditions: 0 },
+    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10, truckConditions: 0, captainReviews: 0 },
     // The travel-line-item requirement (Underbilled Jobs, for Move/Move
     // Labor jobs) only applies to jobs on or after this date. Set to the
     // day after that check actually went live (2026-09-24), so Captains
