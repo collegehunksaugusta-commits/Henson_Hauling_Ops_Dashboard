@@ -2893,10 +2893,15 @@ async function resolveGooglePlaceId(apiKey, meta) {
 // falls back to the current Places API, which newer Google Cloud projects
 // are limited to. Both are normalized to the same shape.
 async function fetchGoogleReviewsFromApi(apiKey, placeId) {
+  let classicProblem = null;
   try {
     const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=rating,user_ratings_total,reviews&reviews_sort=newest&reviews_no_translations=true&key=${encodeURIComponent(apiKey)}`;
     const r = await fetch(url);
     const d = await r.json();
+    if (d.status !== 'OK' || !d.result) {
+      classicProblem = `${d.status || 'no status'}${d.error_message ? ': ' + d.error_message : ''}`;
+      console.error('[google-reviews] legacy Places API unavailable, falling back to the new API (most-relevant reviews only) --', classicProblem);
+    }
     if (d.status === 'OK' && d.result) {
       return {
         source: 'places-classic',
@@ -2909,6 +2914,7 @@ async function fetchGoogleReviewsFromApi(apiKey, placeId) {
       };
     }
   } catch (err) {
+    classicProblem = err.message;
     console.error('[google-reviews] classic Places request failed, trying the current API:', err.message);
   }
   const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
@@ -2918,6 +2924,7 @@ async function fetchGoogleReviewsFromApi(apiKey, placeId) {
   if (!r.ok) throw new Error((d.error && d.error.message) || 'Google place details failed.');
   return {
     source: 'places-new',
+    classicProblem,
     rating: d.rating ?? null,
     total: d.userRatingCount ?? null,
     reviews: (d.reviews || []).map(v => ({
@@ -2961,7 +2968,8 @@ function refreshGoogleReviews() {
       // previous week onward, so older reviews already on the listing
       // don't all turn into back pay.
       if (!meta.trackingStartDate) meta.trackingStartDate = easternDateFromMs(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      Object.assign(meta, { rating: result.rating, total: result.total, source: result.source, lastCheckedAt: new Date().toISOString(), lastError: null });
+      Object.assign(meta, { rating: result.rating, total: result.total, source: result.source, classicProblem: result.classicProblem || null, lastCheckedAt: new Date().toISOString(), lastError: null });
+      console.log(`[google-reviews] checked via ${result.source}: ${result.reviews.length} returned, ${added} new, newest posted ${result.reviews.map(v => v.unix).sort((a, b) => b - a).map(u => easternDateFromMs(u * 1000))[0] || 'n/a'}`);
       const merged = [...byId.values()].sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''));
       await Promise.all([redis.set(GOOGLE_REVIEWS_KEY, JSON.stringify(merged)), redis.set(GOOGLE_REVIEWS_META_KEY, JSON.stringify(meta))]);
       if (added > 0) console.log(`[google-reviews] ${added} new review(s) via ${result.source}`);
