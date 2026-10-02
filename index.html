@@ -20445,7 +20445,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             const balanceOk = u.invoiceUploadedAt && (Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden);
             const materialsOk = u.requiresMaterials !== true || (Array.isArray(u.materialsBilled) && u.materialsBilled.length > 0) || u.materialsBilledOverridden;
             if(balanceOk && materialsOk){
-              return `<button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Email Sent' : 'Send Email'}</button>`;
+              return `<button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Sent \u00b7 Resend' : 'Send Email'}</button>`;
             }
             if(!u.invoiceUploadedAt){
               return `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="Upload the HunkWare invoice for this job before the client can be emailed.">Invoice needed</span>`;
@@ -23867,8 +23867,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function dcClaimStatus(claim){
     if(claim.photosUploadedAt && !claim.acknowledgedAt) return { label: 'Photos Uploaded', color: '#B3261E', bg: '#FDEDEA' };
     if(claim.photosUploadedAt && claim.acknowledgedAt) return { label: 'Reviewed', color: 'var(--brand-green-dark)', bg: '#EAF6EE' };
-    if(claim.emailSentAt && !claim.photosUploadedAt && claim.createdAt){
-      const ageMs = Date.now() - new Date(claim.createdAt).getTime();
+    if(claim.emailSentAt && !claim.photosUploadedAt && (claim.linkIssuedAt || claim.createdAt)){
+      const ageMs = Date.now() - new Date(claim.linkIssuedAt || claim.createdAt).getTime();
       if(ageMs > CLAIM_LINK_VALID_DAYS*24*60*60*1000){
         return { label: 'Link Expired', color: '#8a6d00', bg: '#FDF6E3' };
       }
@@ -23929,12 +23929,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${photoCount > 0 ? `<button type="button" class="dc-view-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View ${photoCount} Client Photo${photoCount===1?'':'s'}</button>` : ''}
           ${crewTotal > 0 ? `<button type="button" class="dc-view-crew-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View Crew Documentation (${crewTotal})</button>` : ''}
           ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-acknowledge" data-id="${c.id}" style="background:var(--brand-green); border:none; color:#fff; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Mark Reviewed</button>` : ''}
+          <button type="button" class="dc-resend" data-id="${c.id}" title="${c.emailSentAt ? 'Last sent ' + new Date(c.emailSentAt).toLocaleString() : ''}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.emailSentAt ? 'Resend Email' : 'Send Email'}${(c.emailSendCount || 0) > 1 ? ` (sent ${c.emailSendCount}\u00d7)` : ''}</button>
           <button type="button" class="dc-delete" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Delete</button>
         </div>
         <div class="dc-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-wrap:wrap; gap:8px;"></div>
         <div class="dc-crew-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-direction:column; gap:10px;"></div>
       </div>`;
     }).join('');
+
+    rowsEl.querySelectorAll('.dc-resend').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      if(!claim) return;
+      const statusEl = document.getElementById('dc_generateStatus');
+      const clipboardOk = await dcOpenClaimEmail(claim);
+      const ok = await saveDamageClaims();
+      renderDamageClaimsList();
+      if(!ok){
+        statusEl.textContent = 'Email opened, but the claim couldn\u2019t be updated \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = (clipboardOk
+        ? `Message for Job ${claim.jobNumber} copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body.`
+        : `Your email for Job ${claim.jobNumber} is open \u2014 paste the message from the popup into the body.`) + ' Same link as before, good for another 7 days.';
+      statusEl.className = 'status-msg ok';
+    }));
 
     rowsEl.querySelectorAll('.dc-resolution').forEach(sel => sel.addEventListener('change', async (e)=>{
       const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
@@ -24069,6 +24088,32 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     dcLastLookedUpJobNumber = jobNumber;
   });
 
+  // Copies the claim email's body to the clipboard and opens a new email
+  // to the client. Used for the first send and every resend -- always the
+  // same claim, same link, so the client never ends up with two.
+  async function dcOpenClaimEmail(claim){
+    await ensureAppSettingsLoaded();
+    const dc = window.appSettings.damageClaims || {};
+    const link = `${location.origin}${location.pathname}#claim-${claim.token}`;
+    const template = dc.emailBodyTemplate || 'Please upload photos of the damage here: {{link}}';
+    const body = mergeEmailTemplate(template, { link });
+    const subject = `RE: Damage Claim ${claim.jobNumber}`;
+    let clipboardOk = false;
+    try{
+      await navigator.clipboard.writeText(body);
+      clipboardOk = true;
+    }catch(clipErr){
+      console.error('Clipboard copy failed:', clipErr);
+      prompt('Could not auto-copy \u2014 copy this message manually, then paste it into the email body:', body);
+    }
+    window.location.href = `mailto:${encodeURIComponent(claim.clientEmail)}?subject=${encodeURIComponent(subject)}`;
+    const now = new Date().toISOString();
+    claim.emailSendCount = (claim.emailSendCount || (claim.emailSentAt ? 1 : 0)) + 1; // claims from before this counter existed had been sent once
+    claim.emailSentAt = now;
+    claim.linkIssuedAt = now; // a fresh 7 days on the same link
+    return clipboardOk;
+  }
+
   document.getElementById('dc_generateBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('dc_generateStatus');
     const jobNumber = document.getElementById('dc_jobNumber').value.trim();
@@ -24107,26 +24152,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       crewCausedNotes: (movingReport && movingReport.causedNotes) || ''
     };
 
-    await ensureAppSettingsLoaded();
-    const dc = window.appSettings.damageClaims || {};
-    const link = `${location.origin}${location.pathname}#claim-${token}`;
-    const template = dc.emailBodyTemplate || 'Please upload photos of the damage here: {{link}}';
-    const body = mergeEmailTemplate(template, { link });
-    const subject = `RE: Damage Claim ${jobNumber}`;
-
-    let clipboardOk = false;
-    try{
-      await navigator.clipboard.writeText(body);
-      clipboardOk = true;
-    }catch(clipErr){
-      console.error('Clipboard copy failed:', clipErr);
-      prompt('Could not auto-copy \u2014 copy this message manually, then paste it into the email body:', body);
-    }
-
-    const mailto = `mailto:${encodeURIComponent(clientEmail)}?subject=${encodeURIComponent(subject)}`;
-    window.location.href = mailto;
-
-    claim.emailSentAt = new Date().toISOString();
+    const clipboardOk = await dcOpenClaimEmail(claim);
     damageClaims.push(claim);
     const ok = await saveDamageClaims();
 
