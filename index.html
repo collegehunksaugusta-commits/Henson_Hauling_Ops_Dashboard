@@ -5014,7 +5014,7 @@
     <div class="detail-head">
       <h2 class="display">Extra Pay</h2>
     </div>
-    <p class="form-note">Tips pull in automatically from that week's allocated Square tips (same weekly grouping the Manager Review Tips panel uses). Review Bonus, Commission, and Misc are entered manually and saved per employee, per week. A week collapses automatically once that week's ADP payroll report has been uploaded on Labor Cost &mdash; click its header to expand it again any time.</p>
+    <p class="form-note">Tips pull in automatically from that week's allocated Square tips (same weekly grouping the Manager Review Tips panel uses). Review Bonus fills in automatically from Google reviews credited on Manager Review &times; the per-review amount in Configuration &rarr; Pay (shaded green while auto-filled). Review Bonus, Commission, and Misc are entered manually and saved per employee, per week. A week collapses automatically once that week's ADP payroll report has been uploaded on Labor Cost &mdash; click its header to expand it again any time.</p>
 
     <div id="extraPay_weeksList"></div>
     <p class="form-note" id="extraPay_emptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
@@ -5269,7 +5269,8 @@
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
-      <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="greviews" id="mgrreview_tab_greviews" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Google Reviews <span id="mgrreview_greviewsTabCount"></span></button>
     </div>
 
     <div class="panel" id="mgrreview_panel_ccard">
@@ -5436,6 +5437,36 @@
       <p class="form-note">Pre-existing and crew-caused damage photos drivers document for Move and Move Labor jobs. Photos are kept for 92 days, then removed automatically (except any already pulled into a live Damage Claim).</p>
       <div id="mv_jobRows"></div>
       <p class="form-note" id="mv_emptyNote" style="display:none;">No moving damage reports yet.</p>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_greviews" style="display:none;">
+      <h3>Google Reviews</h3>
+      <p class="form-note">New reviews from the College Hunks Augusta Google listing come in automatically every hour. Credit each one to the employees it&rsquo;s about &mdash; every employee credited gets the full review bonus set in Configuration &rarr; Pay, and it shows up on Extra Pay for the week the review was posted.</p>
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:6px 0 4px;">
+        <div id="gr_statsLine" style="font-size:13px; color:var(--muted);"></div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="status-msg" id="gr_status"></span>
+          <button class="btn-primary" id="gr_refreshBtn" type="button">Refresh From Google</button>
+        </div>
+      </div>
+
+      <h4 style="margin:18px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">To Allocate</h4>
+      <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); width:230px;">Credit To</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th></tr></thead>
+        <tbody id="gr_allocateRows"></tbody>
+      </table></div>
+      <p class="form-note" id="gr_allocateEmptyNote" style="display:none;">No reviews waiting to be credited.</p>
+
+      <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">Allocated</h4>
+      <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Credited To</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th></tr></thead>
+        <tbody id="gr_allocatedRows"></tbody>
+      </table></div>
+      <p class="form-note" id="gr_allocatedEmptyNote" style="display:none;">Nothing allocated yet.</p>
+
+      <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">By Pay Week</h4>
+      <div id="gr_weekSummary"></div>
+      <p class="form-note" id="gr_weekSummaryEmptyNote" style="display:none;">No credited reviews yet.</p>
     </div>
   </div>
 
@@ -6766,6 +6797,14 @@
           <div class="form-actions">
             <button type="button" id="appset_commissionRatesSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Rates</button>
             <span class="status-msg" id="appset_commissionRatesStatus"></span>
+          </div>
+
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Google Review Bonus</h4>
+          <p class="form-note" style="margin-top:0;">Paid for each Google review credited to an employee on Manager Review &rarr; Google Reviews. Every employee credited on a review gets the full amount. Fills in the Review Bonus column on Extra Pay automatically.</p>
+          <label>Amount Per Review ($) <input type="number" min="0" step="0.01" id="appset_reviewBonusPerReview" style="max-width:120px;"></label>
+          <div class="form-actions">
+            <button type="button" id="appset_reviewBonusSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Review Bonus</button>
+            <span class="status-msg" id="appset_reviewBonusStatus"></span>
           </div>
 
           <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Ops Manager Assignment</h4>
@@ -9578,7 +9617,8 @@
       const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
       const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
 
-      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult] = await Promise.all([
+      const reviewBonusRate = Number(commission.reviewBonusPerReview) || 0;
+      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations] = await Promise.all([
         window.getCurrentEmployeeRoster(),
         window.dashboardApi.get('square-tip-allocations', {allocations:{}, overrides:{}}),
         window.dashboardApi.get(EXTRA_PAY_MANUAL_KEY, {}),
@@ -9586,7 +9626,8 @@
         window.dashboardApi.get('paperwork-job-archive', []),
         window.dashboardApi.get('paperwork-uploads', []),
         window.dashboardApi.get('manager-review-items', []),
-        window.dashboardApi.get('compliance-drivers', [])
+        window.dashboardApi.get('compliance-drivers', []),
+        window.dashboardApi.get('google-review-allocations', {})
       ]);
       extraPayManualData = manualData || {};
       const allocations = (tipsData && tipsData.allocations) || {};
@@ -9628,17 +9669,28 @@
           const share = a.tipAmount / a.employees.length;
           a.employees.forEach(name => { tipTotals[name] = (tipTotals[name] || 0) + share; });
         });
-        const names = dedupeAndSortNames([...(roster || []), ...Object.keys(tipTotals)]);
+        // Google reviews credited on Manager Review, by the date each
+        // review was posted -- every employee credited gets the full
+        // per-review amount from Configuration -> Pay.
+        const reviewCounts = {};
+        Object.values(googleReviewAllocations || {}).forEach(a => {
+          if(!a || !a.date || a.date < week.weekStart || a.date > week.weekEnd) return;
+          (a.employees || []).forEach(name => { reviewCounts[name] = (reviewCounts[name] || 0) + 1; });
+        });
+        const reviewBonusCalc = {};
+        Object.keys(reviewCounts).forEach(name => { reviewBonusCalc[name] = reviewCounts[name] * reviewBonusRate; });
+        const names = dedupeAndSortNames([...(roster || []), ...Object.keys(tipTotals), ...Object.keys(reviewCounts)]);
         return {
-          weekStart, week, names, tipTotals,
+          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc,
           adpUploaded: adpUploadedWeeks.has(weekStart),
           hasManualData: !!extraPayManualData[weekStart],
-          hasAnyTips: Object.keys(tipTotals).length > 0
+          hasAnyTips: Object.keys(tipTotals).length > 0,
+          hasAnyReviews: Object.keys(reviewCounts).length > 0
         };
       // Skip a purely-empty older week with nothing going on at all -- no
       // point showing a blank $0 table for a week no one ever touched,
       // except the current week, which always shows regardless.
-      }).filter(w => w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips);
+      }).filter(w => w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews);
 
       // Default expanded unless ADP's already been uploaded for that week
       // -- this is about whether the pay period itself is closed out, and
@@ -9783,10 +9835,20 @@
       const commissionValue = manual.commission !== undefined ? manual.commission : ((w.commissionCalc && w.commissionCalc[name]) || 0);
       const commissionStyle = isAutoCalculated ? `${inputStyle} background:#e8f5e9;` : inputStyle;
       const commissionTitle = isAutoCalculated ? ' title="Auto-calculated from revenue \u00d7 rate \u00d7 score \u00d7 hours worked -- edit and save to override"' : '';
+      // Review Bonus works like Commission: filled in from credited Google
+      // reviews unless it's been saved as something different. A saved 0
+      // from before reviews were credited doesn't block it.
+      const reviewAuto = (w.reviewBonusCalc && w.reviewBonusCalc[name]) || 0;
+      const reviewCount = (w.reviewCounts && w.reviewCounts[name]) || 0;
+      const reviewManual = manual.reviewBonus;
+      const reviewIsAuto = reviewCount > 0 && (reviewManual === undefined || (Number(reviewManual) === 0 && reviewAuto > 0));
+      const reviewBonusValue = reviewIsAuto ? reviewAuto : (Number(reviewManual) || 0);
+      const reviewBonusStyle = reviewIsAuto ? `${inputStyle} background:#e8f5e9;` : inputStyle;
+      const reviewBonusTitle = reviewCount > 0 ? ` title="${reviewCount} Google review${reviewCount === 1 ? '' : 's'} credited${reviewIsAuto ? ' -- auto-filled; edit and save to override' : ''}"` : '';
       return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" value="${Number(manual.reviewBonus)||0}" style="${inputStyle}"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
@@ -9867,8 +9929,13 @@
       const weekData = {};
       panel.querySelectorAll('.extraPay-employee-row').forEach(row => {
         const name = row.dataset.name;
+        const reviewInput = row.querySelector('.extraPay-reviewBonus');
+        const reviewValue = Number(reviewInput.value) || 0;
+        const reviewAutoValue = Number(reviewInput.dataset.auto) || 0;
         weekData[name] = {
-          reviewBonus: Number(row.querySelector('.extraPay-reviewBonus').value) || 0,
+          // Left unset while it still matches the credited-reviews amount,
+          // so reviews credited later keep flowing in.
+          reviewBonus: (reviewAutoValue > 0 && Math.abs(reviewValue - reviewAutoValue) < 0.005) ? undefined : reviewValue,
           commission: Number(row.querySelector('.extraPay-commission').value) || 0,
           misc: Number(row.querySelector('.extraPay-misc').value) || 0
         };
@@ -15067,6 +15134,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_commissionDriverRate').value = commission.driverRate || 0;
     document.getElementById('appset_commissionOpsManagerRate').value = commission.opsManagerRate || 0;
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
+    document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
 
     const select = document.getElementById('appset_opsManagerAssignment');
     let roster = [];
@@ -15085,6 +15153,49 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       `<option value="${settingsEsc(name)}" ${name === currentValue ? 'selected' : ''}>${settingsEsc(name)}</option>`
     ).join('');
   }
+
+  document.getElementById('appset_reviewBonusSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_reviewBonusStatus');
+    const reviewBonusPerReview = Math.max(0, Math.round((Number(document.getElementById('appset_reviewBonusPerReview').value) || 0) * 100) / 100);
+    const pin = prompt('Enter the Administrator Override PIN to change the review bonus:');
+    if(pin === null) return;
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok || !pinData.valid){
+        statusEl.textContent = !pinRes.ok ? (pinData.error || 'Could not verify PIN.') : 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { commission: { reviewBonusPerReview } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){
+        statusEl.textContent = saveData.error || 'Could not save.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { reviewBonusPerReview });
+      statusEl.textContent = 'Review bonus saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save review bonus failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
 
   document.getElementById('appset_commissionRatesSaveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('appset_commissionRatesStatus');
@@ -24455,6 +24566,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   async function loadManagerReviewData(){
+    loadGoogleReviews();
     try{
       let items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
       const { kept, changed } = pruneOldManagerReviewItems(items);
@@ -24533,7 +24645,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['ccard','underbilled','truckconditions','junkremoval','moving'].forEach(t => {
+    ['ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -24543,8 +24655,274 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       btn.style.fontWeight = active ? '700' : '600';
     });
     if(tab === 'ccard' && mgrReviewSquareTransactions === null) loadMgrReviewSquareTransactions();
+    if(tab === 'greviews') loadGoogleReviews();
   }
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
+
+  // ---- Google Reviews ----
+  // Reviews come from the server (which checks Google hourly); this side
+  // only decides who gets credit. Same shape and rules as Tip Allocation:
+  // a checkbox list of the roster plus "No One", Monday-Sunday pay weeks
+  // by the date the review was posted.
+  const GOOGLE_REVIEW_ALLOCATIONS_KEY = 'google-review-allocations';
+  let grReviews = [];
+  let grMeta = {};
+  let grConfigured = true;
+  let grAllocations = {};   // reviewId -> { employees: [names], date, allocatedAt }
+  let grRoster = [];
+  let grExpandedText = new Set();
+
+  function grEsc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+  function grMoney(n){
+    return '$' + (Number(n)||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+  function grStars(n){
+    const r = Math.max(0, Math.min(5, Math.round(Number(n) || 0)));
+    return `<span style="color:#e3a008; letter-spacing:1px;">${'\u2605'.repeat(r)}</span><span style="color:var(--line); letter-spacing:1px;">${'\u2605'.repeat(5 - r)}</span>`;
+  }
+  function grWeekBounds(dateStr){
+    const d = new Date(dateStr + 'T00:00:00');
+    const dow = d.getDay();
+    const monday = new Date(d); monday.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    const toStr = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    return { weekStart: toStr(monday), weekEnd: toStr(sunday) };
+  }
+  function grRate(){
+    return Number(((window.appSettings || {}).commission || {}).reviewBonusPerReview) || 0;
+  }
+  // Only reviews from when tracking began are creditable, so the older
+  // reviews already on the listing don't all turn into back pay.
+  function grCreditableReviews(){
+    const start = grMeta.trackingStartDate || '';
+    return grReviews.filter(r => r.date && r.date >= start);
+  }
+
+  async function loadGoogleReviews(){
+    try{
+      const [res, allocations, roster] = await Promise.all([
+        fetch(`${API_BASE}/api/admin/google-reviews`, { headers: authHeaders() }),
+        window.dashboardApi.get(GOOGLE_REVIEW_ALLOCATIONS_KEY, {}),
+        window.getCurrentEmployeeRoster().catch(() => [])
+      ]);
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'load failed');
+      grReviews = data.reviews || [];
+      grMeta = data.meta || {};
+      grConfigured = !!data.configured;
+      grAllocations = allocations || {};
+      grRoster = roster || [];
+      await window.ensureAppSettingsLoaded();
+      renderGoogleReviewsAll();
+    }catch(err){
+      console.error('Google reviews load failed:', err);
+      const statusEl = document.getElementById('gr_status');
+      statusEl.textContent = 'Could not load Google reviews \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+  window.loadGoogleReviews = loadGoogleReviews;
+
+  async function grSaveAllocations(){
+    try{ return await window.dashboardApi.set(GOOGLE_REVIEW_ALLOCATIONS_KEY, grAllocations); }
+    catch(err){ console.error('Google review allocations save failed:', err); return false; }
+  }
+
+  function grEmployeeCheckboxesHtml(selected){
+    const sel = new Set(selected || []);
+    const names = [...new Set([...grRoster, ...sel])].sort((a,b) => a.localeCompare(b));
+    return `<div class="gr-emp-list" style="max-height:130px; overflow-y:auto; border:1px solid var(--line); border-radius:4px; padding:6px; font-size:12.5px;">
+      <label style="display:flex; align-items:center; gap:6px; margin:0 0 4px; font-weight:600;"><input type="checkbox" class="gr-emp-none"> No One</label>
+      ${names.map(name => `<label style="display:flex; align-items:center; gap:6px; margin:0 0 2px; font-weight:400;">
+        <input type="checkbox" class="gr-emp-check" value="${grEsc(name)}" ${sel.has(name) ? 'checked' : ''}> ${grEsc(name)}</label>`).join('')}
+    </div>`;
+  }
+  function grWireExclusivity(row){
+    const none = row.querySelector('.gr-emp-none');
+    const checks = row.querySelectorAll('.gr-emp-check');
+    none.addEventListener('change', () => { if(none.checked) checks.forEach(c => c.checked = false); });
+    checks.forEach(c => c.addEventListener('change', () => { if(c.checked) none.checked = false; }));
+  }
+  function grReviewCellHtml(r){
+    const text = r.text || '';
+    const long = text.length > 220;
+    const expanded = grExpandedText.has(r.id);
+    const shown = long && !expanded ? text.slice(0, 220).trimEnd() + '\u2026' : text;
+    return `<div style="font-weight:600;">${grEsc(r.authorName)} <span style="font-weight:400;">${grStars(r.rating)}</span></div>
+      <div style="margin-top:3px; color:var(--charcoal); white-space:pre-wrap;">${shown ? grEsc(shown) : '<span class="form-note" style="font-style:italic;">(rating only, no written review)</span>'}</div>
+      ${long ? `<button type="button" class="gr-more" data-id="${grEsc(r.id)}" style="background:none; border:none; padding:0; margin-top:2px; color:var(--brand-green-dark); font-size:12px; cursor:pointer;">${expanded ? 'Show less' : 'Show more'}</button>` : ''}`;
+  }
+
+  function renderGoogleReviewsAll(){
+    renderGrStats();
+    renderGrAllocate();
+    renderGrAllocated();
+    renderGrWeekSummary();
+    const pending = grCreditableReviews().filter(r => !grAllocations[r.id]).length;
+    document.getElementById('mgrreview_greviewsTabCount').textContent = pending > 0 ? `(${pending})` : '';
+  }
+
+  function renderGrStats(){
+    const el = document.getElementById('gr_statsLine');
+    const statusEl = document.getElementById('gr_status');
+    if(!grConfigured){
+      el.innerHTML = '';
+      statusEl.textContent = 'Not connected yet \u2014 a Google Places API key needs to be added in Render (GOOGLE_PLACES_API_KEY).';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const parts = [];
+    if(grMeta.rating) parts.push(`${grStars(grMeta.rating)} <strong style="color:var(--charcoal);">${Number(grMeta.rating).toFixed(1)}</strong>`);
+    if(grMeta.total) parts.push(`${Number(grMeta.total).toLocaleString()} reviews on Google`);
+    if(grMeta.lastCheckedAt) parts.push(`last checked ${new Date(grMeta.lastCheckedAt).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}`);
+    el.innerHTML = parts.join(' &middot; ');
+    if(grMeta.lastError){
+      statusEl.textContent = `Last check failed: ${grMeta.lastError}`;
+      statusEl.className = 'status-msg err';
+    } else if(statusEl.classList.contains('err')){
+      statusEl.textContent = '';
+      statusEl.className = 'status-msg';
+    }
+  }
+
+  function renderGrAllocate(){
+    const tbody = document.getElementById('gr_allocateRows');
+    const emptyNote = document.getElementById('gr_allocateEmptyNote');
+    const rows = grCreditableReviews().filter(r => !grAllocations[r.id]);
+    emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
+    tbody.innerHTML = rows.map(r => `
+      <tr data-id="${grEsc(r.id)}" style="vertical-align:top;">
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${window.fmtDate(r.date)}</td>
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${grReviewCellHtml(r)}</td>
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${grEmployeeCheckboxesHtml([])}</td>
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line);"><button type="button" class="gr-save-alloc" data-id="${grEsc(r.id)}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:3px; font-size:12px; cursor:pointer;">Allocate</button></td>
+      </tr>`).join('');
+    tbody.querySelectorAll('tr[data-id]').forEach(row => grWireExclusivity(row));
+    tbody.querySelectorAll('.gr-save-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const row = tbody.querySelector(`tr[data-id="${id}"]`);
+      const noneChecked = row.querySelector('.gr-emp-none').checked;
+      const checked = Array.from(row.querySelectorAll('.gr-emp-check:checked')).map(cb => cb.value);
+      if(!noneChecked && checked.length === 0){
+        alert('Select at least one employee, or check "No One" if this review doesn\u2019t credit anyone.');
+        return;
+      }
+      const review = grReviews.find(r => r.id === id);
+      if(!review) return;
+      grAllocations[id] = { employees: noneChecked ? [] : checked, date: review.date, allocatedAt: new Date().toISOString() };
+      const ok = await grSaveAllocations();
+      if(!ok){ delete grAllocations[id]; alert('Save failed \u2014 check your connection and try again.'); return; }
+      renderGoogleReviewsAll();
+    }));
+    tbody.querySelectorAll('.gr-more').forEach(b => b.addEventListener('click', grToggleMore));
+  }
+
+  function renderGrAllocated(){
+    const tbody = document.getElementById('gr_allocatedRows');
+    const emptyNote = document.getElementById('gr_allocatedEmptyNote');
+    const cutoff = grWeekBounds(new Date(Date.now() - 56*24*60*60*1000).toISOString().slice(0,10)).weekStart; // last ~8 weeks
+    const rows = grCreditableReviews().filter(r => grAllocations[r.id] && r.date >= cutoff);
+    emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
+    const rate = grRate();
+    tbody.innerHTML = rows.map(r => {
+      const a = grAllocations[r.id];
+      const credited = a.employees.length === 0
+        ? '<span class="form-note" style="font-style:italic;">No One</span>'
+        : `${a.employees.map(grEsc).join(', ')}${rate > 0 ? ` <span class="form-note">(${grMoney(rate)} each)</span>` : ''}`;
+      return `<tr data-id="${grEsc(r.id)}" style="vertical-align:top;">
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${window.fmtDate(r.date)}</td>
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${grReviewCellHtml(r)}</td>
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${credited}</td>
+        <td style="padding:8px 4px; border-bottom:1px solid var(--line);"><button type="button" class="gr-edit-alloc" data-id="${grEsc(r.id)}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
+      </tr>`;
+    }).join('');
+    tbody.querySelectorAll('.gr-edit-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const previous = grAllocations[id];
+      delete grAllocations[id];
+      const ok = await grSaveAllocations();
+      if(!ok){ grAllocations[id] = previous; alert('Could not reopen that review \u2014 check your connection.'); return; }
+      renderGoogleReviewsAll();
+      // Re-check who it was credited to, so editing is a tweak, not a redo.
+      const row = document.querySelector(`#gr_allocateRows tr[data-id="${id}"]`);
+      if(row && previous){
+        if(previous.employees.length === 0) row.querySelector('.gr-emp-none').checked = true;
+        row.querySelectorAll('.gr-emp-check').forEach(cb => { cb.checked = previous.employees.includes(cb.value); });
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }));
+    tbody.querySelectorAll('.gr-more').forEach(b => b.addEventListener('click', grToggleMore));
+  }
+
+  function grToggleMore(e){
+    const id = e.currentTarget.dataset.id;
+    if(grExpandedText.has(id)) grExpandedText.delete(id); else grExpandedText.add(id);
+    renderGrAllocate();
+    renderGrAllocated();
+  }
+
+  function renderGrWeekSummary(){
+    const wrap = document.getElementById('gr_weekSummary');
+    const emptyNote = document.getElementById('gr_weekSummaryEmptyNote');
+    const rate = grRate();
+    const weeks = {};
+    grCreditableReviews().forEach(r => {
+      const a = grAllocations[r.id];
+      if(!a || a.employees.length === 0) return;
+      const wk = grWeekBounds(r.date).weekStart;
+      if(!weeks[wk]) weeks[wk] = {};
+      a.employees.forEach(n => { weeks[wk][n] = (weeks[wk][n] || 0) + 1; });
+    });
+    const weekStarts = Object.keys(weeks).sort((a,b) => b.localeCompare(a)).slice(0, 8);
+    emptyNote.style.display = weekStarts.length === 0 ? 'block' : 'none';
+    wrap.innerHTML = weekStarts.map(ws => {
+      const end = grWeekBounds(ws).weekEnd;
+      const entries = Object.entries(weeks[ws]).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      const totalReviews = entries.reduce((s, [, c]) => s + c, 0);
+      return `<div style="border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin-bottom:10px;">
+        <div style="font-weight:700; margin-bottom:6px;">${window.fmtDate(ws)} \u2013 ${window.fmtDate(end)}</div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          ${entries.map(([n, c]) => `<tr><td style="padding:3px 0;">${grEsc(n)}</td><td style="text-align:right; padding:3px 0;">${c} review${c === 1 ? '' : 's'}</td><td style="text-align:right; padding:3px 0; width:100px; font-weight:600;">${grMoney(c * rate)}</td></tr>`).join('')}
+          <tr><td style="padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">Total</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line);">${totalReviews} credit${totalReviews === 1 ? '' : 's'}</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">${grMoney(totalReviews * rate)}</td></tr>
+        </table>
+      </div>`;
+    }).join('') + (rate === 0 && weekStarts.length > 0 ? '<p class="form-note" style="color:#8a6d00;">The review bonus is $0 \u2014 set the amount per review in Configuration \u2192 Pay.</p>' : '');
+  }
+
+  document.getElementById('gr_refreshBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('gr_status');
+    const btn = document.getElementById('gr_refreshBtn');
+    btn.disabled = true;
+    statusEl.textContent = 'Checking Google...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/google-reviews/refresh`, { method: 'POST', headers: authHeaders() });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not reach Google.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      grReviews = data.reviews || [];
+      grMeta = data.meta || {};
+      grConfigured = !!data.configured;
+      renderGoogleReviewsAll();
+      statusEl.textContent = data.added > 0 ? `${data.added} new review${data.added === 1 ? '' : 's'}.` : 'Up to date.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Google reviews refresh failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.disabled = false;
+    }
+  });
 
   // ---- Credit Card Transactions ----
   async function loadMgrReviewSquareTransactions(){
