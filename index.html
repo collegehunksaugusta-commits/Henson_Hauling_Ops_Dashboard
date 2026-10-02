@@ -487,7 +487,7 @@
 <div id="driverGate" style="display:none; position:fixed; inset:0; background:var(--offwhite); z-index:9999; overflow-y:auto; padding:20px;">
   <div id="driverCodeForm" style="max-width:380px; width:100%; margin:60px auto 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:32px 28px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
     <h2 class="display" style="margin:0 0 4px; text-align:center; font-size:18px;">Pre-Trip Inspection</h2>
-    <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 24px;">Driver Access</p>
+    <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 24px;">Captain &amp; Wingman Access</p>
     <label>Last 4 of SSN <input type="password" id="driver_ssn4" autocomplete="off" maxlength="4" inputmode="numeric" pattern="[0-9]*"></label>
     <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
       <button class="btn-primary" id="driverLoginBtn" type="button" style="width:100%;">Continue</button>
@@ -523,6 +523,13 @@
         <div id="driverLbCategories"></div>
         <p class="form-note" id="driverLbEmptyNote" style="display:none; margin:0;">No leaderboard data yet.</p>
       </div>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
+      <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Task Assignment</h3>
+      <p class="form-note" style="margin:6px 0 10px;">Hand any of today&rsquo;s tasks to a wingman. It shows up on their phone, and once they finish it, it counts as yours.</p>
+      <div id="driverTaskAssignRows"></div>
+      <p class="status-msg" id="driverTaskAssignStatus" style="margin-top:6px;"></p>
     </div>
 
     <div style="display:flex; flex-direction:column; gap:12px;">
@@ -564,14 +571,93 @@
     </div>
   </div>
 
+  <div id="wingmanMenuView" style="display:none; max-width:380px; width:100%; margin:60px auto 0;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 class="display" style="margin:0; font-size:18px;">Wingman Tools</h2>
+      <button type="button" id="wingmanMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Truck Locations</h3>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="status-msg" id="wingmanTruckMapStatus" style="font-size:11px;"></span>
+          <button type="button" id="wingmanTruckMapRefreshBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:11px; cursor:pointer;">Refresh</button>
+        </div>
+      </div>
+      <div id="wingmanTruckMapContainer" style="height:220px; border-radius:6px; background:var(--offwhite);"></div>
+      <p class="form-note" id="wingmanTruckMapEmptyNote" style="display:none; margin:8px 0 0;">No truck locations available right now.</p>
+    </div>
+
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
+      <button type="button" id="wingmanLbPanelToggle" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+        <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Wingman Leaderboard</h3>
+        <span id="wingmanLbPanelChevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px;">&#9656;</span>
+      </button>
+      <div id="wingmanLbPanelBody" style="display:none; margin-top:10px;">
+        <div id="wingmanLbCategories"></div>
+        <p class="form-note" id="wingmanLbEmptyNote" style="display:none; margin:0;">No leaderboard data yet.</p>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <button type="button" id="wingmanGoToCaptainReviewBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
+        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Captain Review</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Answer a few yes/no questions about a Captain you worked with today</div>
+      </button>
+      <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; margin-bottom:0;">
+        <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Task Assignment</h3>
+        <p class="status-msg" id="wingmanTasksFlash" style="margin:6px 0 0;"></p>
+        <div id="wingmanTaskList" style="margin-top:10px;"></div>
+        <p class="form-note" id="wingmanTasksEmptyNote" style="display:none; margin:6px 0 0;">No tasks assigned to you right now. When a Captain hands you one, it shows up here.</p>
+      </div>
+      <div id="wingmanCrewAppSlot"></div>
+      <div id="wingmanFuelSlot"></div>
+    </div>
+  </div>
+
+  <div id="wingmanCaptainReviewView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="captainReviewBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Wingman Tools</button>
+      <h2 class="display" style="margin:0; font-size:20px;">Captain Review</h2>
+      <button type="button" id="captainReviewLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div id="captainReview_selectSection" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Which Captain did you work with?</h3>
+      <label>Captain <select id="captainReview_select"></select></label>
+      <p class="form-note" id="captainReview_noOptionsNote" style="display:none;"></p>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:14px;">
+        <button class="btn-primary" id="captainReview_startBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Review This Captain</button>
+      </div>
+    </div>
+
+    <div id="captainReview_questionsSection" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+      <h3 style="margin-top:0;">Reviewing: <span id="captainReview_currentName"></span></h3>
+      <div id="captainReview_questionRows"></div>
+      <p class="status-msg" id="captainReview_answerStatus" style="margin-top:8px;"></p>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:6px;">
+        <button class="btn-primary" id="captainReview_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Review</button>
+      </div>
+    </div>
+
+    <div id="captainReview_nextStepSection" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; text-align:center;">
+      <p class="status-msg ok" style="font-size:15px;">Review submitted for <span id="captainReview_justReviewedName" style="font-weight:700;"></span>. Thank you!</p>
+      <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:10px;">
+        <button class="btn-primary" id="captainReview_anotherBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Review Another Captain</button>
+        <button type="button" id="captainReview_finishedBtn" style="width:100%; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:14px; border-radius:6px; cursor:pointer; font-size:14px;">Finished</button>
+      </div>
+    </div>
+  </div>
+
   <div id="driverInspectionView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
       <button type="button" id="driverInspectionBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
-      <h2 class="display" style="margin:0; font-size:20px;">Pre-Trip Inspection</h2>
+      <h2 class="display" id="pti_title" style="margin:0; font-size:20px;">Pre-Trip Inspection</h2>
       <button type="button" id="driverLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
 
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+    <div id="pti_truckPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <div class="form-grid">
         <label>Truck <select id="pti_truck"></select></label>
         <label>Date <input type="date" id="pti_date"></label>
@@ -600,7 +686,7 @@
 
     <p class="form-note" id="pti_materialsAlreadyDoneNote" style="display:none; background:#EAF6EE; border:1px solid #B7E0C4; border-radius:10px; padding:14px 16px; margin:0 0 16px; color:var(--brand-green-dark); font-weight:600;">&#10003; Materials Checkout already logged for today.</p>
 
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+    <div id="pti_photoPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <h3 style="margin-top:0;">Truck Photo</h3>
       <p class="form-note">Take a photo of the back/cargo area of the truck before you load up &mdash; this gets compared against your End of Day photo.</p>
       <div id="pti_photoPreviewWrap" style="display:none; margin-bottom:12px;">
@@ -611,13 +697,13 @@
       <p class="status-msg" id="pti_photoStatus" style="margin-top:8px;"></p>
     </div>
 
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+    <div id="pti_checklistPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <h3 style="margin-top:0;">Checklist</h3>
       <p class="form-note">Tap OK, Defect, or N/A for each item. If you mark something Defect, add a quick note.</p>
       <div id="pti_checklist"></div>
     </div>
 
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+    <div id="pti_notesPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <h3 style="margin-top:0;">Additional Notes</h3>
       <textarea id="pti_additionalNotes" rows="3" placeholder="Anything else worth flagging..." style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea>
     </div>
@@ -700,11 +786,11 @@
   <div id="driverEodView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
       <button type="button" id="driverEodBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
-      <h2 class="display" style="margin:0; font-size:20px;">End of Day Inspection</h2>
+      <h2 class="display" id="eod_title" style="margin:0; font-size:20px;">End of Day Inspection</h2>
       <button type="button" id="driverEodLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
 
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+    <div id="eod_truckPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <div class="form-grid">
         <label>Truck <select id="eod_truck"></select></label>
         <label>Driver <div id="eod_driverNameDisplay" style="padding:9px 0; font-weight:600;"></div></label>
@@ -712,7 +798,7 @@
       <p class="form-note" id="eod_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Regulatory Compliance tile, under Trucks.</p>
     </div>
 
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
+    <div id="eod_photoPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <h3 style="margin-top:0;">Truck Photo</h3>
       <p class="form-note">Take a photo of the back/cargo area of the truck, same angle as this morning &mdash; this gets compared against your Pre-Trip photo.</p>
       <div id="eod_photoPreviewWrap" style="display:none; margin-bottom:12px;">
@@ -1070,6 +1156,36 @@
 
   let driverToken = localStorage.getItem('henson_driver_token');
   let currentDriverName = localStorage.getItem('henson_driver_name');
+  // 'captain' (an active driver) or 'wingman' (everyone else on payroll).
+  // Sessions from before this existed have no role stored -- those were
+  // all drivers, so they default to captain.
+  let driverRole = localStorage.getItem('henson_driver_role') || 'captain';
+  // Wingman only: the Captain-assigned task currently being worked, as
+  // {id, type, captainName}. Sent along as X-Wingman-Task-Id so the server
+  // records the work under that Captain.
+  let driverActiveTask = null;
+  let ptiMode = 'full';   // 'full' | 'checkout' (Material Checkout on its own)
+  let eodMode = 'full';   // 'full' | 'checkin'  (Material Checkin on its own)
+  function driverTaskHeader(){
+    return (driverRole === 'wingman' && driverActiveTask) ? {'X-Wingman-Task-Id': driverActiveTask.id} : {};
+  }
+  function hideWingmanViews(){
+    ['wingmanMenuView', 'wingmanCaptainReviewView'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.style.display = 'none';
+    });
+  }
+  function driverGoHome(){
+    if(driverRole === 'wingman') showWingmanMenu();
+    else showDriverMenu();
+  }
+  function leaveTaskAndGoHome(){
+    stopPtiDraftAutosave();
+    driverActiveTask = null;
+    ptiMode = 'full';
+    eodMode = 'full';
+    driverGoHome();
+  }
 
   // Defined here (not down with the rest of the PTI draft-persistence code)
   // specifically so they're available before the initial-load routing
@@ -1094,6 +1210,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'block';
     document.getElementById('driverMenuView').style.display = 'none';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -1108,6 +1225,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'block';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -1116,6 +1234,7 @@
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
     loadDriverLeaderboard();
+    loadCaptainTaskAssignments();
     updateDriverTileVisibility();
     driverLoadTruckMap();
   }
@@ -1125,11 +1244,11 @@
   // Mirrors the admin loadTruckMap() function, but authenticated via the
   // driver's own session token against the separate /api/driver/... endpoint
   // -- a driver token can't be used against the admin-only one.
-  let driverTruckMapInstance = null;
-  async function driverLoadTruckMap(){
-    const statusEl = document.getElementById('driverTruckMapStatus');
-    const containerEl = document.getElementById('driverTruckMapContainer');
-    const emptyNote = document.getElementById('driverTruckMapEmptyNote');
+  const portalMapInstances = {};
+  async function loadPortalTruckMap(cfg){
+    const statusEl = document.getElementById(cfg.statusId);
+    const containerEl = document.getElementById(cfg.containerId);
+    const emptyNote = document.getElementById(cfg.emptyNoteId);
 
     if(typeof L === 'undefined'){
       statusEl.textContent = '';
@@ -1143,7 +1262,7 @@
     statusEl.className = 'status-msg';
 
     try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/motive-locations', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      const res = await fetch(API_BASE_AUTH + cfg.endpoint, { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
       if(!res.ok){
@@ -1151,7 +1270,7 @@
         emptyNote.style.display = 'block';
         emptyNote.textContent = data.error || 'Could not reach Motive.';
         containerEl.style.display = 'none';
-        if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
+        if(portalMapInstances[cfg.containerId]){ portalMapInstances[cfg.containerId].remove(); portalMapInstances[cfg.containerId] = null; }
         return;
       }
       const trucks = data.trucks || [];
@@ -1161,7 +1280,7 @@
         containerEl.style.display = 'none';
         emptyNote.style.display = 'block';
         emptyNote.textContent = 'No truck locations available right now.';
-        if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
+        if(portalMapInstances[cfg.containerId]){ portalMapInstances[cfg.containerId].remove(); portalMapInstances[cfg.containerId] = null; }
         return;
       }
 
@@ -1171,16 +1290,17 @@
       statusEl.className = 'status-msg ok';
 
       // Rebuild the map fresh each refresh -- simpler and more robust than diffing markers.
-      if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
-      driverTruckMapInstance = L.map('driverTruckMapContainer');
+      if(portalMapInstances[cfg.containerId]){ portalMapInstances[cfg.containerId].remove(); portalMapInstances[cfg.containerId] = null; }
+      portalMapInstances[cfg.containerId] = L.map(cfg.containerId);
+      const mapInstance = portalMapInstances[cfg.containerId];
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19
-      }).addTo(driverTruckMapInstance);
+      }).addTo(mapInstance);
 
       const bounds = [];
       trucks.forEach(t => {
-        const marker = L.marker([t.lat, t.lon]).addTo(driverTruckMapInstance);
+        const marker = L.marker([t.lat, t.lon]).addTo(mapInstance);
         const onOff = t.vehicleState === 'on' ? 'Moving' : (t.vehicleState === 'off' ? 'Parked' : '');
         marker.bindPopup(`
           <strong>${driverEsc(t.number)}</strong>${(t.make || t.model) ? `<br>${driverEsc([t.make, t.model].filter(Boolean).join(' '))}` : ''}
@@ -1191,9 +1311,9 @@
       });
 
       if(bounds.length === 1){
-        driverTruckMapInstance.setView(bounds[0], 12);
+        mapInstance.setView(bounds[0], 12);
       } else {
-        driverTruckMapInstance.fitBounds(bounds, { padding: [20, 20] });
+        mapInstance.fitBounds(bounds, { padding: [20, 20] });
       }
     }catch(err){
       console.error('Driver truck map load failed:', err);
@@ -1201,12 +1321,20 @@
       emptyNote.style.display = 'block';
       emptyNote.textContent = 'Could not reach the server \u2014 check your connection.';
       containerEl.style.display = 'none';
-      if(driverTruckMapInstance){ driverTruckMapInstance.remove(); driverTruckMapInstance = null; }
+      if(portalMapInstances[cfg.containerId]){ portalMapInstances[cfg.containerId].remove(); portalMapInstances[cfg.containerId] = null; }
     }
   }
+  function driverLoadTruckMap(){
+    return loadPortalTruckMap({ statusId: 'driverTruckMapStatus', containerId: 'driverTruckMapContainer', emptyNoteId: 'driverTruckMapEmptyNote', endpoint: '/api/driver/motive-locations' });
+  }
+  function wingmanLoadTruckMap(){
+    return loadPortalTruckMap({ statusId: 'wingmanTruckMapStatus', containerId: 'wingmanTruckMapContainer', emptyNoteId: 'wingmanTruckMapEmptyNote', endpoint: '/api/wingman/motive-locations' });
+  }
   document.getElementById('driverTruckMapRefreshBtn').addEventListener('click', driverLoadTruckMap);
+  document.getElementById('wingmanTruckMapRefreshBtn').addEventListener('click', wingmanLoadTruckMap);
   setInterval(()=>{
     if(document.getElementById('driverMenuView').style.display !== 'none') driverLoadTruckMap();
+    if(document.getElementById('wingmanMenuView').style.display !== 'none') wingmanLoadTruckMap();
   }, 2 * 60 * 1000); // keep it "live" while the driver menu is actually visible
 
   // Hides the Junk Removal and Moving tiles entirely when a driver
@@ -1218,8 +1346,8 @@
   async function updateDriverTileVisibility(){
     try{
       const [jrRes, mvRes] = await Promise.all([
-        fetch(API_BASE_AUTH + '/api/driver/junk-removal-jobs', { headers: {'Authorization': 'Bearer ' + driverToken} }),
-        fetch(API_BASE_AUTH + '/api/driver/moving-jobs', { headers: {'Authorization': 'Bearer ' + driverToken} })
+        fetch(API_BASE_AUTH + '/api/driver/junk-removal-jobs', { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} }),
+        fetch(API_BASE_AUTH + '/api/driver/moving-jobs', { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} })
       ]);
       if(jrRes.status === 401 || mvRes.status === 401){ driverSessionExpired(); return; }
       const jrData = await jrRes.json();
@@ -1238,6 +1366,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'block';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -1252,7 +1381,7 @@
     document.getElementById('pti_photoCaptureBtn').textContent = 'Take Photo';
     document.getElementById('pti_photoStatus').textContent = '';
 
-    document.getElementById('pti_driverNameDisplay').textContent = currentDriverName || '';
+    applyPtiMode();
     ptiLoggedMaterialsCheckouts = [];
     document.getElementById('pti_matco_loggedList').innerHTML = '';
     document.getElementById('pti_matco_jobOtherWrap').style.display = 'none';
@@ -1270,6 +1399,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'block';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -1288,6 +1418,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'block';
@@ -1303,6 +1434,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -1319,6 +1451,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -1328,7 +1461,7 @@
     document.getElementById('eod_photoPreviewWrap').style.display = 'none';
     document.getElementById('eod_photoCaptureBtn').textContent = 'Take Photo';
     document.getElementById('eod_photoStatus').textContent = '';
-    document.getElementById('eod_driverNameDisplay').textContent = currentDriverName || '';
+    applyEodMode();
     loadDriverEodTrucks();
     loadDriverEodItems();
   }
@@ -1350,7 +1483,7 @@
     const sel = document.getElementById('tdocs_truck');
     const noTrucksNote = document.getElementById('tdocs_noTrucksNote');
     try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/trucks', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      const res = await fetch(API_BASE_AUTH + '/api/driver/trucks', { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
       const trucksList = data.trucks || [];
@@ -1376,7 +1509,7 @@
     const container = document.getElementById('tdocs_docList');
     container.innerHTML = '<p class="form-note">Loading...</p>';
     try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/truck-docs/' + encodeURIComponent(truckId), { headers: {'Authorization': 'Bearer ' + driverToken} });
+      const res = await fetch(API_BASE_AUTH + '/api/driver/truck-docs/' + encodeURIComponent(truckId), { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} });
       if(res.status === 401){ driverSessionExpired(); return; }
       if(!res.ok){ container.innerHTML = '<p class="form-note">Could not load documents \u2014 check your connection.</p>'; return; }
       const data = await res.json();
@@ -1405,7 +1538,19 @@
     }
   }
 
-  if(driverToken){
+  if(driverToken && driverRole === 'wingman'){
+    // A wingman mid-way through a Captain's Pre-Trip when the phone
+    // reloaded (the camera can do that) goes straight back into it.
+    let resumeDraft = null;
+    try{ resumeDraft = hasValidPtiDraft() ? JSON.parse(localStorage.getItem(PTI_DRAFT_KEY)) : null; }catch(err){ resumeDraft = null; }
+    if(resumeDraft && resumeDraft.wingmanTask && resumeDraft.wingmanTask.id){
+      driverActiveTask = resumeDraft.wingmanTask;
+      ptiMode = resumeDraft.ptiMode === 'checkout' ? 'checkout' : 'full';
+      setTimeout(showDriverInspection, 0);
+    } else {
+      setTimeout(()=> showWingmanMenu(), 0);
+    }
+  } else if(driverToken){
     if(hasValidPtiDraft()){
       // showDriverInspection() depends on several variables declared later
       // in this script (e.g. ptiCapturedPhoto) -- deferred so it runs after
@@ -1431,7 +1576,7 @@
   document.getElementById('driverGoToNbhdBtn').addEventListener('click', showDriverNbhd);
   document.getElementById('driverGoToTruckDocsBtn').addEventListener('click', showDriverTruckDocs);
   document.getElementById('driverGoToEodBtn').addEventListener('click', showDriverEod);
-  document.getElementById('driverEodBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverEodBackBtn').addEventListener('click', leaveTaskAndGoHome);
   document.getElementById('driverEodLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('driverGoToJunkRemovalBtn').addEventListener('click', showDriverJunkRemoval);
   document.getElementById('driverJunkRemovalBackBtn').addEventListener('click', showDriverMenu);
@@ -1439,10 +1584,7 @@
   document.getElementById('driverGoToMovingBtn').addEventListener('click', showDriverMoving);
   document.getElementById('driverMovingBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverMovingLogoutBtn').addEventListener('click', driverLogout);
-  document.getElementById('driverInspectionBackBtn').addEventListener('click', ()=>{
-    stopPtiDraftAutosave();
-    showDriverMenu();
-  });
+  document.getElementById('driverInspectionBackBtn').addEventListener('click', leaveTaskAndGoHome);
   document.getElementById('driverNbhdBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverTruckDocsBackBtn').addEventListener('click', showDriverMenu);
 
@@ -1470,11 +1612,15 @@
       }
       localStorage.setItem('henson_driver_token', data.token);
       localStorage.setItem('henson_driver_name', data.driverName);
+      driverRole = data.role === 'wingman' ? 'wingman' : 'captain';
+      localStorage.setItem('henson_driver_role', driverRole);
       driverToken = data.token;
       currentDriverName = data.driverName;
+      driverActiveTask = null;
       document.getElementById('driver_ssn4').value = '';
       statusEl.textContent = '';
-      showDriverMenu();
+      if(driverRole === 'wingman') showWingmanMenu();
+      else showDriverMenu();
     }catch(err){
       console.error('Driver login failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
@@ -1495,8 +1641,13 @@
     stopPtiDraftAutosave();
     localStorage.removeItem('henson_driver_token');
     localStorage.removeItem('henson_driver_name');
+    localStorage.removeItem('henson_driver_role');
     driverToken = null;
     currentDriverName = null;
+    driverRole = 'captain';
+    driverActiveTask = null;
+    ptiMode = 'full';
+    eodMode = 'full';
     showDriverCodeForm();
   }
   document.getElementById('driverMenuLogoutBtn').addEventListener('click', driverLogout);
@@ -1508,8 +1659,13 @@
     stopPtiDraftAutosave();
     localStorage.removeItem('henson_driver_token');
     localStorage.removeItem('henson_driver_name');
+    localStorage.removeItem('henson_driver_role');
     driverToken = null;
     currentDriverName = null;
+    driverRole = 'captain';
+    driverActiveTask = null;
+    ptiMode = 'full';
+    eodMode = 'full';
     showDriverCodeForm();
     const statusEl = document.getElementById('driver_loginStatus');
     statusEl.textContent = 'Your session expired \u2014 please log in again.';
@@ -1521,7 +1677,7 @@
     const noTrucksNote = document.getElementById(noTrucksNoteId);
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/trucks', {
-        headers: {'Authorization': 'Bearer ' + driverToken}
+        headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -1562,7 +1718,7 @@
 
   async function loadDriverLeaderboard(){
     try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/leaderboard', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      const res = await fetch(API_BASE_AUTH + '/api/driver/leaderboard', { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} });
       if(res.status === 401){ driverSessionExpired(); return; }
       if(!res.ok) return;
       const data = await res.json();
@@ -1577,10 +1733,13 @@
   // adding a new metric later (e.g. door-hanger routes logged) means only a
   // backend change, not a frontend one.
   function renderDriverLeaderboard(){
-    const container = document.getElementById('driverLbCategories');
-    const emptyNote = document.getElementById('driverLbEmptyNote');
+    renderPortalLeaderboard('driverLbCategories', 'driverLbEmptyNote', driverLbCategories);
+  }
+  function renderPortalLeaderboard(containerId, emptyNoteId, categories){
+    const container = document.getElementById(containerId);
+    const emptyNote = document.getElementById(emptyNoteId);
 
-    if(driverLbCategories.length === 0){
+    if(categories.length === 0){
       container.innerHTML = '';
       emptyNote.style.display = 'block';
       return;
@@ -1597,7 +1756,7 @@
       : i === 2 ? 'background:#B87333; color:#fff;'
       : 'background:var(--offwhite); color:var(--muted); border:1px solid var(--line);';
 
-    container.innerHTML = driverLbCategories.map(cat => {
+    container.innerHTML = categories.map(cat => {
       const rows = cat.entries.map((entry, i) => {
         const isMe = currentDriverName && entry.name === currentDriverName;
         const color = scoreColor(entry.value);
@@ -1637,7 +1796,7 @@
     const emptyNote = document.getElementById(emptyNoteId);
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/materials-items', {
-        headers: {'Authorization': 'Bearer ' + driverToken}
+        headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -1677,8 +1836,23 @@
   document.getElementById('eod_photoCaptureBtn').addEventListener('click', ()=> freshCameraInput('eod_photoInput', eodPhotoInputChangeHandler).click());
   document.getElementById('eod_photoInput').addEventListener('change', eodPhotoInputChangeHandler);
 
+  // Material Checkin handed to a wingman on its own shows just the
+  // returns part of the End of Day form.
+  function applyEodMode(){
+    const checkinOnly = eodMode === 'checkin';
+    ['eod_truckPanel', 'eod_photoPanel'].forEach(id => {
+      document.getElementById(id).style.display = checkinOnly ? 'none' : '';
+    });
+    document.getElementById('eod_title').textContent = checkinOnly ? 'Material Checkin' : 'End of Day Inspection';
+    document.getElementById('eod_submitBtn').textContent = checkinOnly ? 'Submit Material Checkin' : 'Submit End of Day Inspection';
+    document.getElementById('driverEodBackBtn').innerHTML = driverRole === 'wingman' ? '&larr; Wingman Tools' : '&larr; Driver Tools';
+    const forCaptain = (driverRole === 'wingman' && driverActiveTask) ? driverActiveTask.captainName : null;
+    document.getElementById('eod_driverNameDisplay').textContent = forCaptain ? `${forCaptain} (completed by ${currentDriverName})` : (currentDriverName || '');
+  }
+
   document.getElementById('eod_submitBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('eod_submitStatus');
+    if(eodMode === 'checkin'){ await submitCheckinOnlyTask(); return; }
     const truckSel = document.getElementById('eod_truck');
     const truckId = truckSel.value;
     const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
@@ -1709,7 +1883,7 @@
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/eod-inspection', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
         body: JSON.stringify({ truckId, truckNickname, jobNumbers, returnedItems, backPhoto: eodCapturedPhoto, date: new Date().toISOString().slice(0,10) })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -1726,7 +1900,13 @@
       eodCapturedPhoto = null;
       document.getElementById('eod_photoPreviewWrap').style.display = 'none';
       document.getElementById('eod_photoCaptureBtn').textContent = 'Take Photo';
-      await startWingmanReviewFlow();
+      if(driverRole === 'wingman' && driverActiveTask){
+        // Reviewing wingmen is the Captain's job, so a wingman's End of Day
+        // goes straight back to Wingman Tools.
+        finishWingmanTask(`End of Day Inspection submitted for ${driverActiveTask.captainName}.`);
+      } else {
+        await startWingmanReviewFlow();
+      }
     }catch(err){
       console.error('End of day inspection submit failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
@@ -1747,8 +1927,8 @@
   async function loadWingmanQuestionsAndRoster(){
     try{
       const [qRes, rRes] = await Promise.all([
-        fetch(API_BASE_AUTH + '/api/driver/wingman-questions', { headers: {'Authorization': 'Bearer ' + driverToken} }),
-        fetch(API_BASE_AUTH + '/api/driver/roster', { headers: {'Authorization': 'Bearer ' + driverToken} })
+        fetch(API_BASE_AUTH + '/api/driver/wingman-questions', { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} }),
+        fetch(API_BASE_AUTH + '/api/driver/roster', { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} })
       ]);
       if(qRes.status === 401 || rRes.status === 401){ driverSessionExpired(); return false; }
       const qData = await qRes.json();
@@ -1846,7 +2026,7 @@
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/wingman-rating', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
         body: JSON.stringify({ wingmanName: wingmanCurrentName, answers })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -1878,6 +2058,525 @@
   document.getElementById('driverWingmanBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverWingmanLogoutBtn').addEventListener('click', driverLogout);
 
+  // ---------- Wingman Portal ----------
+  const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView'];
+  function showOnlyDriverGateView(viewId){
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('driverGate').style.display = 'block';
+    DRIVER_GATE_VIEW_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.style.display = id === viewId ? 'block' : 'none';
+    });
+  }
+
+  // The Crew App and Fuel Stations links are the same ones Captains see --
+  // copied in on first use rather than duplicated in the markup.
+  let wingmanLinksCopied = false;
+  function copyWingmanLinks(){
+    if(wingmanLinksCopied) return;
+    const crew = document.getElementById('driverCrewAppLink').cloneNode(true);
+    crew.id = 'wingmanCrewAppLink';
+    document.getElementById('wingmanCrewAppSlot').replaceWith(crew);
+    const fuel = document.getElementById('driverFuelStationsLink').cloneNode(true);
+    fuel.id = 'wingmanFuelStationsLink';
+    document.getElementById('wingmanFuelSlot').replaceWith(fuel);
+    wingmanLinksCopied = true;
+  }
+
+  function showWingmanMenu(flashMsg){
+    driverActiveTask = null;
+    ptiMode = 'full';
+    eodMode = 'full';
+    showOnlyDriverGateView('wingmanMenuView');
+    copyWingmanLinks();
+    const flash = document.getElementById('wingmanTasksFlash');
+    flash.textContent = flashMsg || '';
+    flash.className = flashMsg ? 'status-msg ok' : 'status-msg';
+    wingmanLoadTruckMap();
+    loadWingmanLeaderboard();
+    loadWingmanTaskList();
+  }
+  window.showWingmanMenu = showWingmanMenu;
+
+  function finishWingmanTask(message){
+    stopPtiDraftAutosave();
+    showWingmanMenu(message);
+  }
+
+  document.getElementById('wingmanMenuLogoutBtn').addEventListener('click', driverLogout);
+  document.getElementById('wingmanLbPanelToggle').addEventListener('click', ()=>{
+    const body = document.getElementById('wingmanLbPanelBody');
+    const chevron = document.getElementById('wingmanLbPanelChevron');
+    const expanded = body.style.display !== 'none';
+    body.style.display = expanded ? 'none' : 'block';
+    chevron.style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
+  });
+
+  async function loadWingmanLeaderboard(){
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/wingman/leaderboard', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      if(!res.ok) return;
+      const data = await res.json();
+      renderPortalLeaderboard('wingmanLbCategories', 'wingmanLbEmptyNote', data.categories || []);
+    }catch(err){
+      console.error('Wingman leaderboard load failed:', err);
+    }
+  }
+
+  let wingmanTasks = [];
+  let wingmanTaskTypes = {};
+  async function loadWingmanTaskList(){
+    const listEl = document.getElementById('wingmanTaskList');
+    const emptyNote = document.getElementById('wingmanTasksEmptyNote');
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/wingman/tasks', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'load failed');
+      wingmanTasks = data.tasks || [];
+      wingmanTaskTypes = data.taskTypes || {};
+    }catch(err){
+      console.error('Wingman task list load failed:', err);
+      listEl.innerHTML = '';
+      emptyNote.textContent = 'Could not load your tasks \u2014 check your connection.';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    if(wingmanTasks.length === 0){
+      listEl.innerHTML = '';
+      emptyNote.textContent = 'No tasks assigned to you right now. When a Captain hands you one, it shows up here.';
+      emptyNote.style.display = 'block';
+      return;
+    }
+    emptyNote.style.display = 'none';
+    const sorted = wingmanTasks.slice().sort((a, b) =>
+      (a.status === 'open' ? 0 : 1) - (b.status === 'open' ? 0 : 1) || (a.createdAt || '').localeCompare(b.createdAt || ''));
+    listEl.innerHTML = sorted.map(t => {
+      const label = driverEsc(wingmanTaskTypes[t.type] || t.type);
+      if(t.status === 'open'){
+        return `<button type="button" class="wingman-task-btn" data-id="${driverEsc(t.id)}" style="display:block; width:100%; background:#fff; border:1px solid var(--brand-green); border-radius:8px; padding:14px; text-align:left; cursor:pointer; font-family:inherit; margin-bottom:8px;">
+          <div style="font-weight:700; font-size:15px; color:var(--charcoal);">${label} &rarr;</div>
+          <div style="font-size:12.5px; color:var(--muted); margin-top:3px;">For Captain ${driverEsc(t.captainName)}</div>
+        </button>`;
+      }
+      const byCaptain = t.completedBy && t.completedBy === t.captainName;
+      return `<div style="background:var(--offwhite); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:8px;">
+        <div style="font-weight:600; font-size:14px; color:var(--brand-green-dark);">&#10003; ${label}</div>
+        <div style="font-size:12.5px; color:var(--muted); margin-top:3px;">For Captain ${driverEsc(t.captainName)} &middot; ${byCaptain ? 'done by the Captain' : 'done'}</div>
+      </div>`;
+    }).join('');
+    listEl.querySelectorAll('.wingman-task-btn').forEach(btn => btn.addEventListener('click', (e)=>{
+      const task = wingmanTasks.find(t => t.id === e.currentTarget.dataset.id);
+      if(task) openWingmanTask(task);
+    }));
+  }
+
+  function openWingmanTask(task){
+    driverActiveTask = { id: task.id, type: task.type, captainName: task.captainName };
+    if(task.type === 'pretrip'){ ptiMode = 'full'; showDriverInspection(); }
+    else if(task.type === 'materials-checkout'){ ptiMode = 'checkout'; showDriverInspection(); }
+    else if(task.type === 'eod'){ eodMode = 'full'; showDriverEod(); }
+    else if(task.type === 'materials-checkin'){ eodMode = 'checkin'; showDriverEod(); }
+  }
+
+  // Material Checkout on its own: submits each job logged (the same
+  // job-by-job records a Captain's Pre-Trip creates), then closes the task.
+  async function submitCheckoutOnlyTask(){
+    const statusEl = document.getElementById('pti_submitStatus');
+    const sectionVisible = document.getElementById('pti_materialsSection').style.display !== 'none';
+    if(sectionVisible){
+      const unloggedItems = ptiMatcoCurrentItems();
+      if(unloggedItems.length > 0){
+        const unloggedJobNumber = ptiMatcoCurrentJobSelection();
+        if(!unloggedJobNumber){
+          statusEl.textContent = 'Select the job for the materials you entered, or clear the quantities if nothing was taken.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+        ptiLoggedMaterialsCheckouts.push({ jobNumber: unloggedJobNumber, items: unloggedItems });
+      } else if(ptiLoggedMaterialsCheckouts.length === 0){
+        ptiLoggedMaterialsCheckouts.push({ jobNumber: null, items: [] });
+      }
+      statusEl.textContent = 'Submitting Material Checkout...';
+      statusEl.className = 'status-msg';
+      const todayStr = new Date().toISOString().slice(0,10);
+      while(ptiLoggedMaterialsCheckouts.length > 0){
+        const entry = ptiLoggedMaterialsCheckouts[0];
+        try{
+          const res = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
+            body: JSON.stringify({ jobNumbers: entry.jobNumber ? [entry.jobNumber] : [], items: entry.items, date: todayStr })
+          });
+          if(res.status === 401){ driverSessionExpired(); return; }
+          const data = await res.json();
+          if(!res.ok){
+            statusEl.textContent = (data.error || 'Could not submit Material Checkout.') + (entry.jobNumber ? ` (Job # ${entry.jobNumber})` : '');
+            statusEl.className = 'status-msg err';
+            renderPtiMatcoLoggedList();
+            return;
+          }
+          // Dropped from the list as soon as it's saved, so retrying after
+          // a failure further down never submits the same job twice.
+          ptiLoggedMaterialsCheckouts.shift();
+        }catch(err){
+          console.error('Material Checkout submit failed:', err);
+          statusEl.textContent = 'Could not reach the server \u2014 check your connection.' + (entry.jobNumber ? ` (Job # ${entry.jobNumber})` : '');
+          statusEl.className = 'status-msg err';
+          renderPtiMatcoLoggedList();
+          return;
+        }
+      }
+      renderPtiMatcoLoggedList();
+      document.querySelectorAll('.pti-matco-qty').forEach(input => input.value = '');
+    }
+    if(driverRole === 'wingman' && driverActiveTask){
+      try{
+        const res = await fetch(API_BASE_AUTH + `/api/wingman/tasks/${encodeURIComponent(driverActiveTask.id)}/complete`, {
+          method: 'POST',
+          headers: {'Authorization': 'Bearer ' + driverToken}
+        });
+        if(res.status === 401){ driverSessionExpired(); return; }
+        const data = await res.json();
+        if(!res.ok){
+          statusEl.textContent = data.error || 'Could not close out that task.';
+          statusEl.className = 'status-msg err';
+          return;
+        }
+      }catch(err){
+        console.error('Wingman task complete failed:', err);
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      clearPtiDraft();
+      finishWingmanTask(`Material Checkout submitted for ${driverActiveTask.captainName}.`);
+    }
+  }
+
+  // Material Checkin on its own: the returns half of End of Day.
+  async function submitCheckinOnlyTask(){
+    const statusEl = document.getElementById('eod_submitStatus');
+    const jobNumbers = document.getElementById('eod_jobNumbers').value.split(',').map(x => x.trim()).filter(Boolean);
+    const returnedItems = Array.from(document.querySelectorAll('.eod-qty'))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .filter(i => i.quantity > 0);
+    if(returnedItems.length > 0 && jobNumbers.length === 0){
+      statusEl.textContent = 'Enter at least one Job Number for the materials being returned.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    statusEl.textContent = 'Submitting...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/materials-checkin', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
+        body: JSON.stringify({ jobNumbers, returnedItems, date: new Date().toISOString().slice(0,10) })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not submit Material Checkin.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      document.getElementById('eod_jobNumbers').value = '';
+      document.querySelectorAll('.eod-qty').forEach(input => input.value = '');
+      statusEl.textContent = '';
+      if(driverRole === 'wingman' && driverActiveTask){
+        finishWingmanTask(`Material Checkin submitted for ${driverActiveTask.captainName}.`);
+      }
+    }catch(err){
+      console.error('Material Checkin submit failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  }
+
+  // ---------- Captain Review (wingman) ----------
+  let captainReviewQuestions = [];
+  let captainReviewNames = [];
+  let captainReviewedToday = new Set();
+  let captainReviewCurrent = '';
+
+  async function showCaptainReview(){
+    showOnlyDriverGateView('wingmanCaptainReviewView');
+    document.getElementById('captainReview_selectSection').style.display = 'block';
+    document.getElementById('captainReview_questionsSection').style.display = 'none';
+    document.getElementById('captainReview_nextStepSection').style.display = 'none';
+    const noOptionsNote = document.getElementById('captainReview_noOptionsNote');
+    noOptionsNote.textContent = 'Loading\u2026';
+    noOptionsNote.style.display = 'block';
+    document.getElementById('captainReview_select').style.display = 'none';
+    document.getElementById('captainReview_startBtn').disabled = true;
+    try{
+      const [qRes, cRes] = await Promise.all([
+        fetch(API_BASE_AUTH + '/api/wingman/captain-questions', { headers: {'Authorization': 'Bearer ' + driverToken} }),
+        fetch(API_BASE_AUTH + '/api/wingman/captains', { headers: {'Authorization': 'Bearer ' + driverToken} })
+      ]);
+      if(qRes.status === 401 || cRes.status === 401){ driverSessionExpired(); return; }
+      const qData = await qRes.json();
+      const cData = await cRes.json();
+      captainReviewQuestions = (qData.questions || []).map(q => (q || '').trim()).filter(Boolean);
+      captainReviewNames = (cData.names || []).filter(n => n !== currentDriverName);
+      captainReviewedToday = new Set(cData.reviewedToday || []);
+    }catch(err){
+      console.error('Captain review load failed:', err);
+      noOptionsNote.textContent = 'Could not load Captain Review \u2014 check your connection.';
+      return;
+    }
+    if(captainReviewQuestions.length === 0){
+      noOptionsNote.textContent = 'Captain Review questions haven\u2019t been set up yet \u2014 check back later.';
+      return;
+    }
+    renderCaptainReviewSelect();
+  }
+
+  function renderCaptainReviewSelect(){
+    const select = document.getElementById('captainReview_select');
+    const noOptionsNote = document.getElementById('captainReview_noOptionsNote');
+    const startBtn = document.getElementById('captainReview_startBtn');
+    const available = captainReviewNames.filter(n => !captainReviewedToday.has(n));
+    if(available.length === 0){
+      select.style.display = 'none';
+      noOptionsNote.textContent = captainReviewNames.length === 0
+        ? 'No Captains are available to review right now.'
+        : 'You\u2019ve reviewed every Captain available today. Thanks!';
+      noOptionsNote.style.display = 'block';
+      startBtn.disabled = true;
+      return;
+    }
+    select.style.display = '';
+    noOptionsNote.style.display = 'none';
+    startBtn.disabled = false;
+    select.innerHTML = available.map(n => `<option value="${driverEsc(n)}">${driverEsc(n)}</option>`).join('');
+  }
+
+  function renderCaptainReviewQuestionRows(){
+    const rowsEl = document.getElementById('captainReview_questionRows');
+    const btnStyle = 'flex:1; padding:10px; border-radius:6px; border:1px solid var(--line); background:#fff; color:var(--charcoal); font-weight:600; font-size:14px; cursor:pointer;';
+    rowsEl.innerHTML = captainReviewQuestions.map((q, i) => `
+      <div class="captain-review-row" data-index="${i}" style="padding:12px 0; border-bottom:1px solid var(--line);">
+        <p style="margin:0 0 8px; font-weight:600;">${driverEsc(q)}</p>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="captain-review-answer-btn" data-index="${i}" data-value="yes" style="${btnStyle}">Yes</button>
+          <button type="button" class="captain-review-answer-btn" data-index="${i}" data-value="no" style="${btnStyle}">No</button>
+        </div>
+      </div>`
+    ).join('');
+    rowsEl.querySelectorAll('.captain-review-answer-btn').forEach(btn => btn.addEventListener('click', (e)=>{
+      const row = rowsEl.querySelector(`.captain-review-row[data-index="${e.currentTarget.dataset.index}"]`);
+      row.dataset.answer = e.currentTarget.dataset.value;
+      row.querySelectorAll('.captain-review-answer-btn').forEach(b => {
+        const selected = b.dataset.value === e.currentTarget.dataset.value;
+        b.style.background = selected ? 'var(--brand-green)' : '#fff';
+        b.style.color = selected ? '#fff' : 'var(--charcoal)';
+        b.style.borderColor = selected ? 'var(--brand-green)' : 'var(--line)';
+      });
+    }));
+  }
+
+  document.getElementById('wingmanGoToCaptainReviewBtn').addEventListener('click', showCaptainReview);
+  document.getElementById('captainReview_startBtn').addEventListener('click', ()=>{
+    const select = document.getElementById('captainReview_select');
+    if(!select.value) return;
+    captainReviewCurrent = select.value;
+    document.getElementById('captainReview_currentName').textContent = captainReviewCurrent;
+    document.getElementById('captainReview_answerStatus').textContent = '';
+    renderCaptainReviewQuestionRows();
+    document.getElementById('captainReview_selectSection').style.display = 'none';
+    document.getElementById('captainReview_questionsSection').style.display = 'block';
+  });
+  document.getElementById('captainReview_submitBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('captainReview_answerStatus');
+    const rows = Array.from(document.querySelectorAll('.captain-review-row'));
+    if(rows.some(r => !r.dataset.answer)){
+      statusEl.textContent = 'Answer every question before submitting.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const answers = rows.map((r, i) => ({ question: captainReviewQuestions[i], answer: r.dataset.answer === 'yes' }));
+    statusEl.textContent = 'Submitting...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/wingman/captain-rating', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ captainName: captainReviewCurrent, answers })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not submit that review.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      captainReviewedToday.add(captainReviewCurrent);
+      document.getElementById('captainReview_justReviewedName').textContent = captainReviewCurrent;
+      document.getElementById('captainReview_questionsSection').style.display = 'none';
+      document.getElementById('captainReview_nextStepSection').style.display = 'block';
+    }catch(err){
+      console.error('Captain review submit failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+  document.getElementById('captainReview_anotherBtn').addEventListener('click', ()=>{
+    renderCaptainReviewSelect();
+    document.getElementById('captainReview_nextStepSection').style.display = 'none';
+    document.getElementById('captainReview_selectSection').style.display = 'block';
+  });
+  document.getElementById('captainReview_finishedBtn').addEventListener('click', ()=> showWingmanMenu());
+  document.getElementById('captainReviewBackBtn').addEventListener('click', ()=> showWingmanMenu());
+  document.getElementById('captainReviewLogoutBtn').addEventListener('click', driverLogout);
+
+  // ---------- Task Assignment (Captain) ----------
+  const CAPTAIN_TASK_ORDER = ['pretrip', 'materials-checkout', 'eod', 'materials-checkin'];
+  const CAPTAIN_TASK_LABELS = { 'pretrip': 'Pre-Trip Inspection', 'materials-checkout': 'Material Checkout', 'eod': 'End of Day Inspection', 'materials-checkin': 'Material Checkin' };
+  let captainAssignTasks = [];
+  let captainAssignRoster = [];
+  let captainAssignPickerType = null;
+
+  async function loadCaptainTaskAssignments(){
+    try{
+      const [tRes, rRes] = await Promise.all([
+        fetch(API_BASE_AUTH + '/api/driver/wingman-tasks', { headers: {'Authorization': 'Bearer ' + driverToken} }),
+        fetch(API_BASE_AUTH + '/api/driver/roster', { headers: {'Authorization': 'Bearer ' + driverToken} })
+      ]);
+      if(tRes.status === 401 || rRes.status === 401){ driverSessionExpired(); return; }
+      const tData = await tRes.json();
+      const rData = await rRes.json();
+      captainAssignTasks = tData.tasks || [];
+      captainAssignRoster = (rData.names || []).filter(n => n !== currentDriverName);
+    }catch(err){
+      console.error('Task assignment load failed:', err);
+      const statusEl = document.getElementById('driverTaskAssignStatus');
+      statusEl.textContent = 'Could not load task assignments \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    renderCaptainTaskAssignments();
+  }
+
+  function renderCaptainTaskAssignments(){
+    const rowsEl = document.getElementById('driverTaskAssignRows');
+    const btn = 'background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:12.5px; font-family:inherit;';
+    const greenBtn = 'background:var(--brand-green); border:1px solid var(--brand-green); color:#fff; font-weight:600; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:12.5px; font-family:inherit;';
+    rowsEl.innerHTML = CAPTAIN_TASK_ORDER.map(type => {
+      const task = captainAssignTasks.find(t => t.type === type);
+      let right;
+      if(task && task.status === 'open'){
+        right = `<div style="font-size:12.5px; color:var(--muted); margin-top:4px;">Assigned to <strong style="color:var(--charcoal);">${driverEsc(task.wingmanName)}</strong> &middot; waiting</div>
+          <button type="button" class="task-assign-unassign" data-id="${driverEsc(task.id)}" style="${btn} margin-top:8px;">Unassign</button>`;
+      } else if(task && task.status === 'completed'){
+        const doneBy = task.completedBy && task.completedBy !== task.captainName ? task.completedBy : 'you';
+        right = `<div style="font-size:12.5px; color:var(--brand-green-dark); font-weight:600; margin-top:4px;">&#10003; Done by ${driverEsc(doneBy)}</div>`;
+      } else if(captainAssignPickerType === type){
+        right = captainAssignRoster.length === 0
+          ? `<div style="font-size:12.5px; color:var(--muted); margin-top:4px;">No wingmen on the roster right now.</div>
+             <button type="button" class="task-assign-cancel" style="${btn} margin-top:8px;">Cancel</button>`
+          : `<select class="task-assign-select" style="width:100%; margin-top:8px; padding:8px; border:1px solid var(--line); border-radius:6px; font-size:14px;">
+              <option value="">Select a wingman\u2026</option>
+              ${captainAssignRoster.map(n => `<option value="${driverEsc(n)}">${driverEsc(n)}</option>`).join('')}
+            </select>
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <button type="button" class="task-assign-confirm" data-type="${type}" style="${greenBtn} flex:1;">Assign</button>
+              <button type="button" class="task-assign-cancel" style="${btn}">Cancel</button>
+            </div>`;
+      } else {
+        right = `<button type="button" class="task-assign-open" data-type="${type}" style="${btn} margin-top:8px;">Assign to Wingman</button>`;
+      }
+      return `<div style="padding:10px 0; border-top:1px solid var(--line);">
+        <div style="font-weight:700; font-size:14px; color:var(--charcoal);">${CAPTAIN_TASK_LABELS[type]}</div>
+        ${right}
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('driverTaskAssignRows').addEventListener('click', async (e)=>{
+    const statusEl = document.getElementById('driverTaskAssignStatus');
+    const openBtn = e.target.closest('.task-assign-open');
+    const cancelBtn = e.target.closest('.task-assign-cancel');
+    const confirmBtn = e.target.closest('.task-assign-confirm');
+    const unassignBtn = e.target.closest('.task-assign-unassign');
+    if(openBtn){
+      captainAssignPickerType = openBtn.dataset.type;
+      statusEl.textContent = '';
+      renderCaptainTaskAssignments();
+      return;
+    }
+    if(cancelBtn){
+      captainAssignPickerType = null;
+      renderCaptainTaskAssignments();
+      return;
+    }
+    if(confirmBtn){
+      const select = confirmBtn.closest('div').parentElement.querySelector('.task-assign-select');
+      const wingmanName = select ? select.value : '';
+      if(!wingmanName){
+        statusEl.textContent = 'Pick a wingman first.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      confirmBtn.disabled = true;
+      statusEl.textContent = 'Assigning...';
+      statusEl.className = 'status-msg';
+      try{
+        const res = await fetch(API_BASE_AUTH + '/api/driver/wingman-tasks', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+          body: JSON.stringify({ type: confirmBtn.dataset.type, wingmanName })
+        });
+        if(res.status === 401){ driverSessionExpired(); return; }
+        const data = await res.json();
+        if(!res.ok){
+          statusEl.textContent = data.error || 'Could not assign that task.';
+          statusEl.className = 'status-msg err';
+          confirmBtn.disabled = false;
+          return;
+        }
+        statusEl.textContent = `${CAPTAIN_TASK_LABELS[confirmBtn.dataset.type]} assigned to ${wingmanName}.`;
+        statusEl.className = 'status-msg ok';
+        captainAssignPickerType = null;
+        await loadCaptainTaskAssignments();
+      }catch(err){
+        console.error('Assign task failed:', err);
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+        confirmBtn.disabled = false;
+      }
+      return;
+    }
+    if(unassignBtn){
+      unassignBtn.disabled = true;
+      try{
+        const res = await fetch(API_BASE_AUTH + '/api/driver/wingman-tasks/' + encodeURIComponent(unassignBtn.dataset.id), {
+          method: 'DELETE',
+          headers: {'Authorization': 'Bearer ' + driverToken}
+        });
+        if(res.status === 401){ driverSessionExpired(); return; }
+        const data = await res.json();
+        if(!res.ok){
+          statusEl.textContent = data.error || 'Could not unassign that task.';
+          statusEl.className = 'status-msg err';
+          unassignBtn.disabled = false;
+          await loadCaptainTaskAssignments();
+          return;
+        }
+        statusEl.textContent = 'Task unassigned.';
+        statusEl.className = 'status-msg ok';
+        await loadCaptainTaskAssignments();
+      }catch(err){
+        console.error('Unassign task failed:', err);
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+        statusEl.className = 'status-msg err';
+        unassignBtn.disabled = false;
+      }
+    }
+  });
+
   // ---------- Junk Removal (driver) ----------
   const JUNK_REMOVAL_TIER_OPTIONS = ['1/8','1/6','1/4','1/3','3/8','1/2','5/8','2/3','3/4','5/6','7/8','full'];
   let jrdJobs = [];
@@ -1900,14 +2599,14 @@
     try{
       if(!jrdPricing){
         const pricingRes = await fetch(API_BASE_AUTH + '/api/driver/junk-removal-pricing', {
-          headers: {'Authorization': 'Bearer ' + driverToken}
+          headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
         });
         if(pricingRes.status === 401){ driverSessionExpired(); return; }
         const pricingData = await pricingRes.json();
         jrdPricing = pricingData.pricing || [];
       }
       const res = await fetch(API_BASE_AUTH + '/api/driver/junk-removal-jobs', {
-        headers: {'Authorization': 'Bearer ' + driverToken}
+        headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -2064,7 +2763,7 @@
       try{
         const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal/${id}/estimate`, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
           body: JSON.stringify({ stage, photos })
         });
         if(res.status === 401){ driverSessionExpired(); return; }
@@ -2111,7 +2810,7 @@
       try{
         const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal/${id}/confirm-tier`, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
           body: JSON.stringify({ stage: 'initial', tier: sel.value })
         });
         if(res.status === 401){ driverSessionExpired(); return; }
@@ -2134,7 +2833,7 @@
       const key = `${id}_initial`;
       try{
         const res = await fetch(API_BASE_AUTH + `/api/driver/junk-removal/${id}/photos?stage=initial`, {
-          headers: {'Authorization': 'Bearer ' + driverToken}
+          headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
         });
         if(res.status === 401){ driverSessionExpired(); return; }
         const data = await res.json();
@@ -2173,6 +2872,7 @@
     document.getElementById('driverGate').style.display = 'block';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
+    hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -2189,7 +2889,7 @@
     const emptyNote = document.getElementById('mv_emptyNote');
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/moving-jobs', {
-        headers: {'Authorization': 'Bearer ' + driverToken}
+        headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -2311,7 +3011,7 @@
       // to the existing set rather than starting over from nothing.
       try{
         const res = await fetch(API_BASE_AUTH + `/api/driver/moving/${encodeURIComponent(jobnumber)}/photos?category=${category}`, {
-          headers: {'Authorization': 'Bearer ' + driverToken}
+          headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
         });
         if(res.status === 401){ driverSessionExpired(); return; }
         const data = await res.json();
@@ -2337,7 +3037,7 @@
       try{
         const res = await fetch(API_BASE_AUTH + `/api/driver/moving/${encodeURIComponent(jobnumber)}/photos`, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
           body: JSON.stringify({ category, photos, notes: mvStagedNotes[key] || '' })
         });
         if(res.status === 401){ driverSessionExpired(); return; }
@@ -2364,13 +3064,29 @@
   // quick confirmation instead of being asked to fill out the materials
   // section again. Defaults to showing the form (the common case at the
   // start of a shift) until we actually know otherwise.
+  // Material Checkout handed to a wingman on its own shows just the
+  // checkout part of this same form; a handed-off Pre-Trip shows all of
+  // it, with the Captain's name as the driver.
+  function applyPtiMode(){
+    const checkoutOnly = ptiMode === 'checkout';
+    ['pti_truckPanel', 'pti_photoPanel', 'pti_checklistPanel', 'pti_notesPanel'].forEach(id => {
+      document.getElementById(id).style.display = checkoutOnly ? 'none' : '';
+    });
+    document.getElementById('pti_title').textContent = checkoutOnly ? 'Material Checkout' : 'Pre-Trip Inspection';
+    document.getElementById('pti_submitBtn').textContent = checkoutOnly ? 'Submit Material Checkout' : 'Submit Inspection';
+    document.getElementById('driverInspectionBackBtn').innerHTML = driverRole === 'wingman' ? '&larr; Wingman Tools' : '&larr; Driver Tools';
+    const forCaptain = (driverRole === 'wingman' && driverActiveTask) ? driverActiveTask.captainName : null;
+    document.getElementById('pti_driverNameDisplay').textContent = forCaptain ? `${forCaptain} (completed by ${currentDriverName})` : (currentDriverName || '');
+    document.getElementById('pti_submitStatus').textContent = '';
+  }
+
   async function checkPtiMaterialsGate(){
     const section = document.getElementById('pti_materialsSection');
     const alreadyDoneNote = document.getElementById('pti_materialsAlreadyDoneNote');
     try{
       const today = new Date().toISOString().slice(0,10);
       const res = await fetch(API_BASE_AUTH + `/api/driver/materials-checkout-status?date=${today}`, {
-        headers: {'Authorization': 'Bearer ' + driverToken}
+        headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -2477,6 +3193,8 @@
         loggedMaterialsCheckouts: ptiLoggedMaterialsCheckouts,
         checklist,
         photo: ptiCapturedPhoto,
+        wingmanTask: (driverRole === 'wingman' && driverActiveTask) ? driverActiveTask : null,
+        ptiMode,
         savedAt: new Date().toISOString()
       };
       localStorage.setItem(PTI_DRAFT_KEY, JSON.stringify(draft));
@@ -2511,6 +3229,11 @@
       clearPtiDraft();
       return false;
     }
+    // A draft belongs to one specific context -- the Captain's own PTI, or
+    // one particular wingman task -- and is never restored into another.
+    const draftTaskId = (draft.wingmanTask && draft.wingmanTask.id) || null;
+    const currentTaskId = (driverRole === 'wingman' && driverActiveTask) ? driverActiveTask.id : null;
+    if(draftTaskId !== currentTaskId) return false;
 
     if(draft.truckId) document.getElementById('pti_truck').value = draft.truckId;
     document.getElementById('pti_odometer').value = draft.odometer || '';
@@ -2578,7 +3301,7 @@
 
   async function loadPtiTodayJobs(){
     try{
-      const res = await fetch(API_BASE_AUTH + '/api/driver/today-jobs', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      const res = await fetch(API_BASE_AUTH + '/api/driver/today-jobs', { headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()} });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
       ptiTodayJobs = data.jobs || [];
@@ -2684,6 +3407,7 @@
 
   document.getElementById('pti_submitBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pti_submitStatus');
+    if(ptiMode === 'checkout'){ await submitCheckoutOnlyTask(); return; }
     const truckSel = document.getElementById('pti_truck');
     const truckId = truckSel.value;
     const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
@@ -2758,7 +3482,7 @@
         try{
           const matcoRes = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
             body: JSON.stringify({ jobNumbers: entry.jobNumber ? [entry.jobNumber] : [], items: entry.items, date: todayStr })
           });
           if(matcoRes.status === 401){ driverSessionExpired(); return; }
@@ -2782,7 +3506,7 @@
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/pretrip', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
         body: JSON.stringify({ truckId, truckNickname, date, odometer, checklist, additionalNotes, backPhoto: ptiCapturedPhoto })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -2810,6 +3534,9 @@
       renderPtiChecklist();
       checkPtiMaterialsGate();
       clearPtiDraft();
+      if(driverRole === 'wingman' && driverActiveTask){
+        finishWingmanTask(`Pre-Trip Inspection submitted for ${driverActiveTask.captainName}.`);
+      }
     }catch(err){
       console.error('Submit inspection failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
@@ -2847,7 +3574,7 @@
   async function loadDriverNeighborhoods(){
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/neighborhoods', {
-        headers: {'Authorization': 'Bearer ' + driverToken}
+        headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
       });
       if(res.status === 401){ driverSessionExpired(); return null; }
       const data = await res.json();
@@ -3008,7 +3735,7 @@
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/neighborhood-visit', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
         body: JSON.stringify({ neighborhoodId: driverSelectedNbhd.id, neighborhoodName: driverSelectedNbhd.name })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -5785,6 +6512,14 @@
           <div class="form-actions" style="margin-top:8px;">
             <button type="button" id="appset_cmExclusionSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:9px 14px; border-radius:6px; cursor:pointer; font-size:13px;">Save Exclusions</button>
             <span class="status-msg" id="appset_cmExclusionStatus"></span>
+          </div>
+
+          <h4 style="margin:22px 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Captain Review Questions</h4>
+          <p class="form-note" style="margin-top:0;">Up to 10 yes/no questions a wingman answers about a Captain from the Wingman Portal&rsquo;s Captain Review. Leave a field blank to skip it &mdash; only filled-in questions are asked. Past answers keep the wording they were actually asked with.</p>
+          <div id="appset_captainQuestionRows" style="display:flex; flex-direction:column; gap:8px;"></div>
+          <div class="form-actions" style="margin-top:14px;">
+            <button type="button" id="appset_captainQuestionsSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Questions</button>
+            <span class="status-msg" id="appset_captainQuestionsStatus"></span>
           </div>
         </div>
         <div class="panel" id="set_wingmanMetricsPanel" data-collapsible="true">
@@ -13790,6 +14525,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderJunkPricingRows(junkRemoval.pricing || window.appSettings.junkRemoval.pricing);
     await renderCommissionSection(s.commission || {});
     await renderWingmanQuestionsSection();
+    await renderCaptainQuestionsSection();
     await loadHiringDocsConfig();
     loadOverridePinStatus();
     updateStorageUsageNote();
@@ -14368,6 +15104,73 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('Save wingman questions failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
+
+  // ---- Captain Metrics: 10 editable Captain Review yes/no questions ----
+  // Asked of wingmen from the Wingman Portal's Captain Review, mirroring
+  // the Wingman Metrics questions Captains answer.
+  const CAPTAIN_QUESTION_COUNT = 10;
+  async function renderCaptainQuestionsSection(){
+    let questions = [];
+    try{
+      const res = await fetch(`${API_BASE}/api/data/captain-questions`, { headers: authHeaders() });
+      if(res.ok){
+        const data = await res.json();
+        questions = Array.isArray(data.value) ? data.value : [];
+      }
+    }catch(err){ console.error('Captain questions load failed:', err); }
+    const rowsEl = document.getElementById('appset_captainQuestionRows');
+    rowsEl.innerHTML = Array.from({length: CAPTAIN_QUESTION_COUNT}, (_, i) => `
+      <label style="margin:0;">Question ${i+1}
+        <input type="text" class="appset-captain-question" data-index="${i}" value="${settingsEsc(questions[i] || '')}" placeholder="Leave blank to skip this slot" style="width:100%;">
+      </label>`
+    ).join('');
+  }
+
+  document.getElementById('appset_captainQuestionsSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_captainQuestionsStatus');
+    const questions = Array.from(document.querySelectorAll('.appset-captain-question')).map(input => input.value.trim());
+    const pin = prompt('Enter the Administrator Override PIN to change the Captain Review questions:');
+    if(pin === null) return;
+    statusEl.textContent = 'Verifying PIN...';
+    statusEl.className = 'status-msg';
+    try{
+      const pinRes = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(pinRes)) return;
+      const pinData = await pinRes.json();
+      if(!pinRes.ok){
+        statusEl.textContent = pinData.error || 'Could not verify PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      if(!pinData.valid){
+        statusEl.textContent = 'Incorrect PIN.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Saving...';
+      const saveRes = await fetch(`${API_BASE}/api/data/captain-questions`, {
+        method: 'PUT',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ value: questions })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      if(!saveRes.ok){
+        statusEl.textContent = 'Could not save the questions.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      statusEl.textContent = 'Questions saved.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){
+      console.error('Save captain questions failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
@@ -22328,12 +23131,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   async function loadMaterialsData(){
     try{
-      const [items, checkouts, uploads, archive, eodRecords] = await Promise.all([
+      const [items, checkouts, uploads, archive, eodRecords, checkinRecords] = await Promise.all([
         window.dashboardApi.get(MATERIALS_ITEMS_KEY, []),
         window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
-        window.dashboardApi.get('compliance-eod-inspections', [])
+        window.dashboardApi.get('compliance-eod-inspections', []),
+        window.dashboardApi.get('materials-checkins', [])
       ]);
       materialsItems = items || [];
       materialsCheckouts = checkouts || [];
@@ -22342,7 +23146,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // The Materials tile no longer shows its own Underbilled Jobs list --
       // Manager Review's Underbilled Jobs tab is the one place for these.
       // The check still runs here so that tab stays current.
-      syncMaterialsUnderbilledToManagerReview(computeMaterialsUnderbilledProblems(uploads || [], archive || [], eodRecords || []));
+      // Standalone Material Checkins (handed to a wingman) have the same
+      // jobNumbers/returnedItems shape as an End of Day record.
+      syncMaterialsUnderbilledToManagerReview(computeMaterialsUnderbilledProblems(uploads || [], archive || [], (eodRecords || []).concat(checkinRecords || [])));
       updateMaterialsTileBadge();
     }catch(err){
       console.error('Materials load failed:', err);
@@ -23431,18 +24237,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // session -- all three syncs are idempotent upserts.
       await window.ensureAppSettingsLoaded();
       const travelLineCheckStartDate = (window.appSettings.captainMetrics || {}).travelLineCheckStartDate || '';
-      const [matItemsRaw, matCheckoutsRaw, uploadsRaw, archiveRaw, eodRaw] = await Promise.all([
+      const [matItemsRaw, matCheckoutsRaw, uploadsRaw, archiveRaw, eodRaw, checkinRaw] = await Promise.all([
         window.dashboardApi.get(MATERIALS_ITEMS_KEY, []),
         window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
-        window.dashboardApi.get('compliance-eod-inspections', [])
+        window.dashboardApi.get('compliance-eod-inspections', []),
+        window.dashboardApi.get('materials-checkins', [])
       ]);
       materialsItems = matItemsRaw || [];
       materialsCheckouts = matCheckoutsRaw || [];
       const eodRecords = eodRaw || [];
 
-      const problems = computeMaterialsUnderbilledProblems(uploadsRaw || [], archiveRaw || [], eodRecords);
+      const problems = computeMaterialsUnderbilledProblems(uploadsRaw || [], archiveRaw || [], eodRecords.concat(checkinRaw || []));
       await syncMaterialsUnderbilledToManagerReview(problems);
 
       const travelLineProblems = computeTravelLineUnderbilledProblems(archiveRaw || [], uploadsRaw || [], travelLineCheckStartDate);
