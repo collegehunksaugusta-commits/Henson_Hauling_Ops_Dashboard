@@ -87,6 +87,7 @@ const ALLOWED_KEYS = new Set([
   'wingman-tasks',
   'materials-checkins',
   'wingman-review-skips',
+  'google-review-allocations',
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
@@ -2776,7 +2777,11 @@ const DEFAULT_APP_SETTINGS = {
     driverRate: 0,
     opsManagerRate: 0,
     opsManagerAssignment: '',
-    wingmanRate: 0
+    wingmanRate: 0,
+    // Dollars paid per Google review credited to an employee (Manager
+    // Review -> Google Reviews). Every employee credited on a review gets
+    // the full amount.
+    reviewBonusPerReview: 0
   },
   junkRemoval: {
     pricing: [
@@ -2843,6 +2848,171 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
     res.status(500).json({ error: 'Could not save settings.' });
   }
 });
+
+// ============ Google Reviews (Places API) ============
+// Pulls the business's Google reviews so Manager Review can credit each
+// one to the employees it's about. Google only ever returns the 5 newest
+// reviews, so the server checks every hour and keeps every review it has
+// ever seen -- nothing is missed unless more than 5 arrive within an hour.
+// Needs GOOGLE_PLACES_API_KEY in Render's environment; GOOGLE_PLACE_ID is
+// optional (looked up once by name and location, then remembered).
+const GOOGLE_REVIEWS_KEY = 'google-reviews';
+const GOOGLE_REVIEWS_META_KEY = 'google-reviews-meta';
+const GOOGLE_PLACES_QUERY = 'College Hunks Hauling Junk and Moving Augusta';
+const GOOGLE_PLACES_CENTER = { latitude: 33.5506581, longitude: -82.1236477 };
+const GOOGLE_REVIEWS_POLL_MS = 60 * 60 * 1000;
+
+function easternDateFromMs(ms) {
+  return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+// Stable across both of Google's API formats (and across text edits), so
+// the same review is never stored twice.
+function googleReviewId(authorName, unixSeconds) {
+  return 'gr_' + crypto.createHash('sha1').update(String(authorName || '') + '|' + String(unixSeconds || '')).digest('hex').slice(0, 16);
+}
+
+async function resolveGooglePlaceId(apiKey, meta) {
+  if (process.env.GOOGLE_PLACE_ID) return process.env.GOOGLE_PLACE_ID;
+  if (meta.placeId) return meta.placeId;
+  const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress' },
+    body: JSON.stringify({ textQuery: GOOGLE_PLACES_QUERY, locationBias: { circle: { center: GOOGLE_PLACES_CENTER, radius: 3000 } } })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error((d.error && d.error.message) || 'Google place search failed.');
+  const place = (d.places || [])[0];
+  if (!place) throw new Error('Could not find the business on Google Maps.');
+  meta.placeId = place.id;
+  meta.placeName = place.displayName ? place.displayName.text : '';
+  meta.placeAddress = place.formattedAddress || '';
+  return place.id;
+}
+
+// Tries the classic Place Details API first, since it can sort by newest;
+// falls back to the current Places API, which newer Google Cloud projects
+// are limited to. Both are normalized to the same shape.
+async function fetchGoogleReviewsFromApi(apiKey, placeId) {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=rating,user_ratings_total,reviews&reviews_sort=newest&reviews_no_translations=true&key=${encodeURIComponent(apiKey)}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.status === 'OK' && d.result) {
+      return {
+        source: 'places-classic',
+        rating: d.result.rating ?? null,
+        total: d.result.user_ratings_total ?? null,
+        reviews: (d.result.reviews || []).map(v => ({
+          authorName: v.author_name || 'Google user', authorUrl: v.author_url || '', photoUrl: v.profile_photo_url || '',
+          rating: Number(v.rating) || null, text: v.text || '', unix: Number(v.time) || 0
+        }))
+      };
+    }
+  } catch (err) {
+    console.error('[google-reviews] classic Places request failed, trying the current API:', err.message);
+  }
+  const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+    headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'rating,userRatingCount,reviews' }
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error((d.error && d.error.message) || 'Google place details failed.');
+  return {
+    source: 'places-new',
+    rating: d.rating ?? null,
+    total: d.userRatingCount ?? null,
+    reviews: (d.reviews || []).map(v => ({
+      authorName: (v.authorAttribution && v.authorAttribution.displayName) || 'Google user',
+      authorUrl: (v.authorAttribution && v.authorAttribution.uri) || '',
+      photoUrl: (v.authorAttribution && v.authorAttribution.photoUri) || '',
+      rating: Number(v.rating) || null,
+      text: (v.originalText && v.originalText.text) || (v.text && v.text.text) || '',
+      unix: v.publishTime ? Math.floor(Date.parse(v.publishTime) / 1000) : 0
+    }))
+  };
+}
+
+let googleReviewsRefreshInFlight = null;
+function refreshGoogleReviews() {
+  if (googleReviewsRefreshInFlight) return googleReviewsRefreshInFlight;
+  googleReviewsRefreshInFlight = (async () => {
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) return { added: 0, configured: false };
+    const [reviewsRaw, metaRaw] = await Promise.all([redis.get(GOOGLE_REVIEWS_KEY), redis.get(GOOGLE_REVIEWS_META_KEY)]);
+    const reviews = reviewsRaw ? JSON.parse(reviewsRaw) : [];
+    const meta = metaRaw ? JSON.parse(metaRaw) : {};
+    try {
+      const placeId = await resolveGooglePlaceId(apiKey, meta);
+      const result = await fetchGoogleReviewsFromApi(apiKey, placeId);
+      const byId = new Map(reviews.map(r => [r.id, r]));
+      let added = 0;
+      result.reviews.forEach(v => {
+        if (!v.unix) return;
+        const id = googleReviewId(v.authorName, v.unix);
+        const normalized = {
+          id, authorName: v.authorName, authorUrl: v.authorUrl, photoUrl: v.photoUrl,
+          rating: v.rating, text: v.text,
+          publishedAt: new Date(v.unix * 1000).toISOString(),
+          date: easternDateFromMs(v.unix * 1000)
+        };
+        if (byId.has(id)) Object.assign(byId.get(id), normalized); // a reviewer can edit their text or stars
+        else { byId.set(id, Object.assign(normalized, { firstSeenAt: new Date().toISOString() })); added++; }
+      });
+      // The first check ever sets where crediting starts: reviews from the
+      // previous week onward, so older reviews already on the listing
+      // don't all turn into back pay.
+      if (!meta.trackingStartDate) meta.trackingStartDate = easternDateFromMs(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      Object.assign(meta, { rating: result.rating, total: result.total, source: result.source, lastCheckedAt: new Date().toISOString(), lastError: null });
+      const merged = [...byId.values()].sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''));
+      await Promise.all([redis.set(GOOGLE_REVIEWS_KEY, JSON.stringify(merged)), redis.set(GOOGLE_REVIEWS_META_KEY, JSON.stringify(meta))]);
+      if (added > 0) console.log(`[google-reviews] ${added} new review(s) via ${result.source}`);
+      return { added, configured: true };
+    } catch (err) {
+      console.error('[google-reviews] refresh failed:', err.message);
+      Object.assign(meta, { lastCheckedAt: new Date().toISOString(), lastError: err.message });
+      await redis.set(GOOGLE_REVIEWS_META_KEY, JSON.stringify(meta));
+      throw err;
+    }
+  })().finally(() => { googleReviewsRefreshInFlight = null; });
+  return googleReviewsRefreshInFlight;
+}
+
+async function googleReviewsPayload() {
+  const [reviewsRaw, metaRaw] = await Promise.all([redis.get(GOOGLE_REVIEWS_KEY), redis.get(GOOGLE_REVIEWS_META_KEY)]);
+  return {
+    configured: !!process.env.GOOGLE_PLACES_API_KEY,
+    reviews: reviewsRaw ? JSON.parse(reviewsRaw) : [],
+    meta: metaRaw ? JSON.parse(metaRaw) : {}
+  };
+}
+
+app.get('/api/admin/google-reviews', requireAuth, async (req, res) => {
+  try {
+    const payload = await googleReviewsPayload();
+    // Opportunistic top-up if the hourly check is overdue (e.g. the
+    // server was asleep) -- doesn't hold up this response.
+    const last = payload.meta.lastCheckedAt ? Date.parse(payload.meta.lastCheckedAt) : 0;
+    if (payload.configured && Date.now() - last > GOOGLE_REVIEWS_POLL_MS) refreshGoogleReviews().catch(() => {});
+    res.json(payload);
+  } catch (err) {
+    console.error('Google reviews fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load Google reviews.' });
+  }
+});
+
+app.post('/api/admin/google-reviews/refresh', requireAuth, async (req, res) => {
+  if (!process.env.GOOGLE_PLACES_API_KEY) {
+    return res.status(400).json({ error: 'Google reviews aren\u2019t connected yet \u2014 GOOGLE_PLACES_API_KEY needs to be added in Render.' });
+  }
+  try {
+    const result = await refreshGoogleReviews();
+    res.json(Object.assign(await googleReviewsPayload(), { added: result.added }));
+  } catch (err) {
+    res.status(502).json({ error: `Google returned an error: ${err.message}` });
+  }
+});
+
+setTimeout(() => refreshGoogleReviews().catch(() => {}), 20 * 1000);
+setInterval(() => refreshGoogleReviews().catch(() => {}), GOOGLE_REVIEWS_POLL_MS);
 
 // ============ Materials: Balance Due Override PIN ============
 // Kept out of the general settings-app-config blob (and its requireAuth-only
