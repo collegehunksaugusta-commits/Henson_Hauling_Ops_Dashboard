@@ -86,6 +86,7 @@ const ALLOWED_KEYS = new Set([
   'captain-ratings',
   'wingman-tasks',
   'materials-checkins',
+  'wingman-review-skips',
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
@@ -662,6 +663,69 @@ app.post('/api/driver/wingman-rating', requireDriverAuth, async (req, res) => {
   } catch (err) {
     console.error('Wingman rating submission failed:', err.message);
     res.status(500).json({ error: 'Could not save that wingman review.' });
+  }
+});
+
+// ============ Required daily Wingman Review ============
+// Once a Captain's End of Day Inspection is in, Wingman Review is a
+// required step: the Driver Portal keeps sending him back to it until he
+// has reviewed at least one wingman, or confirmed he worked alone that
+// day. Keyed off his most recent End of Day in the last 18 hours (rather
+// than a calendar date, since an evening End of Day can cross midnight
+// UTC) -- so closing the app, a reload, or a dropped connection right
+// after submitting can no longer lose the review.
+const WINGMAN_REVIEW_WINDOW_MS = 18 * 60 * 60 * 1000;
+const WINGMAN_REVIEW_LOOKBACK_MS = 16 * 60 * 60 * 1000; // reviews done earlier in the same shift still count
+app.get('/api/driver/wingman-review-status', requireDriverAuth, async (req, res) => {
+  try {
+    const [qRaw, eodRaw, ratingsRaw, skipsRaw] = await Promise.all([
+      redis.get('wingman-questions'),
+      redis.get('compliance-eod-inspections'),
+      redis.get('wingman-ratings'),
+      redis.get('wingman-review-skips')
+    ]);
+    const questions = qRaw ? JSON.parse(qRaw) : [];
+    const questionsConfigured = Array.isArray(questions) && questions.some(q => (q || '').trim());
+    const eods = eodRaw ? JSON.parse(eodRaw) : [];
+    const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+    const skips = skipsRaw ? JSON.parse(skipsRaw) : [];
+    const now = Date.now();
+    const latestEod = eods
+      .filter(e => e.driverName === req.driverName && e.submittedAt && (now - Date.parse(e.submittedAt)) <= WINGMAN_REVIEW_WINDOW_MS)
+      .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
+    if (!latestEod) return res.json({ required: false, questionsConfigured, reviewedNames: [], declaredSolo: false });
+    const since = new Date(Date.parse(latestEod.submittedAt) - WINGMAN_REVIEW_LOOKBACK_MS).toISOString();
+    const reviewedNames = ratings.filter(r => r.captainName === req.driverName && (r.createdAt || '') >= since).map(r => r.wingmanName);
+    const declaredSolo = skips.some(k => k.captainName === req.driverName && (k.createdAt || '') >= since);
+    res.json({
+      required: questionsConfigured && reviewedNames.length === 0 && !declaredSolo,
+      questionsConfigured, reviewedNames, declaredSolo,
+      eodSubmittedAt: latestEod.submittedAt
+    });
+  } catch (err) {
+    console.error('Wingman review status failed:', err.message);
+    res.status(500).json({ error: 'Could not check wingman review status.' });
+  }
+});
+
+// A Captain confirming he had no wingman on any job that day -- the only
+// way past a required Wingman Review without reviewing someone. Recorded
+// so the office can see who's saying it, and how often.
+app.post('/api/driver/wingman-review-solo', requireDriverAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('wingman-review-skips');
+    const skips = raw ? JSON.parse(raw) : [];
+    skips.push({
+      id: 'wrskip_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      captainName: req.driverName,
+      date: todayIsoDate(),
+      createdAt: new Date().toISOString()
+    });
+    await redis.set('wingman-review-skips', JSON.stringify(skips));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Wingman review solo declaration failed:', err.message);
+    res.status(500).json({ error: 'Could not save that.' });
   }
 });
 
