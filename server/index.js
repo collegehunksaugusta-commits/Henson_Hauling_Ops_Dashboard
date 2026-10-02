@@ -82,6 +82,10 @@ const ALLOWED_KEYS = new Set([
   'extra-pay-manual',
   'wingman-questions',
   'wingman-ratings',
+  'captain-questions',
+  'captain-ratings',
+  'wingman-tasks',
+  'materials-checkins',
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
@@ -203,11 +207,20 @@ const TEMP_PASSWORD = 'Password123!';
 // ALLOWED_KEYS, so it has no HTTP-reachable read or write path at all -- not
 // even for an admin -- it only exists for this file's own login-time lookup.
 // Turnover and role changes are both handled naturally: someone who drops
-// off the latest week's payroll, or gets unchecked as a driver, simply isn't
-// in the lookup rebuilt from either change, with no separate deprovisioning
-// step needed.
+// off the last two weeks' payroll, or gets unchecked as a driver, simply
+// isn't in the lookup rebuilt from either change, with no separate
+// deprovisioning step needed.
 const DRIVER_AUTH_LOOKUP_KEY = 'driver-auth-lookup';
 const DRIVER_SESSION_PREFIX = 'auth:driver-session:';
+// Wingman Portal access: same last-4-of-SSN login, same payroll source,
+// but for everyone on the last two payroll weeks who is NOT checkmarked as an
+// active driver. Kept in its own lookup key and its own session namespace,
+// so a wingman session can never satisfy requireDriverAuth (and vice
+// versa) -- the only crossover is requireDriverOrTaskWingman below, which
+// lets a wingman act on a Captain's behalf strictly for a task that
+// Captain assigned them.
+const WINGMAN_AUTH_LOOKUP_KEY = 'wingman-auth-lookup';
+const WINGMAN_SESSION_PREFIX = 'auth:wingman-session:';
 const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 16; // 16 hours -- a work shift
 
 async function rebuildDriverAuthLookup() {
@@ -223,22 +236,31 @@ async function rebuildDriverAuthLookup() {
     // Portal access just by having last-4 SSN data on file.
     const activeDriverNames = new Set(compDrivers.filter(d => d && d.active).map(d => d.employeeName));
 
-    const latest = weeks.slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''))[0];
-    const employees = (latest && latest.employees) || [];
+    // The two most recent payroll weeks -- the same window the employee
+    // roster uses -- so someone who took an unpaid week off (and so isn't
+    // on the latest export) can still sign in. Older week first, so the
+    // latest week's data wins wherever the two disagree.
+    const recentTwo = weeks.slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || '')).slice(0, 2);
+    const employees = recentTwo.slice().reverse().flatMap(w => w.employees || []);
     const lookup = {};
+    const wingmanLookup = {};
     employees.forEach(e => {
-      if (e && e.name && e.ssnLast4 && /^\d{4}$/.test(e.ssnLast4) && activeDriverNames.has(e.name)) {
-        lookup[e.ssnLast4] = e.name;
-      }
+      if (!(e && e.name && e.ssnLast4 && /^\d{4}$/.test(e.ssnLast4))) return;
+      // A given last-4 maps to exactly one person and one portal.
+      delete lookup[e.ssnLast4];
+      delete wingmanLookup[e.ssnLast4];
+      if (activeDriverNames.has(e.name)) lookup[e.ssnLast4] = e.name;
+      else wingmanLookup[e.ssnLast4] = e.name;
     });
     // TEMPORARY diagnostic logging -- names and counts only, never SSN
     // digits -- to pinpoint exactly where a specific person's access is
     // coming from. Safe to remove once the current issue is resolved.
-    console.log('[driver-auth-lookup] latest week:', latest ? latest.weekStart : '(none)');
+    console.log('[driver-auth-lookup] payroll weeks used:', recentTwo.map(w => w.weekStart).join(', ') || '(none)');
     console.log('[driver-auth-lookup] payroll employee names:', employees.map(e => e && e.name).filter(Boolean));
     console.log('[driver-auth-lookup] checkmarked active driver names:', [...activeDriverNames]);
     console.log('[driver-auth-lookup] final lookup names:', Object.values(lookup));
     await redis.set(DRIVER_AUTH_LOOKUP_KEY, JSON.stringify(lookup));
+    await redis.set(WINGMAN_AUTH_LOOKUP_KEY, JSON.stringify(wingmanLookup));
   } catch (err) {
     console.error('Driver auth lookup rebuild failed:', err.message);
   }
@@ -395,17 +417,26 @@ app.post('/api/driver-login', async (req, res) => {
   }
   try {
     recordLoginAttempt(ip);
-    const raw = await redis.get(DRIVER_AUTH_LOOKUP_KEY);
+    const [raw, wingmanRaw] = await Promise.all([
+      redis.get(DRIVER_AUTH_LOOKUP_KEY),
+      redis.get(WINGMAN_AUTH_LOOKUP_KEY)
+    ]);
     const lookup = raw ? JSON.parse(raw) : {};
+    const wingmanLookup = wingmanRaw ? JSON.parse(wingmanRaw) : {};
     const driverName = lookup[last4];
+    const token = crypto.randomBytes(32).toString('hex');
+    if (driverName) {
+      await redis.set(DRIVER_SESSION_PREFIX + token, driverName, 'EX', DRIVER_SESSION_TTL_SECONDS);
+      return res.json({ token, driverName, role: 'captain' });
+    }
+    const wingmanName = wingmanLookup[last4];
     // Same generic message either way -- doesn't hint whether the digits
     // simply don't match anyone, so there's nothing to learn from a wrong guess.
-    if (!driverName) {
+    if (!wingmanName) {
       return res.status(401).json({ error: 'Those digits don\u2019t match anyone on file.' });
     }
-    const token = crypto.randomBytes(32).toString('hex');
-    await redis.set(DRIVER_SESSION_PREFIX + token, driverName, 'EX', DRIVER_SESSION_TTL_SECONDS);
-    res.json({ token, driverName });
+    await redis.set(WINGMAN_SESSION_PREFIX + token, wingmanName, 'EX', DRIVER_SESSION_TTL_SECONDS);
+    res.json({ token, driverName: wingmanName, role: 'wingman' });
   } catch (err) {
     console.error('Driver login failed:', err.message);
     res.status(500).json({ error: 'Login failed.' });
@@ -415,7 +446,7 @@ app.post('/api/driver-login', async (req, res) => {
 app.post('/api/driver-logout', async (req, res) => {
   const { token } = req.body || {};
   if (token) {
-    try { await redis.del(DRIVER_SESSION_PREFIX + token); } catch (err) { console.error('Driver logout failed:', err.message); }
+    try { await redis.del(DRIVER_SESSION_PREFIX + token, WINGMAN_SESSION_PREFIX + token); } catch (err) { console.error('Driver logout failed:', err.message); }
   }
   res.json({ ok: true });
 });
@@ -441,9 +472,96 @@ async function requireDriverAuth(req, res, next) {
   }
 }
 
+// ============ Wingman Portal: auth, task delegation ============
+async function requireWingmanAuth(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Not logged in.' });
+  try {
+    const name = await redis.get(WINGMAN_SESSION_PREFIX + token);
+    if (!name) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    req.wingmanName = name;
+    next();
+  } catch (err) {
+    console.error('Wingman auth check failed:', err.message);
+    res.status(500).json({ error: 'Auth check failed.' });
+  }
+}
+
+const WINGMAN_TASKS_KEY = 'wingman-tasks';
+const WINGMAN_TASK_TYPES = {
+  'pretrip': 'Pre-Trip Inspection',
+  'materials-checkout': 'Material Checkout',
+  'eod': 'End of Day Inspection',
+  'materials-checkin': 'Material Checkin'
+};
+function todayIsoDate() { return new Date().toISOString().slice(0, 10); }
+
+async function loadWingmanTasks() {
+  const raw = await redis.get(WINGMAN_TASKS_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+async function completeWingmanTask(taskId, completedBy) {
+  const tasks = await loadWingmanTasks();
+  const task = tasks.find(t => t.id === taskId);
+  if (!task || task.status !== 'open') return;
+  task.status = 'completed';
+  task.completedAt = new Date().toISOString();
+  task.completedBy = completedBy;
+  await redis.set(WINGMAN_TASKS_KEY, JSON.stringify(tasks));
+}
+
+// Accepts either a normal Captain session, or a wingman session acting
+// on an open task a Captain assigned them (identified by the
+// X-Wingman-Task-Id header). In the wingman case, req.driverName is set
+// to the assigning Captain -- so the record lands exactly where the
+// Captain's own submission would, and Captain Metrics, PTI/EOD
+// compliance and the Materials reconciliation all work unchanged -- and
+// req.actingWingmanName records who actually did it. allowedTypes limits
+// which task types may use the endpoint (null = any open task, for the
+// read-only lookups the forms need). completesType, when the task is of
+// that type, marks it complete once the endpoint responds successfully.
+function requireDriverOrTaskWingman(allowedTypes, completesType) {
+  return async (req, res, next) => {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Not logged in.' });
+    try {
+      const driverName = await redis.get(DRIVER_SESSION_PREFIX + token);
+      if (driverName) { req.driverName = driverName; return next(); }
+      const wingmanName = await redis.get(WINGMAN_SESSION_PREFIX + token);
+      if (!wingmanName) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+      const taskId = String(req.headers['x-wingman-task-id'] || '');
+      if (!taskId) return res.status(403).json({ error: 'This needs a task assigned to you by a Captain.' });
+      const tasks = await loadWingmanTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task || task.status !== 'open' || nameDedupKey(task.wingmanName) !== nameDedupKey(wingmanName)) {
+        return res.status(403).json({ error: 'That task is no longer assigned to you.' });
+      }
+      if (allowedTypes && !allowedTypes.includes(task.type)) {
+        return res.status(403).json({ error: 'That task doesn\u2019t cover this.' });
+      }
+      req.driverName = task.captainName;
+      req.actingWingmanName = wingmanName;
+      req.wingmanTask = task;
+      if (completesType && task.type === completesType) {
+        res.on('finish', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            completeWingmanTask(task.id, wingmanName).catch(err => console.error('Wingman task completion failed:', err.message));
+          }
+        });
+      }
+      next();
+    } catch (err) {
+      console.error('Driver/wingman auth check failed:', err.message);
+      res.status(500).json({ error: 'Auth check failed.' });
+    }
+  };
+}
+
 // Minimal truck list for the driver-facing form -- name only, nothing else
 // from the fleet record (no VIN, purchase price, etc.).
-app.get('/api/driver/trucks', requireDriverAuth, async (req, res) => {
+app.get('/api/driver/trucks', requireDriverOrTaskWingman(null), async (req, res) => {
   try {
     const raw = await redis.get('fleet-trucks');
     const trucks = raw ? JSON.parse(raw) : [];
@@ -588,7 +706,7 @@ app.post('/api/driver/neighborhood-visit', requireDriverAuth, async (req, res) =
   }
 });
 
-app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
+app.post('/api/driver/pretrip', requireDriverOrTaskWingman(['pretrip'], 'pretrip'), async (req, res) => {
   const { truckId, truckNickname, date, odometer, checklist, additionalNotes, backPhoto } = req.body || {};
   const driverName = req.driverName;
   if (!truckId || !Array.isArray(checklist) || checklist.length === 0) {
@@ -628,6 +746,7 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
       overallStatus: hasDefect ? 'defects' : 'ok',
       additionalNotes: (additionalNotes || '').slice(0, 2000),
       backPhotoKey,
+      ...(req.actingWingmanName ? { completedByWingman: String(req.actingWingmanName).slice(0, 100) } : {}),
       submittedAt: new Date().toISOString()
     });
     await redis.set('compliance-pretrip-inspections', JSON.stringify(records));
@@ -641,7 +760,7 @@ app.post('/api/driver/pretrip', requireDriverAuth, async (req, res) => {
 // Materials list for the driver checkout form -- item identity only (number
 // and description), never price or minimum-quantity, which are internal
 // inventory-management fields with no reason to be driver-visible.
-app.get('/api/driver/materials-items', requireDriverAuth, async (req, res) => {
+app.get('/api/driver/materials-items', requireDriverOrTaskWingman(null), async (req, res) => {
   try {
     const raw = await redis.get('materials-items');
     const items = raw ? JSON.parse(raw) : [];
@@ -657,7 +776,7 @@ app.get('/api/driver/materials-items', requireDriverAuth, async (req, res) => {
 // with more than one job that day can tie each checkout to the correct
 // one instead of typing job numbers freehand (which used to double-count
 // the full quantity against every job typed, rather than splitting it).
-app.get('/api/driver/today-jobs', requireDriverAuth, async (req, res) => {
+app.get('/api/driver/today-jobs', requireDriverOrTaskWingman(null), async (req, res) => {
   try {
     const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
     const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
@@ -677,7 +796,7 @@ app.get('/api/driver/today-jobs', requireDriverAuth, async (req, res) => {
 // on file, so it can redirect them proactively instead of only rejecting
 // the PTI submission afterward. The actual enforcement lives in
 // /api/driver/pretrip itself; this is just for a better prompt.
-app.get('/api/driver/materials-checkout-status', requireDriverAuth, async (req, res) => {
+app.get('/api/driver/materials-checkout-status', requireDriverOrTaskWingman(null), async (req, res) => {
   const driverName = req.driverName;
   const date = (req.query.date || new Date().toISOString().slice(0, 10)).toString();
   try {
@@ -691,7 +810,7 @@ app.get('/api/driver/materials-checkout-status', requireDriverAuth, async (req, 
   }
 });
 
-app.post('/api/driver/materials-checkout', requireDriverAuth, async (req, res) => {
+app.post('/api/driver/materials-checkout', requireDriverOrTaskWingman(['pretrip', 'materials-checkout']), async (req, res) => {
   const { jobNumbers, items, date } = req.body || {};
   const driverName = req.driverName;
   const cleanItems = Array.isArray(items)
@@ -733,6 +852,7 @@ app.post('/api/driver/materials-checkout', requireDriverAuth, async (req, res) =
       date: checkoutDate,
       jobNumbers: cleanJobNumbers,
       items: checkoutItems,
+      ...(req.actingWingmanName ? { completedByWingman: String(req.actingWingmanName).slice(0, 100) } : {}),
       checkedOutAt: new Date().toISOString()
     });
 
@@ -916,7 +1036,7 @@ async function getJunkRemovalPricing() {
   }
 }
 
-app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
+app.post('/api/driver/eod-inspection', requireDriverOrTaskWingman(['eod'], 'eod'), async (req, res) => {
   const { truckId, truckNickname, date, jobNumbers, returnedItems, backPhoto, additionalNotes } = req.body || {};
   const driverName = req.driverName;
   if (!truckId) {
@@ -1002,6 +1122,7 @@ app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
       backPhotoKey,
       additionalNotes: (additionalNotes || '').slice(0, 2000),
       visionStatus, visionIssues, visionSummary,
+      ...(req.actingWingmanName ? { completedByWingman: String(req.actingWingmanName).slice(0, 100) } : {}),
       submittedAt: new Date().toISOString()
     });
 
@@ -1040,6 +1161,303 @@ app.post('/api/driver/eod-inspection', requireDriverAuth, async (req, res) => {
   } catch (err) {
     console.error('End of day inspection submission failed:', err.message);
     res.status(500).json({ error: 'Could not submit inspection.' });
+  }
+});
+
+// ============ Material Checkin (standalone) ============
+// The returned-materials half of End of Day Inspection, on its own, for
+// when a Captain hands just that part to a wingman. Same shape as an EOD
+// record's jobNumbers/returnedItems, kept in its own key so it never
+// counts as an End of Day Inspection for compliance -- the Materials
+// reconciliation reads both. Credits inventory back exactly like EOD does.
+app.post('/api/driver/materials-checkin', requireDriverOrTaskWingman(['materials-checkin'], 'materials-checkin'), async (req, res) => {
+  const { jobNumbers, returnedItems, date } = req.body || {};
+  const cleanReturnedItems = Array.isArray(returnedItems)
+    ? returnedItems.filter(i => i && i.itemId && Number(i.quantity) > 0).map(i => ({ itemId: String(i.itemId), quantity: Math.floor(Number(i.quantity)) }))
+    : [];
+  const cleanJobNumbers = Array.isArray(jobNumbers) ? jobNumbers.map(j => String(j).trim()).filter(Boolean) : [];
+  const totalReturned = cleanReturnedItems.reduce((sum, i) => sum + i.quantity, 0);
+  if (totalReturned > 0 && cleanJobNumbers.length === 0) {
+    return res.status(400).json({ error: 'At least one Job Number is required when returning materials, so it can be credited to the right job.' });
+  }
+  try {
+    const [itemsRaw, checkinsRaw] = await Promise.all([
+      redis.get('materials-items'),
+      redis.get('materials-checkins')
+    ]);
+    const materialsItems = itemsRaw ? JSON.parse(itemsRaw) : [];
+    const checkins = checkinsRaw ? JSON.parse(checkinsRaw) : [];
+    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
+    const returnedItemDetails = cleanReturnedItems.map(i => {
+      const item = itemsById.get(i.itemId);
+      return {
+        itemId: i.itemId,
+        supplierItemNumber: item ? item.supplierItemNumber : '',
+        description: item ? item.description : '(item no longer on file)',
+        quantity: i.quantity
+      };
+    });
+    cleanReturnedItems.forEach(i => {
+      const item = itemsById.get(i.itemId);
+      if (item) item.quantityOnHand = (Number(item.quantityOnHand) || 0) + i.quantity;
+    });
+    checkins.push({
+      id: 'checkin_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      driverName: String(req.driverName).slice(0, 100),
+      date: date || todayIsoDate(),
+      jobNumbers: cleanJobNumbers,
+      returnedItems: returnedItemDetails,
+      ...(req.actingWingmanName ? { completedByWingman: String(req.actingWingmanName).slice(0, 100) } : {}),
+      submittedAt: new Date().toISOString()
+    });
+    await Promise.all([
+      redis.set('materials-items', JSON.stringify(materialsItems)),
+      redis.set('materials-checkins', JSON.stringify(checkins))
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Material checkin failed:', err.message);
+    res.status(500).json({ error: 'Could not submit material checkin.' });
+  }
+});
+
+// ============ Captain -> Wingman task assignment ============
+// A Captain's own tasks for today (anything not cancelled), so the
+// Driver Portal can show what's assigned, to whom, and whether it's done.
+app.get('/api/driver/wingman-tasks', requireDriverAuth, async (req, res) => {
+  try {
+    const today = todayIsoDate();
+    const tasks = (await loadWingmanTasks())
+      .filter(t => t.date === today && t.status !== 'cancelled' && nameDedupKey(t.captainName) === nameDedupKey(req.driverName));
+    res.json({ tasks, taskTypes: WINGMAN_TASK_TYPES });
+  } catch (err) {
+    console.error('Captain wingman-task list failed:', err.message);
+    res.status(500).json({ error: 'Could not load tasks.' });
+  }
+});
+
+app.post('/api/driver/wingman-tasks', requireDriverAuth, async (req, res) => {
+  const { type, wingmanName } = req.body || {};
+  if (!WINGMAN_TASK_TYPES[type]) return res.status(400).json({ error: 'Unknown task.' });
+  if (typeof wingmanName !== 'string' || !wingmanName.trim()) return res.status(400).json({ error: 'Pick a wingman.' });
+  try {
+    // Same eligible list as the Wingman Review dropdown: the payroll roster
+    // minus every active driver.
+    const [weeksRaw, manualRaw, activeDriverKeys] = await Promise.all([
+      redis.get('labor-weeks'),
+      redis.get('roster-manual-additions'),
+      fetchActiveDriverKeys()
+    ]);
+    const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
+    const manualAdditions = manualRaw ? JSON.parse(manualRaw) : [];
+    const eligible = computeRosterNames(weeks, manualAdditions).filter(n => !activeDriverKeys.has(nameDedupKey(n)));
+    const match = eligible.find(n => nameDedupKey(n) === nameDedupKey(wingmanName));
+    if (!match) return res.status(400).json({ error: 'That person isn\u2019t on the wingman roster.' });
+
+    const today = todayIsoDate();
+    const tasks = await loadWingmanTasks();
+    const existing = tasks.find(t => t.date === today && t.type === type && t.status !== 'cancelled' && nameDedupKey(t.captainName) === nameDedupKey(req.driverName));
+    if (existing) {
+      return res.status(409).json({ error: existing.status === 'open'
+        ? `Already assigned to ${existing.wingmanName} \u2014 unassign it first to hand it to someone else.`
+        : 'That task is already done for today.' });
+    }
+    const task = {
+      id: 'wtask_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      type,
+      captainName: req.driverName,
+      wingmanName: match,
+      date: today,
+      status: 'open',
+      createdAt: new Date().toISOString()
+    };
+    // Keep the list from growing forever: drop anything older than 60 days.
+    const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const kept = tasks.filter(t => (t.date || '') >= cutoff);
+    kept.push(task);
+    await redis.set(WINGMAN_TASKS_KEY, JSON.stringify(kept));
+    res.json({ ok: true, task });
+  } catch (err) {
+    console.error('Wingman task assignment failed:', err.message);
+    res.status(500).json({ error: 'Could not assign that task.' });
+  }
+});
+
+app.delete('/api/driver/wingman-tasks/:id', requireDriverAuth, async (req, res) => {
+  try {
+    const tasks = await loadWingmanTasks();
+    const task = tasks.find(t => t.id === req.params.id);
+    if (!task || nameDedupKey(task.captainName) !== nameDedupKey(req.driverName)) return res.status(404).json({ error: 'Task not found.' });
+    if (task.status !== 'open') return res.status(409).json({ error: 'That task is already done.' });
+    task.status = 'cancelled';
+    task.cancelledAt = new Date().toISOString();
+    await redis.set(WINGMAN_TASKS_KEY, JSON.stringify(tasks));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Wingman task cancel failed:', err.message);
+    res.status(500).json({ error: 'Could not unassign that task.' });
+  }
+});
+
+// ============ Wingman Portal endpoints ============
+app.get('/api/wingman/motive-locations', requireWingmanAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const result = await fetchMotiveTruckLocations();
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json({ trucks: result.trucks });
+});
+
+// Same current-month scoring the admin Wingman Metrics tile uses, shaped
+// exactly like the Captain Leaderboard's response so the portal renders
+// it with the same component.
+app.get('/api/wingman/leaderboard', requireWingmanAuth, async (req, res) => {
+  try {
+    const { activeMonth } = await getActiveWingmanMetricsMonth();
+    const [ratingsRaw, activeDriverKeys] = await Promise.all([
+      redis.get('wingman-ratings'),
+      fetchActiveDriverKeys()
+    ]);
+    const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+    const scores = computeWingmanScoresForMonth(activeMonth, ratings, activeDriverKeys);
+    const entries = Object.keys(scores)
+      .filter(name => scores[name].overall !== null)
+      .map(name => ({
+        name,
+        value: scores[name].overall,
+        detail: `${scores[name].ratingCount} Captain review${scores[name].ratingCount === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value);
+    const categories = entries.length > 0 ? [{ key: 'overall', title: 'Overall Wingman Score', entries }] : [];
+    res.json({ categories });
+  } catch (err) {
+    console.error('Wingman leaderboard fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load leaderboard.' });
+  }
+});
+
+// Active Captains to choose from for a Captain Review, plus which ones
+// this wingman has already reviewed today.
+app.get('/api/wingman/captains', requireWingmanAuth, async (req, res) => {
+  try {
+    const [driversRaw, ratingsRaw] = await Promise.all([
+      redis.get('compliance-drivers'),
+      redis.get('captain-ratings')
+    ]);
+    const drivers = driversRaw ? JSON.parse(driversRaw) : [];
+    const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+    const names = [...new Set(drivers.filter(d => d && d.active && d.employeeName).map(d => d.employeeName))].sort((a, b) => a.localeCompare(b));
+    const today = todayIsoDate();
+    const reviewedToday = ratings
+      .filter(r => r.date === today && nameDedupKey(r.wingmanName || '') === nameDedupKey(req.wingmanName))
+      .map(r => r.captainName);
+    res.json({ names, reviewedToday });
+  } catch (err) {
+    console.error('Wingman captain list failed:', err.message);
+    res.status(500).json({ error: 'Could not load Captains.' });
+  }
+});
+
+app.get('/api/wingman/captain-questions', requireWingmanAuth, async (req, res) => {
+  try {
+    const raw = await redis.get('captain-questions');
+    res.json({ questions: raw ? JSON.parse(raw) : [] });
+  } catch (err) {
+    console.error('Captain questions fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load questions.' });
+  }
+});
+
+// One set of yes/no answers from one wingman about one Captain. The
+// wingman's name comes from the session, never the request body. One
+// review per Captain per wingman per day.
+app.post('/api/wingman/captain-rating', requireWingmanAuth, async (req, res) => {
+  const { captainName, answers } = req.body || {};
+  if (typeof captainName !== 'string' || !captainName.trim()) return res.status(400).json({ error: 'captainName is required.' });
+  if (!Array.isArray(answers) || answers.length === 0 || answers.some(a => !a || typeof a.question !== 'string' || typeof a.answer !== 'boolean')) {
+    return res.status(400).json({ error: 'answers must be a non-empty array of { question, answer }.' });
+  }
+  try {
+    const [driversRaw, ratingsRaw] = await Promise.all([
+      redis.get('compliance-drivers'),
+      redis.get('captain-ratings')
+    ]);
+    const drivers = driversRaw ? JSON.parse(driversRaw) : [];
+    const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
+    const captain = drivers.find(d => d && d.active && nameDedupKey(d.employeeName || '') === nameDedupKey(captainName));
+    if (!captain) return res.status(400).json({ error: 'That Captain isn\u2019t on the active driver list.' });
+    const today = todayIsoDate();
+    const dup = ratings.some(r => r.date === today && nameDedupKey(r.captainName || '') === nameDedupKey(captain.employeeName) && nameDedupKey(r.wingmanName || '') === nameDedupKey(req.wingmanName));
+    if (dup) return res.status(409).json({ error: 'You already reviewed this Captain today.' });
+    ratings.push({
+      id: 'cr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      wingmanName: req.wingmanName,
+      captainName: captain.employeeName,
+      date: today,
+      answers: answers.map(a => ({ question: String(a.question).slice(0, 300), answer: !!a.answer })),
+      createdAt: new Date().toISOString()
+    });
+    await redis.set('captain-ratings', JSON.stringify(ratings));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Captain rating submission failed:', err.message);
+    res.status(500).json({ error: 'Could not save that Captain review.' });
+  }
+});
+
+// Today's tasks assigned to this wingman. An open Pre-Trip or End of Day
+// task the Captain went ahead and did himself is closed out here, so the
+// wingman isn't sent to redo it.
+app.get('/api/wingman/tasks', requireWingmanAuth, async (req, res) => {
+  try {
+    const today = todayIsoDate();
+    const [tasks, ptiRaw, eodRaw] = await Promise.all([
+      loadWingmanTasks(),
+      redis.get('compliance-pretrip-inspections'),
+      redis.get('compliance-eod-inspections')
+    ]);
+    const ptis = ptiRaw ? JSON.parse(ptiRaw) : [];
+    const eods = eodRaw ? JSON.parse(eodRaw) : [];
+    let changed = false;
+    const mine = tasks.filter(t => t.date === today && t.status !== 'cancelled' && nameDedupKey(t.wingmanName) === nameDedupKey(req.wingmanName));
+    mine.forEach(t => {
+      if (t.status !== 'open') return;
+      const records = t.type === 'pretrip' ? ptis : (t.type === 'eod' ? eods : null);
+      if (records && records.some(r => r.date === today && r.driverName === t.captainName)) {
+        t.status = 'completed';
+        t.completedAt = new Date().toISOString();
+        t.completedBy = t.captainName;
+        changed = true;
+      }
+    });
+    if (changed) await redis.set(WINGMAN_TASKS_KEY, JSON.stringify(tasks));
+    res.json({ tasks: mine, taskTypes: WINGMAN_TASK_TYPES });
+  } catch (err) {
+    console.error('Wingman task list failed:', err.message);
+    res.status(500).json({ error: 'Could not load tasks.' });
+  }
+});
+
+// Material Checkout can span several job-by-job submissions, so it's
+// closed out explicitly once the wingman is done -- and only if a
+// checkout is actually on file for that Captain today.
+app.post('/api/wingman/tasks/:id/complete', requireWingmanAuth, async (req, res) => {
+  try {
+    const tasks = await loadWingmanTasks();
+    const task = tasks.find(t => t.id === req.params.id);
+    if (!task || task.status !== 'open' || nameDedupKey(task.wingmanName) !== nameDedupKey(req.wingmanName)) {
+      return res.status(404).json({ error: 'That task is no longer assigned to you.' });
+    }
+    if (task.type !== 'materials-checkout') return res.status(400).json({ error: 'That task completes when you submit it.' });
+    const raw = await redis.get('materials-checkouts');
+    const checkouts = raw ? JSON.parse(raw) : [];
+    if (!checkouts.some(c => c.driverName === task.captainName && c.date === task.date)) {
+      return res.status(400).json({ error: 'No Material Checkout is on file yet for today.' });
+    }
+    await completeWingmanTask(task.id, req.wingmanName);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Wingman task complete failed:', err.message);
+    res.status(500).json({ error: 'Could not complete that task.' });
   }
 });
 
