@@ -933,9 +933,13 @@
 
     <div id="dcu_formState" style="display:none;">
       <p id="dcu_greeting" style="margin:0 0 4px; font-weight:600;"></p>
-      <p class="form-note" style="margin-top:0;">Please upload photos of the damage below. You can select more than one at a time.</p>
-      <label>Photos <input type="file" id="dcu_fileInput" accept="image/*" multiple style="display:block; margin-top:6px;"></label>
-      <div id="dcu_thumbnails" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;"></div>
+      <p class="form-note" style="margin-top:0;">Take photos of the damage right from your phone &mdash; as many as you need. Take one, then tap again for the next. You can also add photos you&rsquo;ve already taken.</p>
+      <button type="button" id="dcu_takePhotoBtn" style="width:100%; padding:16px; font-size:16px; font-weight:700; border-radius:8px; cursor:pointer; font-family:inherit; background:var(--brand-green); border:none; color:#fff; margin-top:6px;">&#128247; Take Photo</button>
+      <button type="button" id="dcu_choosePhotosBtn" style="width:100%; padding:16px; font-size:16px; font-weight:700; border-radius:8px; cursor:pointer; font-family:inherit; background:#fff; border:1px solid var(--line); color:var(--charcoal); margin-top:10px;">&#128444; Choose from Photos</button>
+      <input type="file" id="dcu_cameraInput" accept="image/*" capture="environment" style="display:none;">
+      <input type="file" id="dcu_fileInput" accept="image/*" multiple style="display:none;">
+      <p id="dcu_countNote" class="form-note" style="margin:14px 0 0; font-weight:600; display:none;"></p>
+      <div id="dcu_thumbnails" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;"></div>
       <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:16px;">
         <button class="btn-primary" id="dcu_submitBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Submit Photos</button>
         <span class="status-msg" id="dcu_status" style="text-align:center;"></span>
@@ -25691,55 +25695,103 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         dcuStagedFiles.splice(Number(e.currentTarget.dataset.index), 1);
         renderDcuThumbnails();
       }));
+      updateDcuCount();
     }
 
-    document.getElementById('dcu_fileInput').addEventListener('change', async (e) => {
-      const files = Array.from(e.target.files || []);
+    // Photos are added one at a time from the camera (or several at once
+    // from the phone's library) and collect below until submitted. There's
+    // no limit on how many -- they upload in small batches, so a long set
+    // never runs into a size limit, and anything already sent is dropped
+    // from the list so a retry never sends it twice.
+    const DCU_BATCH_SIZE = 5;
+
+    function updateDcuCount(){
+      const n = dcuStagedFiles.length;
+      const note = document.getElementById('dcu_countNote');
+      note.style.display = n > 0 ? 'block' : 'none';
+      note.textContent = `${n} photo${n === 1 ? '' : 's'} ready to send`;
+      document.getElementById('dcu_takePhotoBtn').innerHTML = n > 0 ? '&#128247; Take Another Photo' : '&#128247; Take Photo';
+      document.getElementById('dcu_submitBtn').textContent = n > 0 ? `Submit ${n} Photo${n === 1 ? '' : 's'}` : 'Submit Photos';
+    }
+
+    async function addDcuFiles(files){
       const statusEl = document.getElementById('dcu_status');
-      if(files.length > 0){
-        statusEl.textContent = 'Processing photos...';
-        statusEl.className = 'status-msg';
-      }
+      if(files.length === 0) return;
+      statusEl.textContent = files.length > 1 ? `Processing ${files.length} photos...` : 'Processing photo...';
+      statusEl.className = 'status-msg';
+      let failed = 0;
       for(const file of files){
         try{
           const dataUri = await compressImageForUpload(file, 1280, 0.72);
-          dcuStagedFiles.push({ filename: file.name, dataUri });
-        }catch(err){ console.error('Photo processing failed:', err); }
+          dcuStagedFiles.push({ filename: file.name || 'photo.jpg', dataUri });
+        }catch(err){
+          console.error('Photo processing failed:', err);
+          failed++;
+        }
       }
-      statusEl.textContent = '';
+      statusEl.textContent = failed ? `${failed} photo${failed === 1 ? '' : 's'} couldn\u2019t be read \u2014 try that one again.` : '';
+      statusEl.className = failed ? 'status-msg err' : 'status-msg';
       renderDcuThumbnails();
-      e.target.value = '';
-    });
+    }
+
+    // A fresh <input> each time, so taking another photo always fires,
+    // even on phones that otherwise ignore picking "the same" file twice.
+    function openDcuPicker(inputId){
+      const old = document.getElementById(inputId);
+      const fresh = old.cloneNode(true);
+      old.replaceWith(fresh);
+      fresh.addEventListener('change', async (e) => {
+        await addDcuFiles(Array.from(e.target.files || []));
+        e.target.value = '';
+      });
+      fresh.click();
+    }
+    document.getElementById('dcu_takePhotoBtn').addEventListener('click', () => openDcuPicker('dcu_cameraInput'));
+    document.getElementById('dcu_choosePhotosBtn').addEventListener('click', () => openDcuPicker('dcu_fileInput'));
 
     document.getElementById('dcu_submitBtn').addEventListener('click', async () => {
       const statusEl = document.getElementById('dcu_status');
+      const submitBtn = document.getElementById('dcu_submitBtn');
       if(dcuStagedFiles.length === 0){
-        statusEl.textContent = 'Choose at least one photo first.';
+        statusEl.textContent = 'Take or choose at least one photo first.';
         statusEl.className = 'status-msg err';
         return;
       }
-      statusEl.textContent = 'Uploading...';
+      const total = dcuStagedFiles.length;
+      let sent = 0;
+      submitBtn.disabled = true;
       statusEl.className = 'status-msg';
       try{
-        const res = await fetch(`${API_BASE_AUTH}/api/claim/${encodeURIComponent(window.__damageClaimToken)}/photos`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ photos: dcuStagedFiles.map(f => ({filename: f.filename, dataUri: f.dataUri})) })
-        });
-        const data = await res.json();
-        if(!res.ok){
-          statusEl.textContent = data.error || 'Could not upload those photos.';
-          statusEl.className = 'status-msg err';
-          return;
+        while(dcuStagedFiles.length > 0){
+          const batch = dcuStagedFiles.slice(0, DCU_BATCH_SIZE);
+          statusEl.textContent = `Uploading ${Math.min(sent + batch.length, total)} of ${total}...`;
+          const res = await fetch(`${API_BASE_AUTH}/api/claim/${encodeURIComponent(window.__damageClaimToken)}/photos`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ photos: batch.map(f => ({filename: f.filename, dataUri: f.dataUri})) })
+          });
+          const data = await res.json();
+          if(!res.ok){
+            statusEl.textContent = (data.error || 'Could not upload those photos.') + (sent > 0 ? ` (${sent} of ${total} were sent \u2014 tap Submit to send the rest.)` : '');
+            statusEl.className = 'status-msg err';
+            renderDcuThumbnails();
+            submitBtn.disabled = false;
+            return;
+          }
+          dcuStagedFiles.splice(0, batch.length);
+          sent += batch.length;
         }
-        dcuStagedFiles = [];
+        renderDcuThumbnails();
+        statusEl.textContent = '';
         document.getElementById('dcu_formState').style.display = 'none';
         document.getElementById('dcu_successState').style.display = 'block';
       }catch(err){
         console.error('Photo upload failed:', err);
-        statusEl.textContent = 'Could not reach the server \u2014 check your connection and try again.';
+        statusEl.textContent = 'Could not reach the server \u2014 check your connection and tap Submit again.' + (sent > 0 ? ` (${sent} of ${total} were already sent.)` : '');
         statusEl.className = 'status-msg err';
+        renderDcuThumbnails();
       }
+      submitBtn.disabled = false;
     });
 
     document.getElementById('dcu_addMoreBtn').addEventListener('click', () => {
