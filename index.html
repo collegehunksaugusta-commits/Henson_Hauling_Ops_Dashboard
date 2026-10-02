@@ -558,6 +558,10 @@
         </button>
         <div style="border-top:1px solid var(--line); padding:2px 20px 10px;">
           <div class="driver-task-assign-rows" data-types="eod,materials-checkin"></div>
+          <div style="padding:10px 0 2px; border-top:1px dashed var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div style="font-weight:600; font-size:13px; color:var(--charcoal);">Wingman Review</div>
+            <button type="button" id="driverReviewWingmenBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-family:inherit; flex-shrink:0;">Review Wingmen</button>
+          </div>
           <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
         </div>
       </div>
@@ -839,11 +843,18 @@
       <button type="button" id="driverWingmanLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
 
+    <div id="wingman_loadErrorSection" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; text-align:center;">
+      <p class="status-msg err" style="margin-top:0;">Couldn&rsquo;t load Wingman Review &mdash; check your connection.</p>
+      <button class="btn-primary" id="wingman_retryBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Try Again</button>
+    </div>
+
     <div id="wingman_selectSection" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <h3 style="margin-top:0;">Who worked with you today?</h3>
-      <p class="form-note">Optional &mdash; rate anyone who helped you on a job today. You can review as many wingmen as worked with you.</p>
-      <label>Wingman <select id="wingman_select"></select></label>
-      <p class="form-note" id="wingman_noOptionsNote" style="display:none;">No one else is available to review right now.</p>
+      <p class="form-note" id="wingman_selectNote">Rate everyone who helped you on a job today.</p>
+      <label id="wingman_selectWrap">Wingman <select id="wingman_select"></select></label>
+      <p class="form-note" id="wingman_noOptionsNote" style="display:none;">No one&rsquo;s on the roster yet &mdash; type their name below.</p>
+      <label>Not on the list? Type their full name <input type="text" id="wingman_otherName" placeholder="Last, First" autocomplete="off"></label>
+      <p class="status-msg" id="wingman_selectStatus"></p>
       <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:14px;">
         <button class="btn-primary" id="wingman_startReviewBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Review This Wingman</button>
         <button type="button" id="wingman_allFinishedBtn" style="width:100%; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:14px; border-radius:6px; cursor:pointer; font-size:14px;">Finished &mdash; No One Else to Review</button>
@@ -1240,6 +1251,7 @@
     document.getElementById('driverMovingView').style.display = 'none';
     loadDriverLeaderboard();
     loadCaptainTaskAssignments();
+    checkWingmanReviewGate();
     updateDriverTileVisibility();
     driverLoadTruckMap();
   }
@@ -1947,38 +1959,97 @@
     }
   }
 
-  // Called right after a successful EOD submission -- skips straight past
-  // the review flow entirely (no admin questions configured yet, or no one
-  // else on the roster to review) rather than showing an empty screen.
-  async function startWingmanReviewFlow(){
-    const ok = await loadWingmanQuestionsAndRoster();
-    if(!ok || wingmanQuestions.length === 0 || wingmanRoster.length === 0) return;
+  // ---- Required daily Wingman Review ----
+  // After a Captain's End of Day, the server reports Wingman Review as
+  // required until he reviews at least one wingman or confirms he worked
+  // alone. Every time Driver Tools opens, that's checked -- so closing the
+  // app, a reload, or a dropped connection right after End of Day just
+  // brings him back here next time instead of skipping it.
+  let wingmanReviewRequired = false;
 
-    wingmanReviewedThisSession = new Set();
-    document.getElementById('driverEodView').style.display = 'none';
-    document.getElementById('driverWingmanView').style.display = 'block';
-    document.getElementById('wingman_selectSection').style.display = 'block';
+  async function fetchWingmanReviewStatus(){
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/wingman-review-status', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return null; }
+      if(!res.ok) return null;
+      return await res.json();
+    }catch(err){
+      console.error('Wingman review status check failed:', err);
+      return null;
+    }
+  }
+
+  async function checkWingmanReviewGate(){
+    if(driverRole === 'wingman') return;
+    const status = await fetchWingmanReviewStatus();
+    if(status && status.required && document.getElementById('driverMenuView').style.display !== 'none'){
+      startWingmanReviewFlow({ status });
+    }
+  }
+
+  // opts.status: an already-fetched review status. opts.manual: opened
+  // from the End of Day tile rather than automatically.
+  async function startWingmanReviewFlow(opts){
+    opts = opts || {};
+    const status = opts.status || await fetchWingmanReviewStatus();
+    wingmanReviewRequired = !!(status && status.required);
+    wingmanReviewedThisSession = new Set((status && status.reviewedNames) || []);
+    const ok = await loadWingmanQuestionsAndRoster();
+    if(ok && wingmanQuestions.length === 0){
+      // Nothing configured to ask -- can't require it. Only say so if the
+      // Captain went looking for it on purpose.
+      if(opts.manual){
+        const statusEl = document.querySelector('#driverReviewWingmenBtn').closest('div').parentElement.querySelector('.driver-task-assign-status');
+        if(statusEl){ statusEl.textContent = 'Wingman Review questions haven\u2019t been set up yet.'; statusEl.className = 'driver-task-assign-status status-msg err'; }
+      }
+      return;
+    }
+    showOnlyDriverGateView('driverWingmanView');
     document.getElementById('wingman_questionsSection').style.display = 'none';
     document.getElementById('wingman_nextStepSection').style.display = 'none';
+    if(!ok){
+      document.getElementById('wingman_loadErrorSection').style.display = 'block';
+      document.getElementById('wingman_selectSection').style.display = 'none';
+      document.getElementById('driverWingmanBackBtn').style.display = wingmanReviewRequired ? 'none' : '';
+      return;
+    }
+    document.getElementById('wingman_loadErrorSection').style.display = 'none';
+    document.getElementById('wingman_selectSection').style.display = 'block';
+    document.getElementById('wingman_otherName').value = '';
+    document.getElementById('wingman_selectStatus').textContent = '';
     renderWingmanSelectOptions();
+  }
+
+  function updateWingmanFinishControls(){
+    const done = wingmanReviewedThisSession.size;
+    const blocked = wingmanReviewRequired && done === 0;
+    document.getElementById('wingman_allFinishedBtn').textContent = done > 0
+      ? 'Finished \u2014 No One Else to Review'
+      : (wingmanReviewRequired ? 'I Worked Alone Today' : 'Back to Driver Tools');
+    document.getElementById('wingman_selectNote').textContent = done > 0
+      ? `You\u2019ve reviewed ${done}. Review anyone else who worked with you today, then tap Finished.`
+      : (wingmanReviewRequired
+          ? 'Required \u2014 rate everyone who helped you on a job today before going back to Driver Tools.'
+          : 'Rate anyone who helped you on a job today.');
+    document.getElementById('driverWingmanBackBtn').style.display = blocked ? 'none' : '';
   }
 
   function renderWingmanSelectOptions(){
     const select = document.getElementById('wingman_select');
+    const selectWrap = document.getElementById('wingman_selectWrap');
     const noOptionsNote = document.getElementById('wingman_noOptionsNote');
-    const startBtn = document.getElementById('wingman_startReviewBtn');
+    document.getElementById('wingman_startReviewBtn').disabled = false;
     if(wingmanRoster.length === 0){
-      select.style.display = 'none';
+      selectWrap.style.display = 'none';
       noOptionsNote.style.display = 'block';
-      startBtn.disabled = true;
-      return;
+    } else {
+      selectWrap.style.display = '';
+      noOptionsNote.style.display = 'none';
+      select.innerHTML = '<option value="">Select a wingman\u2026</option>' + wingmanRoster.map(name =>
+        `<option value="${driverLbEsc(name)}">${driverLbEsc(name)}${wingmanReviewedThisSession.has(name) ? ' (already reviewed)' : ''}</option>`
+      ).join('');
     }
-    select.style.display = '';
-    noOptionsNote.style.display = 'none';
-    startBtn.disabled = false;
-    select.innerHTML = wingmanRoster.map(name =>
-      `<option value="${driverLbEsc(name)}">${driverLbEsc(name)}${wingmanReviewedThisSession.has(name) ? ' (already reviewed)' : ''}</option>`
-    ).join('');
+    updateWingmanFinishControls();
   }
 
   function renderWingmanQuestionRows(){
@@ -2007,8 +2078,28 @@
 
   document.getElementById('wingman_startReviewBtn').addEventListener('click', ()=>{
     const select = document.getElementById('wingman_select');
-    if(!select.value) return;
-    wingmanCurrentName = select.value;
+    const typed = document.getElementById('wingman_otherName').value.trim().replace(/\s+/g, ' ');
+    const selectStatus = document.getElementById('wingman_selectStatus');
+    const name = typed || select.value;
+    if(!name){
+      selectStatus.textContent = 'Pick a wingman from the list, or type their name.';
+      selectStatus.className = 'status-msg err';
+      return;
+    }
+    const nameKey = n => n.replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+    if(currentDriverName && nameKey(name) === nameKey(currentDriverName)){
+      selectStatus.textContent = 'That\u2019s you \u2014 pick the wingman who worked with you.';
+      selectStatus.className = 'status-msg err';
+      return;
+    }
+    if(typed && !/\S+\s+\S+/.test(typed)){
+      selectStatus.textContent = 'Type their first and last name.';
+      selectStatus.className = 'status-msg err';
+      return;
+    }
+    selectStatus.textContent = '';
+    document.getElementById('wingman_otherName').value = '';
+    wingmanCurrentName = name;
     document.getElementById('wingman_currentName').textContent = wingmanCurrentName;
     document.getElementById('wingman_answerStatus').textContent = '';
     renderWingmanQuestionRows();
@@ -2058,9 +2149,38 @@
     document.getElementById('wingman_selectSection').style.display = 'block';
   });
 
-  document.getElementById('wingman_allFinishedBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('wingman_allFinishedBtn').addEventListener('click', async ()=>{
+    if(wingmanReviewedThisSession.size > 0 || !wingmanReviewRequired){ showDriverMenu(); return; }
+    const confirmed = confirm('Confirm you had no wingman on any job today. This is recorded and visible to the office.');
+    if(!confirmed) return;
+    const statusEl = document.getElementById('wingman_selectStatus');
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/wingman-review-solo', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.textContent = data.error || 'Could not save that.';
+        statusEl.className = 'status-msg err';
+        return;
+      }
+      wingmanReviewRequired = false;
+      statusEl.textContent = '';
+      showDriverMenu();
+    }catch(err){
+      console.error('Worked-alone declaration failed:', err);
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
+      statusEl.className = 'status-msg err';
+    }
+  });
   document.getElementById('wingman_finishedBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverWingmanBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('wingman_retryBtn').addEventListener('click', ()=> startWingmanReviewFlow());
+  document.getElementById('driverReviewWingmenBtn').addEventListener('click', ()=> startWingmanReviewFlow({ manual: true }));
   document.getElementById('driverWingmanLogoutBtn').addEventListener('click', driverLogout);
 
   // ---------- Wingman Portal ----------
