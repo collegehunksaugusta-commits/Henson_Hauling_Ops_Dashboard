@@ -2938,31 +2938,223 @@ async function fetchGoogleReviewsFromApi(apiKey, placeId) {
   };
 }
 
+// ---- Google Business Profile (complete review history) ----
+// The Places API above only ever returns 5 reviews. Once the listing's
+// owner/manager connects their Google account here (one-time OAuth
+// consent), the Business Profile API returns every review the listing has
+// ever had, and becomes the source for the hourly check. Needs
+// GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in Render, and
+// Google's approval of the project for Business Profile API access.
+// GBP_LOCATION_NAME (e.g. "locations/123...") is optional -- by default it
+// picks the listing whose name includes "Augusta".
+const GBP_TOKEN_KEY = 'google-business-oauth';
+const GBP_OAUTH_STATE_PREFIX = 'auth:gbp-oauth-state:';
+const GBP_SCOPE = 'https://www.googleapis.com/auth/business.manage';
+const GBP_STAR_RATINGS = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
+
+function gbpRedirectUri(req) {
+  return `https://${req.get('host')}/api/google-business/oauth-callback`;
+}
+function gbpConfigured() {
+  return !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET);
+}
+
+async function gbpAccessToken() {
+  const raw = await redis.get(GBP_TOKEN_KEY);
+  const stored = raw ? JSON.parse(raw) : null;
+  if (!stored || !stored.refreshToken) return null;
+  if (stored.accessToken && stored.expiresAt && Date.now() < stored.expiresAt - 60 * 1000) return stored.accessToken;
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_OAUTH_CLIENT_ID, client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+      refresh_token: stored.refreshToken, grant_type: 'refresh_token'
+    })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(`Google sign-in expired or was revoked (${d.error_description || d.error || r.status}) \u2014 reconnect Google Business Profile.`);
+  stored.accessToken = d.access_token;
+  stored.expiresAt = Date.now() + (Number(d.expires_in) || 3600) * 1000;
+  await redis.set(GBP_TOKEN_KEY, JSON.stringify(stored));
+  return stored.accessToken;
+}
+
+async function gbpGet(url, token) {
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = (d.error && d.error.message) || `HTTP ${r.status}`;
+    throw new Error(r.status === 429 || /quota/i.test(msg)
+      ? `Google hasn\u2019t approved Business Profile API access for this project yet (${msg}).`
+      : msg);
+  }
+  return d;
+}
+
+// Finds the account + listing to read reviews from, remembering it after
+// the first lookup.
+async function gbpResolveLocation(token, meta) {
+  if (meta.gbpAccount && meta.gbpLocation) return { account: meta.gbpAccount, location: meta.gbpLocation };
+  const accounts = (await gbpGet('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', token)).accounts || [];
+  const wanted = process.env.GBP_LOCATION_NAME || '';
+  let fallback = null;
+  for (const acct of accounts) {
+    let pageToken = '';
+    do {
+      const d = await gbpGet(`https://mybusinessbusinessinformation.googleapis.com/v1/${acct.name}/locations?readMask=name,title,storefrontAddress&pageSize=100${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}`, token);
+      for (const loc of (d.locations || [])) {
+        const hit = wanted ? loc.name === wanted : /augusta/i.test(loc.title || '');
+        if (hit) {
+          Object.assign(meta, { gbpAccount: acct.name, gbpLocation: loc.name, gbpLocationTitle: loc.title || '' });
+          return { account: acct.name, location: loc.name };
+        }
+        if (!fallback) fallback = { account: acct.name, location: loc.name, title: loc.title || '' };
+      }
+      pageToken = d.nextPageToken || '';
+    } while (pageToken);
+  }
+  if (!fallback) throw new Error('The connected Google account doesn\u2019t manage any Business Profile listings.');
+  Object.assign(meta, { gbpAccount: fallback.account, gbpLocation: fallback.location, gbpLocationTitle: fallback.title });
+  return fallback;
+}
+
+// The full history on the first run, then just the newest page each hour.
+async function gbpFetchReviews(token, meta) {
+  const { account, location } = await gbpResolveLocation(token, meta);
+  const locationId = location.split('/').pop();
+  const out = [];
+  let pageToken = '';
+  let total = null, rating = null;
+  do {
+    const d = await gbpGet(`https://mybusiness.googleapis.com/v4/${account}/locations/${locationId}/reviews?pageSize=50&orderBy=updateTime%20desc${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}`, token);
+    if (total === null) { total = d.totalReviewCount ?? null; rating = d.averageRating ?? null; }
+    (d.reviews || []).forEach(v => out.push({
+      gbpReviewId: v.reviewId,
+      authorName: (v.reviewer && v.reviewer.displayName) || 'Google user',
+      authorUrl: '', photoUrl: (v.reviewer && v.reviewer.profilePhotoUrl) || '',
+      rating: GBP_STAR_RATINGS[v.starRating] || null,
+      text: v.comment || '',
+      unix: v.createTime ? Math.floor(Date.parse(v.createTime) / 1000) : 0
+    }));
+    pageToken = d.nextPageToken || '';
+  } while (pageToken && !meta.gbpBackfilledAt);
+  meta.gbpBackfilledAt = meta.gbpBackfilledAt || new Date().toISOString();
+  return { source: 'business-profile', rating, total, reviews: out };
+}
+
+app.get('/api/admin/google-business/auth-url', requireAuth, requireAdmin, async (req, res) => {
+  if (!gbpConfigured()) {
+    return res.status(400).json({ error: 'GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET need to be added in Render first.' });
+  }
+  const state = crypto.randomBytes(24).toString('hex');
+  await redis.set(GBP_OAUTH_STATE_PREFIX + state, '1', 'EX', 15 * 60);
+  const url = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+    client_id: process.env.GOOGLE_OAUTH_CLIENT_ID, redirect_uri: gbpRedirectUri(req), response_type: 'code',
+    scope: GBP_SCOPE, access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state
+  });
+  res.json({ url });
+});
+
+app.get('/api/google-business/oauth-callback', async (req, res) => {
+  const page = (title, msg) => res.send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui,sans-serif;max-width:520px;margin:60px auto;padding:0 20px;line-height:1.5"><h2>${title}</h2><p>${msg}</p><p>You can close this tab and go back to the dashboard.</p></body>`);
+  const { code, state, error } = req.query;
+  if (error) return page('Not connected', `Google said: ${String(error).replace(/[<>&]/g, '')}`);
+  if (!code || !state || !(await redis.get(GBP_OAUTH_STATE_PREFIX + state))) return page('Not connected', 'This sign-in link expired or was already used \u2014 start again from the Google Reviews tab.');
+  await redis.del(GBP_OAUTH_STATE_PREFIX + state);
+  try {
+    const r = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code), client_id: process.env.GOOGLE_OAUTH_CLIENT_ID, client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        redirect_uri: gbpRedirectUri(req), grant_type: 'authorization_code'
+      })
+    });
+    const d = await r.json();
+    if (!r.ok || !d.refresh_token) throw new Error(d.error_description || d.error || 'Google didn\u2019t return a long-term sign-in.');
+    await redis.set(GBP_TOKEN_KEY, JSON.stringify({
+      refreshToken: d.refresh_token, accessToken: d.access_token,
+      expiresAt: Date.now() + (Number(d.expires_in) || 3600) * 1000, connectedAt: new Date().toISOString()
+    }));
+    // Pull the full history right away.
+    const metaRaw = await redis.get(GOOGLE_REVIEWS_META_KEY);
+    const meta = metaRaw ? JSON.parse(metaRaw) : {};
+    delete meta.gbpBackfilledAt; delete meta.gbpAccount; delete meta.gbpLocation;
+    await redis.set(GOOGLE_REVIEWS_META_KEY, JSON.stringify(meta));
+    refreshGoogleReviews().catch(() => {});
+    page('Connected \u2713', 'Google Business Profile is connected. Every review on the listing is being pulled in now \u2014 refresh the Google Reviews tab in a minute.');
+  } catch (err) {
+    console.error('[google-business] OAuth exchange failed:', err.message);
+    page('Not connected', `Google returned an error: ${String(err.message).replace(/[<>&]/g, '')}`);
+  }
+});
+
+app.post('/api/admin/google-business/disconnect', requireAuth, requireAdmin, async (req, res) => {
+  await redis.del(GBP_TOKEN_KEY);
+  res.json({ ok: true });
+});
+
 let googleReviewsRefreshInFlight = null;
 function refreshGoogleReviews() {
   if (googleReviewsRefreshInFlight) return googleReviewsRefreshInFlight;
   googleReviewsRefreshInFlight = (async () => {
+    let gbpTokenError = null;
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-    if (!apiKey) return { added: 0, configured: false };
+    const gbpToken = gbpConfigured() ? await gbpAccessToken().catch(err => { gbpTokenError = err.message; return null; }) : null;
+    if (!apiKey && !gbpToken) return { added: 0, configured: false };
     const [reviewsRaw, metaRaw] = await Promise.all([redis.get(GOOGLE_REVIEWS_KEY), redis.get(GOOGLE_REVIEWS_META_KEY)]);
     const reviews = reviewsRaw ? JSON.parse(reviewsRaw) : [];
     const meta = metaRaw ? JSON.parse(metaRaw) : {};
     try {
-      const placeId = await resolveGooglePlaceId(apiKey, meta);
-      const result = await fetchGoogleReviewsFromApi(apiKey, placeId);
+      let result = null;
+      meta.gbpError = gbpTokenError;
+      if (gbpToken) {
+        try { result = await gbpFetchReviews(gbpToken, meta); }
+        catch (err) {
+          // Keep reviews flowing from Places while Business Profile is
+          // unavailable (e.g. still waiting on Google's approval).
+          meta.gbpError = err.message;
+          console.error('[google-business] review fetch failed, using Places instead:', err.message);
+        }
+      }
+      if (!result) {
+        if (!apiKey) throw new Error(meta.gbpError || 'No Google review source is available.');
+        const placeId = await resolveGooglePlaceId(apiKey, meta);
+        result = await fetchGoogleReviewsFromApi(apiKey, placeId);
+      } else {
+        meta.gbpError = null;
+      }
       const byId = new Map(reviews.map(r => [r.id, r]));
+      // The same review reaches us from Places and from Business Profile
+      // with slightly different details, so a Business Profile review is
+      // matched to one already on file by reviewer and time -- keeping its
+      // id, and any credit already given for it.
+      const norm = n => String(n || '').trim().toLowerCase();
+      const findExisting = (v, id) => {
+        if (byId.has(id)) return byId.get(id);
+        if (v.gbpReviewId) {
+          const sameGbp = [...byId.values()].find(r => r.gbpReviewId === v.gbpReviewId);
+          if (sameGbp) return sameGbp;
+          return [...byId.values()].find(r => !r.gbpReviewId && norm(r.authorName) === norm(v.authorName) &&
+            Math.abs(Date.parse(r.publishedAt) / 1000 - v.unix) <= 36 * 60 * 60);
+        }
+        return null;
+      };
       let added = 0;
       result.reviews.forEach(v => {
         if (!v.unix) return;
         const id = googleReviewId(v.authorName, v.unix);
         const normalized = {
-          id, authorName: v.authorName, authorUrl: v.authorUrl, photoUrl: v.photoUrl,
+          authorName: v.authorName, authorUrl: v.authorUrl, photoUrl: v.photoUrl,
           rating: v.rating, text: v.text,
           publishedAt: new Date(v.unix * 1000).toISOString(),
-          date: easternDateFromMs(v.unix * 1000)
+          date: easternDateFromMs(v.unix * 1000),
+          ...(v.gbpReviewId ? { gbpReviewId: v.gbpReviewId } : {})
         };
-        if (byId.has(id)) Object.assign(byId.get(id), normalized); // a reviewer can edit their text or stars
-        else { byId.set(id, Object.assign(normalized, { firstSeenAt: new Date().toISOString() })); added++; }
+        const existing = findExisting(v, id);
+        if (existing) Object.assign(existing, normalized); // a reviewer can edit their text or stars
+        else { byId.set(id, Object.assign({ id }, normalized, { firstSeenAt: new Date().toISOString() })); added++; }
       });
       // The first check ever sets where crediting starts: reviews from the
       // previous week onward, so older reviews already on the listing
@@ -2986,8 +3178,11 @@ function refreshGoogleReviews() {
 
 async function googleReviewsPayload() {
   const [reviewsRaw, metaRaw] = await Promise.all([redis.get(GOOGLE_REVIEWS_KEY), redis.get(GOOGLE_REVIEWS_META_KEY)]);
+  const gbpRaw = await redis.get(GBP_TOKEN_KEY);
+  const gbp = gbpRaw ? JSON.parse(gbpRaw) : null;
   return {
-    configured: !!process.env.GOOGLE_PLACES_API_KEY,
+    configured: !!process.env.GOOGLE_PLACES_API_KEY || !!gbp,
+    businessProfile: { available: gbpConfigured(), connected: !!(gbp && gbp.refreshToken), connectedAt: gbp ? gbp.connectedAt : null },
     reviews: reviewsRaw ? JSON.parse(reviewsRaw) : [],
     meta: metaRaw ? JSON.parse(metaRaw) : {}
   };
@@ -3008,7 +3203,7 @@ app.get('/api/admin/google-reviews', requireAuth, async (req, res) => {
 });
 
 app.post('/api/admin/google-reviews/refresh', requireAuth, async (req, res) => {
-  if (!process.env.GOOGLE_PLACES_API_KEY) {
+  if (!process.env.GOOGLE_PLACES_API_KEY && !(await redis.get(GBP_TOKEN_KEY))) {
     return res.status(400).json({ error: 'Google reviews aren\u2019t connected yet \u2014 GOOGLE_PLACES_API_KEY needs to be added in Render.' });
   }
   try {
