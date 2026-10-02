@@ -4996,8 +4996,9 @@
     </div>
 
     <div class="panel" id="cmWingmanReviewsPanel">
-      <h3>Wingman Reviews of Captains</h3>
-      <p class="form-note">How wingmen answered the Captain Review questions from the Wingman Portal this month &mdash; the share of all answers that were &ldquo;Yes.&rdquo; For monitoring only; it doesn&rsquo;t count toward a Captain&rsquo;s overall score. Sorted lowest first. Tap a Captain to see each review.</p>
+      <h3>Captain Reviews</h3>
+      <p class="form-note" id="cm_captainReviewsDesc"></p>
+      <p class="form-note">Sorted lowest first. Tap a Captain to see each review.</p>
       <div id="cm_wingmanReviewsList"></div>
       <p class="form-note" id="cm_wingmanReviewsEmptyNote" style="display:none;">No Captain Reviews submitted yet this month.</p>
     </div>
@@ -21588,18 +21589,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   // ---------- Captain Metrics ----------
-  // Single source of truth for the 4 scoring categories -- used to render
+  // Single source of truth for the 7 scoring categories -- used to render
   // both the Settings weight-configuration table and (identically worded)
   // the admin Captain Metrics tile's own panels, so the two can never say
   // different things about what a category means. weightKey matches the
   // field name in appSettings.captainMetrics.weights.
   const CAPTAIN_METRIC_CATEGORIES = [
-    { weightKey: 'completedPaperwork', label: 'Completed Paperwork', description: 'Overall paperwork completion rate for the month \u2014 a job counts as complete once it\u2019s been uploaded, emailed to the client, and its HunkWare invoice is reconciled (same definition as Ops Manager Metrics\u2019 Paperwork Close-Out, attributed per Captain here).' },
+    { weightKey: 'completedPaperwork', label: 'Completed Paperwork', description: 'Overall paperwork completion rate for the month \u2014 a job counts as complete once it\u2019s been uploaded, emailed to the client, and its HunkWare invoice is reconciled (same definition as Ops Manager Metrics\u2019 Paperwork Close-Out, attributed per Captain here). A job isn\u2019t counted until it\u2019s complete or its close-out window (Ops Manager Metrics Settings) has passed, so jobs still being closed out don\u2019t pull a score down.' },
     { weightKey: 'attendance', label: 'Attendance', description: 'Checked against Attendance Tracking for the month. Any unexcused tardy or absence on file for a Captain drops this category to 0% for the whole month; otherwise 100%.' },
-    { weightKey: 'ptiEod', label: 'Pre-Trip and EOD Inspection Completion', description: 'Any Captain assigned a job on a given day must have both a Pre-Trip and an End of Day Inspection on file for that day. Estimates are excluded, since they never generate a job record in the first place.' },
+    { weightKey: 'ptiEod', label: 'Pre-Trip and EOD Inspection Completion', description: 'Any Captain assigned a job on a given day must have both a Pre-Trip and an End of Day Inspection on file for that day. A day isn\u2019t counted until 6 AM the next morning unless both are already in, and an End of Day filed late in the evening counts for the day it belongs to. Estimates are excluded, since they never generate a job record in the first place.' },
     { weightKey: 'movePhoto', label: 'Move Job Photo Upload', description: 'Each Captain assigned a Move job must upload at least one photo of pre-existing damage for that job.' },
     { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs -- materials checked out, a Junk Removal job once invoiced, or a Move/Move Labor job on or after the travel line check start date once its invoice is on file -- that are NOT Manager-confirmed bad. A job the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' },
-    { weightKey: 'truckConditions', label: 'Truck Conditions', description: 'Percentage of a Captain\u2019s End of Day Inspections that are NOT Manager-confirmed bad, attributed to whichever Captain drove that truck that day. An inspection the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' }
+    { weightKey: 'truckConditions', label: 'Truck Conditions', description: 'Percentage of a Captain\u2019s End of Day Inspections that are NOT Manager-confirmed bad, attributed to whichever Captain drove that truck that day. An inspection the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' },
+    { weightKey: 'captainReviews', label: 'Captain Reviews', description: 'Share of \u201cYes\u201d answers across every Captain Review wingmen submitted about this Captain from the Wingman Portal this month. A Captain with no reviews yet isn\u2019t scored on this category.' },
   ];
   window.CAPTAIN_METRIC_CATEGORIES = CAPTAIN_METRIC_CATEGORIES; // this file has multiple separate <script> blocks, each with its own const scope -- window is the only thing shared across all of them, and renderCmWeightRows (Settings) lives in an earlier one
 
@@ -21619,7 +21621,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const monthLabel = new Date(data.month + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
       document.getElementById('cm_activeMonthNote').textContent = `Showing ${monthLabel} so far \u2014 live. Held at month-end until next month's first payroll upload.`;
 
-      const descElIdByKey = { completedPaperwork: 'paperwork', attendance: 'attendance', ptiEod: 'ptiEod', movePhoto: 'movePhoto', underbilled: 'underbilled', truckConditions: 'truckConditions' };
+      const descElIdByKey = { completedPaperwork: 'paperwork', attendance: 'attendance', ptiEod: 'ptiEod', movePhoto: 'movePhoto', underbilled: 'underbilled', truckConditions: 'truckConditions', captainReviews: 'captainReviews' };
       window.CAPTAIN_METRIC_CATEGORIES.forEach(cat => {
         const el = document.getElementById(`cm_${descElIdByKey[cat.weightKey]}Desc`);
         if(el) el.textContent = cat.description;
