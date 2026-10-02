@@ -5463,16 +5463,10 @@
       </table></div>
       <p class="form-note" id="gr_allocateEmptyNote" style="display:none;">No reviews waiting to be credited.</p>
 
-      <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">Allocated</h4>
-      <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
-        <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Credited To</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th></tr></thead>
-        <tbody id="gr_allocatedRows"></tbody>
-      </table></div>
+      <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">Allocated &mdash; By Pay Week</h4>
+      <p class="form-note" style="margin-top:0;">Monday&ndash;Sunday pay weeks by the date each review was posted, the same grouping Tips and Extra Pay use. Tap a week to see who was credited and each review.</p>
+      <div id="gr_weekGroups"></div>
       <p class="form-note" id="gr_allocatedEmptyNote" style="display:none;">Nothing allocated yet.</p>
-
-      <h4 style="margin:22px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">By Pay Week</h4>
-      <div id="gr_weekSummary"></div>
-      <p class="form-note" id="gr_weekSummaryEmptyNote" style="display:none;">No credited reviews yet.</p>
 
       <div id="gr_earlierWrap" style="display:none; margin-top:22px;">
         <button type="button" id="gr_earlierToggle" style="background:none; border:none; padding:0; cursor:pointer; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; font-weight:700; color:var(--muted);">&#9656; Earlier Reviews <span id="gr_earlierCount"></span></button>
@@ -9666,7 +9660,11 @@
       // EXTRA_PAY_MAX_WEEKS_BACK weeks, plus any older week that still has
       // saved manual data so nothing previously entered silently
       // disappears once it scrolls out of that window.
-      const weekStartsToShow = new Set([mostRecentWeekStart, ...Object.keys(extraPayManualData)]);
+      // Plus the current, still-in-progress week at the top, so tips and
+      // reviews can be checked as they come in rather than only once the
+      // week is over.
+      const currentWeekStart = extraPayGetWeekBounds(new Date().toLocaleDateString('en-CA')).weekStart;
+      const weekStartsToShow = new Set([currentWeekStart, mostRecentWeekStart, ...Object.keys(extraPayManualData)]);
       let cursor = mostRecentWeekStart;
       for(let i = 0; i < EXTRA_PAY_MAX_WEEKS_BACK; i++){
         const d = new Date(cursor + 'T00:00:00');
@@ -9705,7 +9703,8 @@
       // Skip a purely-empty older week with nothing going on at all -- no
       // point showing a blank $0 table for a week no one ever touched,
       // except the current week, which always shows regardless.
-      }).filter(w => w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews);
+      }).filter(w => w.weekStart === currentWeekStart || w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews);
+      weeksDataRaw.forEach(w => { w.inProgress = w.weekStart === currentWeekStart; });
 
       // Default expanded unless ADP's already been uploaded for that week
       // -- this is about whether the pay period itself is closed out, and
@@ -9872,7 +9871,7 @@
 
     return `<div class="panel extraPay-week-panel" data-week="${w.weekStart}" style="padding:16px 18px; margin-bottom:16px;">
       <button type="button" class="extraPay-week-toggle" data-week="${w.weekStart}" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
-        <h3 style="margin:0;">${extraPayWeekLabel(w.week)} ${w.adpUploaded ? '<span class="form-note" style="font-weight:400; display:inline;">(ADP uploaded)</span>' : ''}</h3>
+        <h3 style="margin:0;">${extraPayWeekLabel(w.week)} ${w.inProgress ? '<span class="form-note" style="font-weight:400; display:inline;">(current week \u2014 in progress)</span>' : ''}${w.adpUploaded ? '<span class="form-note" style="font-weight:400; display:inline;">(ADP uploaded)</span>' : ''}</h3>
         <span class="extraPay-week-chevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px; transform:${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">&#9656;</span>
       </button>
       <div class="extraPay-week-body" style="display:${isExpanded ? 'block' : 'none'}; margin-top:16px;">
@@ -24797,7 +24796,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     renderGrEarlier();
     renderGrAllocate();
     renderGrAllocated();
-    renderGrWeekSummary();
     const pending = grCreditableReviews().filter(r => !grAllocations[r.id]).length;
     document.getElementById('mgrreview_greviewsTabCount').textContent = pending > 0 ? `(${pending})` : '';
   }
@@ -24816,6 +24814,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(grMeta.total) parts.push(`${Number(grMeta.total).toLocaleString()} reviews on Google`);
     if(grMeta.lastCheckedAt) parts.push(`last checked ${new Date(grMeta.lastCheckedAt).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}`);
     el.innerHTML = parts.join(' &middot; ');
+    if(grMeta.source === 'places-new'){
+      parts.push(`<span style="color:#8a6d00;" title="${grEsc(grMeta.classicProblem || '')}">using Google&rsquo;s &ldquo;most relevant&rdquo; reviews, not newest${grMeta.classicProblem ? ' \u2014 Places API (Legacy) unavailable' : ''}</span>`);
+      el.innerHTML = parts.join(' &middot; ');
+    }
     if(grMeta.lastError){
       statusEl.textContent = `Last check failed: ${grMeta.lastError}`;
       statusEl.className = 'status-msg err';
@@ -24857,26 +24859,65 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     tbody.querySelectorAll('.gr-more').forEach(b => b.addEventListener('click', grToggleMore));
   }
 
+  let grExpandedWeeks = null; // null until first render, then the weeks the user has open
   function renderGrAllocated(){
-    const tbody = document.getElementById('gr_allocatedRows');
+    const wrap = document.getElementById('gr_weekGroups');
     const emptyNote = document.getElementById('gr_allocatedEmptyNote');
-    const cutoff = grWeekBounds(new Date(Date.now() - 56*24*60*60*1000).toISOString().slice(0,10)).weekStart; // last ~8 weeks
-    const rows = grCreditableReviews().filter(r => grAllocations[r.id] && r.date >= cutoff);
-    emptyNote.style.display = rows.length === 0 ? 'block' : 'none';
     const rate = grRate();
-    tbody.innerHTML = rows.map(r => {
-      const a = grAllocations[r.id];
-      const credited = a.employees.length === 0
-        ? '<span class="form-note" style="font-style:italic;">No One</span>'
-        : `${a.employees.map(grEsc).join(', ')}${rate > 0 ? ` <span class="form-note">(${grMoney(rate)} each)</span>` : ''}`;
-      return `<tr data-id="${grEsc(r.id)}" style="vertical-align:top;">
-        <td style="padding:8px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${window.fmtDate(r.date)}</td>
-        <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${grReviewCellHtml(r)}</td>
-        <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${credited}</td>
-        <td style="padding:8px 4px; border-bottom:1px solid var(--line);"><button type="button" class="gr-edit-alloc" data-id="${grEsc(r.id)}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
-      </tr>`;
+    const cutoff = grWeekBounds(new Date(Date.now() - 84*24*60*60*1000).toISOString().slice(0,10)).weekStart; // ~12 weeks
+    const byWeek = {};
+    grCreditableReviews().forEach(r => {
+      if(!grAllocations[r.id] || r.date < cutoff) return;
+      const ws = grWeekBounds(r.date).weekStart;
+      (byWeek[ws] = byWeek[ws] || []).push(r);
+    });
+    const weekStarts = Object.keys(byWeek).sort((x, y) => y.localeCompare(x));
+    emptyNote.style.display = weekStarts.length === 0 ? 'block' : 'none';
+    if(grExpandedWeeks === null) grExpandedWeeks = new Set(weekStarts.slice(0, 1)); // newest week open to start
+    wrap.innerHTML = weekStarts.map(ws => {
+      const we = grWeekBounds(ws).weekEnd;
+      const reviews = byWeek[ws].sort((x, y) => (y.date || '').localeCompare(x.date || ''));
+      const counts = {};
+      reviews.forEach(r => grAllocations[r.id].employees.forEach(n => { counts[n] = (counts[n] || 0) + 1; }));
+      const credits = Object.values(counts).reduce((t, c) => t + c, 0);
+      const open = grExpandedWeeks.has(ws);
+      const today = new Date().toLocaleDateString('en-CA');
+      const inProgress = today >= ws && today <= we;
+      const totalsRows = Object.entries(counts).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([n, c]) =>
+        `<tr><td style="padding:3px 0;">${grEsc(n)}</td><td style="text-align:right; padding:3px 0;">${c} review${c === 1 ? '' : 's'}</td><td style="text-align:right; padding:3px 0; width:100px; font-weight:600;">${grMoney(c * rate)}</td></tr>`).join('');
+      const reviewRows = reviews.map(r => {
+        const al = grAllocations[r.id];
+        const credited = al.employees.length === 0 ? '<span class="form-note" style="font-style:italic;">No One</span>' : al.employees.map(grEsc).join(', ');
+        return `<tr data-id="${grEsc(r.id)}" style="vertical-align:top;">
+          <td style="padding:8px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${window.fmtDate(r.date)}</td>
+          <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${grReviewCellHtml(r)}</td>
+          <td style="padding:8px 4px; border-bottom:1px solid var(--line);">${credited}</td>
+          <td style="padding:8px 4px; border-bottom:1px solid var(--line);"><button type="button" class="gr-edit-alloc" data-id="${grEsc(r.id)}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
+        </tr>`;
+      }).join('');
+      return `<div class="gr-week" style="border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px;">
+        <button type="button" class="gr-week-toggle" data-week="${ws}" style="width:100%; text-align:left; background:none; border:none; padding:0; cursor:pointer; display:flex; justify-content:space-between; align-items:center; font-family:inherit; font-size:14px;">
+          <span><strong>${window.fmtDate(ws)} \u2013 ${window.fmtDate(we)}</strong>${inProgress ? ' <span class="form-note">(in progress)</span>' : ''} <span class="form-note">&middot; ${reviews.length} review${reviews.length === 1 ? '' : 's'}</span></span>
+          <span style="font-weight:600;">${grMoney(credits * rate)} ${open ? '\u25B2' : '\u25BC'}</span>
+        </button>
+        ${open ? `<div style="margin-top:10px;">
+          ${totalsRows ? `<table style="width:100%; border-collapse:collapse; font-size:13px;">${totalsRows}
+            <tr><td style="padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">Total</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line);">${credits} credit${credits === 1 ? '' : 's'}</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">${grMoney(credits * rate)}</td></tr>
+          </table>` : '<p class="form-note" style="margin:0;">No employees credited this week.</p>'}
+          ${rate === 0 && credits > 0 ? '<p class="form-note" style="color:#8a6d00;">The review bonus is $0 \u2014 set the amount per review in Configuration \u2192 Pay.</p>' : ''}
+          <div style="overflow-x:auto; margin-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Credited To</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th></tr></thead>
+            <tbody>${reviewRows}</tbody>
+          </table></div>
+        </div>` : ''}
+      </div>`;
     }).join('');
-    tbody.querySelectorAll('.gr-edit-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
+    wrap.querySelectorAll('.gr-week-toggle').forEach(btn => btn.addEventListener('click', (e)=>{
+      const ws = e.currentTarget.dataset.week;
+      if(grExpandedWeeks.has(ws)) grExpandedWeeks.delete(ws); else grExpandedWeeks.add(ws);
+      renderGrAllocated();
+    }));
+    wrap.querySelectorAll('.gr-edit-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.dataset.id;
       const previous = grAllocations[id];
       delete grAllocations[id];
@@ -24888,10 +24929,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(row && previous){
         if(previous.employees.length === 0) row.querySelector('.gr-emp-none').checked = true;
         row.querySelectorAll('.gr-emp-check').forEach(cb => { cb.checked = previous.employees.includes(cb.value); });
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if(row.scrollIntoView) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }));
-    tbody.querySelectorAll('.gr-more').forEach(b => b.addEventListener('click', grToggleMore));
+    wrap.querySelectorAll('.gr-more').forEach(b => b.addEventListener('click', grToggleMore));
   }
 
   function grToggleMore(e){
@@ -24955,34 +24996,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
     }
   });
-
-  function renderGrWeekSummary(){
-    const wrap = document.getElementById('gr_weekSummary');
-    const emptyNote = document.getElementById('gr_weekSummaryEmptyNote');
-    const rate = grRate();
-    const weeks = {};
-    grCreditableReviews().forEach(r => {
-      const a = grAllocations[r.id];
-      if(!a || a.employees.length === 0) return;
-      const wk = grWeekBounds(r.date).weekStart;
-      if(!weeks[wk]) weeks[wk] = {};
-      a.employees.forEach(n => { weeks[wk][n] = (weeks[wk][n] || 0) + 1; });
-    });
-    const weekStarts = Object.keys(weeks).sort((a,b) => b.localeCompare(a)).slice(0, 8);
-    emptyNote.style.display = weekStarts.length === 0 ? 'block' : 'none';
-    wrap.innerHTML = weekStarts.map(ws => {
-      const end = grWeekBounds(ws).weekEnd;
-      const entries = Object.entries(weeks[ws]).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-      const totalReviews = entries.reduce((s, [, c]) => s + c, 0);
-      return `<div style="border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin-bottom:10px;">
-        <div style="font-weight:700; margin-bottom:6px;">${window.fmtDate(ws)} \u2013 ${window.fmtDate(end)}</div>
-        <table style="width:100%; border-collapse:collapse; font-size:13px;">
-          ${entries.map(([n, c]) => `<tr><td style="padding:3px 0;">${grEsc(n)}</td><td style="text-align:right; padding:3px 0;">${c} review${c === 1 ? '' : 's'}</td><td style="text-align:right; padding:3px 0; width:100px; font-weight:600;">${grMoney(c * rate)}</td></tr>`).join('')}
-          <tr><td style="padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">Total</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line);">${totalReviews} credit${totalReviews === 1 ? '' : 's'}</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">${grMoney(totalReviews * rate)}</td></tr>
-        </table>
-      </div>`;
-    }).join('') + (rate === 0 && weekStarts.length > 0 ? '<p class="form-note" style="color:#8a6d00;">The review bonus is $0 \u2014 set the amount per review in Configuration \u2192 Pay.</p>' : '');
-  }
 
   document.getElementById('gr_refreshBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('gr_status');
