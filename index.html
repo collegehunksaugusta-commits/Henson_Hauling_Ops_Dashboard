@@ -62,6 +62,10 @@
     table.stack-mobile, table.stack-mobile tbody, table.stack-mobile tr, table.stack-mobile td{display:block !important; width:100% !important; white-space:normal !important; overflow:visible !important;}
     table.stack-mobile thead{display:none !important;}
     table.stack-mobile tr{padding:10px 0; border-bottom:1px solid var(--line);}
+    /* Current Jobs' material table: four short columns that must all stay
+       visible on a phone, so it fits rather than scrolls. */
+    table.cj-table{display:table !important; white-space:normal !important;}
+    table.cj-table th, table.cj-table td{padding:5px 5px !important;}
     table.stack-mobile td{border-bottom:none !important; padding:3px 0 !important;}
     table.stack-mobile td button{margin-top:4px;}
     table.stack-mobile td .gr-save-alloc, table.stack-mobile td .gr-edit-alloc{width:100%; padding:10px 12px !important; font-size:14px !important;}
@@ -5437,16 +5441,24 @@
     <button class="backlink" id="managerReviewBackBtn">&larr; Dispatch</button>
     <div class="detail-head">
       <h2 class="display">Manager Review</h2>
-      <p>Credit card transactions from Square, underbilled jobs, and flagged truck conditions, pulled in from across the app. Underbilled Jobs and Truck Conditions items are removed automatically once they're 6 months old.</p>
+      <p>Jobs with materials pulled but not yet billed, credit card transactions from Square, underbilled jobs, flagged truck conditions, and Google reviews, pulled in from across the app. Underbilled Jobs and Truck Conditions items are removed automatically once they're 6 months old.</p>
     </div>
 
     <div class="tab-scroll" style="gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
+      <button type="button" class="mgrreview-tab-btn" data-tab="currentjobs" id="mgrreview_tab_currentjobs" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Current Jobs <span id="mgrreview_currentJobsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="greviews" id="mgrreview_tab_greviews" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Google Reviews <span id="mgrreview_greviewsTabCount"></span></button>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_currentjobs" style="display:none;">
+      <h3>Current Jobs</h3>
+      <p class="form-note">Jobs with billable materials checked out that haven&rsquo;t been invoiced yet. Look at what was pulled before finalizing the bill with the Captain. A job drops off this list as soon as its invoice is uploaded on Job Paperwork, and from then on the Underbilled Jobs tab checks it.</p>
+      <div id="cj_list"></div>
+      <p class="form-note" id="cj_emptyNote" style="display:none;">No un-invoiced jobs have materials checked out right now.</p>
     </div>
 
     <div class="panel" id="mgrreview_panel_ccard">
@@ -25091,6 +25103,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
       managerReviewItems = items;
 
+      renderMgrReviewCurrentJobs(computeCurrentJobsWithMaterials(uploadsRaw || [], archiveRaw || [], eodRecords.concat(checkinRaw || [])));
       renderMgrReviewTabCounts();
       renderMgrReviewUnderbilled();
       renderMgrReviewTruckConditions();
@@ -25125,9 +25138,98 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('mgrreview_truckConditionsTabCount').textContent = truckCount > 0 ? `(${truckCount})` : '';
   }
 
+  // ---- Current Jobs: materials pulled, not invoiced yet ----
+  // Every job with billable materials checked out against it (Pre-Trip or
+  // a wingman's Material Checkout) that has no invoice uploaded yet --
+  // what's been pulled, what's come back at End of Day / Material Checkin,
+  // and what that leaves to bill. Last 30 days, so an abandoned checkout
+  // doesn't sit here forever.
+  function computeCurrentJobsWithMaterials(uploads, archive, returnRecords){
+    const itemsById = new Map(materialsItems.map(i => [i.id, i]));
+    const billable = id => { const it = itemsById.get(id); return !!it && !it.neverBilled; };
+    const invoiced = new Set(uploads.filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
+    const jobInfo = {};
+    (archive || []).forEach(j => { if(j.jobNumber) jobInfo[j.jobNumber] = j; });
+    const cutoff = new Date(Date.now() - 30*24*60*60*1000).toISOString().slice(0,10);
+    const jobs = {};
+    materialsCheckouts.forEach(co => {
+      if((co.date || '') < cutoff) return;
+      (co.jobNumbers || []).forEach(jobNumber => {
+        if(!jobNumber || invoiced.has(jobNumber)) return;
+        (co.items || []).forEach(it => {
+          if(!billable(it.itemId) || !(Number(it.quantity) > 0)) return;
+          const job = jobs[jobNumber] = jobs[jobNumber] || { jobNumber, pulled: {}, returned: {}, captains: new Set(), lastCheckout: '' };
+          job.pulled[it.itemId] = (job.pulled[it.itemId] || 0) + Number(it.quantity);
+          if(co.driverName) job.captains.add(co.driverName);
+          if((co.checkedOutAt || co.date || '') > job.lastCheckout) job.lastCheckout = co.checkedOutAt || co.date || '';
+        });
+      });
+    });
+    (returnRecords || []).forEach(r => {
+      (r.jobNumbers || []).forEach(jobNumber => {
+        const job = jobs[jobNumber];
+        if(!job) return;
+        (r.returnedItems || []).forEach(it => {
+          if(!billable(it.itemId)) return;
+          job.returned[it.itemId] = (job.returned[it.itemId] || 0) + Number(it.quantity || 0);
+        });
+      });
+    });
+    return Object.values(jobs).map(job => {
+      const info = jobInfo[job.jobNumber] || {};
+      const lines = Object.keys(job.pulled).map(itemId => {
+        const pulled = job.pulled[itemId], returned = Math.min(job.returned[itemId] || 0, pulled);
+        const item = itemsById.get(itemId) || {};
+        return { description: item.description || '(item no longer on file)', supplierItemNumber: item.supplierItemNumber || '', pulled, returned, toBill: pulled - returned };
+      }).sort((a, b) => b.toBill - a.toBill);
+      return {
+        jobNumber: job.jobNumber,
+        clientName: info.clientName || '',
+        captainName: info.captainName || [...job.captains][0] || '',
+        jobType: info.jobType || '',
+        jobDate: info.assignmentDate || (job.lastCheckout || '').slice(0,10),
+        lines,
+        totalToBill: lines.reduce((t, l) => t + l.toBill, 0)
+      };
+    }).sort((a, b) => (b.jobDate || '').localeCompare(a.jobDate || '') || a.jobNumber.localeCompare(b.jobNumber));
+  }
+
+  function renderMgrReviewCurrentJobs(jobs){
+    const list = document.getElementById('cj_list');
+    const emptyNote = document.getElementById('cj_emptyNote');
+    document.getElementById('mgrreview_currentJobsTabCount').textContent = jobs.length > 0 ? `(${jobs.length})` : '';
+    emptyNote.style.display = jobs.length === 0 ? 'block' : 'none';
+    const typeLabel = { move: 'Move', movelabor: 'Move Labor', longdistance: 'Long Distance Move', junk: 'Junk Removal' };
+    const today = new Date().toLocaleDateString('en-CA');
+    list.innerHTML = jobs.map(j => `
+      <div style="border:1px solid #f1b5b0; border-left:5px solid #b3261e; background:#fdecea; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;">
+          <strong style="font-size:15px; color:#8c1d18;">Job ${mgrReviewEsc(j.jobNumber)}${j.clientName ? ' \u2014 ' + mgrReviewEsc(j.clientName) : ''}</strong>
+          <span style="font-size:12.5px; color:#8c1d18; font-weight:700;">${j.totalToBill} item${j.totalToBill === 1 ? '' : 's'} to bill</span>
+        </div>
+        <div style="font-size:12.5px; color:var(--charcoal); margin-top:3px;">
+          ${j.jobDate ? (j.jobDate === today ? 'Today' : window.fmtDate(j.jobDate)) : ''}${j.captainName ? ' &middot; Captain ' + mgrReviewEsc(j.captainName) : ''}${j.jobType ? ' &middot; ' + (typeLabel[j.jobType] || mgrReviewEsc(j.jobType)) : ''} &middot; not invoiced yet
+        </div>
+        <div style="margin-top:8px;"><table class="cj-table" style="width:100%; border-collapse:collapse; font-size:13px; background:#fff; border-radius:6px;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);">Material</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--line);">Pulled</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--line);">Back</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--line);">To Bill</th>
+          </tr></thead>
+          <tbody>${j.lines.map(l => `<tr>
+            <td style="padding:5px 8px; border-bottom:1px solid var(--line);">${mgrReviewEsc(l.description)}${l.supplierItemNumber ? ` <span class="form-note" style="display:inline;">#${mgrReviewEsc(l.supplierItemNumber)}</span>` : ''}</td>
+            <td style="padding:5px 8px; border-bottom:1px solid var(--line); text-align:right;">${l.pulled}</td>
+            <td style="padding:5px 8px; border-bottom:1px solid var(--line); text-align:right;">${l.returned || '\u2014'}</td>
+            <td style="padding:5px 8px; border-bottom:1px solid var(--line); text-align:right; font-weight:800; color:#b3261e;">${l.toBill}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>`).join('');
+  }
+
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
+    ['currentjobs','ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
