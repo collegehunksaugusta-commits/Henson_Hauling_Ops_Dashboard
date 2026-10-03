@@ -2076,7 +2076,9 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
   };
   monthJobs.forEach(j => {
     const checkedOut = checkedOutByJob[j.jobNumber];
-    const hasMaterialsCheckedOut = !!(checkedOut && Object.keys(checkedOut).length > 0);
+    // Like the travel line, materials are only checkable once the invoice
+    // is on file -- before that, nothing has been billed yet.
+    const hasMaterialsCheckedOut = !!(checkedOut && Object.keys(checkedOut).length > 0) && invoicedJobNumbers.has(j.jobNumber);
     const needsTravelLine = MOVE_JOB_TYPES_FOR_TRAVEL_CHECK.has(j.jobType) &&
       (!travelLineCheckStartDate || j.assignmentDate >= travelLineCheckStartDate) &&
       invoicedJobNumbers.has(j.jobNumber);
