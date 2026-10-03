@@ -88,12 +88,13 @@ const ALLOWED_KEYS = new Set([
   'materials-checkins',
   'wingman-review-skips',
   'google-review-allocations',
+  'weight-tickets',
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
   'ops-manager-metrics-monthly-locks'
 ]);
-const ALLOWED_KEY_PREFIXES = ['fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
+const ALLOWED_KEY_PREFIXES = ['weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -1283,6 +1284,141 @@ app.post('/api/driver/materials-checkin', requireDriverOrTaskWingman(['materials
   } catch (err) {
     console.error('Material checkin failed:', err.message);
     res.status(500).json({ error: 'Could not submit material checkin.' });
+  }
+});
+
+// ============ Weight Tickets (Long Distance Moves) ============
+// A Captain on a Long Distance Move photographs two scale tickets -- the
+// truck weighed empty and weighed full. Each ticket's highest printed
+// weight is read with Claude; the load's weight is the higher of the two
+// minus the lower. The photos are held here only until that job's invoice
+// is uploaded on Job Paperwork, which then appends them to the client's
+// completed paperwork package and deletes them.
+const WEIGHT_TICKETS_KEY = 'weight-tickets';
+const WEIGHT_TICKET_KINDS = ['empty', 'full'];
+const READ_WEIGHT_TICKET_TOOL = {
+  name: 'read_weight_ticket',
+  description: 'Report the weights printed on a truck scale ticket.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      isWeightTicket: { type: 'boolean', description: 'True if this is a photo of a vehicle scale / weigh station ticket or receipt.' },
+      weights: {
+        type: 'array',
+        description: 'Every weight figure printed on the ticket, exactly as printed (e.g. gross, tare, net, steer/drive/trailer axle, total).',
+        items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'number' } }, required: ['value'] }
+      },
+      highestWeight: { type: 'number', description: 'The single largest weight printed on the ticket. Usually the gross or total weight. Use 0 if none can be read.' },
+      unit: { type: 'string', enum: ['lb', 'kg'], description: 'Unit of the weights. US truck scales print pounds (lb).' },
+      confident: { type: 'boolean', description: 'False if the photo is blurry, cut off, or the numbers are hard to read.' }
+    },
+    required: ['isWeightTicket', 'weights', 'highestWeight', 'unit', 'confident']
+  }
+};
+
+async function readWeightTicketPhoto(photoDataUri) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(photoDataUri || '');
+  if (!apiKey || !match) return { error: 'Could not read that photo.' };
+  const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      tools: [READ_WEIGHT_TICKET_TOOL],
+      tool_choice: { type: 'tool', name: 'read_weight_ticket' },
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+        { type: 'text', text: 'This is a photo of a truck scale weight ticket from a moving company\u2019s truck. List every weight printed on it, and report the highest one. Read digits carefully -- a misread digit changes the bill.' }
+      ] }]
+    })
+  });
+  if (!anthropicRes.ok) {
+    console.error('Weight ticket read failed:', anthropicRes.status, await anthropicRes.text().catch(() => ''));
+    return { error: 'Could not read the ticket right now \u2014 try again in a moment.' };
+  }
+  const data = await anthropicRes.json();
+  const block = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'read_weight_ticket');
+  if (!block) return { error: 'Could not read the ticket \u2014 try again.' };
+  const r = block.input || {};
+  // The highest weight is taken from the individual figures too, in case
+  // the model's own "highest" disagrees with what it listed.
+  const listed = (Array.isArray(r.weights) ? r.weights : []).map(w => Number(w.value)).filter(v => v > 0);
+  let highest = Math.max(Number(r.highestWeight) || 0, ...listed, 0);
+  if (r.unit === 'kg') highest = Math.round(highest * 2.20462);
+  return { isWeightTicket: !!r.isWeightTicket, highestWeight: Math.round(highest), weights: r.weights || [], unitRead: r.unit || 'lb', confident: !!r.confident };
+}
+
+// The Captain's Long Distance Moves for today (Eastern), plus yesterday's,
+// so a ticket from a late finish can still be added the next morning.
+async function captainLongDistanceJobs(captainName) {
+  const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
+  const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+  const today = easternDateFromMs(Date.now());
+  const yesterday = easternDateFromMs(Date.now() - 24 * 60 * 60 * 1000);
+  return archive.filter(j => j.jobNumber && j.jobType === 'longdistance' &&
+    nameDedupKey(j.captainName || '') === nameDedupKey(captainName) &&
+    (j.assignmentDate === today || j.assignmentDate === yesterday));
+}
+
+function summarizeWeightTicketJob(job, tickets, today) {
+  const forJob = tickets.filter(t => t.jobNumber === job.jobNumber);
+  const pick = kind => {
+    const t = forJob.find(x => x.kind === kind);
+    return t ? { highestWeight: t.highestWeight, uploadedAt: t.uploadedAt, confident: t.confident } : null;
+  };
+  const empty = pick('empty'), full = pick('full');
+  const netWeight = empty && full ? Math.abs(full.highestWeight - empty.highestWeight) : null;
+  return { jobNumber: job.jobNumber, clientName: job.clientName || '', assignmentDate: job.assignmentDate, isToday: job.assignmentDate === today, empty, full, netWeight };
+}
+
+app.get('/api/driver/weight-tickets', requireDriverAuth, async (req, res) => {
+  try {
+    const [jobs, raw] = await Promise.all([captainLongDistanceJobs(req.driverName), redis.get(WEIGHT_TICKETS_KEY)]);
+    const tickets = raw ? JSON.parse(raw) : [];
+    const today = easternDateFromMs(Date.now());
+    // Yesterday's job only stays on the list while it's still missing a ticket.
+    const summaries = jobs.map(j => summarizeWeightTicketJob(j, tickets, today))
+      .filter(sm => sm.isToday || !(sm.empty && sm.full));
+    res.json({ jobs: summaries });
+  } catch (err) {
+    console.error('Weight tickets fetch failed:', err.message);
+    res.status(500).json({ error: 'Could not load weight tickets.' });
+  }
+});
+
+app.post('/api/driver/weight-ticket', requireDriverAuth, async (req, res) => {
+  const { jobNumber, kind, photo } = req.body || {};
+  if (!WEIGHT_TICKET_KINDS.includes(kind)) return res.status(400).json({ error: 'Say which ticket this is \u2014 empty or full.' });
+  if (typeof photo !== 'string' || !photo.startsWith('data:image/')) return res.status(400).json({ error: 'Take a photo of the ticket first.' });
+  try {
+    const jobs = await captainLongDistanceJobs(req.driverName);
+    const job = jobs.find(j => j.jobNumber === String(jobNumber));
+    if (!job) return res.status(403).json({ error: 'That isn\u2019t one of your Long Distance Moves today.' });
+    const reading = await readWeightTicketPhoto(photo);
+    if (reading.error) return res.status(502).json({ error: reading.error });
+    if (!reading.isWeightTicket || !reading.highestWeight) {
+      return res.status(422).json({ error: 'Couldn\u2019t find a weight on that photo. Retake it straight-on, close enough to read the numbers, with no glare.' });
+    }
+    const raw = await redis.get(WEIGHT_TICKETS_KEY);
+    const tickets = raw ? JSON.parse(raw) : [];
+    // A retake replaces the earlier ticket of the same kind.
+    const previous = tickets.filter(t => t.jobNumber === job.jobNumber && t.kind === kind);
+    const id = 'wt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    const kept = tickets.filter(t => !(t.jobNumber === job.jobNumber && t.kind === kind));
+    kept.push({
+      id, jobNumber: job.jobNumber, kind, captainName: req.driverName, jobDate: job.assignmentDate,
+      highestWeight: reading.highestWeight, weights: reading.weights, unitRead: reading.unitRead, confident: reading.confident,
+      photoKey: 'weight-ticket-photo-' + id, uploadedAt: new Date().toISOString(), mergedAt: null
+    });
+    await redis.set('weight-ticket-photo-' + id, photo);
+    await redis.set(WEIGHT_TICKETS_KEY, JSON.stringify(kept));
+    if (previous.length) await redis.del(...previous.map(t => t.photoKey));
+    res.json({ ok: true, job: summarizeWeightTicketJob(job, kept, easternDateFromMs(Date.now())) });
+  } catch (err) {
+    console.error('Weight ticket upload failed:', err.message);
+    res.status(500).json({ error: 'Could not save that weight ticket.' });
   }
 });
 
