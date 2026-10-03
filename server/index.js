@@ -1388,36 +1388,63 @@ app.get('/api/driver/weight-tickets', requireDriverAuth, async (req, res) => {
   }
 });
 
+// Reads and stores one ticket for a job; shared by the Captain's upload
+// and the office's upload at work package closure. A retake replaces the
+// earlier ticket of the same kind.
+async function saveWeightTicket(job, kind, photo, uploadedBy, uploaderName) {
+  if (!WEIGHT_TICKET_KINDS.includes(kind)) return { status: 400, body: { error: 'Say which ticket this is \u2014 empty or full.' } };
+  if (typeof photo !== 'string' || !photo.startsWith('data:image/')) return { status: 400, body: { error: 'Take a photo of the ticket first.' } };
+  const reading = await readWeightTicketPhoto(photo);
+  if (reading.error) return { status: 502, body: { error: reading.error } };
+  if (!reading.isWeightTicket || !reading.highestWeight) {
+    return { status: 422, body: { error: 'Couldn\u2019t find a weight on that photo. Retake it straight-on, close enough to read the numbers, with no glare.' } };
+  }
+  const raw = await redis.get(WEIGHT_TICKETS_KEY);
+  const tickets = raw ? JSON.parse(raw) : [];
+  const previous = tickets.filter(t => t.jobNumber === job.jobNumber && t.kind === kind);
+  const id = 'wt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  const kept = tickets.filter(t => !(t.jobNumber === job.jobNumber && t.kind === kind));
+  kept.push({
+    id, jobNumber: job.jobNumber, kind, captainName: job.captainName || '', jobDate: job.assignmentDate,
+    highestWeight: reading.highestWeight, weights: reading.weights, unitRead: reading.unitRead, confident: reading.confident,
+    // 'captain' from the Driver Portal; 'office' when the Ops Manager had
+    // to upload it at closure -- i.e. the Captain didn't.
+    uploadedBy, uploaderName: String(uploaderName || '').slice(0, 100),
+    photoKey: 'weight-ticket-photo-' + id, uploadedAt: new Date().toISOString(), mergedAt: null
+  });
+  await redis.set('weight-ticket-photo-' + id, photo);
+  await redis.set(WEIGHT_TICKETS_KEY, JSON.stringify(kept));
+  if (previous.length) await redis.del(...previous.map(t => t.photoKey));
+  return { status: 200, body: { ok: true, job: summarizeWeightTicketJob(job, kept, easternDateFromMs(Date.now())) } };
+}
+
 app.post('/api/driver/weight-ticket', requireDriverAuth, async (req, res) => {
   const { jobNumber, kind, photo } = req.body || {};
-  if (!WEIGHT_TICKET_KINDS.includes(kind)) return res.status(400).json({ error: 'Say which ticket this is \u2014 empty or full.' });
-  if (typeof photo !== 'string' || !photo.startsWith('data:image/')) return res.status(400).json({ error: 'Take a photo of the ticket first.' });
   try {
     const jobs = await captainLongDistanceJobs(req.driverName);
     const job = jobs.find(j => j.jobNumber === String(jobNumber));
     if (!job) return res.status(403).json({ error: 'That isn\u2019t one of your Long Distance Moves today.' });
-    const reading = await readWeightTicketPhoto(photo);
-    if (reading.error) return res.status(502).json({ error: reading.error });
-    if (!reading.isWeightTicket || !reading.highestWeight) {
-      return res.status(422).json({ error: 'Couldn\u2019t find a weight on that photo. Retake it straight-on, close enough to read the numbers, with no glare.' });
-    }
-    const raw = await redis.get(WEIGHT_TICKETS_KEY);
-    const tickets = raw ? JSON.parse(raw) : [];
-    // A retake replaces the earlier ticket of the same kind.
-    const previous = tickets.filter(t => t.jobNumber === job.jobNumber && t.kind === kind);
-    const id = 'wt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-    const kept = tickets.filter(t => !(t.jobNumber === job.jobNumber && t.kind === kind));
-    kept.push({
-      id, jobNumber: job.jobNumber, kind, captainName: req.driverName, jobDate: job.assignmentDate,
-      highestWeight: reading.highestWeight, weights: reading.weights, unitRead: reading.unitRead, confident: reading.confident,
-      photoKey: 'weight-ticket-photo-' + id, uploadedAt: new Date().toISOString(), mergedAt: null
-    });
-    await redis.set('weight-ticket-photo-' + id, photo);
-    await redis.set(WEIGHT_TICKETS_KEY, JSON.stringify(kept));
-    if (previous.length) await redis.del(...previous.map(t => t.photoKey));
-    res.json({ ok: true, job: summarizeWeightTicketJob(job, kept, easternDateFromMs(Date.now())) });
+    const result = await saveWeightTicket(job, kind, photo, 'captain', req.driverName);
+    res.status(result.status).json(result.body);
   } catch (err) {
     console.error('Weight ticket upload failed:', err.message);
+    res.status(500).json({ error: 'Could not save that weight ticket.' });
+  }
+});
+
+// The office side: any Long Distance Move, any date -- used when a
+// Captain handed in paper tickets instead of uploading them.
+app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
+  const { jobNumber, kind, photo } = req.body || {};
+  try {
+    const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
+    const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+    const job = archive.find(j => j.jobNumber === String(jobNumber) && j.jobType === 'longdistance');
+    if (!job) return res.status(404).json({ error: 'That job isn\u2019t on file as a Long Distance Move.' });
+    const result = await saveWeightTicket(job, kind, photo, 'office', req.userEmail);
+    res.status(result.status).json(result.body);
+  } catch (err) {
+    console.error('Office weight ticket upload failed:', err.message);
     res.status(500).json({ error: 'Could not save that weight ticket.' });
   }
 });
