@@ -7743,6 +7743,19 @@
   }
   window.fmtDate = fmtDate;
 
+  // Weekly trend graphs (Captain, Ops Manager, Wingman Metrics): label a
+  // Monday-Sunday week by its whole span, "9/28–10/4", and mark the
+  // current week "This week" -- a bare start date read as if the graph
+  // stopped a week early.
+  window.trendWeekLabel = function(weekStart){
+    const start = new Date(weekStart + 'T00:00:00');
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    const md = d => `${d.getMonth() + 1}/${d.getDate()}`;
+    const span = `${md(start)}\u2013${md(end)}`;
+    const today = new Date(); today.setHours(0,0,0,0);
+    return today >= start && today <= end ? [span, 'This week'] : span;
+  };
+
   function laborCost(w){ return (w.fieldGross - w.tips) + w.erTax; }
   function laborPct(w){ return w.revenue>0 ? laborCost(w)/w.revenue : 0; }
 
@@ -22379,7 +22392,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: false
     }));
 
-    const labels = cmTrendWeeksCache.map(w => window.fmtDate(w.weekStart));
+    const labels = cmTrendWeeksCache.map(w => window.trendWeekLabel(w.weekStart));
 
     try{
       if(cmTrendChart) cmTrendChart.destroy();
@@ -22866,7 +22879,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     canvas.style.display = 'block';
     emptyNote.style.display = 'none';
 
-    const labels = omTrendWeeksCache.map(w => window.fmtDate(w.weekStart));
+    const labels = omTrendWeeksCache.map(w => window.trendWeekLabel(w.weekStart));
     const dataset = {
       label: 'Overall Score',
       data: omTrendWeeksCache.map(w => w.overall),
@@ -23026,7 +23039,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: false
     }));
 
-    const labels = wmTrendWeeksCache.map(w => window.fmtDate(w.weekStart));
+    const labels = wmTrendWeeksCache.map(w => window.trendWeekLabel(w.weekStart));
 
     try{
       if(wmTrendChart) wmTrendChart.destroy();
