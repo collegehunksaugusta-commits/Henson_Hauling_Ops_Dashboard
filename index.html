@@ -41,6 +41,31 @@
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
+  /* Nothing is allowed to make the page itself wider than the screen. On
+     a phone, one overflowing element (a row of tabs, a wide table) used
+     to make the browser zoom the whole page out to fit it, shrinking
+     everything. Wide pieces scroll inside themselves instead. 'clip'
+     rather than 'hidden' so sticky headers keep working. */
+  html,body{overflow-x:clip; max-width:100%;}
+  .panel{max-width:100%; min-width:0;}
+  img, video, canvas{max-width:100%;}
+
+  /* Tab rows: swipe sideways on a narrow screen instead of overflowing. */
+  .tab-scroll{display:flex; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;}
+  .tab-scroll::-webkit-scrollbar{display:none;}
+  .tab-scroll > button{flex-shrink:0; white-space:nowrap;}
+
+  /* Tables that turn into stacked cards on a phone -- for rows with long
+     text and controls (e.g. Google Reviews), where a sideways-scrolling
+     table hides the part you need to tap. */
+  @media (max-width:600px){
+    table.stack-mobile, table.stack-mobile tbody, table.stack-mobile tr, table.stack-mobile td{display:block !important; width:100% !important; white-space:normal !important; overflow:visible !important;}
+    table.stack-mobile thead{display:none !important;}
+    table.stack-mobile tr{padding:10px 0; border-bottom:1px solid var(--line);}
+    table.stack-mobile td{border-bottom:none !important; padding:3px 0 !important;}
+    table.stack-mobile td button{margin-top:4px;}
+    table.stack-mobile td .gr-save-alloc, table.stack-mobile td .gr-edit-alloc{width:100%; padding:10px 12px !important; font-size:14px !important;}
+  }
   body{
     background:var(--offwhite);
     color:var(--ink);
@@ -337,7 +362,9 @@
   .addweek-toggle:hover{background:var(--orange);}
   .form-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
   @media (max-width:760px){ .form-grid{grid-template-columns:1fr 1fr;} }
-  @media (max-width:480px){ .form-grid{grid-template-columns:1fr;} }
+  @media (max-width:480px){ .form-grid{grid-template-columns:1fr !important;} } /* !important: some forms set 2 columns inline */
+  .form-grid > *{min-width:0;}
+  .form-grid input, .form-grid select, .form-grid textarea{max-width:100%;}
   .form-grid label{display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;}
   .form-grid input{
     font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;
@@ -5413,7 +5440,7 @@
       <p>Credit card transactions from Square, underbilled jobs, and flagged truck conditions, pulled in from across the app. Underbilled Jobs and Truck Conditions items are removed automatically once they're 6 months old.</p>
     </div>
 
-    <div style="display:flex; gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
+    <div class="tab-scroll" style="gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
       <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
@@ -5615,7 +5642,7 @@
       </div>
 
       <h4 style="margin:18px 0 6px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px;">To Allocate</h4>
-      <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <div style="overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
         <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); width:230px;">Credit To</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th></tr></thead>
         <tbody id="gr_allocateRows"></tbody>
       </table></div>
@@ -5629,7 +5656,7 @@
       <div id="gr_earlierWrap" style="display:none; margin-top:22px;">
         <button type="button" id="gr_earlierToggle" style="background:none; border:none; padding:0; cursor:pointer; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; font-weight:700; color:var(--muted);">&#9656; Earlier Reviews <span id="gr_earlierCount"></span></button>
         <p class="form-note" style="margin:4px 0 0;">Pulled from Google but posted before the credit date above, so they aren&rsquo;t paid. Move the date back to credit any of them.</p>
-        <div id="gr_earlierBody" style="display:none; overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <div id="gr_earlierBody" style="display:none; overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th></tr></thead>
           <tbody id="gr_earlierRows"></tbody>
         </table></div>
@@ -25195,7 +25222,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const today = new Date().toLocaleDateString('en-CA');
       const inProgress = today >= ws && today <= we;
       const totalsRows = Object.entries(counts).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([n, c]) =>
-        `<tr><td style="padding:3px 0;">${grEsc(n)}</td><td style="text-align:right; padding:3px 0;">${c} review${c === 1 ? '' : 's'}</td><td style="text-align:right; padding:3px 0; width:100px; font-weight:600;">${grMoney(c * rate)}</td></tr>`).join('');
+        `<tr><td style="padding:3px 12px 3px 0;">${grEsc(n)}</td><td style="text-align:right; padding:3px 12px 3px 0; white-space:nowrap;">${c} review${c === 1 ? '' : 's'}</td><td style="text-align:right; padding:3px 0; width:100px; font-weight:600;">${grMoney(c * rate)}</td></tr>`).join('');
       const reviewRows = reviews.map(r => {
         const al = grAllocations[r.id];
         const credited = al.employees.length === 0 ? '<span class="form-note" style="font-style:italic;">No One</span>' : al.employees.map(grEsc).join(', ');
@@ -25213,10 +25240,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </button>
         ${open ? `<div style="margin-top:10px;">
           ${totalsRows ? `<table style="width:100%; border-collapse:collapse; font-size:13px;">${totalsRows}
-            <tr><td style="padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">Total</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line);">${credits} credit${credits === 1 ? '' : 's'}</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">${grMoney(credits * rate)}</td></tr>
+            <tr><td style="padding:5px 12px 0 0; border-top:1px solid var(--line); font-weight:700;">Total</td><td style="text-align:right; padding:5px 12px 0 0; border-top:1px solid var(--line); white-space:nowrap;">${credits} credit${credits === 1 ? '' : 's'}</td><td style="text-align:right; padding:5px 0 0; border-top:1px solid var(--line); font-weight:700;">${grMoney(credits * rate)}</td></tr>
           </table>` : '<p class="form-note" style="margin:0;">No employees credited this week.</p>'}
           ${rate === 0 && credits > 0 ? '<p class="form-note" style="color:#8a6d00;">The review bonus is $0 \u2014 set the amount per review in Configuration \u2192 Pay.</p>' : ''}
-          <div style="overflow-x:auto; margin-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <div style="overflow-x:auto; margin-top:10px;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Posted</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Review</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Credited To</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);"></th></tr></thead>
             <tbody>${reviewRows}</tbody>
           </table></div>
