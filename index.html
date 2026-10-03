@@ -23365,6 +23365,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
     });
 
+    // A job's materials can only be compared against its invoice once the
+    // invoice is actually uploaded -- before that, nothing has been billed
+    // yet, so a job checked out at this morning's Pre-Trip isn't flagged.
+    const invoicedJobs = new Set(uploads.filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
+
     const billedByJob = {};
     uploads.forEach(u => {
       if(!u.jobNumber || !Array.isArray(u.materialsBilled)) return;
@@ -23393,6 +23398,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     const problems = [];
     Object.keys(checkedOutByJob).forEach(jobNumber => {
+      if(!invoicedJobs.has(jobNumber)) return;
       const checkedOutItems = checkedOutByJob[jobNumber];
       const returnedItems = returnedByJob[jobNumber] || null;
       const billedItems = billedByJob[jobNumber] || null;
