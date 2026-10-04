@@ -568,7 +568,8 @@ app.get('/api/driver/trucks', requireDriverOrTaskWingman(null), async (req, res)
   try {
     const raw = await redis.get('fleet-trucks');
     const trucks = raw ? JSON.parse(raw) : [];
-    res.json({ trucks: trucks.map(t => ({ id: t.id, nickname: t.nickname })) });
+    // isDiesel / isJunk decide which extra Pre-Trip questions a truck gets.
+    res.json({ trucks: trucks.map(t => ({ id: t.id, nickname: t.nickname, isDiesel: !!t.isDiesel, isJunk: !!t.isJunk })) });
   } catch (err) {
     console.error('Driver truck list failed:', err.message);
     res.status(500).json({ error: 'Could not load trucks.' });
