@@ -50,10 +50,16 @@
   .panel{max-width:100%; min-width:0;}
   img, video, canvas{max-width:100%;}
 
-  /* Tab rows: swipe sideways on a narrow screen instead of overflowing. */
-  .tab-scroll{display:flex; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;}
-  .tab-scroll::-webkit-scrollbar{display:none;}
-  .tab-scroll > button{flex-shrink:0; white-space:nowrap;}
+  /* Tab rows: on a computer they wrap onto a second line when there are
+     more tabs than fit, so every tab stays visible; on a phone they
+     swipe sideways instead of overflowing the page. */
+  .tab-scroll{display:flex; flex-wrap:wrap;}
+  .tab-scroll > button{white-space:nowrap;}
+  @media (max-width:600px){
+    .tab-scroll{flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;}
+    .tab-scroll::-webkit-scrollbar{display:none;}
+    .tab-scroll > button{flex-shrink:0;}
+  }
 
   /* Tables that turn into stacked cards on a phone -- for rows with long
      text and controls (e.g. Google Reviews), where a sideways-scrolling
@@ -20168,9 +20174,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           const packetUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
           if(!packetUri) continue;
           const files = [window.dataUriToFile(packetUri, upload.fileName || 'paperwork.pdf')];
+          let unreadable = false;
           for(const t of pending){
             const photo = await window.dashboardApi.get(t.photoKey, null);
             if(photo) files.push(window.dataUriToFile(photo, `weight-ticket-${t.kind}.jpg`));
+            else unreadable = true;
+          }
+          // Never mark a ticket attached (or delete its photo) unless the
+          // photo actually made it into the package -- try again next time.
+          if(unreadable){
+            console.error('Weight ticket photo could not be read for job', jobNumber, '\u2014 leaving it pending.');
+            continue;
           }
           const now = new Date().toISOString();
           if(files.length > 1){
