@@ -1234,6 +1234,18 @@
     'Cargo securement (straps, dollies, blankets)',
     'Fuel level'
   ];
+  // Extra questions by truck, set on Regulatory Compliance -> Trucks.
+  const PTI_DIESEL_ITEMS = ['DEF level'];
+  const PTI_JUNK_TRUCK_ITEMS = [
+    'Are the rear doors locked with safety chains crossed properly?',
+    'Are the tool box doors secured?'
+  ];
+  let ptiTrucksById = {};
+  function ptiChecklistForTruck(truckId){
+    const t = ptiTrucksById[truckId];
+    if(!t) return [];
+    return [...PTI_CHECKLIST_ITEMS, ...(t.isDiesel ? PTI_DIESEL_ITEMS : []), ...(t.isJunk ? PTI_JUNK_TRUCK_ITEMS : [])];
+  }
 
   let driverToken = localStorage.getItem('henson_driver_token');
   let currentDriverName = localStorage.getItem('henson_driver_name');
@@ -1771,7 +1783,19 @@
         noTrucksNote.style.display = 'block';
       } else {
         noTrucksNote.style.display = 'none';
-        sel.innerHTML = trucks.map(t => `<option value="${t.id}" data-nickname="${String(t.nickname||'').replace(/"/g,'&quot;')}">${t.nickname}</option>`).join('');
+        const prevValue = sel.value;
+        const options = trucks.map(t => `<option value="${t.id}" data-nickname="${String(t.nickname||'').replace(/"/g,'&quot;')}">${t.nickname}</option>`).join('');
+        if(selectId === 'pti_truck'){
+          // The Pre-Trip's questions depend on the truck, so it has to be
+          // picked on purpose rather than defaulting to the first one.
+          ptiTrucksById = {};
+          trucks.forEach(t => { ptiTrucksById[t.id] = t; });
+          sel.innerHTML = '<option value="">Select your truck\u2026</option>' + options;
+          if(prevValue && ptiTrucksById[prevValue]) sel.value = prevValue;
+          renderPtiChecklist();
+        } else {
+          sel.innerHTML = options;
+        }
       }
     }catch(err){
       console.error('Load trucks failed:', err);
@@ -3473,9 +3497,22 @@
     }
   }
 
+  // The checklist is built from the selected truck. Answers already given
+  // are kept (by question) when the truck is changed.
   function renderPtiChecklist(){
     const container = document.getElementById('pti_checklist');
-    container.innerHTML = PTI_CHECKLIST_ITEMS.map((item, i) => `
+    const previous = {};
+    container.querySelectorAll('.pti-item').forEach(item => {
+      const active = item.querySelector('.pti-status-btn.active');
+      previous[item.querySelector('.pti-item-name').textContent] = { status: active ? active.dataset.status : null, note: item.querySelector('.pti-note').value };
+    });
+    const truckId = document.getElementById('pti_truck').value;
+    const items = ptiChecklistForTruck(truckId);
+    if(items.length === 0){
+      container.innerHTML = '<p class="form-note" style="margin:0;">Select your truck above to see its checklist.</p>';
+      return;
+    }
+    container.innerHTML = items.map((item, i) => `
       <div class="pti-item" data-index="${i}">
         <div class="pti-item-row">
           <span class="pti-item-name">${item}</span>
@@ -3497,7 +3534,21 @@
         note.style.display = btn.dataset.status === 'defect' ? 'block' : 'none';
       });
     });
+    restorePtiChecklistAnswers(previous);
   }
+  function restorePtiChecklistAnswers(byName){
+    document.querySelectorAll('#pti_checklist .pti-item').forEach(item => {
+      const saved = byName[item.querySelector('.pti-item-name').textContent];
+      if(!saved || !saved.status) return;
+      const btn = item.querySelector(`.pti-status-btn[data-status="${saved.status}"]`);
+      if(btn) btn.click();
+      if(saved.note) item.querySelector('.pti-note').value = saved.note;
+    });
+  }
+  document.getElementById('pti_truck').addEventListener('change', ()=>{
+    renderPtiChecklist();
+    if(typeof savePtiDraft === 'function') savePtiDraft();
+  });
 
   // ---------- Truck photo capture (shared pattern for PTI and EOD) ----------
   // iOS Safari, especially in a home-screen PWA, can leave a
@@ -3552,7 +3603,7 @@
     try{
       const checklist = Array.from(document.querySelectorAll('#pti_checklist .pti-item')).map(item => {
         const activeBtn = item.querySelector('.pti-status-btn.active');
-        return { status: activeBtn ? activeBtn.dataset.status : null, note: item.querySelector('.pti-note').value };
+        return { item: item.querySelector('.pti-item-name').textContent, status: activeBtn ? activeBtn.dataset.status : null, note: item.querySelector('.pti-note').value };
       });
       const matcoItems = Array.from(document.querySelectorAll('.pti-matco-qty')).map(input => ({ itemId: input.dataset.itemId, quantity: input.value }));
       const draft = {
@@ -3607,7 +3658,10 @@
     const currentTaskId = (driverRole === 'wingman' && driverActiveTask) ? driverActiveTask.id : null;
     if(draftTaskId !== currentTaskId) return false;
 
-    if(draft.truckId) document.getElementById('pti_truck').value = draft.truckId;
+    if(draft.truckId){
+      document.getElementById('pti_truck').value = draft.truckId;
+      renderPtiChecklist();
+    }
     document.getElementById('pti_odometer').value = draft.odometer || '';
     document.getElementById('pti_additionalNotes').value = draft.additionalNotes || '';
     if(draft.matcoJobSelect){
@@ -3624,14 +3678,15 @@
     ptiLoggedMaterialsCheckouts = draft.loggedMaterialsCheckouts || [];
     renderPtiMatcoLoggedList();
 
-    const checklistItems = document.querySelectorAll('#pti_checklist .pti-item');
+    // Answers are matched by question (drafts saved before questions
+    // varied by truck matched by position, which still lines up for the
+    // standard list).
+    const byName = {};
     (draft.checklist || []).forEach((saved, i) => {
-      const item = checklistItems[i];
-      if(!item || !saved.status) return;
-      const btn = item.querySelector(`.pti-status-btn[data-status="${saved.status}"]`);
-      if(btn) btn.click(); // reuses the existing click handler to set .active and toggle the note field
-      if(saved.note) item.querySelector('.pti-note').value = saved.note;
+      const name = saved.item || PTI_CHECKLIST_ITEMS[i];
+      if(name) byName[name] = saved;
     });
+    restorePtiChecklistAnswers(byName);
 
     if(draft.photo){
       ptiCapturedPhoto = draft.photo;
@@ -3780,6 +3835,12 @@
   document.getElementById('pti_submitBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('pti_submitStatus');
     if(ptiMode === 'checkout'){ await submitCheckoutOnlyTask(); return; }
+    if(!document.getElementById('pti_truck').value){
+      statusEl.textContent = 'Select your truck first \u2014 its checklist depends on which truck it is.';
+      statusEl.className = 'status-msg err';
+      document.getElementById('pti_truck').focus();
+      return;
+    }
     const truckSel = document.getElementById('pti_truck');
     const truckId = truckSel.value;
     const truckNickname = truckSel.selectedOptions[0] ? truckSel.selectedOptions[0].dataset.nickname : '';
@@ -5995,6 +6056,8 @@
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Make</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Model</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Style</th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Diesel trucks get a DEF Level question on the Pre-Trip">Diesel?</th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Junk trucks get the rear-door safety chain and tool box questions on the Pre-Trip">Junk Truck?</th>
               <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th>
               <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
@@ -6021,6 +6084,8 @@
                 </select>
               </label>
               <label>Length (ft, if applicable) <input type="number" id="t_length" step="0.1"></label>
+              <label style="display:flex; align-items:center; gap:8px; font-weight:400;"><input type="checkbox" id="t_isDiesel"> Diesel? <span class="form-note" style="margin:0;">(adds a DEF Level question to its Pre-Trip)</span></label>
+              <label style="display:flex; align-items:center; gap:8px; font-weight:400;"><input type="checkbox" id="t_isJunk"> Junk Truck? <span class="form-note" style="margin:0;">(adds the rear-door chain and tool box questions)</span></label>
             </div>
             <div class="form-actions">
               <button class="btn-primary" id="saveTruckBtn" type="button">Save Truck</button>
@@ -8598,12 +8663,24 @@
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.make)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.model)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(t.style)}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center;"><input type="checkbox" class="truck-flag" data-idx="${i}" data-flag="isDiesel" ${t.isDiesel ? 'checked' : ''} aria-label="${fleetEsc(t.nickname)} is diesel"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center;"><input type="checkbox" class="truck-flag" data-idx="${i}" data-flag="isJunk" ${t.isJunk ? 'checked' : ''} aria-label="${fleetEsc(t.nickname)} is a junk truck"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.length ? fleetEsc(t.length) + ' ft' : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${mileage !== null ? Number(mileage).toLocaleString() : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${statusHtml}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="truck-remove" data-idx="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Remove</button></td>
       </tr>`;
     }).join('');
+    // Diesel? / Junk Truck? save the moment they're ticked.
+    tbody.querySelectorAll('.truck-flag').forEach(cb => cb.addEventListener('change', async (e)=>{
+      const t = trucks[parseInt(e.target.dataset.idx, 10)];
+      if(!t) return;
+      const flag = e.target.dataset.flag;
+      const prev = !!t[flag];
+      t[flag] = e.target.checked;
+      const ok = await saveTrucks();
+      if(!ok){ t[flag] = prev; e.target.checked = prev; alert('Could not save that change \u2014 check your connection.'); }
+    }));
     tbody.querySelectorAll('.truck-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
       const idx = parseInt(e.target.dataset.idx, 10);
       const t = trucks[idx];
@@ -8728,11 +8805,14 @@
       make: document.getElementById('t_make').value.trim(),
       model: document.getElementById('t_model').value.trim(),
       style: document.getElementById('t_style').value,
-      length: document.getElementById('t_length').value
+      length: document.getElementById('t_length').value,
+      isDiesel: document.getElementById('t_isDiesel').checked,
+      isJunk: document.getElementById('t_isJunk').checked
     };
     trucks.push(truck);
     const ok = await saveTrucks();
     ['t_nickname','t_vin','t_year','t_make','t_model','t_length'].forEach(id => { document.getElementById(id).value = ''; });
+    ['t_isDiesel','t_isJunk'].forEach(id => { document.getElementById(id).checked = false; });
     renderTruckTable();
     renderTruckDropdown();
     updateFleetTileBadge();
