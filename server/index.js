@@ -1412,7 +1412,9 @@ async function saveWeightTicket(job, kind, photo, uploadedBy, uploaderName) {
     uploadedBy, uploaderName: String(uploaderName || '').slice(0, 100),
     photoKey: 'weight-ticket-photo-' + id, uploadedAt: new Date().toISOString(), mergedAt: null
   });
-  await redis.set('weight-ticket-photo-' + id, photo);
+  // Stored JSON-encoded like every other /api/data value, so the
+  // dashboard can read it back.
+  await redis.set('weight-ticket-photo-' + id, JSON.stringify(photo));
   await redis.set(WEIGHT_TICKETS_KEY, JSON.stringify(kept));
   if (previous.length) await redis.del(...previous.map(t => t.photoKey));
   return { status: 200, body: { ok: true, job: summarizeWeightTicketJob(job, kept, easternDateFromMs(Date.now())) } };
@@ -6368,7 +6370,14 @@ app.get('/api/data/:key', requireAuth, async (req, res) => {
   if (!(await checkAdminOnlyKey(req, res, key))) return;
   try {
     const value = await redis.get(key);
-    let parsed = value === null ? null : JSON.parse(value);
+    let parsed;
+    try { parsed = value === null ? null : JSON.parse(value); }
+    catch (parseErr) {
+      // Weight ticket photos saved before the fix above were stored as a
+      // bare data URI rather than JSON -- hand those back as-is.
+      if (typeof value === 'string' && value.startsWith('data:')) parsed = value;
+      else throw parseErr;
+    }
     if (key === 'labor-weeks' && Array.isArray(parsed) && !(await isRequestingUserAdmin(req))) {
       parsed = parsed.map(week => {
         const { employees, ...rest } = week;
