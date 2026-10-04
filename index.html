@@ -5446,6 +5446,7 @@
 
     <div class="tab-scroll" style="gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
       <button type="button" class="mgrreview-tab-btn" data-tab="currentjobs" id="mgrreview_tab_currentjobs" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Current Jobs <span id="mgrreview_currentJobsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="weighttickets" id="mgrreview_tab_weighttickets" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Weight Tickets <span id="mgrreview_weightTicketsTabCount" style="color:#8a6d00; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
@@ -5459,6 +5460,13 @@
       <p class="form-note">Jobs with billable materials checked out that haven&rsquo;t been invoiced yet. Look at what was pulled before finalizing the bill with the Captain. A job drops off this list as soon as its invoice is uploaded on Job Paperwork, and from then on the Underbilled Jobs tab checks it.</p>
       <div id="cj_list"></div>
       <p class="form-note" id="cj_emptyNote" style="display:none;">No un-invoiced jobs have materials checked out right now.</p>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_weighttickets" style="display:none;">
+      <h3>Weight Tickets</h3>
+      <p class="form-note">Long Distance Moves from the last 60 days whose work package hasn&rsquo;t been closed yet (emailed to the client, or marked Angry). Yellow means a ticket is still missing. Once a package is closed, it drops off this list.</p>
+      <div id="wtr_list"></div>
+      <p class="form-note" id="wtr_emptyNote" style="display:none;">No open Long Distance Moves right now.</p>
     </div>
 
     <div class="panel" id="mgrreview_panel_ccard">
@@ -19975,7 +19983,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return await openWeightTicketClosureModal(upload, job, state, continueLabel || 'Continue to Send Email');
   }
 
-  function openWeightTicketClosureModal(upload, job, state, continueLabel){
+  // uploadOnly: opened from Manager Review just to add tickets -- no
+  // closing, no override, and Done works with one ticket or both.
+  function openWeightTicketClosureModal(upload, job, state, continueLabel, uploadOnly){
     return new Promise(resolve => {
       const overlay = document.createElement('div');
       overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999; display:flex; align-items:flex-start; justify-content:center; overflow-y:auto; padding:30px 12px;';
@@ -20006,16 +20016,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const both = tickets.empty && tickets.full;
         const net = both ? Math.abs(tickets.full.highestWeight - tickets.empty.highestWeight) : null;
         overlay.innerHTML = `<div style="background:#fff; border-radius:10px; max-width:480px; width:100%; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,.25);">
-          <h3 style="margin:0 0 6px;">Weight Tickets Required</h3>
-          <p class="form-note" style="margin:0 0 14px;">Job ${esc(upload.jobNumber)}${upload.clientName ? ' \u2014 ' + esc(upload.clientName) : ''} is a Long Distance Move. Both weight tickets must be on file before this work package can be closed \u2014 including for an Angry client.${job.captainName ? ` If ${esc(job.captainName)} handed you paper tickets, upload them here.` : ''}</p>
+          <h3 style="margin:0 0 6px;">${uploadOnly ? 'Upload Weight Tickets' : 'Weight Tickets Required'}</h3>
+          <p class="form-note" style="margin:0 0 14px;">Job ${esc(upload.jobNumber)}${upload.clientName ? ' \u2014 ' + esc(upload.clientName) : ''} is a Long Distance Move. ${uploadOnly ? 'Add whichever ticket the Captain didn\u2019t upload.' : 'Both weight tickets must be on file before this work package can be closed \u2014 including for an Angry client.'}${job.captainName ? ` If ${esc(job.captainName)} handed you paper tickets, upload them here.` : ''}</p>
           ${slotHtml('empty')}
           ${slotHtml('full')}
           ${both ? `<div style="text-align:center; padding:10px; border-radius:8px; background:#e8f5e9; margin-bottom:12px;"><div class="form-note" style="margin:0;">Load Weight</div><div style="font-size:22px; font-weight:800; color:var(--brand-green-dark);">${lbs(net)}</div></div>` : ''}
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="button" id="wtc_continue" style="${btnGreen} flex:1; ${both ? '' : 'opacity:.45; cursor:not-allowed;'}" ${both ? '' : 'disabled'}>${esc(continueLabel)}</button>
+            <button type="button" id="wtc_continue" style="${btnGreen} flex:1; ${both || uploadOnly ? '' : 'opacity:.45; cursor:not-allowed;'}" ${both || uploadOnly ? '' : 'disabled'}>${esc(continueLabel)}</button>
             <button type="button" id="wtc_cancel" style="${btnWhite}">Cancel</button>
           </div>
-          <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line);">
+          <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line); ${uploadOnly ? 'display:none;' : ''}">
             <button type="button" id="wtc_noTicketsToggle" style="background:none; border:none; padding:0; color:#b3261e; font-weight:600; cursor:pointer; font-size:13px;">No tickets were turned in?</button>
             <div id="wtc_noTicketsBody" style="display:none; margin-top:8px;">
               <p class="form-note" style="margin:0 0 6px;">This is a coaching conversation with the Captain. Closing the package without tickets needs the Administrator Override PIN and is flagged on the record for the owner.</p>
@@ -25074,6 +25084,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   async function loadManagerReviewData(){
     loadGoogleReviews();
+    loadMgrReviewWeightTickets();
     try{
       let items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
       const { kept, changed } = pruneOldManagerReviewItems(items);
@@ -25149,6 +25160,95 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const truckCount = managerReviewItems.filter(i => i.type === 'truck-condition' && !i.reviewedAt).length;
     document.getElementById('mgrreview_underbilledTabCount').textContent = underbilledCount > 0 ? `(${underbilledCount})` : '';
     document.getElementById('mgrreview_truckConditionsTabCount').textContent = truckCount > 0 ? `(${truckCount})` : '';
+  }
+
+  // ---- Weight Tickets: open Long Distance Moves ----
+  // Every Long Distance Move in the last 60 days whose work package isn't
+  // closed yet (no email sent, not marked Angry, no override), with where
+  // each of its two tickets stands. Tickets not yet attached to the
+  // package can be viewed here; once attached, the photos live in the
+  // package itself.
+  let wtrJobs = [];
+  async function loadMgrReviewWeightTickets(){
+    try{
+      const [archive, uploads, tickets] = await Promise.all([
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
+        window.dashboardApi.get('weight-tickets', [])
+      ]);
+      const cutoff = new Date(Date.now() - 60*24*60*60*1000).toISOString().slice(0,10);
+      const today = new Date().toLocaleDateString('en-CA');
+      const uploadsByJob = {};
+      (uploads || []).forEach(u => { if(u.jobNumber) (uploadsByJob[u.jobNumber] = uploadsByJob[u.jobNumber] || []).push(u); });
+      wtrJobs = (archive || [])
+        .filter(j => j.jobType === 'longdistance' && j.jobNumber && (j.assignmentDate || '') >= cutoff && (j.assignmentDate || '') <= today)
+        .map(j => {
+          const ups = uploadsByJob[j.jobNumber] || [];
+          const closed = ups.some(u => u.emailSentAt || u.satisfaction === 'angry' || u.weightTicketsWaived);
+          const forJob = (tickets || []).filter(t => t.jobNumber === j.jobNumber);
+          const upload = ups.find(u => u.invoiceUploadedAt) || ups[0] || null;
+          return {
+            job: j, closed, upload,
+            empty: forJob.find(t => t.kind === 'empty') || null,
+            full: forJob.find(t => t.kind === 'full') || null,
+            invoiced: ups.some(u => u.invoiceUploadedAt),
+            mergedWeights: upload && upload.weightTickets ? upload.weightTickets : null
+          };
+        })
+        .filter(r => !r.closed)
+        .sort((a, b) => (b.job.assignmentDate || '').localeCompare(a.job.assignmentDate || ''));
+    }catch(err){
+      console.error('Weight tickets review load failed:', err);
+      wtrJobs = [];
+    }
+    renderMgrReviewWeightTickets();
+  }
+
+  function renderMgrReviewWeightTickets(){
+    const list = document.getElementById('wtr_list');
+    const emptyNote = document.getElementById('wtr_emptyNote');
+    const missingCount = wtrJobs.filter(r => !(r.empty || (r.mergedWeights && r.mergedWeights.emptyWeight != null)) || !(r.full || (r.mergedWeights && r.mergedWeights.fullWeight != null))).length;
+    document.getElementById('mgrreview_weightTicketsTabCount').textContent = wtrJobs.length > 0 ? `(${missingCount > 0 ? missingCount + ' missing' : wtrJobs.length})` : '';
+    emptyNote.style.display = wtrJobs.length === 0 ? 'block' : 'none';
+    const lbs = n => Number(n || 0).toLocaleString() + ' lbs';
+    const today = new Date().toLocaleDateString('en-CA');
+    list.innerHTML = wtrJobs.map((r, idx) => {
+      const weight = kind => r[kind] ? r[kind].highestWeight : (r.mergedWeights ? r.mergedWeights[kind + 'Weight'] : null);
+      const e = weight('empty'), f = weight('full');
+      const complete = e != null && f != null;
+      const slot = (kind, label) => {
+        const t = r[kind]; const w = weight(kind);
+        return `<div style="flex:1; min-width:150px; border:1px solid ${w != null ? 'var(--brand-green)' : '#E3A008'}; background:${w != null ? '#f3faf4' : '#FFFBEA'}; border-radius:6px; padding:8px 10px;">
+          <div style="font-size:12px; color:var(--muted);">${label}</div>
+          <div style="font-weight:800; font-size:15px; color:${w != null ? 'var(--brand-green-dark)' : '#8a6d00'};">${w != null ? lbs(w) : 'Missing'}</div>
+          ${t ? `<div style="font-size:11.5px; color:var(--muted);">by ${t.uploadedBy === 'office' ? 'the office' : 'Captain'}${t.mergedAt ? ' \u00b7 attached to package' : ''}</div>` : ''}
+          ${t && !t.mergedAt ? `<button type="button" class="wtr-view" data-key="${mgrReviewEsc(t.photoKey)}" style="background:none; border:none; padding:0; margin-top:3px; color:var(--brand-green-dark); font-size:12px; cursor:pointer; text-decoration:underline;">View photo</button>` : ''}
+        </div>`;
+      };
+      return `<div style="border:1px solid ${complete ? 'var(--line)' : '#E3A008'}; border-left:5px solid ${complete ? 'var(--brand-green)' : '#E3A008'}; background:${complete ? '#fff' : '#FFFBEA'}; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;">
+          <strong style="font-size:15px;">Job ${mgrReviewEsc(r.job.jobNumber)}${r.job.clientName ? ' \u2014 ' + mgrReviewEsc(r.job.clientName) : ''}</strong>
+          <span style="font-size:12.5px; font-weight:700; color:${complete ? 'var(--brand-green-dark)' : '#8a6d00'};">${complete ? 'Load ' + lbs(Math.abs(f - e)) : 'Ticket missing'}</span>
+        </div>
+        <div style="font-size:12.5px; color:var(--charcoal); margin:3px 0 8px;">${r.job.assignmentDate === today ? 'Today' : window.fmtDate(r.job.assignmentDate)}${r.job.captainName ? ' &middot; Captain ' + mgrReviewEsc(r.job.captainName) : ''} &middot; ${r.invoiced ? 'invoice uploaded, not emailed yet' : 'invoice not uploaded yet'}</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">${slot('empty', 'Empty Truck')}${slot('full', 'Full Truck')}</div>
+        ${complete ? '' : `<button type="button" class="wtr-upload" data-idx="${idx}" style="margin-top:10px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Upload Paper Ticket</button>`}
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.wtr-view').forEach(b => b.addEventListener('click', async e => {
+      const key = e.currentTarget.dataset.key;
+      const win = window.open('', '_blank');
+      const photo = await window.dashboardApi.get(key, null);
+      if(!photo){ if(win) win.close(); alert('That photo is no longer available \u2014 it may have just been attached to the package.'); return; }
+      if(win) win.document.write(`<title>Weight ticket</title><body style="margin:0;background:#222;display:flex;justify-content:center"><img src="${photo}" style="max-width:100%;height:auto"></body>`);
+    }));
+    list.querySelectorAll('.wtr-upload').forEach(b => b.addEventListener('click', async e => {
+      const r = wtrJobs[Number(e.currentTarget.dataset.idx)];
+      if(!r) return;
+      const pseudoUpload = r.upload || { jobNumber: r.job.jobNumber, clientName: r.job.clientName || '' };
+      await openWeightTicketClosureModal(pseudoUpload, r.job, { empty: r.empty, full: r.full }, 'Done', true);
+      await loadMgrReviewWeightTickets();
+    }));
   }
 
   // ---- Current Jobs: materials pulled, not invoiced yet ----
@@ -25242,7 +25342,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
+    ['currentjobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
