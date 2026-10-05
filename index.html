@@ -6940,7 +6940,7 @@
         <div class="panel" id="set_damageClaimsPanel" data-collapsible="true">
           <h3>Damage Claims</h3>
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
-          <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim.</p>
+          <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim. Also available: <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{clientName}}</span>, <span class="mono">{{jobNumber}}</span>.</p>
           <div class="form-actions">
             <button class="btn-primary" id="appset_damageClaimsSaveBtn" type="button">Save</button>
             <span class="status-msg" id="appset_damageClaimsStatus"></span>
@@ -18735,11 +18735,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   // Matches parseEstimateSummary's exact expected phrasing (see buildPWBillOfLading)
   // so a corrected estimate flows into the printed BOL exactly like a normal one would.
-  function buildEstimateSummaryNarrative(hours, hourlyRate, crewSize, laborCost, totalCost, otherFees){
+  function buildEstimateSummaryNarrative(hours, hourlyRate, crewSize, laborCost, totalCost, otherFees, quoteParts){
     const feeClause = otherFees > 0 ? ` (including an estimated Truck and Travel Fee of ${pwBatchMoney(otherFees)})` : '';
+    // Packing/unpacking lines from the original quote, kept in HunkWare's
+    // own wording so the Bill of Lading itemizes them exactly as before.
+    const q = quoteParts || {};
+    const extras = []
+      .concat(q.packHours ? [`The client has requested packing services for ${q.packHours} hours at ${pwBatchMoney(q.packRate)} per hour.`] : [])
+      .concat(q.unpackHours ? [`The client has requested unpacking services for ${q.unpackHours} hours at ${pwBatchMoney(q.unpackRate)} per hour.`] : [])
+      .concat(q.packMaterialsCost ? [`The client has requested packing materials at ${pwBatchMoney(q.packMaterialsCost)}.`] : []);
     return `We have estimated the move to last ${hours} hours given the factors provided by the client.\n`
       + `The hourly rate for the franchise at the time of this booking is ${pwBatchMoney(hourlyRate)} per hour for ${crewSize} HUNKS\n`
       + `The cost for labor for this move is estimated at ${pwBatchMoney(laborCost)}.\n`
+      + extras.map(x => x + '\n').join('')
       + `The estimated total cost of this move is ${pwBatchMoney(totalCost)}${feeClause}.`;
   }
 
@@ -18881,10 +18889,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // whether the rate itself is genuine).
     recordObservedHourlyRate(quotedCrewSize, quotedHourlyRate, d.jobNumber);
     const quotedOtherFees = d.quotedOtherFees || 0;
-    const quoteGap = classifyQuoteGap(scheduledHours, quotedHours);
+    // Packing/unpacking are quoted as their own lines ("requested packing
+    // services for 7.5 hours at $X per hour", "requested packing materials
+    // at $Y"), separate from the moving hours -- and a work order's Job
+    // Time often covers packing AND moving. So the schedule is compared to
+    // the moving hours alone and to moving + packing; either matching means
+    // the quote already fits the schedule.
+    const quoteParts = parseEstimateSummary(d.estimateSummary || '');
+    const packHours = (quoteParts.packHours || 0) + (quoteParts.unpackHours || 0);
+    const packLaborCost = (quoteParts.packCost || 0) + (quoteParts.unpackCost || 0);
+    const packMaterialsCost = quoteParts.packMaterialsCost || 0;
+    const movingGap = classifyQuoteGap(scheduledHours, quotedHours);
+    const combinedGap = packHours > 0 ? classifyQuoteGap(scheduledHours, quotedHours + packHours) : movingGap;
+    const quoteGap = (movingGap === 'ok' || combinedGap === 'ok') ? 'ok' : movingGap;
     let estimateSummary = d.estimateSummary || '';
     let quoteResolution = 'original';
     let extrapolatedTotal = null;
+    let extrapolatedMovingHours = null;
     // A mismatch (quote found, but for different hours) or a missing quote
     // (the "estimated to last X hours" phrase specifically didn't match,
     // even though a rate and crew size were still found elsewhere in the
@@ -18892,10 +18913,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // a stale-duration or blank estimate in place. The admin can still
     // swap in a real corrected quote instead.
     if((quoteGap === 'mismatch' || quoteGap === 'missing') && quotedHourlyRate > 0 && quotedCrewSize > 0){
-      const { laborCost, totalCost } = computeExtrapolatedEstimate(scheduledHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees);
-      estimateSummary = buildEstimateSummaryNarrative(scheduledHours, quotedHourlyRate, quotedCrewSize, laborCost, totalCost, quotedOtherFees);
+      // Only the MOVING hours are re-estimated. Packing/unpacking keep
+      // their own quoted hours, rate and materials -- and if the schedule
+      // looks like it includes them, their hours come out of it first.
+      const movingHours = packHours > 0 && scheduledHours > packHours ? Math.round((scheduledHours - packHours) * 100) / 100 : scheduledHours;
+      const { laborCost } = computeExtrapolatedEstimate(movingHours, quotedHourlyRate, quotedCrewSize, 0);
+      const totalCost = laborCost + packLaborCost + packMaterialsCost + quotedOtherFees;
+      estimateSummary = buildEstimateSummaryNarrative(movingHours, quotedHourlyRate, quotedCrewSize, laborCost, totalCost, quotedOtherFees, quoteParts);
       quoteResolution = 'extrapolated';
       extrapolatedTotal = totalCost;
+      extrapolatedMovingHours = movingHours;
     }
     // If even the rate/crew size couldn't be read -- no usable quote data
     // of any kind was found on the work order -- there's nothing left to
@@ -18923,6 +18950,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       workOrderPages,
       scheduledHours, quotedHours, quotedHourlyRate, quotedCrewSize, quotedOtherFees,
       quoteGap, quoteResolution, extrapolatedTotal, needsManualQuote,
+      extrapolatedMovingHours, packHours, packLaborCost, packMaterialsCost,
       manualHours: scheduledHours || null, manualHourlyRate: null, manualTravelFee: null, manualCrewSize: null, manualRateSource: null,
       packingMaterials: Array.isArray(d.packingMaterials) ? d.packingMaterials : []
     };
@@ -19347,7 +19375,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       let quoteGapHtml = '';
       if(r.quoteGap === 'mismatch' || r.quoteGap === 'missing' || r.needsManualQuote){
         const resolvedNote = r.quoteResolution === 'extrapolated'
-          ? `<div style="margin-top:4px;">Using an extrapolated estimate instead \u2014 ${pwBatchMoney(r.extrapolatedTotal)} total for ${r.scheduledHours} hrs.</div>`
+          ? `<div style="margin-top:4px;">Using an extrapolated estimate instead \u2014 ${pwBatchMoney(r.extrapolatedTotal)} total for ${r.extrapolatedMovingHours ?? r.scheduledHours} moving hrs${r.packHours ? ` plus the quoted ${r.packHours} hrs of packing (${pwBatchMoney(r.packLaborCost)})` : ''}${r.packMaterialsCost ? ` and ${pwBatchMoney(r.packMaterialsCost)} of packing materials` : ''}.</div>`
           : r.quoteResolution === 'uploaded'
             ? `<div style="margin-top:4px; color:#00612C;">Using the uploaded corrected quote.</div>`
             : r.quoteResolution === 'manual'
@@ -24866,7 +24894,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const dc = window.appSettings.damageClaims || {};
     const link = `${location.origin}${location.pathname}#claim-${claim.token}`;
     const template = dc.emailBodyTemplate || 'Please upload photos of the damage here: {{link}}';
-    const body = mergeEmailTemplate(template, { link });
+    // Same merge fields the other client emails support. A name entered
+    // "Last, First" still gives the right first name.
+    const fullName = String(claim.clientName || '').trim();
+    const clientFirstName = (fullName.includes(',') ? fullName.split(',')[1] : fullName).trim().split(/\s+/)[0] || 'there';
+    const body = mergeEmailTemplate(template, { link, clientFirstName, clientName: fullName, jobNumber: claim.jobNumber || '' });
     const subject = `RE: Damage Claim ${claim.jobNumber}`;
     let clipboardOk = false;
     try{
