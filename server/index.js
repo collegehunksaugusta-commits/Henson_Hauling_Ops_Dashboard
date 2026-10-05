@@ -5151,8 +5151,10 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
       }
     }
 
-    async function runFile(pageBlocks, fileIndex){
-      if (pageBlocks.length === 0) return { fileIndex, documents: [] };
+    // One extraction call for a run of pages. Page indices in the reply
+    // are relative to this call, so they're shifted by `offset` back to
+    // the file's own page numbers.
+    async function extractPages(pageBlocks, fileIndex, offset, depth){
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -5162,7 +5164,10 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 4096,
+          // Every work order in the batch comes back in one reply, so a
+          // big day's batch needs room -- 4096 cut off around a dozen
+          // jobs and the whole reply came back empty.
+          max_tokens: 16000,
           tools: [EXTRACT_WORK_ORDER_TOOL],
           tool_choice: { type: 'tool', name: 'extract_work_orders' },
           messages: [{
@@ -5177,20 +5182,74 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
 
       if (!anthropicRes.ok) {
         const errBody = await anthropicRes.text().catch(() => '');
-        console.error(`Work order extraction file ${fileIndex} failed:`, anthropicRes.status, errBody);
+        console.error(`Work order extraction file ${fileIndex} (pages ${offset}-${offset + pageBlocks.length - 1}) failed:`, anthropicRes.status, errBody);
         let detail = '';
         try { detail = (JSON.parse(errBody).error || {}).message || ''; } catch (e) { detail = errBody.slice(0, 200); }
-        return { fileIndex, error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
+        return { error: `Extraction failed (HTTP ${anthropicRes.status})${detail ? ': ' + detail : ''}` };
       }
 
       const data = await anthropicRes.json();
+      // Still too much for one reply: read each half on its own instead
+      // of returning a cut-off (and usually empty) list.
+      if (data.stop_reason === 'max_tokens' && pageBlocks.length > 1 && depth < 4) {
+        const mid = Math.ceil(pageBlocks.length / 2);
+        console.log(`[work-orders] file ${fileIndex}: ${pageBlocks.length} pages too many for one reply \u2014 splitting into ${mid} + ${pageBlocks.length - mid}`);
+        const [a, b] = await Promise.all([
+          extractPages(pageBlocks.slice(0, mid), fileIndex, offset, depth + 1),
+          extractPages(pageBlocks.slice(mid), fileIndex, offset + mid, depth + 1)
+        ]);
+        if (a.error && b.error) return { error: a.error };
+        return { documents: [...(a.documents || []), ...(b.documents || [])], partial: !!(a.error || b.error) };
+      }
       const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_work_orders');
       if (!toolUseBlock) {
         console.error(`Work order extraction file ${fileIndex}: no tool_use block. stop_reason=`, data.stop_reason);
-        return { fileIndex, error: 'Could not read a structured response from the extraction service.' };
+        return { error: 'Could not read a structured response from the extraction service.' };
       }
-      const documents = Array.isArray(toolUseBlock.input.documents) ? toolUseBlock.input.documents : [];
-      return { fileIndex, documents };
+      if (data.stop_reason === 'max_tokens') {
+        console.error(`[work-orders] file ${fileIndex}: reply cut off on a single page (pages ${offset}-${offset + pageBlocks.length - 1}).`);
+      }
+      const documents = (Array.isArray(toolUseBlock.input.documents) ? toolUseBlock.input.documents : []).map(d => ({
+        ...d,
+        firstPageIndex: (Number(d.firstPageIndex) || 0) + offset,
+        lastPageIndex: (Number(d.lastPageIndex ?? d.firstPageIndex) || 0) + offset
+      }));
+      return { documents };
+    }
+
+    // A work order that straddled a split comes back as two pieces with
+    // the same job number -- put it back together as one, spanning both
+    // pieces' pages, keeping whichever piece read more of its details.
+    function mergeSplitWorkOrders(documents){
+      const filled = d => Object.values(d).filter(v => v !== '' && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)).length;
+      const byJob = new Map();
+      const out = [];
+      documents.forEach(d => {
+        const key = String(d.jobNumber || '').trim();
+        if (!key) { out.push(d); return; }
+        const prev = byJob.get(key);
+        if (!prev) { byJob.set(key, d); out.push(d); return; }
+        // Start from the piece that read more, then fill any detail it
+        // missed from the other piece.
+        const [main, other] = filled(d) > filled(prev) ? [d, prev] : [prev, d];
+        const isEmpty = v => v === '' || v === null || v === undefined || (Array.isArray(v) && v.length === 0);
+        const best = { ...main };
+        Object.keys(other).forEach(k => { if (isEmpty(best[k]) && !isEmpty(other[k])) best[k] = other[k]; });
+        best.firstPageIndex = Math.min(prev.firstPageIndex, d.firstPageIndex);
+        best.lastPageIndex = Math.max(prev.lastPageIndex, d.lastPageIndex);
+        out[out.indexOf(prev)] = best;
+        byJob.set(key, best);
+      });
+      return out.sort((x, y) => x.firstPageIndex - y.firstPageIndex);
+    }
+
+    async function runFile(pageBlocks, fileIndex){
+      if (pageBlocks.length === 0) return { fileIndex, documents: [] };
+      const result = await extractPages(pageBlocks, fileIndex, 0, 0);
+      if (result.error) return { fileIndex, error: result.error };
+      const documents = mergeSplitWorkOrders(result.documents);
+      console.log(`[work-orders] file ${fileIndex}: ${pageBlocks.length} pages \u2192 ${documents.length} work order(s)${result.partial ? ' (part of the file failed)' : ''}`);
+      return { fileIndex, documents, partial: result.partial };
     }
 
     const fileResults = await Promise.all(parsedFiles.map((blocks, i) => runFile(blocks, i)));
@@ -5198,7 +5257,10 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
     const fileErrors = [];
     fileResults.forEach(r => {
       if (r.error) fileErrors.push(r.error);
-      else r.documents.forEach(d => allDocuments.push({ ...d, fileIndex: r.fileIndex }));
+      else {
+        if (r.partial) fileErrors.push('Part of a file could not be read.');
+        r.documents.forEach(d => allDocuments.push({ ...d, fileIndex: r.fileIndex }));
+      }
     });
 
     if (allDocuments.length === 0 && fileErrors.length > 0) {
