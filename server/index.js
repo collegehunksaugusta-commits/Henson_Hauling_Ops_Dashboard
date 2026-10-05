@@ -183,13 +183,40 @@ app.post('/api/github-webhook', async (req, res) => {
 });
 
 // ============ Auth: user accounts (stored separately, never exposed via /api/data) ============
+// ======================================================================
+// LOCATION PROFILE -- everything that ties this server to one College
+// Hunks location. Each value can be set in Render (Environment) with the
+// LOCATION_* name shown; otherwise the default here is used. The matching
+// block for the dashboard is window.LOCATION_PROFILE at the top of
+// index.html.
+// ======================================================================
+const LOCATION = {
+  name: process.env.LOCATION_NAME || 'College Hunks Augusta',
+  // Name searched on Google Maps to find this location's listing, and the
+  // word the right Business Profile listing's title contains.
+  googleListingQuery: process.env.LOCATION_GOOGLE_LISTING_QUERY || 'College Hunks Hauling Junk and Moving Augusta',
+  googleListingMatch: process.env.LOCATION_GOOGLE_LISTING_MATCH || 'Augusta',
+  officeLat: Number(process.env.LOCATION_OFFICE_LAT) || 33.5506581,
+  officeLng: Number(process.env.LOCATION_OFFICE_LNG) || -82.1236477,
+  // Local time zone: decides what "today" is for weight tickets, Google
+  // review dates and similar.
+  timeZone: process.env.LOCATION_TIME_ZONE || 'America/New_York',
+  // First logins created on a brand-new install (owner as admin).
+  initialAdminEmail: process.env.LOCATION_INITIAL_ADMIN_EMAIL || 'aaron.henson@chhj.com',
+  initialUserEmails: (process.env.LOCATION_INITIAL_USER_EMAILS || 'administrative.assistantaug@chhj.com').split(',').map(e => e.trim()).filter(Boolean),
+  // Defaults offered until changed in Configuration.
+  googleReviewLink: process.env.LOCATION_GOOGLE_REVIEW_LINK || 'https://g.page/r/CTsnaSA6YbvlEBM/review',
+  completedPaperworkCc: process.env.LOCATION_COMPLETED_PAPERWORK_CC || 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com',
+  emailSignature: process.env.LOCATION_EMAIL_SIGNATURE || 'College Hunks Hauling Junk & Moving \u2013 Augusta'
+};
+
 const USERS_KEY = 'auth:users';
 const SESSION_PREFIX = 'auth:session:';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 const SEED_USERS = [
-  { email: 'aaron.henson@chhj.com', role: 'admin' },
-  { email: 'administrative.assistantaug@chhj.com', role: 'user' }
+  { email: LOCATION.initialAdminEmail, role: 'admin' },
+  ...LOCATION.initialUserEmails.map(email => ({ email, role: 'user' }))
 ];
 const TEMP_PASSWORD = 'Password123!';
 
@@ -2912,8 +2939,8 @@ const DEFAULT_APP_SETTINGS = {
     redfinAugusta: 'https://www.redfin.com/zipcode/30916/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12928+2:12930'
   },
   paperwork: {
-    completedPaperworkCc: 'administrative.assistantaug@chhj.com,aaron.henson@chhj.com',
-    googleReviewLink: 'https://g.page/r/CTsnaSA6YbvlEBM/review'
+    completedPaperworkCc: LOCATION.completedPaperworkCc,
+    googleReviewLink: LOCATION.googleReviewLink
   },
   materials: {
     supplierPhone: '',
@@ -2928,7 +2955,7 @@ const DEFAULT_APP_SETTINGS = {
   },
   hiring: {
     emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
-    emailBody: 'Hi {{firstName}},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n{{link}}\n\nIf you have any questions, just reach out.\n\nThanks,\nCollege Hunks Hauling Junk & Moving \u2013 Augusta',
+    emailBody: 'Hi {{firstName}},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n{{link}}\n\nIf you have any questions, just reach out.\n\nThanks,\n' + LOCATION.emailSignature,
     emailCc: ''
   },
   captainMetrics: {
@@ -3026,12 +3053,12 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
 // optional (looked up once by name and location, then remembered).
 const GOOGLE_REVIEWS_KEY = 'google-reviews';
 const GOOGLE_REVIEWS_META_KEY = 'google-reviews-meta';
-const GOOGLE_PLACES_QUERY = 'College Hunks Hauling Junk and Moving Augusta';
-const GOOGLE_PLACES_CENTER = { latitude: 33.5506581, longitude: -82.1236477 };
+const GOOGLE_PLACES_QUERY = LOCATION.googleListingQuery;
+const GOOGLE_PLACES_CENTER = { latitude: LOCATION.officeLat, longitude: LOCATION.officeLng };
 const GOOGLE_REVIEWS_POLL_MS = 60 * 60 * 1000;
 
 function easternDateFromMs(ms) {
-  return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  return new Date(ms).toLocaleDateString('en-CA', { timeZone: LOCATION.timeZone });
 }
 // Stable across both of Google's API formats (and across text edits), so
 // the same review is never stored twice.
@@ -3114,7 +3141,7 @@ async function fetchGoogleReviewsFromApi(apiKey, placeId) {
 // GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in Render, and
 // Google's approval of the project for Business Profile API access.
 // GBP_LOCATION_NAME (e.g. "locations/123...") is optional -- by default it
-// picks the listing whose name includes "Augusta".
+// picks the listing whose name includes LOCATION.googleListingMatch.
 const GBP_TOKEN_KEY = 'google-business-oauth';
 const GBP_OAUTH_STATE_PREFIX = 'auth:gbp-oauth-state:';
 const GBP_SCOPE = 'https://www.googleapis.com/auth/business.manage';
@@ -3172,7 +3199,7 @@ async function gbpResolveLocation(token, meta) {
     do {
       const d = await gbpGet(`https://mybusinessbusinessinformation.googleapis.com/v1/${acct.name}/locations?readMask=name,title,storefrontAddress&pageSize=100${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}`, token);
       for (const loc of (d.locations || [])) {
-        const hit = wanted ? loc.name === wanted : /augusta/i.test(loc.title || '');
+        const hit = wanted ? loc.name === wanted : (loc.title || '').toLowerCase().includes(LOCATION.googleListingMatch.toLowerCase());
         if (hit) {
           Object.assign(meta, { gbpAccount: acct.name, gbpLocation: loc.name, gbpLocationTitle: loc.title || '' });
           return { account: acct.name, location: loc.name };
@@ -6684,7 +6711,7 @@ app.get('/api/admin/storage-audit', requireAuth, async (req, res) => {
 });
 
 app.listen(PORT, async () => {
-  console.log(`Henson dashboard backend listening on port ${PORT}`);
+  console.log(`${LOCATION.name} dashboard backend listening on port ${PORT}`);
   console.log(process.env.LOB_API_KEY
     ? `LOB_API_KEY is set (starts with "${process.env.LOB_API_KEY.slice(0, 5)}...")`
     : 'LOB_API_KEY is NOT set \u2014 zip lookup will not work until it is added.');
