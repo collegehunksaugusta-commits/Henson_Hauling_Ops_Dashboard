@@ -539,6 +539,11 @@
       <button type="button" id="driverMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
 
+    <div class="portal-welcome" data-role="Captain" style="background:var(--brand-green); color:#fff; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
+      <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
+      <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Captain. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
+    </div>
+
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
         <h3 style="margin:0; font-size:15px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.03em;">Truck Locations</h3>
@@ -632,6 +637,11 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h2 class="display" style="margin:0; font-size:18px;">Wingman Tools</h2>
       <button type="button" id="wingmanMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+    </div>
+
+    <div class="portal-welcome" data-role="Wingman" style="background:var(--brand-green); color:#fff; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
+      <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
+      <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Wingman. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px;">
@@ -1330,6 +1340,25 @@
       if(el) el.style.display = 'none';
     });
   }
+  // "Welcome, Charlie!" at the top of Driver Tools / Wingman Tools, so
+  // whoever's holding the phone sees right away whose account it is.
+  // Payroll names come as "Last, First M"; shown as "Charlie Breed".
+  function fillPortalWelcome(){
+    const raw = String(currentDriverName || '').trim();
+    let first = raw, full = raw;
+    if(raw.includes(',')){
+      const [last, rest] = raw.split(',').map(x => x.trim());
+      const firstWords = rest.split(/\s+/).filter(Boolean);
+      first = firstWords[0] || last;
+      full = [firstWords[0], last].filter(Boolean).join(' ');
+    } else {
+      first = raw.split(/\s+/)[0] || raw;
+    }
+    document.querySelectorAll('.portal-welcome-first').forEach(el => el.textContent = first || 'there');
+    document.querySelectorAll('.portal-welcome-full').forEach(el => el.textContent = full || 'unknown');
+  }
+  document.querySelectorAll('.portal-welcome-logout').forEach(btn => btn.addEventListener('click', () => driverLogout()));
+
   function driverGoHome(){
     if(driverRole === 'wingman') showWingmanMenu();
     else showDriverMenu();
@@ -1381,6 +1410,7 @@
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'block';
     hideWingmanViews();
+    fillPortalWelcome();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -2406,6 +2436,7 @@
     eodMode = 'full';
     showOnlyDriverGateView('wingmanMenuView');
     copyWingmanLinks();
+    fillPortalWelcome();
     const flash = document.getElementById('wingmanTasksFlash');
     flash.textContent = flashMsg || '';
     flash.className = flashMsg ? 'status-msg ok' : 'status-msg';
