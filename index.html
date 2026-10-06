@@ -10046,7 +10046,7 @@
       const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
 
       const reviewBonusRate = Number(commission.reviewBonusPerReview) || 0;
-      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations] = await Promise.all([
+      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations, damageClaimsForPay] = await Promise.all([
         window.getCurrentEmployeeRoster(),
         window.dashboardApi.get('square-tip-allocations', {allocations:{}, overrides:{}}),
         window.dashboardApi.get(EXTRA_PAY_MANUAL_KEY, {}),
@@ -10055,7 +10055,8 @@
         window.dashboardApi.get('paperwork-uploads', []),
         window.dashboardApi.get('manager-review-items', []),
         window.dashboardApi.get('compliance-drivers', []),
-        window.dashboardApi.get('google-review-allocations', {})
+        window.dashboardApi.get('google-review-allocations', {}),
+        window.dashboardApi.get('damage-claims', [])
       ]);
       extraPayManualData = manualData || {};
       const allocations = (tipsData && tipsData.allocations) || {};
@@ -10112,17 +10113,30 @@
         const reviewBonusCalc = {};
         Object.keys(reviewCounts).forEach(name => { reviewBonusCalc[name] = reviewCounts[name] * reviewBonusRate; });
         const names = dedupeAndSortNames([...(roster || []), ...Object.keys(tipTotals), ...Object.keys(reviewCounts)]);
+        // Damage claims whose Total Cost was entered this week come off the
+        // job's Captain's commission -- the last step, never below $0.
+        const damageByName = {};
+        (damageClaimsForPay || []).forEach(c => {
+          const cost = Number(c.totalCost) || 0;
+          if(!(cost > 0) || !c.costRecordedAt || !c.costCaptainName) return;
+          if(c.costRecordedAt < week.weekStart || c.costRecordedAt > week.weekEnd) return;
+          const match = names.find(n => nameDedupKey(n) === nameDedupKey(c.costCaptainName));
+          if(!match) return;
+          const e = damageByName[match] = damageByName[match] || { total: 0, claims: [] };
+          e.total += cost; e.claims.push(`Job ${c.jobNumber}: ${extraPayMoney(cost)}`);
+        });
         return {
-          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc,
+          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName,
           adpUploaded: adpUploadedWeeks.has(weekStart),
           hasManualData: !!extraPayManualData[weekStart],
           hasAnyTips: Object.keys(tipTotals).length > 0,
-          hasAnyReviews: Object.keys(reviewCounts).length > 0
+          hasAnyReviews: Object.keys(reviewCounts).length > 0,
+          hasAnyDamage: Object.keys(damageByName).length > 0
         };
       // Skip a purely-empty older week with nothing going on at all -- no
       // point showing a blank $0 table for a week no one ever touched,
       // except the current week, which always shows regardless.
-      }).filter(w => w.weekStart === currentWeekStart || w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews);
+      }).filter(w => w.weekStart === currentWeekStart || w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews || w.hasAnyDamage);
       weeksDataRaw.forEach(w => { w.inProgress = w.weekStart === currentWeekStart; });
 
       // Default expanded unless ADP's already been uploaded for that week
@@ -10238,21 +10252,30 @@
     const reviewBonus = Number(row.querySelector('.extraPay-reviewBonus').value) || 0;
     const commission = Number(row.querySelector('.extraPay-commission').value) || 0;
     const misc = Number(row.querySelector('.extraPay-misc').value) || 0;
-    const total = tips + reviewBonus + commission + misc;
+    // Damage claims come off commission last, and only up to the
+    // commission itself -- never a negative amount.
+    const damageOwed = Number(row.dataset.damage) || 0;
+    const damage = Math.min(damageOwed, Math.max(0, commission));
+    const damageCell = row.querySelector('.extraPay-damage');
+    damageCell.innerHTML = damageOwed > 0
+      ? `\u2212${extraPayMoney(damage)}${damage < damageOwed ? `<div style="font-size:10.5px; font-weight:400;">of ${extraPayMoney(damageOwed)}</div>` : ''}`
+      : '<span style="color:var(--muted); font-weight:400;">\u2014</span>';
+    const total = tips + reviewBonus + commission - damage + misc;
     row.querySelector('.extraPay-total').textContent = extraPayMoney(total);
-    return { tips, reviewBonus, commission, misc, total };
+    return { tips, reviewBonus, commission, damage, misc, total };
   }
 
   function extraPayRecalcWeekTotals(weekPanel){
     const rows = weekPanel.querySelectorAll('.extraPay-employee-row');
-    const sums = { tips: 0, reviewBonus: 0, commission: 0, misc: 0, total: 0 };
+    const sums = { tips: 0, reviewBonus: 0, commission: 0, damage: 0, misc: 0, total: 0 };
     rows.forEach(row => {
       const r = extraPayRecalcRow(row);
-      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.misc += r.misc; sums.total += r.total;
+      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.damage += r.damage; sums.misc += r.misc; sums.total += r.total;
     });
     weekPanel.querySelector('.extraPay-totalTips').textContent = extraPayMoney(sums.tips);
     weekPanel.querySelector('.extraPay-totalReviewBonus').textContent = extraPayMoney(sums.reviewBonus);
     weekPanel.querySelector('.extraPay-totalCommission').textContent = extraPayMoney(sums.commission);
+    weekPanel.querySelector('.extraPay-totalDamage').textContent = sums.damage > 0 ? '\u2212' + extraPayMoney(sums.damage) : '';
     weekPanel.querySelector('.extraPay-totalMisc').textContent = extraPayMoney(sums.misc);
     weekPanel.querySelector('.extraPay-totalGrand').textContent = extraPayMoney(sums.total);
   }
@@ -10278,11 +10301,13 @@
       const reviewBonusValue = reviewIsAuto ? reviewAuto : (Number(reviewManual) || 0);
       const reviewBonusStyle = reviewIsAuto ? `${inputStyle} background:#e8f5e9;` : inputStyle;
       const reviewBonusTitle = reviewCount > 0 ? ` title="${reviewCount} Google review${reviewCount === 1 ? '' : 's'} credited${reviewIsAuto ? ' -- auto-filled; edit and save to override' : ''}"` : '';
-      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}">
+      const damage = (w.damageByName && w.damageByName[name]) || null;
+      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}" data-damage="${damage ? damage.total : 0}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}></td>
+        <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
@@ -10304,6 +10329,7 @@
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Tips</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Review Bonus</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Commission</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this Captain ran -- taken off Commission, up to all of it">Damage Claim</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
           </tr></thead>
@@ -10314,6 +10340,7 @@
               <td class="extraPay-totalTips" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalReviewBonus" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalCommission" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+              <td class="extraPay-totalDamage" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line); color:#b3261e;"></td>
               <td class="extraPay-totalMisc" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalGrand" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
             </tr>
@@ -24289,6 +24316,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // The Captain on a claim's job, from the job records.
+  let dcArchiveCache = null;
+  async function dcCaptainForJob(jobNumber){
+    try{
+      if(!dcArchiveCache) dcArchiveCache = await window.dashboardApi.get('paperwork-job-archive', []) || [];
+      const job = dcArchiveCache.find(j => String(j.jobNumber) === String(jobNumber));
+      return (job && job.captainName) || '';
+    }catch(err){ return ''; }
+  }
+  function dcDeductionNote(c){
+    if(!(Number(c.totalCost) > 0)) return '';
+    if(!c.costRecordedAt) return '<div style="font-size:11px; color:var(--muted); margin-top:3px; max-width:200px;">Entered before commission deductions began \u2014 not deducted</div>';
+    const d = new Date(c.costRecordedAt + 'T00:00:00'); const dow = d.getDay();
+    const mon = new Date(d); mon.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+    const monStr = `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
+    return c.costCaptainName
+      ? `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:200px;">Comes off ${dcEsc(c.costCaptainName)}\u2019s commission, week of ${window.fmtDate(monStr)}</div>`
+      : '<div style="font-size:11px; color:#8a6d00; margin-top:3px; max-width:200px;">No Captain on file for this job \u2014 not deducted</div>';
+  }
+
   async function saveDamageClaims(){
     try{ return await window.dashboardApi.set(DAMAGE_CLAIMS_KEY, damageClaims); }
     catch(err){ console.error('Damage claims save failed:', err); return false; }
@@ -24863,9 +24910,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <option value="no_damage_found"${c.resolution==='no_damage_found'?' selected':''}>No Damage Found</option>
               </select>
             </label>
-            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Total Cost
+            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;" title="Comes off the job's Captain's commission the week it's entered (up to that week's whole commission)">Total Cost
               <input type="number" class="dc-total-cost" data-id="${c.id}" min="0" step="0.01" placeholder="0.00" value="${c.totalCost || c.totalCost === 0 ? c.totalCost : ''}" style="display:block; margin-top:3px; width:90px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
-            </label>
+            ${dcDeductionNote(c)}</label>
             <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
           </div>
         </div>
@@ -24911,7 +24958,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!claim) return;
       const val = e.currentTarget.value.trim();
       claim.totalCost = val === '' ? null : Math.max(0, Number(val) || 0);
+      // A claim's Total Cost comes off the job's Captain's commission, in
+      // the week the cost is first entered (Extra Pay). Clearing it undoes
+      // that; changing the amount keeps the original week.
+      if(claim.totalCost > 0){
+        if(!claim.costRecordedAt) claim.costRecordedAt = new Date().toLocaleDateString('en-CA');
+        if(!claim.costCaptainName) claim.costCaptainName = await dcCaptainForJob(claim.jobNumber);
+      } else {
+        delete claim.costRecordedAt;
+        delete claim.costCaptainName;
+      }
       await saveDamageClaims();
+      renderDamageClaimsList();
     }));
 
     rowsEl.querySelectorAll('.dc-view-photos').forEach(btn => btn.addEventListener('click', async (e)=>{
