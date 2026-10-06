@@ -5624,7 +5624,7 @@
     <div class="tab-scroll" style="gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
       <button type="button" class="mgrreview-tab-btn" data-tab="currentjobs" id="mgrreview_tab_currentjobs" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Current Jobs <span id="mgrreview_currentJobsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="weighttickets" id="mgrreview_tab_weighttickets" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Weight Tickets <span id="mgrreview_weightTicketsTabCount" style="color:#8a6d00; font-weight:800;"></span></button>
-      <button type="button" class="mgrreview-tab-btn" data-tab="jobs" id="mgrreview_tab_jobs" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Job Reassignment</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="jobs" id="mgrreview_tab_jobs" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Job Reassignment <span id="mgrreview_jobsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
@@ -5649,6 +5649,7 @@
 
     <div class="panel" id="mgrreview_panel_jobs" style="display:none;">
       <h3>Job Reassignment</h3>
+      <p class="form-note"><strong style="color:#b3261e;">Red</strong> = the job has a damage claim that&rsquo;s still Pending, or was resolved in the last 7 days. Those jobs always show here, whatever the date range, and are counted on this tab.</p>
       <p class="form-note">Reassign a job&rsquo;s Captain at any time &mdash; before the job, mid-day, or after. A change here updates everywhere that job&rsquo;s Captain is used: Captain Metrics and Pre-Trip/End of Day credit, the Driver Portal&rsquo;s job lists and weight tickets, the Junk Removal list, completed paperwork, move damage reports, and damage claims (so any claim cost comes off the right Captain&rsquo;s commission).</p>
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
         <label style="margin:0; font-size:12.5px;">Show <select id="jc_range" style="font-size:13px; padding:6px;">
@@ -25518,6 +25519,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   async function loadManagerReviewData(){
     loadGoogleReviews();
+    loadJobsAndCaptains();
     loadMgrReviewWeightTickets();
     try{
       let items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
@@ -25610,16 +25612,29 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // together. Each reassignment is logged on the job.
   let jcJobs = [];
   let jcRoster = [];
+  let jcClaimsByJob = {};   // job number -> claims that are pending or resolved in the last 7 days
+  const jcMoney = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const JC_RESOLUTION_LABELS = { repaired: 'Repaired', replaced: 'Replaced', reimbursed: 'Reimbursed', denied: 'Denied', no_damage_found: 'No Damage Found' };
   const JC_TYPE_LABELS = { move: 'Move', movelabor: 'Move Labor', longdistance: 'Long Distance Move', junk: 'Junk Removal', junkremoval: 'Junk Removal' };
 
   async function loadJobsAndCaptains(){
     try{
-      const [archive, roster] = await Promise.all([
+      const [archive, roster, claims] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
-        window.getCurrentEmployeeRoster().catch(() => [])
+        window.getCurrentEmployeeRoster().catch(() => []),
+        window.dashboardApi.get('damage-claims', [])
       ]);
       jcJobs = archive || [];
       jcRoster = roster || [];
+      // Claims needing attention: still Pending, or resolved within 7 days.
+      const weekAgo = new Date(Date.now() - 7 * 864e5).toLocaleDateString('en-CA');
+      jcClaimsByJob = {};
+      (claims || []).forEach(c => {
+        if(!c.jobNumber) return;
+        const pending = (c.resolution || 'pending') === 'pending';
+        if(!pending && !(c.resolvedDate && c.resolvedDate >= weekAgo)) return;
+        (jcClaimsByJob[String(c.jobNumber)] = jcClaimsByJob[String(c.jobNumber)] || []).push(c);
+      });
     }catch(err){
       console.error('Jobs & Captains load failed:', err);
       jcJobs = [];
@@ -25635,17 +25650,24 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const daysBack = range === 'today' ? 0 : (range === 'month' ? 30 : 7);
     const from = new Date(Date.now() - daysBack * 864e5).toLocaleDateString('en-CA');
     const to = range === 'today' ? today : '9999-12-31';
+    const flagged = j => !!jcClaimsByJob[String(j.jobNumber)];
+    const tabCount = jcJobs.filter(j => j.jobNumber && flagged(j)).length;
+    document.getElementById('mgrreview_jobsTabCount').textContent = tabCount > 0 ? `(${tabCount})` : '';
     const rows = jcJobs
-      .filter(j => j.jobNumber && (j.assignmentDate || '') >= from && (j.assignmentDate || '') <= to)
+      .filter(j => j.jobNumber && (flagged(j) || ((j.assignmentDate || '') >= from && (j.assignmentDate || '') <= to)))
       .filter(j => !q || [j.jobNumber, j.clientName, j.captainName].some(v => String(v || '').toLowerCase().includes(q)))
-      .sort((a, b) => (b.assignmentDate || '').localeCompare(a.assignmentDate || '') || String(a.jobNumber).localeCompare(String(b.jobNumber)));
+      .sort((a, b) => (flagged(b) - flagged(a)) || (b.assignmentDate || '').localeCompare(a.assignmentDate || '') || String(a.jobNumber).localeCompare(String(b.jobNumber)));
     document.getElementById('jc_emptyNote').style.display = rows.length ? 'none' : 'block';
     tbody.innerHTML = rows.map(j => {
       const names = j.captainName && !jcRoster.includes(j.captainName) ? [j.captainName, ...jcRoster] : jcRoster;
       const last = (j.captainHistory || []).slice(-1)[0];
-      return `<tr style="vertical-align:top;">
+      const claims = jcClaimsByJob[String(j.jobNumber)] || [];
+      const claimNote = claims.map(c => (c.resolution || 'pending') === 'pending'
+        ? `Damage claim pending${Number(c.totalCost) > 0 ? ' \u2014 ' + jcMoney(c.totalCost) : ''}`
+        : `Damage claim ${JC_RESOLUTION_LABELS[c.resolution] || 'resolved'} ${window.fmtDate(c.resolvedDate)}${Number(c.totalCost) > 0 ? ' \u2014 ' + jcMoney(c.totalCost) : ''}`).join('<br>');
+      return `<tr style="vertical-align:top; ${claims.length ? 'background:#fdecea; box-shadow:inset 4px 0 0 #b3261e;' : ''}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${j.assignmentDate === today ? '<strong>Today</strong>' : window.fmtDate(j.assignmentDate)}</td>
-        <td style="padding:6px 4px; border-bottom:1px solid var(--line);"><strong>${mgrReviewEsc(j.jobNumber)}</strong>${j.clientName ? ' \u2014 ' + mgrReviewEsc(j.clientName) : ''}</td>
+        <td style="padding:6px 4px 6px 8px; border-bottom:1px solid var(--line);"><strong>${mgrReviewEsc(j.jobNumber)}</strong>${j.clientName ? ' \u2014 ' + mgrReviewEsc(j.clientName) : ''}${claimNote ? `<div style="font-size:11.5px; color:#b3261e; font-weight:600; margin-top:2px;">\u26a0 ${claimNote}</div>` : ''}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(JC_TYPE_LABELS[j.jobType] || j.jobType || '')}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">
           <select class="jc-captain" data-job="${mgrReviewEsc(j.jobNumber)}" style="font-size:13px; padding:5px; ${j.captainName ? '' : 'border:1px solid #E3A008; background:#FFFBEA;'}">
