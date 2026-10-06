@@ -5628,7 +5628,7 @@
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
-      <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving <span id="mgrreview_movingTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="greviews" id="mgrreview_tab_greviews" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Google Reviews <span id="mgrreview_greviewsTabCount"></span></button>
     </div>
 
@@ -5808,6 +5808,7 @@
     <div class="panel" id="mgrreview_panel_moving" style="display:none;">
       <h3>Moving</h3>
       <p class="form-note">Pre-existing and crew-caused damage photos drivers document for Move and Move Labor jobs. Photos are kept for 92 days, then removed automatically (except any already pulled into a live Damage Claim).</p>
+      <p class="form-note"><strong style="color:#b3261e;">Red</strong> = the crew uploaded photos of damage they caused. Each one stays flagged (and counts on the Manager Review tile) until a manager marks it reviewed &mdash; and flags again if more crew-caused photos come in afterward.</p>
       <div id="mv_jobRows"></div>
       <p class="form-note" id="mv_emptyNote" style="display:none;">No moving damage reports yet.</p>
     </div>
@@ -22692,6 +22693,45 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // Still called independently from the Materials load flow (see below) --
   // Captain Metrics' own tile no longer computes truck issues at all,
   // since that category doesn't exist in the current 5-category scoring.
+  // Crew-caused damage: every Move job whose crew uploaded photos of damage
+  // they caused gets a "needs review" item, so it lights up the Manager
+  // Review tile until a manager marks it reviewed. If more crew-caused
+  // photos are added after it was reviewed, it's flagged again. An
+  // unreviewed flag whose photos are gone (removed after 92 days) is
+  // dropped.
+  async function syncCrewDamageToManagerReview(reports){
+    try{
+      let reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
+      const byJob = new Map(reviewItems.filter(i => i.type === 'crew-damage').map(i => [i.jobNumber, i]));
+      const withDamage = new Set();
+      let changed = false;
+      (reports || []).forEach(r => {
+        const n = (r.causedPhotoKeys || []).length;
+        if(!r.jobNumber || n === 0) return;
+        withDamage.add(r.jobNumber);
+        const item = byJob.get(r.jobNumber);
+        if(!item){
+          reviewItems.push({
+            id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + r.jobNumber,
+            type: 'crew-damage', createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, outcome: null,
+            jobNumber: r.jobNumber, clientName: r.clientName || '', captainName: r.captainName || '', jobType: r.jobType || '',
+            photoCount: n, causedNotes: r.causedNotes || ''
+          });
+          changed = true;
+          return;
+        }
+        if(item.photoCount !== n){ item.photoCount = n; item.causedNotes = r.causedNotes || ''; changed = true; }
+        if(item.reviewedAt && n > (item.photoCountAtReview || 0)){
+          item.reviewedAt = null; item.reopenedAt = new Date().toISOString(); changed = true;
+        }
+      });
+      const before = reviewItems.length;
+      reviewItems = reviewItems.filter(i => !(i.type === 'crew-damage' && !i.reviewedAt && !withDamage.has(i.jobNumber)));
+      if(reviewItems.length !== before) changed = true;
+      if(changed) await window.dashboardApi.set('manager-review-items', reviewItems);
+    }catch(err){ console.error('Crew damage sync to Manager Review failed:', err); }
+  }
+
   async function syncTruckConditionsToManagerReview(flagged){
     try{
       let reviewItems = await window.dashboardApi.get('manager-review-items', []) || [];
@@ -24622,18 +24662,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     emptyNote.style.display = 'none';
 
-    const jobTypeLabels = { move: 'Move', movelabor: 'Move Labor' };
-    const sorted = [...movingReports].sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
+    const jobTypeLabels = { move: 'Move', movelabor: 'Move Labor', longdistance: 'Long Distance Move' };
+    const damageItem = job => (typeof managerReviewItems !== 'undefined' ? managerReviewItems : []).find(i => i.type === 'crew-damage' && i.jobNumber === job);
+    // Jobs still needing review first, then newest activity.
+    const sorted = [...movingReports].sort((a,b) => {
+      const oa = (damageItem(a.jobNumber) && !damageItem(a.jobNumber).reviewedAt) ? 0 : 1;
+      const ob = (damageItem(b.jobNumber) && !damageItem(b.jobNumber).reviewedAt) ? 0 : 1;
+      return oa - ob || (b.updatedAt||'').localeCompare(a.updatedAt||'');
+    });
     rowsEl.innerHTML = sorted.map(r => {
       const hasAny = (r.preExistingPhotoKeys && r.preExistingPhotoKeys.length) || (r.causedPhotoKeys && r.causedPhotoKeys.length);
+      const causedCount = (r.causedPhotoKeys || []).length;
+      const item = damageItem(r.jobNumber);
+      const open = causedCount > 0 && (!item || !item.reviewedAt);
       const preStatus = r.preExistingSubmittedAt
         ? `<span style="color:var(--brand-green-dark);">Pre-Existing \u2713</span>`
         : `<span style="color:var(--muted);">Pre-Existing \u2014 not submitted</span>`;
-      const causedStatus = r.causedSubmittedAt
-        ? `<span style="color:var(--brand-green-dark);">Crew-Caused \u2713</span>`
-        : `<span style="color:var(--muted);">Crew-Caused \u2014 not submitted</span>`;
+      // Crew-caused damage is never shown as a green check.
+      const causedStatus = causedCount > 0
+        ? `<span style="color:#b3261e; font-weight:700;">\u26a0 Crew-Caused Damage \u2014 ${causedCount} photo${causedCount === 1 ? '' : 's'}</span>`
+        : (r.causedSubmittedAt ? `<span style="color:var(--brand-green-dark);">Crew-Caused \u2014 none reported</span>` : `<span style="color:var(--muted);">Crew-Caused \u2014 not submitted</span>`);
+      const reviewHtml = causedCount === 0 ? '' : (open
+        ? `<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <select class="mv-review-outcome" data-job="${mvEsc(r.jobNumber)}" style="font-size:12.5px; padding:5px;">
+              <option value="">Outcome\u2026</option>
+              <option>Damage claim opened</option>
+              <option>Customer contacted \u2014 resolved</option>
+              <option>Crew coached</option>
+              <option>No action needed</option>
+            </select>
+            <input type="text" class="mv-review-note" data-job="${mvEsc(r.jobNumber)}" placeholder="Note (optional)" style="font-size:12.5px; padding:5px; min-width:180px;">
+            <button type="button" class="mv-review-btn" data-job="${mvEsc(r.jobNumber)}" style="background:#b3261e; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:600; cursor:pointer;">Mark Reviewed</button>
+            ${item && item.reopenedAt ? `<span style="font-size:11.5px; color:#b3261e;">More photos added after it was reviewed</span>` : ''}
+          </div>`
+        : `<div style="margin-top:8px; font-size:12px; color:var(--muted);">Reviewed ${item.reviewedAt ? window.fmtDate(item.reviewedAt.slice(0,10)) : ''}${item.reviewedBy ? ' by ' + mvEsc(item.reviewedBy) : ''}${item.outcome ? ' \u2014 ' + mvEsc(item.outcome) : ''}${item.note ? ': ' + mvEsc(item.note) : ''}</div>`);
       return `
-      <div data-job="${mvEsc(r.jobNumber)}" style="padding:14px 0; border-bottom:1px solid var(--line);">
+      <div data-job="${mvEsc(r.jobNumber)}" style="padding:14px ${open ? '12px' : '0'}; border-bottom:1px solid var(--line); ${open ? 'background:#fdecea; border-left:5px solid #b3261e; border-radius:6px; margin-bottom:6px;' : (causedCount > 0 ? 'border-left:5px solid #f1b5b0; padding-left:12px;' : '')}">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
           <div>
             <div style="font-weight:700; font-size:14px;">${mvEsc(r.jobNumber)} ${r.clientName ? '\u2014 ' + mvEsc(r.clientName) : ''}</div>
@@ -24641,11 +24705,30 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
           <div style="font-size:11.5px; text-align:right;">${preStatus}<br>${causedStatus}</div>
         </div>
+        ${reviewHtml}
         ${hasAny ? `<div style="margin-top:10px;"><button type="button" class="mv-view-detail" data-job="${mvEsc(r.jobNumber)}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">View Photos</button></div>` : ''}
       </div>`;
     }).join('');
 
     rowsEl.querySelectorAll('.mv-view-detail').forEach(btn => btn.addEventListener('click', (e)=> viewMovingDetail(e.target.dataset.job)));
+    rowsEl.querySelectorAll('.mv-review-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const job = e.target.dataset.job;
+      const outcome = rowsEl.querySelector(`.mv-review-outcome[data-job="${CSS.escape(job)}"]`).value;
+      const note = rowsEl.querySelector(`.mv-review-note[data-job="${CSS.escape(job)}"]`).value.trim();
+      if(!outcome){ alert('Pick an outcome first.'); return; }
+      const report = movingReports.find(r => r.jobNumber === job);
+      e.target.disabled = true;
+      try{
+        const items = await window.dashboardApi.get('manager-review-items', []) || [];
+        const item = items.find(i => i.type === 'crew-damage' && i.jobNumber === job);
+        if(!item){ e.target.disabled = false; alert('Couldn\u2019t find that flag \u2014 reopen Manager Review and try again.'); return; }
+        Object.assign(item, { reviewedAt: new Date().toISOString(), reviewedBy: localStorage.getItem('henson_auth_email') || '', outcome, note,
+          photoCountAtReview: ((report && report.causedPhotoKeys) || []).length });
+        await window.dashboardApi.set('manager-review-items', items);
+        managerReviewItems = items;
+        renderMgrReviewTabCounts(); updateManagerReviewTileBadge(); renderMovingReports();
+      }catch(err){ console.error('Mark crew damage reviewed failed:', err); e.target.disabled = false; alert('Could not save \u2014 check your connection.'); }
+    }));
   }
 
   async function viewMovingDetail(jobNumber){
@@ -25337,13 +25420,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // session -- all three syncs are idempotent upserts.
       await window.ensureAppSettingsLoaded();
       const travelLineCheckStartDate = (window.appSettings.captainMetrics || {}).travelLineCheckStartDate || '';
-      const [matItemsRaw, matCheckoutsRaw, uploadsRaw, archiveRaw, eodRaw, checkinRaw] = await Promise.all([
+      const [matItemsRaw, matCheckoutsRaw, uploadsRaw, archiveRaw, eodRaw, checkinRaw, movingRaw] = await Promise.all([
         window.dashboardApi.get(MATERIALS_ITEMS_KEY, []),
         window.dashboardApi.get(MATERIALS_CHECKOUTS_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
         window.dashboardApi.get('compliance-eod-inspections', []),
-        window.dashboardApi.get('materials-checkins', [])
+        window.dashboardApi.get('materials-checkins', []),
+        window.dashboardApi.get(MOVING_DAMAGE_REPORTS_KEY, [])
       ]);
       materialsItems = matItemsRaw || [];
       materialsCheckouts = matCheckoutsRaw || [];
@@ -25359,6 +25443,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         .filter(e => e.visionStatus === 'issues_found' && Array.isArray(e.visionIssues) && e.visionIssues.length > 0);
       await syncTruckConditionsToManagerReview(flaggedTruckIssues);
 
+      await syncCrewDamageToManagerReview(movingRaw || []);
+
       // Re-read once more since all three syncs above may have just
       // changed what's actually stored.
       items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
@@ -25368,6 +25454,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderMgrReviewTabCounts();
       renderMgrReviewUnderbilled();
       renderMgrReviewTruckConditions();
+      movingReports = movingRaw || movingReports;
+      renderMovingReports();
       updateManagerReviewTileBadge();
       if(mgrReviewCurrentTab === 'ccard') loadMgrReviewSquareTransactions();
     }catch(err){
@@ -25397,6 +25485,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const truckCount = managerReviewItems.filter(i => i.type === 'truck-condition' && !i.reviewedAt).length;
     document.getElementById('mgrreview_underbilledTabCount').textContent = underbilledCount > 0 ? `(${underbilledCount})` : '';
     document.getElementById('mgrreview_truckConditionsTabCount').textContent = truckCount > 0 ? `(${truckCount})` : '';
+    const crewDamageCount = managerReviewItems.filter(i => i.type === 'crew-damage' && !i.reviewedAt).length;
+    document.getElementById('mgrreview_movingTabCount').textContent = crewDamageCount > 0 ? `(${crewDamageCount})` : '';
   }
 
   // ---- Weight Tickets: open Long Distance Moves ----
