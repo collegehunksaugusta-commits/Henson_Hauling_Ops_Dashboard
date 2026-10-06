@@ -253,6 +253,11 @@ const WINGMAN_AUTH_LOOKUP_KEY = 'wingman-auth-lookup';
 const WINGMAN_SESSION_PREFIX = 'auth:wingman-session:';
 const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 16; // 16 hours -- a work shift
 
+// Last 4 of SSN for manually added employees, by name. Deliberately NOT an
+// /api/data key -- it can only be written or cleared through the admin
+// endpoints below, and the digits are never sent back to the dashboard.
+const MANUAL_SSN_KEY = 'roster-manual-ssn';
+
 async function rebuildDriverAuthLookup() {
   try {
     const [weeksRaw, driversRaw] = await Promise.all([
@@ -282,6 +287,31 @@ async function rebuildDriverAuthLookup() {
       if (activeDriverNames.has(e.name)) lookup[e.ssnLast4] = e.name;
       else wingmanLookup[e.ssnLast4] = e.name;
     });
+    // Manually added employees (Roster Additions -- brand-new hires not on
+    // a payroll report yet) with a last-4 entered get access too, as long
+    // as payroll doesn't already have them and the digits aren't already
+    // someone else's. Once they appear on payroll, payroll takes over and
+    // their manual entry is dropped (see the roster reconciliation).
+    try {
+      const [manualRaw, manualSsnRaw] = await Promise.all([redis.get('roster-manual-additions'), redis.get(MANUAL_SSN_KEY)]);
+      const manualNames = manualRaw ? JSON.parse(manualRaw) : [];
+      const manualSsn = manualSsnRaw ? JSON.parse(manualSsnRaw) : {};
+      const onManualList = new Set(manualNames.map(n => nameDedupKey(n)));
+      const onPayroll = new Set(employees.filter(e => e && e.name).map(e => nameDedupKey(e.name)));
+      let pruned = false;
+      Object.keys(manualSsn).forEach(name => {
+        // Removed from the list, or now on payroll: forget the manual digits.
+        if (!onManualList.has(nameDedupKey(name)) || onPayroll.has(nameDedupKey(name))) { delete manualSsn[name]; pruned = true; return; }
+        const last4 = manualSsn[name];
+        if (!/^\d{4}$/.test(last4) || lookup[last4] || wingmanLookup[last4]) return;
+        const isDriver = [...activeDriverNames].some(d => nameDedupKey(d) === nameDedupKey(name));
+        if (isDriver) lookup[last4] = name; else wingmanLookup[last4] = name;
+      });
+      if (pruned) await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
+    } catch (err) {
+      console.error('Manual employee access step failed:', err.message);
+    }
+
     // TEMPORARY diagnostic logging -- names and counts only, never SSN
     // digits -- to pinpoint exactly where a specific person's access is
     // coming from. Safe to remove once the current issue is resolved.
@@ -295,6 +325,62 @@ async function rebuildDriverAuthLookup() {
     console.error('Driver auth lookup rebuild failed:', err.message);
   }
 }
+
+// ---- App access for manually added employees ----
+// Which manually added names have a last-4 on file (names only, never digits).
+app.get('/api/admin/manual-employee-access', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const raw = await redis.get(MANUAL_SSN_KEY);
+    res.json({ names: Object.keys(raw ? JSON.parse(raw) : {}) });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not load.' });
+  }
+});
+
+app.post('/api/admin/manual-employee-access', requireAuth, requireAdmin, async (req, res) => {
+  const name = String((req.body && req.body.name) || '').trim();
+  const last4 = String((req.body && req.body.last4) || '').trim();
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  if (!/^\d{4}$/.test(last4)) return res.status(400).json({ error: 'Enter exactly 4 digits.' });
+  try {
+    const [manualRaw, ssnRaw, weeksRaw] = await Promise.all([redis.get('roster-manual-additions'), redis.get(MANUAL_SSN_KEY), redis.get('labor-weeks')]);
+    const manualNames = manualRaw ? JSON.parse(manualRaw) : [];
+    const listed = manualNames.find(n => nameDedupKey(n) === nameDedupKey(name));
+    if (!listed) return res.status(400).json({ error: 'Add the name to Roster Additions first.' });
+    const manualSsn = ssnRaw ? JSON.parse(ssnRaw) : {};
+    // The same 4 digits can only sign in one person.
+    const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
+    const recent = weeks.slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || '')).slice(0, 2).flatMap(w => w.employees || []);
+    const payrollHolder = recent.find(e => e && e.ssnLast4 === last4 && nameDedupKey(e.name || '') !== nameDedupKey(listed));
+    const manualHolder = Object.keys(manualSsn).find(n => manualSsn[n] === last4 && nameDedupKey(n) !== nameDedupKey(listed));
+    if (payrollHolder || manualHolder) {
+      return res.status(409).json({ error: `Those 4 digits already belong to ${payrollHolder ? payrollHolder.name : manualHolder} \u2014 double-check them.` });
+    }
+    Object.keys(manualSsn).forEach(n => { if (nameDedupKey(n) === nameDedupKey(listed)) delete manualSsn[n]; });
+    manualSsn[listed] = last4;
+    await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
+    await rebuildDriverAuthLookup();
+    console.log(`[manual-employee-access] app access set for ${listed}`);
+    res.json({ ok: true, name: listed });
+  } catch (err) {
+    console.error('Manual employee access save failed:', err.message);
+    res.status(500).json({ error: 'Could not save.' });
+  }
+});
+
+app.delete('/api/admin/manual-employee-access', requireAuth, requireAdmin, async (req, res) => {
+  const name = String((req.body && req.body.name) || '').trim();
+  try {
+    const raw = await redis.get(MANUAL_SSN_KEY);
+    const manualSsn = raw ? JSON.parse(raw) : {};
+    Object.keys(manualSsn).forEach(n => { if (nameDedupKey(n) === nameDedupKey(name)) delete manualSsn[n]; });
+    await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
+    await rebuildDriverAuthLookup();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not remove.' });
+  }
+});
 
 async function ensureUsersSeeded() {
   try {
@@ -6488,7 +6574,7 @@ app.put('/api/data/:key', requireAuth, async (req, res) => {
   if (!(await checkAdminWriteOnlyKey(req, res, key))) return;
   try {
     await redis.set(key, JSON.stringify(req.body.value));
-    if (key === 'labor-weeks' || key === 'compliance-drivers') {
+    if (key === 'labor-weeks' || key === 'compliance-drivers' || key === 'roster-manual-additions') {
       await rebuildDriverAuthLookup();
     }
     res.json({ key, ok: true });
@@ -6505,7 +6591,7 @@ app.delete('/api/data/:key', requireAuth, async (req, res) => {
   if (!(await checkAdminWriteOnlyKey(req, res, key))) return;
   try {
     await redis.del(key);
-    if (key === 'labor-weeks' || key === 'compliance-drivers') {
+    if (key === 'labor-weeks' || key === 'compliance-drivers' || key === 'roster-manual-additions') {
       await rebuildDriverAuthLookup();
     }
     res.json({ key, ok: true });
