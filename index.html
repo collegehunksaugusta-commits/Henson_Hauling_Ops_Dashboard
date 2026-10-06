@@ -5624,6 +5624,7 @@
     <div class="tab-scroll" style="gap:0; margin-bottom:16px; border-bottom:1px solid var(--line);">
       <button type="button" class="mgrreview-tab-btn" data-tab="currentjobs" id="mgrreview_tab_currentjobs" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Current Jobs <span id="mgrreview_currentJobsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="weighttickets" id="mgrreview_tab_weighttickets" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Weight Tickets <span id="mgrreview_weightTicketsTabCount" style="color:#8a6d00; font-weight:800;"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="jobs" id="mgrreview_tab_jobs" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Job Reassignment</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
@@ -5644,6 +5645,30 @@
       <p class="form-note">Long Distance Moves from the last 60 days whose work package hasn&rsquo;t been closed yet (emailed to the client, or marked Angry). Yellow means a ticket is still missing. Once a package is closed, it drops off this list.</p>
       <div id="wtr_list"></div>
       <p class="form-note" id="wtr_emptyNote" style="display:none;">No open Long Distance Moves right now.</p>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_jobs" style="display:none;">
+      <h3>Job Reassignment</h3>
+      <p class="form-note">Reassign a job&rsquo;s Captain at any time &mdash; before the job, mid-day, or after. A change here updates everywhere that job&rsquo;s Captain is used: Captain Metrics and Pre-Trip/End of Day credit, the Driver Portal&rsquo;s job lists and weight tickets, the Junk Removal list, completed paperwork, move damage reports, and damage claims (so any claim cost comes off the right Captain&rsquo;s commission).</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
+        <label style="margin:0; font-size:12.5px;">Show <select id="jc_range" style="font-size:13px; padding:6px;">
+          <option value="today">Today</option>
+          <option value="week" selected>Last 7 days &amp; upcoming</option>
+          <option value="month">Last 30 days &amp; upcoming</option>
+        </select></label>
+        <label style="margin:0; font-size:12.5px;">Search <input type="text" id="jc_search" placeholder="Job #, client or Captain" style="font-size:13px; padding:6px;"></label>
+        <span class="status-msg" id="jc_status"></span>
+      </div>
+      <div style="overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Job</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Type</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Captain</th>
+        </tr></thead>
+        <tbody id="jc_rows"></tbody>
+      </table></div>
+      <p class="form-note" id="jc_emptyNote" style="display:none;">No jobs in this range.</p>
     </div>
 
     <div class="panel" id="mgrreview_panel_ccard">
@@ -19427,11 +19452,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           const jobs = await window.dashboardApi.get(JUNK_REMOVAL_JOBS_KEY, []);
           const j = (jobs || []).find(x => x.id === id);
           if(!j) return;
+          const from = j.captainName || '';
           j.captainName = e.target.value;
           j.updatedAt = new Date().toISOString();
           await window.dashboardApi.set(JUNK_REMOVAL_JOBS_KEY, jobs);
           const localJob = pwBatchJunkRemoval.find(x => x.id === id);
           if(localJob) localJob.captainName = e.target.value;
+          // Previously only the junk list changed, so Captain Metrics could
+          // still credit the original Captain -- now the job record and
+          // everything else follow too.
+          if(j.jobNumber && window.reassignJobCaptain) await window.reassignJobCaptain(j.jobNumber, from, e.target.value);
         }catch(err){ console.error('Could not save Captain assignment:', err); }
       });
     });
@@ -24325,6 +24355,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return (job && job.captainName) || '';
     }catch(err){ return ''; }
   }
+  // Same lookup, for drawing the list (the job records are loaded with it).
+  function dcCaptainForJobSync(jobNumber){
+    const job = (dcArchiveCache || []).find(j => String(j.jobNumber) === String(jobNumber));
+    return (job && job.captainName) || '';
+  }
   function dcDeductionNote(c){
     if(!(Number(c.totalCost) > 0)) return '';
     if(!c.costRecordedAt) return '<div style="font-size:11px; color:var(--muted); margin-top:3px; max-width:200px;">Entered before commission deductions began \u2014 not deducted</div>';
@@ -24429,6 +24464,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   async function loadDamageClaimsData(){
+    try{ dcArchiveCache = await window.dashboardApi.get('paperwork-job-archive', []) || []; }catch(err){ dcArchiveCache = dcArchiveCache || []; }
     try{
       damageClaims = await window.dashboardApi.get(DAMAGE_CLAIMS_KEY, []) || [];
       if(await pruneOldDamageClaims()) await saveDamageClaims();
@@ -24898,6 +24934,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <div>
             <div style="font-weight:700; font-size:14px;">${dcEsc(c.jobNumber)} ${c.clientName ? '\u2014 ' + dcEsc(c.clientName) : ''}</div>
             <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${dcEsc(c.clientEmail)}</div>
+            <div style="font-size:12.5px; margin-top:2px;">${(() => { const cap = c.costCaptainName || dcCaptainForJobSync(c.jobNumber); return cap ? `Captain: <strong>${dcEsc(cap)}</strong>` : '<span style="color:#8a6d00;">Captain: not on file for this job</span>'; })()}</div>
           </div>
           <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
             <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Resolution
@@ -24909,6 +24946,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <option value="denied"${c.resolution==='denied'?' selected':''}>Denied</option>
                 <option value="no_damage_found"${c.resolution==='no_damage_found'?' selected':''}>No Damage Found</option>
               </select>
+            </label>
+            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;" title="Filled in automatically when the Resolution moves off Pending; can be changed">Resolved On
+              ${(c.resolution || 'pending') === 'pending'
+                ? '<div style="margin-top:6px; font-size:12.5px; text-transform:none; letter-spacing:0; font-family:inherit;">\u2014 open</div>'
+                : `<input type="date" class="dc-resolved-date" data-id="${c.id}" value="${c.resolvedDate || ''}" style="display:block; margin-top:3px; font-size:12.5px; padding:3px 5px; border:1px solid ${c.resolvedDate ? 'var(--line)' : '#E3A008'}; border-radius:4px;">`}
             </label>
             <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;" title="Comes off the job's Captain's commission the week it's entered (up to that week's whole commission)">Total Cost
               <input type="number" class="dc-total-cost" data-id="${c.id}" min="0" step="0.01" placeholder="0.00" value="${c.totalCost || c.totalCost === 0 ? c.totalCost : ''}" style="display:block; margin-top:3px; width:90px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
@@ -24949,8 +24991,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     rowsEl.querySelectorAll('.dc-resolution').forEach(sel => sel.addEventListener('change', async (e)=>{
       const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
       if(!claim) return;
+      const prev = claim.resolution || 'pending';
       claim.resolution = e.currentTarget.value;
+      // Pending is the open state. Moving off it records today as the date
+      // of final resolution (editable); going back to Pending clears it.
+      if(claim.resolution === 'pending') delete claim.resolvedDate;
+      else if(prev === 'pending' || !claim.resolvedDate) claim.resolvedDate = new Date().toLocaleDateString('en-CA');
       await saveDamageClaims();
+      renderDamageClaimsList();
+    }));
+
+    rowsEl.querySelectorAll('.dc-resolved-date').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      if(!claim) return;
+      claim.resolvedDate = e.currentTarget.value || null;
+      await saveDamageClaims();
+      renderDamageClaimsList();
     }));
 
     rowsEl.querySelectorAll('.dc-total-cost').forEach(inp => inp.addEventListener('change', async (e)=>{
@@ -25547,6 +25603,122 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('mgrreview_movingTabCount').textContent = crewDamageCount > 0 ? `(${crewDamageCount})` : '';
   }
 
+  // ---- Jobs & Captains: reassign a job's Captain ----
+  // The job record (paperwork-job-archive) is what Captain Metrics, the
+  // Driver Portal and most checks read; the other stores below each keep
+  // their own copy of the Captain for that job, so all are updated
+  // together. Each reassignment is logged on the job.
+  let jcJobs = [];
+  let jcRoster = [];
+  const JC_TYPE_LABELS = { move: 'Move', movelabor: 'Move Labor', longdistance: 'Long Distance Move', junk: 'Junk Removal', junkremoval: 'Junk Removal' };
+
+  async function loadJobsAndCaptains(){
+    try{
+      const [archive, roster] = await Promise.all([
+        window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
+        window.getCurrentEmployeeRoster().catch(() => [])
+      ]);
+      jcJobs = archive || [];
+      jcRoster = roster || [];
+    }catch(err){
+      console.error('Jobs & Captains load failed:', err);
+      jcJobs = [];
+    }
+    renderJobsAndCaptains();
+  }
+
+  function renderJobsAndCaptains(){
+    const tbody = document.getElementById('jc_rows');
+    const range = document.getElementById('jc_range').value;
+    const q = document.getElementById('jc_search').value.trim().toLowerCase();
+    const today = new Date().toLocaleDateString('en-CA');
+    const daysBack = range === 'today' ? 0 : (range === 'month' ? 30 : 7);
+    const from = new Date(Date.now() - daysBack * 864e5).toLocaleDateString('en-CA');
+    const to = range === 'today' ? today : '9999-12-31';
+    const rows = jcJobs
+      .filter(j => j.jobNumber && (j.assignmentDate || '') >= from && (j.assignmentDate || '') <= to)
+      .filter(j => !q || [j.jobNumber, j.clientName, j.captainName].some(v => String(v || '').toLowerCase().includes(q)))
+      .sort((a, b) => (b.assignmentDate || '').localeCompare(a.assignmentDate || '') || String(a.jobNumber).localeCompare(String(b.jobNumber)));
+    document.getElementById('jc_emptyNote').style.display = rows.length ? 'none' : 'block';
+    tbody.innerHTML = rows.map(j => {
+      const names = j.captainName && !jcRoster.includes(j.captainName) ? [j.captainName, ...jcRoster] : jcRoster;
+      const last = (j.captainHistory || []).slice(-1)[0];
+      return `<tr style="vertical-align:top;">
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${j.assignmentDate === today ? '<strong>Today</strong>' : window.fmtDate(j.assignmentDate)}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);"><strong>${mgrReviewEsc(j.jobNumber)}</strong>${j.clientName ? ' \u2014 ' + mgrReviewEsc(j.clientName) : ''}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(JC_TYPE_LABELS[j.jobType] || j.jobType || '')}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">
+          <select class="jc-captain" data-job="${mgrReviewEsc(j.jobNumber)}" style="font-size:13px; padding:5px; ${j.captainName ? '' : 'border:1px solid #E3A008; background:#FFFBEA;'}">
+            <option value="">${j.captainName ? '(no Captain)' : 'Select Captain\u2026'}</option>
+            ${names.map(n => `<option value="${mgrReviewEsc(n)}" ${n === j.captainName ? 'selected' : ''}>${mgrReviewEsc(n)}</option>`).join('')}
+          </select>
+          ${last ? `<div style="font-size:11px; color:var(--muted); margin-top:3px;">Reassigned from ${mgrReviewEsc(last.from || 'nobody')} ${window.fmtDate((last.at || '').slice(0,10))}</div>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+    tbody.querySelectorAll('.jc-captain').forEach(sel => sel.addEventListener('change', async (e)=>{
+      const jobNumber = e.target.dataset.job;
+      const job = jcJobs.find(j => String(j.jobNumber) === String(jobNumber));
+      const from = (job && job.captainName) || '';
+      const to = e.target.value;
+      if(from === to) return;
+      if(from && !confirm(`Reassign job ${jobNumber} from ${from} to ${to || 'no Captain'}?`)){ e.target.value = from; return; }
+      e.target.disabled = true;
+      const r = await reassignJobCaptain(jobNumber, from, to);
+      e.target.disabled = false;
+      const st = document.getElementById('jc_status');
+      st.textContent = r.ok ? `Job ${jobNumber} is now ${to || 'unassigned'}${r.updated.length ? ' \u2014 also updated: ' + r.updated.join(', ') : ''}.` : (r.error || 'Could not save.');
+      st.className = r.ok ? 'status-msg ok' : 'status-msg err';
+      await loadJobsAndCaptains();
+    }));
+  }
+  document.getElementById('jc_range').addEventListener('change', renderJobsAndCaptains);
+  document.getElementById('jc_search').addEventListener('input', renderJobsAndCaptains);
+
+  async function reassignJobCaptain(jobNumber, from, to){
+    const same = v => String(v) === String(jobNumber);
+    const updated = [];
+    try{
+      // 1. The job record itself, with a log of the change.
+      const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []) || [];
+      const rec = archive.find(a => same(a.jobNumber));
+      if(!rec) return { ok: false, error: 'That job isn\u2019t on file anymore.' };
+      rec.captainName = to;
+      rec.captainHistory = (rec.captainHistory || []).concat([{ from, to, at: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || '' }]);
+      if(!(await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive))) return { ok: false, error: 'Could not save \u2014 check your connection.' };
+
+      // 2. Every other place that keeps its own copy of this job's Captain.
+      const copies = [
+        { key: JUNK_REMOVAL_JOBS_KEY, label: 'Junk Removal list', field: 'captainName' },
+        { key: PAPERWORK_UPLOADS_KEY, label: 'completed paperwork', field: 'captainName' },
+        { key: 'moving-damage-reports', label: 'move damage report', field: 'captainName' },
+        { key: 'damage-claims', label: 'damage claim', field: 'costCaptainName', only: c => Number(c.totalCost) > 0 && c.costRecordedAt },
+        { key: 'weight-tickets', label: 'weight tickets', field: 'captainName' },
+        { key: MANAGER_REVIEW_ITEMS_KEY, label: 'Manager Review flags', field: 'captainName', only: i => 'captainName' in i }
+      ];
+      for(const c of copies){
+        try{
+          const list = await window.dashboardApi.get(c.key, null);
+          if(!Array.isArray(list)) continue;
+          let changed = false;
+          list.forEach(item => {
+            if(!same(item.jobNumber) || (c.only && !c.only(item)) || item[c.field] === to) return;
+            item[c.field] = to; changed = true;
+          });
+          if(changed && await window.dashboardApi.set(c.key, list)) updated.push(c.label);
+        }catch(err){ console.error('Captain copy update failed:', c.key, err); }
+      }
+      // Keep anything already open on screen in step.
+      if(typeof pwBatchJunkRemoval !== 'undefined') pwBatchJunkRemoval.forEach(j => { if(same(j.jobNumber)) j.captainName = to; });
+      if(typeof paperworkUploads !== 'undefined') paperworkUploads.forEach(u => { if(same(u.jobNumber)) u.captainName = to; });
+      return { ok: true, updated };
+    }catch(err){
+      console.error('Reassign failed:', err);
+      return { ok: false, error: 'Could not reach the server \u2014 check your connection.' };
+    }
+  }
+  window.reassignJobCaptain = reassignJobCaptain;
+
   // ---- Weight Tickets: open Long Distance Moves ----
   // Every Long Distance Move in the last 60 days whose work package isn't
   // closed yet (no email sent, not marked Angry, no override), with where
@@ -25727,7 +25899,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
+    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -25738,6 +25910,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     });
     if(tab === 'ccard' && mgrReviewSquareTransactions === null) loadMgrReviewSquareTransactions();
     if(tab === 'greviews') loadGoogleReviews();
+    if(tab === 'jobs') loadJobsAndCaptains();
   }
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
