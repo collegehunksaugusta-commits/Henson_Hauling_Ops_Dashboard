@@ -94,7 +94,7 @@ const ALLOWED_KEYS = new Set([
   'hiring-reveal-log',
   'ops-manager-metrics-monthly-locks'
 ]);
-const ALLOWED_KEY_PREFIXES = ['weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
+const ALLOWED_KEY_PREFIXES = ['outreach-list-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -3042,6 +3042,203 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
     console.error('Save app settings failed:', err.message);
     res.status(500).json({ error: 'Could not save settings.' });
   }
+});
+
+// ============ Map locations for Marketing outreach lists ============
+// Finds the map location of each outreach-list address (apartments,
+// storage, retirement homes, ...) so the route planner can include it.
+// Uses this location's own Google Places key; up to 25 addresses a call.
+app.post('/api/admin/geocode', requireAuth, async (req, res) => {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'Map lookups need a Google Places API key (GOOGLE_PLACES_API_KEY in Render).' });
+  const addresses = Array.isArray(req.body && req.body.addresses) ? req.body.addresses.slice(0, 25) : [];
+  if (addresses.length === 0) return res.status(400).json({ error: 'No addresses to look up.' });
+  const results = await Promise.all(addresses.map(async (address) => {
+    const text = String(address || '').trim().slice(0, 300);
+    if (!text) return { address, error: 'blank' };
+    try {
+      const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.location,places.formattedAddress' },
+        body: JSON.stringify({ textQuery: text, maxResultCount: 1 })
+      });
+      const d = await r.json();
+      if (!r.ok) return { address, error: (d.error && d.error.message) || `HTTP ${r.status}` };
+      const place = (d.places || [])[0];
+      if (!place || !place.location) return { address, error: 'not found' };
+      return { address, lat: place.location.latitude, lng: place.location.longitude, formattedAddress: place.formattedAddress || '' };
+    } catch (err) {
+      return { address, error: err.message };
+    }
+  }));
+  res.json({ results });
+});
+
+// ============ Build an outreach list from a map search ============
+// "Build List" on a Marketing outreach list: finds every place of that kind
+// within the location's search area. Claude turns the list's name
+// ("Retirement Homes") into the search phrases Google understands best;
+// Google searches the whole circle -- splitting it into smaller squares
+// wherever one search hits Google's 60-result cap -- and Claude then drops
+// anything that isn't really that kind of place. Without a Claude key it
+// still works, searching just the list's name and keeping every match.
+// Runs in the background; the page polls for progress.
+const OUTREACH_SEARCH_JOBS = new Map();
+const OUTREACH_MAX_GOOGLE_CALLS = 160;      // per list build -- a cost ceiling
+const OUTREACH_PLACE_FIELDS = 'places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.types,places.nationalPhoneNumber,places.websiteUri,places.businessStatus,nextPageToken';
+
+async function outreachClaudeTool(prompt, tool) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 4096, tools: [tool], tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!r.ok) { console.error('[outreach-search] Claude call failed:', r.status, (await r.text().catch(() => '')).slice(0, 300)); return null; }
+  const d = await r.json();
+  const block = (d.content || []).find(b => b.type === 'tool_use');
+  return block ? block.input : null;
+}
+
+function outreachMilesBetween(a, b) {
+  const R = 3958.8, toRad = x => x * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function outreachAddressParts(place) {
+  const comps = place.addressComponents || [];
+  const get = (type, short) => { const c = comps.find(x => (x.types || []).includes(type)); return c ? (short ? c.shortText : c.longText) || '' : ''; };
+  const street = [get('street_number'), get('route')].filter(Boolean).join(' ');
+  const city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
+  const out = { address: street, city, state: get('administrative_area_level_1', true), zip: get('postal_code') };
+  if (!out.address && place.formattedAddress) out.address = String(place.formattedAddress).split(',')[0].trim();
+  return out;
+}
+
+async function runOutreachSearch(jobId, params) {
+  const job = OUTREACH_SEARCH_JOBS.get(jobId);
+  const set = (step) => { job.step = step; job.updatedAt = Date.now(); };
+  try {
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    const { listName, noun, center, radiusMiles } = params;
+
+    // 1. Search phrases
+    set('Choosing search phrases\u2026');
+    let phrases = [listName];
+    const phraseOut = await outreachClaudeTool(
+      `A moving and junk-removal company wants to build a marketing list of "${listName}" near its office (one entry is a "${noun}"). Give up to 5 short Google Maps search phrases that together would find every such place. Include the list's own name if it works as a search. No city names.`,
+      { name: 'search_phrases', description: 'Google Maps search phrases.', input_schema: { type: 'object', properties: { phrases: { type: 'array', items: { type: 'string' }, maxItems: 5 } }, required: ['phrases'] } }
+    );
+    if (phraseOut && Array.isArray(phraseOut.phrases) && phraseOut.phrases.length) {
+      phrases = [...new Set(phraseOut.phrases.map(p => String(p).trim()).filter(Boolean))].slice(0, 5);
+      job.aiUsed = true;
+    }
+    job.phrases = phrases;
+
+    // 2. Google search across the whole circle
+    const latSpan = radiusMiles / 69, lngSpan = radiusMiles / (69 * Math.cos(center.lat * Math.PI / 180));
+    const root = { low: { latitude: center.lat - latSpan, longitude: center.lng - lngSpan }, high: { latitude: center.lat + latSpan, longitude: center.lng + lngSpan } };
+    const found = new Map();
+    let calls = 0, capped = false;
+    async function searchRect(phrase, rect, depth) {
+      let pageToken = '', count = 0, pages = 0;
+      do {
+        if (calls >= OUTREACH_MAX_GOOGLE_CALLS) { capped = true; return; }
+        calls++;
+        const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': OUTREACH_PLACE_FIELDS },
+          body: JSON.stringify({ textQuery: phrase, pageSize: 20, locationRestriction: { rectangle: rect }, ...(pageToken ? { pageToken } : {}) })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error((d.error && d.error.message) || `Google search failed (HTTP ${r.status})`);
+        (d.places || []).forEach(p => { if (!found.has(p.id)) found.set(p.id, p); });
+        count += (d.places || []).length;
+        pageToken = d.nextPageToken || '';
+        pages++;
+        set(`Searching \u201c${phrase}\u201d \u2014 ${found.size} found so far\u2026`);
+        if (pageToken) await new Promise(res => setTimeout(res, 300));
+      } while (pageToken && pages < 3);
+      // Google returns at most 60 per search -- a full 60 means there may be
+      // more, so search each quarter of this square separately.
+      if (count >= 60 && depth < 3) {
+        const midLat = (rect.low.latitude + rect.high.latitude) / 2, midLng = (rect.low.longitude + rect.high.longitude) / 2;
+        const quads = [
+          { low: rect.low, high: { latitude: midLat, longitude: midLng } },
+          { low: { latitude: rect.low.latitude, longitude: midLng }, high: { latitude: midLat, longitude: rect.high.longitude } },
+          { low: { latitude: midLat, longitude: rect.low.longitude }, high: { latitude: rect.high.latitude, longitude: midLng } },
+          { low: { latitude: midLat, longitude: midLng }, high: rect.high }
+        ];
+        for (const q of quads) await searchRect(phrase, q, depth + 1);
+      }
+    }
+    for (const phrase of phrases) await searchRect(phrase, root, 0);
+    job.googleCalls = calls;
+    job.capped = capped;
+
+    // Inside the circle (the squares reach past it at the corners), and still open.
+    let candidates = [...found.values()].filter(p => p.location && p.businessStatus !== 'CLOSED_PERMANENTLY')
+      .map(p => ({ p, miles: outreachMilesBetween(center, { lat: p.location.latitude, lng: p.location.longitude }) }))
+      .filter(x => x.miles <= radiusMiles);
+
+    // 3. Drop what isn't really this kind of place
+    if (process.env.ANTHROPIC_API_KEY && candidates.length) {
+      set(`Checking ${candidates.length} results\u2026`);
+      const keep = new Set();
+      for (let i = 0; i < candidates.length; i += 80) {
+        const batch = candidates.slice(i, i + 80);
+        const out = await outreachClaudeTool(
+          `A moving and junk-removal company is building a marketing list of "${listName}". For each Google Maps result below, decide whether it truly is one of "${listName}" (a "${noun}") -- not a related but different business (for example a home health agency, a supplier, a corporate office, or a funeral home when the list is retirement homes). Return the numbers of the ones that belong.\n\n` +
+          batch.map((x, k) => `${k + 1}. ${(x.p.displayName && x.p.displayName.text) || ''} | ${(x.p.types || []).slice(0, 5).join(', ')} | ${x.p.formattedAddress || ''}`).join('\n'),
+          { name: 'keep_results', description: 'Which results belong on the list.', input_schema: { type: 'object', properties: { keep: { type: 'array', items: { type: 'integer' } } }, required: ['keep'] } }
+        );
+        if (out && Array.isArray(out.keep)) out.keep.forEach(n => { const x = batch[Number(n) - 1]; if (x) keep.add(x.p.id); });
+        else batch.forEach(x => keep.add(x.p.id));   // couldn't check -- keep them rather than lose them
+      }
+      job.removedByAi = candidates.length - keep.size;
+      candidates = candidates.filter(x => keep.has(x.p.id));
+    }
+
+    job.results = candidates.sort((a, b) => a.miles - b.miles).map(({ p, miles }) => ({
+      placeId: p.id,
+      name: (p.displayName && p.displayName.text) || '',
+      ...outreachAddressParts(p),
+      phone: p.nationalPhoneNumber || '',
+      website: p.websiteUri || '',
+      lat: p.location.latitude, lng: p.location.longitude,
+      miles: Math.round(miles * 10) / 10
+    }));
+    job.status = 'done';
+    set(`Found ${job.results.length}.`);
+    console.log(`[outreach-search] "${listName}" within ${radiusMiles} mi: ${job.results.length} kept, ${job.removedByAi || 0} removed by AI, ${calls} Google calls, phrases: ${phrases.join(' | ')}`);
+  } catch (err) {
+    console.error('[outreach-search] failed:', err.message);
+    job.status = 'error';
+    job.error = err.message;
+  }
+}
+
+app.post('/api/admin/outreach/search', requireAuth, async (req, res) => {
+  if (!process.env.GOOGLE_PLACES_API_KEY) return res.status(400).json({ error: 'Building a list needs a Google Places API key (GOOGLE_PLACES_API_KEY in Render).' });
+  const { listName, noun, center, radiusMiles } = req.body || {};
+  const radius = Number(radiusMiles);
+  if (!listName || !center || typeof center.lat !== 'number' || typeof center.lng !== 'number') return res.status(400).json({ error: 'Set the office address in Configuration \u2192 Marketing \u2192 Search Area first.' });
+  if (!(radius > 0 && radius <= 60)) return res.status(400).json({ error: 'The search distance must be between 1 and 60 miles.' });
+  // Forget finished jobs after 30 minutes.
+  for (const [id, j] of OUTREACH_SEARCH_JOBS) if (Date.now() - j.updatedAt > 30 * 60 * 1000) OUTREACH_SEARCH_JOBS.delete(id);
+  const jobId = crypto.randomBytes(8).toString('hex');
+  OUTREACH_SEARCH_JOBS.set(jobId, { status: 'running', step: 'Starting\u2026', updatedAt: Date.now(), aiAvailable: !!process.env.ANTHROPIC_API_KEY });
+  runOutreachSearch(jobId, { listName: String(listName).slice(0, 80), noun: String(noun || 'place').slice(0, 40), center, radiusMiles: radius });
+  res.json({ jobId, aiAvailable: !!process.env.ANTHROPIC_API_KEY });
+});
+
+app.get('/api/admin/outreach/search/:id', requireAuth, (req, res) => {
+  const job = OUTREACH_SEARCH_JOBS.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'That search has expired \u2014 run it again.' });
+  res.json(job);
 });
 
 // ============ Google Reviews (Places API) ============
