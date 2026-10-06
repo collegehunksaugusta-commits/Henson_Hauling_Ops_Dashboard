@@ -4353,10 +4353,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
             <span>Operations</span>
-            <span class="dashSectionCount">(8)</span>
+            <span class="dashSectionCount">(7)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Materials, Damage Claim, Manager Review</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Materials, Manager Review</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -4387,7 +4387,8 @@
         <h3>Materials</h3>
         <p>Moving supplies inventory, reordering alerts, and driver checkout tracking.</p>
       </div>
-      <div class="tile" id="tile-damageclaim" tabindex="0" role="button" aria-label="Open Damage Claim">
+      <!-- Damage Claim now lives in Manager Review -> Damage Claims; this tile is kept hidden so older links still work. -->
+      <div class="tile" id="tile-damageclaim" tabindex="0" role="button" aria-label="Open Damage Claim" style="display:none;">
         <span class="badge" id="damageClaimTileBadge" style="display:none;">Photos Uploaded</span>
         <span class="icon">📸</span>
         <h3>Damage Claim</h3>
@@ -5590,27 +5591,7 @@
       <p>Enter a job number to send the client a secure link for uploading photos of any damage. This tile flags itself once photos come in.</p>
     </div>
 
-    <div class="panel" id="dcNewClaimPanel">
-      <h3>Send a New Claim Link</h3>
-      <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
-        <label>Job Number <input type="text" id="dc_jobNumber"></label>
-        <label>Client Email <input type="email" id="dc_clientEmail"></label>
-      </div>
-      <p class="form-note" id="dc_clientNameNote" style="margin-top:0;"></p>
-      <p class="form-note">The upload link is valid for 7 days after it's generated &mdash; after that, generate a new one to send instead.</p>
-      <div class="form-actions">
-        <button class="btn-primary" id="dc_generateBtn" type="button">Generate Email</button>
-        <span class="status-msg" id="dc_generateStatus"></span>
-      </div>
-    </div>
 
-    <div class="panel" id="dcClaimsListPanel">
-      <h3>Claims (<span id="dc_count">0</span>)</h3>
-      <p class="form-note" style="margin-top:0;">Claims and their uploaded photos are kept for 3 months, then removed automatically.</p>
-      <label>Search by Job # or Client <input type="text" id="dc_search" placeholder="Start typing..."></label>
-      <div id="dc_claimRows" style="margin-top:10px;"></div>
-      <p class="form-note" id="dc_emptyNote" style="display:none;">No damage claims yet.</p>
-    </div>
   </div>
 
   <!-- ============ MANAGER REVIEW DETAIL ============ -->
@@ -5629,6 +5610,7 @@
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="damageclaims" id="mgrreview_tab_damageclaims" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Damage Claims <span id="mgrreview_damageClaimsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving <span id="mgrreview_movingTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="greviews" id="mgrreview_tab_greviews" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Google Reviews <span id="mgrreview_greviewsTabCount"></span></button>
     </div>
@@ -5829,6 +5811,31 @@
         <div id="jr_olderJobRows" style="margin-top:8px;"></div>
         <p class="form-note" id="jr_olderEmptyNote" style="display:none;">Nothing here.</p>
       </details>
+    </div>
+
+    <div id="mgrreview_panel_damageclaims" style="display:none;">
+      <p class="form-note" style="margin-top:0;">Send a client a secure link to upload photos of moving damage, and track each claim through to resolution. <strong style="color:#b3261e;">Counted on this tab</strong> = a client has uploaded photos that haven&rsquo;t been looked at yet. Tip: <strong>Start Damage Claim</strong> on a flagged job in the Moving tab fills in the job for you.</p>
+    <div class="panel" id="dcNewClaimPanel">
+      <h3>Send a New Claim Link</h3>
+      <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+        <label>Job Number <input type="text" id="dc_jobNumber"></label>
+        <label>Client Email <input type="email" id="dc_clientEmail"></label>
+      </div>
+      <p class="form-note" id="dc_clientNameNote" style="margin-top:0;"></p>
+      <p class="form-note">The upload link is valid for 7 days after it's generated &mdash; after that, generate a new one to send instead.</p>
+      <div class="form-actions">
+        <button class="btn-primary" id="dc_generateBtn" type="button">Generate Email</button>
+        <span class="status-msg" id="dc_generateStatus"></span>
+      </div>
+    </div>
+
+    <div class="panel" id="dcClaimsListPanel">
+      <h3>Claims (<span id="dc_count">0</span>)</h3>
+      <p class="form-note" style="margin-top:0;">Claims and their uploaded photos are kept for 3 months, then removed automatically.</p>
+      <label>Search by Job # or Client <input type="text" id="dc_search" placeholder="Start typing..."></label>
+      <div id="dc_claimRows" style="margin-top:10px;"></div>
+      <p class="form-note" id="dc_emptyNote" style="display:none;">No damage claims yet.</p>
+    </div>
     </div>
 
     <div class="panel" id="mgrreview_panel_moving" style="display:none;">
@@ -7684,7 +7691,8 @@
       window.checkMaterialsOrderDeadline();
     }
     if(view === 'damageclaim'){
-      window.loadDamageClaimsData();
+      // Retired as its own screen -- open it inside Manager Review.
+      setTimeout(() => window.openManagerReviewTab && window.openManagerReviewTab('damageclaims'), 0);
     }
     if(view === 'managerreview'){
       window.loadManagerReviewData();
@@ -24372,7 +24380,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       : '<div style="font-size:11px; color:#8a6d00; margin-top:3px; max-width:200px;">No Captain on file for this job \u2014 not deducted</div>';
   }
 
+  function dcRefreshJobNumbers(){
+    window.damageClaimJobNumbers = new Set(damageClaims.map(c => String(c.jobNumber)));
+  }
+
   async function saveDamageClaims(){
+    dcRefreshJobNumbers();
     try{ return await window.dashboardApi.set(DAMAGE_CLAIMS_KEY, damageClaims); }
     catch(err){ console.error('Damage claims save failed:', err); return false; }
   }
@@ -24450,24 +24463,56 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Moving damage report prune failed:', err); return false; }
   }
 
+  // Claims with client photos nobody has looked at yet -- counted on the
+  // Manager Review -> Damage Claims tab and the Manager Review tile.
+  // Opens Manager Review -> Damage Claims for a job: a new claim's form
+  // with the job (and the client's email, from the job records) filled
+  // in, or -- if the job already has a claim -- that claim in the list.
+  window.startDamageClaimForJob = async function(jobNumber, existing){
+    window.openManagerReviewTab('damageclaims');
+    await window.loadDamageClaimsData();
+    if(existing){
+      const search = document.getElementById('dc_search');
+      search.value = jobNumber;
+      search.dispatchEvent(new Event('input'));
+      document.getElementById('dcClaimsListPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    const jobInput = document.getElementById('dc_jobNumber');
+    jobInput.value = jobNumber;
+    jobInput.dispatchEvent(new Event('blur'));
+    document.getElementById('dcNewClaimPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => document.getElementById('dc_clientEmail').focus(), 400);
+  };
+
+  // Generating a claim for a job settles its crew-damage flag in Moving.
+  async function dcSettleCrewDamageFlag(jobNumber){
+    try{
+      const items = await window.dashboardApi.get('manager-review-items', []) || [];
+      const item = items.find(i => i.type === 'crew-damage' && String(i.jobNumber) === String(jobNumber) && !i.reviewedAt);
+      if(!item) return;
+      Object.assign(item, { reviewedAt: new Date().toISOString(), reviewedBy: localStorage.getItem('henson_auth_email') || '', outcome: 'Damage claim opened', note: '', photoCountAtReview: item.photoCount || 0 });
+      await window.dashboardApi.set('manager-review-items', items);
+      if(window.refreshManagerReviewFlags) await window.refreshManagerReviewFlags();
+    }catch(err){ console.error('Settling crew-damage flag failed:', err); }
+  }
+
   function updateDamageClaimTileBadge(){
     const alertCount = damageClaims.filter(c => c.photosUploadedAt && !c.acknowledgedAt).length;
-    const tile = document.getElementById('tile-damageclaim');
-    const badge = document.getElementById('damageClaimTileBadge');
-    if(alertCount > 0){
-      tile.classList.add('attention');
-      badge.style.display = 'inline-block';
-      badge.textContent = alertCount === 1 ? 'Photos Uploaded' : `${alertCount} Claims \u2014 Photos Uploaded`;
-    } else {
-      tile.classList.remove('attention');
-      badge.style.display = 'none';
-    }
+    window.damageClaimAlertCount = alertCount;
+    const tabCount = document.getElementById('mgrreview_damageClaimsTabCount');
+    if(tabCount) tabCount.textContent = alertCount > 0 ? `(${alertCount})` : '';
+    document.getElementById('damageClaimTileBadge').style.display = 'none';
+    document.getElementById('tile-damageclaim').classList.remove('attention');
+    if(window.updateManagerReviewTileBadge) window.updateManagerReviewTileBadge();
   }
 
   async function loadDamageClaimsData(){
     try{ dcArchiveCache = await window.dashboardApi.get('paperwork-job-archive', []) || []; }catch(err){ dcArchiveCache = dcArchiveCache || []; }
     try{
       damageClaims = await window.dashboardApi.get(DAMAGE_CLAIMS_KEY, []) || [];
+      dcRefreshJobNumbers();
+      if(typeof window.rerenderMovingReports === 'function') window.rerenderMovingReports();
       if(await pruneOldDamageClaims()) await saveDamageClaims();
       await pruneOldMovingDamageReports();
       renderDamageClaimsList();
@@ -24735,6 +24780,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Moving reports load failed:', err); }
   }
   window.loadMovingReports = loadMovingReports;
+  window.rerenderMovingReports = () => { if(movingReports && movingReports.length) renderMovingReports(); };
 
   function renderMovingReports(){
     const rowsEl = document.getElementById('mv_jobRows');
@@ -24790,11 +24836,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <div style="font-size:11.5px; text-align:right;">${preStatus}<br>${causedStatus}</div>
         </div>
         ${reviewHtml}
+        ${causedCount > 0 ? (() => { const has = (window.damageClaimJobNumbers || new Set()).has(String(r.jobNumber)); return `<div style="margin-top:10px;"><button type="button" class="mv-start-claim" data-job="${mvEsc(r.jobNumber)}" data-existing="${has ? '1' : ''}" style="background:${has ? '#fff' : '#b3261e'}; color:${has ? '#b3261e' : '#fff'}; border:1px solid #b3261e; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:700; cursor:pointer;">${has ? 'View Damage Claim' : 'Start Damage Claim'}</button></div>`; })() : ''}
         ${hasAny ? `<div style="margin-top:10px;"><button type="button" class="mv-view-detail" data-job="${mvEsc(r.jobNumber)}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 9px; border-radius:4px; cursor:pointer;">View Photos</button></div>` : ''}
       </div>`;
     }).join('');
 
     rowsEl.querySelectorAll('.mv-view-detail').forEach(btn => btn.addEventListener('click', (e)=> viewMovingDetail(e.target.dataset.job)));
+    rowsEl.querySelectorAll('.mv-start-claim').forEach(btn => btn.addEventListener('click', (e)=> window.startDamageClaimForJob(e.target.dataset.job, e.target.dataset.existing === '1')));
     rowsEl.querySelectorAll('.mv-review-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
       const job = e.target.dataset.job;
       const outcome = rowsEl.querySelector(`.mv-review-outcome[data-job="${CSS.escape(job)}"]`).value;
@@ -25230,6 +25278,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('dc_clientNameNote').textContent = '';
     renderDamageClaimsList();
     updateDamageClaimTileBadge();
+    await dcSettleCrewDamageFlag(jobNumber);
     statusEl.textContent = clipboardOk
       ? 'Message copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body.'
       : 'Your email is open \u2014 paste the message from the popup into the body.';
@@ -25519,6 +25568,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   async function loadManagerReviewData(){
     loadGoogleReviews();
+    window.loadDamageClaimsData();
     loadJobsAndCaptains();
     loadMgrReviewWeightTickets();
     try{
@@ -25582,7 +25632,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function updateManagerReviewTileBadge(){
     const openCount = managerReviewItems.filter(i => !i.reviewedAt).length
-      + (window.getTipsNeedsAttentionCount ? window.getTipsNeedsAttentionCount() : 0);
+      + (window.getTipsNeedsAttentionCount ? window.getTipsNeedsAttentionCount() : 0)
+      + (window.damageClaimAlertCount || 0);
     const badge = document.getElementById('managerReviewTileBadge');
     const tile = document.getElementById('tile-managerreview');
     if(openCount > 0){
@@ -25595,6 +25646,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
   window.updateManagerReviewTileBadge = updateManagerReviewTileBadge;
+  window.openManagerReviewTab = function(tab){
+    if(document.getElementById('managerReviewDetail').style.display === 'none') navigateTo('managerreview');
+    mgrReviewSwitchTab(tab);
+  };
+  window.refreshManagerReviewFlags = async function(){
+    managerReviewItems = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
+    renderMgrReviewTabCounts(); updateManagerReviewTileBadge(); renderMovingReports();
+  };
 
   function renderMgrReviewTabCounts(){
     const underbilledCount = managerReviewItems.filter(i => i.type === 'underbilled' && !i.reviewedAt).length;
@@ -25921,7 +25980,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','moving','greviews'].forEach(t => {
+    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','damageclaims','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -25933,6 +25992,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(tab === 'ccard' && mgrReviewSquareTransactions === null) loadMgrReviewSquareTransactions();
     if(tab === 'greviews') loadGoogleReviews();
     if(tab === 'jobs') loadJobsAndCaptains();
+    if(tab === 'damageclaims') window.loadDamageClaimsData();
   }
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
