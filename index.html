@@ -4644,9 +4644,11 @@
         <p class="form-note">Captain, driver, and employee dropdowns across the app pull from the last two payroll weeks, so someone who happened to be off one week still shows up. If someone hasn't appeared in payroll at all yet (a brand-new hire, for example), add them here as a last resort so they're still selectable everywhere.</p>
         <div class="form-actions">
           <input type="text" id="rosterManualNameInput" placeholder="Full name">
+          <input type="password" id="rosterManualSsnInput" placeholder="Last 4 of SSN (optional)" maxlength="4" inputmode="numeric" autocomplete="off" style="max-width:190px;">
           <button class="btn-primary" id="rosterManualAddBtn" type="button">Add</button>
           <span class="status-msg" id="rosterManualStatus"></span>
         </div>
+        <p class="form-note" style="margin:6px 0 0;"><strong>Last 4 of SSN</strong> lets a new hire sign in to the Mobile App right away instead of waiting for their first payroll report &mdash; as a Captain if they&rsquo;re checked as a driver on Compliance, otherwise as a Wingman. Names with app access show &#128273;. The digits are stored on the server only and never shown again; once the person appears on payroll, payroll takes over.</p>
         <div id="rosterManualList" style="margin-top:10px;"></div>
       </div>
 
@@ -7774,9 +7776,32 @@
     return d.innerHTML;
   }
 
+  // Names (never digits) that have a last-4 on file for app access.
+  let rosterManualAccess = new Set();
+  async function loadRosterManualAccess(){
+    try{
+      const res = await fetch(`${API_BASE_AUTH}/api/admin/manual-employee-access`, { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('henson_auth_token') } });
+      if(res.ok) rosterManualAccess = new Set((await res.json()).names || []);
+    }catch(err){ console.error('Could not load app access list:', err); }
+  }
+  async function saveRosterManualAccess(name, last4){
+    try{
+      const res = await fetch(`${API_BASE_AUTH}/api/admin/manual-employee-access`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('henson_auth_token') },
+        body: JSON.stringify({ name, last4 })
+      });
+      const d = await res.json().catch(() => ({}));
+      if(!res.ok) return { ok: false, error: d.error || 'Could not save the SSN digits.' };
+      rosterManualAccess.add(d.name || name);
+      return { ok: true };
+    }catch(err){ return { ok: false, error: 'Could not reach the server \u2014 check your connection.' }; }
+  }
+
   async function loadAndRenderRosterManualList(){
     try{ rosterManualAdditions = await window.dashboardApi.get(ROSTER_MANUAL_KEY, []) || []; }
     catch(err){ console.error('Could not load manually-added roster names:', err); rosterManualAdditions = []; }
+    await loadRosterManualAccess();
     renderRosterManualList();
   }
 
@@ -7788,9 +7813,21 @@
     }
     container.innerHTML = rosterManualAdditions.map((name, i) => `
       <span style="display:inline-flex; align-items:center; gap:6px; background:var(--offwhite); border:1px solid var(--line); border-radius:20px; padding:4px 6px 4px 12px; margin:0 6px 6px 0; font-size:13px;">
-        ${rosterManualEsc(name)}
+        ${rosterManualEsc(name)}${rosterManualAccess.has(name)
+          ? ' <span title="Can sign in to the Mobile App" style="font-size:12px;">&#128273;</span>'
+          : ` <button type="button" class="rosterManual-access" data-name="${rosterManualEsc(name)}" title="Give this person Mobile App access" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); border-radius:10px; font-size:11px; padding:1px 7px; cursor:pointer;">+ App access</button>`}
         <button type="button" class="rosterManual-remove" data-index="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; width:18px; height:18px; border-radius:50%; cursor:pointer; font-size:11px; line-height:1; padding:0;">&times;</button>
       </span>`).join('');
+    container.querySelectorAll('.rosterManual-access').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const name = e.currentTarget.dataset.name;
+      const last4 = (prompt(`Last 4 of ${name}'s SSN \u2014 lets them sign in to the Mobile App now:`) || '').trim();
+      if(!last4) return;
+      const statusEl = document.getElementById('rosterManualStatus');
+      const r = await saveRosterManualAccess(name, last4);
+      statusEl.textContent = r.ok ? `${name} can now sign in to the Mobile App.` : r.error;
+      statusEl.className = r.ok ? 'status-msg ok' : 'status-msg err';
+      renderRosterManualList();
+    }));
     container.querySelectorAll('.rosterManual-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
       const idx = parseInt(e.currentTarget.dataset.index, 10);
       const removed = rosterManualAdditions[idx];
@@ -7806,8 +7843,15 @@
 
   document.getElementById('rosterManualAddBtn').addEventListener('click', async ()=>{
     const input = document.getElementById('rosterManualNameInput');
+    const ssnInput = document.getElementById('rosterManualSsnInput');
     const statusEl = document.getElementById('rosterManualStatus');
     const name = input.value.trim();
+    const last4 = ssnInput.value.trim();
+    if(last4 && !/^\d{4}$/.test(last4)){
+      statusEl.textContent = 'Last 4 of SSN must be exactly 4 digits (or leave it blank).';
+      statusEl.className = 'status-msg err';
+      return;
+    }
     if(!name){
       statusEl.textContent = 'Enter a name first.';
       statusEl.className = 'status-msg err';
@@ -7824,6 +7868,12 @@
       statusEl.textContent = `Added "${name}".`;
       statusEl.className = 'status-msg ok';
       input.value = '';
+      if(last4){
+        const r = await saveRosterManualAccess(name, last4);
+        statusEl.textContent = r.ok ? `Added "${name}" \u2014 they can sign in to the Mobile App now.` : `Added "${name}", but app access wasn't set: ${r.error}`;
+        statusEl.className = r.ok ? 'status-msg ok' : 'status-msg err';
+      }
+      ssnInput.value = '';
     } else {
       rosterManualAdditions.pop();
       statusEl.textContent = 'Could not save \u2014 check your connection.';
