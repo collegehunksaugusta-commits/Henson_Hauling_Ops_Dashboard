@@ -4,7 +4,7 @@
 <meta name="theme-color" content="#00843D">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Driver Tools">
+<meta name="apple-mobile-web-app-title" content="HUNK Portal">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="favicon.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -523,7 +523,7 @@
 
 <div id="driverGate" style="display:none; position:fixed; inset:0; background:var(--offwhite); z-index:9999; overflow-y:auto; padding:20px;">
   <div id="driverCodeForm" style="max-width:380px; width:100%; margin:60px auto 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:32px 28px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-    <h2 class="display" style="margin:0 0 4px; text-align:center; font-size:18px;">Pre-Trip Inspection</h2>
+    <h2 class="display" style="margin:0 0 4px; text-align:center; font-size:22px;">HUNK Portal</h2>
     <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 24px;">Captain &amp; Wingman Access</p>
     <label>Last 4 of SSN <input type="password" id="driver_ssn4" autocomplete="off" maxlength="4" inputmode="numeric" pattern="[0-9]*"></label>
     <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px;">
@@ -1480,7 +1480,7 @@
 
   function showDriverCodeForm(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'block';
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
@@ -1495,7 +1495,7 @@
 
   function showDriverMenu(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'block';
     hideWingmanViews();
@@ -1640,7 +1640,7 @@
 
   async function showDriverInspection(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
@@ -1673,7 +1673,7 @@
 
   function showDriverNbhd(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
@@ -1692,7 +1692,7 @@
 
   function showDriverTruckDocs(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
@@ -1708,7 +1708,7 @@
 
   async function showDriverJunkRemoval(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
@@ -1725,7 +1725,7 @@
 
   function showDriverEod(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
@@ -2495,7 +2495,7 @@
   const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView', 'driverWeightTicketView'];
   function showOnlyDriverGateView(viewId){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     DRIVER_GATE_VIEW_IDS.forEach(id => {
       const el = document.getElementById(id);
       if(el) el.style.display = id === viewId ? 'block' : 'none';
@@ -3449,7 +3449,7 @@
 
   async function showDriverMoving(){
     document.getElementById('loginGate').style.display = 'none';
-    document.getElementById('driverGate').style.display = 'block';
+    document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
