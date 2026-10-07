@@ -1,18 +1,21 @@
 // Henson Hauling Driver Tools -- offline app-shell caching.
 //
-// Strategy: stale-while-revalidate for everything except API calls.
-//   - A cached copy (if any) is served immediately, so the app still opens
-//     with no signal instead of a blank white screen.
-//   - A fresh copy is fetched in the background and saved for next time, so
-//     the app naturally catches up to the latest deployed version on the
-//     next launch.
+// Strategy:
+//   - The app page itself (index.html) is NETWORK-FIRST: opening the app
+//     always loads the latest deployed version, so updates show up right
+//     away instead of one launch late. If there's no signal, or the network
+//     takes more than 4 seconds, the saved copy is shown instead, so the app
+//     still opens with no signal instead of a blank white screen.
+//   - Everything else (icons, manifest, CDN scripts) is stale-while-
+//     revalidate: served instantly from the saved copy and refreshed in the
+//     background.
 //   - Requests to /api/ are never intercepted or cached here -- inspection
 //     data, materials, and everything else the app already has its own
 //     "check your connection" handling for should always reflect what's
 //     actually on the server, never a stale cached copy.
 //
 // Bump CACHE_NAME whenever this file changes so old caches get cleared out.
-const CACHE_NAME = 'henson-driver-v1';
+const CACHE_NAME = 'henson-driver-v2';
 
 const APP_SHELL = [
   './',
@@ -46,6 +49,26 @@ self.addEventListener('fetch', (event) => {
 
   if (req.method !== 'GET') return;
   if (req.url.includes('/api/')) return; // never cache live data
+
+  // The app page: network first, saved copy only as a fallback.
+  const isPage = req.mode === 'navigate' || /\/(index\.html)?$/.test(new URL(req.url).pathname);
+  if (isPage) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_NAME);
+      try {
+        const res = await Promise.race([
+          fetch(req, { cache: 'no-store' }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('slow network')), 4000))
+        ]);
+        if (res && res.status === 200) cache.put(req, res.clone());
+        return res;
+      } catch (err) {
+        const cached = await cache.match(req) || await cache.match('./index.html') || await cache.match('./');
+        return cached || fetch(req);
+      }
+    })());
+    return;
+  }
 
   event.respondWith(
     caches.match(req).then((cached) => {
