@@ -1408,7 +1408,7 @@
           <div style="background:#fdecea; border-radius:8px; padding:12px; text-align:center;">
             <div style="font-size:12.5px; color:#8c1d18;">Deducted from your commission</div>
             <div style="font-size:28px; font-weight:800; color:#b3261e;">${dnMoney(n.share)}</div>
-            ${n.share > 0 ? `<div style="font-size:12px; color:#8c1d18;">${n.splitWays > 1 ? `Your share of ${dnMoney(n.totalCost)}, split evenly ${n.splitWays} ways` : `Total claim cost ${dnMoney(n.totalCost)}`}${n.jobDate ? ' \u00b7 pay week of this job' : ''}. Never more than that week\u2019s commission.</div>` : '<div style="font-size:12px; color:#8c1d18;">No cost was charged on this claim.</div>'}
+            ${n.share > 0 ? `<div style="font-size:12px; color:#8c1d18;">${n.splitWays > 1 ? `Your ${n.isCaptain ? 'Captain' : 'wingman'} share of ${dnMoney(n.totalCost)} \u2014 shared by ${n.splitWays} crew members${n.weightedSplit ? ', weighted by commission rate' : ''}` : `Total claim cost ${dnMoney(n.totalCost)}`}${n.jobDate ? ' \u00b7 pay week of this job' : ''}. Never more than that week\u2019s commission.</div>` : '<div style="font-size:12px; color:#8c1d18;">No cost was charged on this claim.</div>'}
           </div>
           <button type="button" class="dn-reviewed" data-id="${driverEsc(n.claimId)}" style="width:100%; margin-top:12px; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:8px; cursor:pointer; font-family:inherit;">Reviewed</button>
           <p class="dn-status" data-id="${driverEsc(n.claimId)}" style="margin:6px 0 0; font-size:12.5px; color:#b3261e; text-align:center;"></p>
@@ -10364,14 +10364,15 @@
           const when = jobDateForClaims[String(c.jobNumber)] || c.costRecordedAt;
           if(when < week.weekStart || when > week.weekEnd) return;
           // Split evenly between the Captain and any wingmen on the claim.
-          const crew = [...new Set([c.costCaptainName, ...(c.costWingmen || [])].filter(Boolean))];
-          const share = Math.round(cost / crew.length * 100) / 100;
+          const split = window.damageCostShares(cost, c.costCaptainName, c.costWingmen);
+          const crew = split.crew;
           crew.forEach(person => {
+            const share = split.shares[person];
             const match = names.find(n => nameDedupKey(n) === nameDedupKey(person));
             if(!match) return;
             const e = damageByName[match] = damageByName[match] || { total: 0, claims: [] };
             e.total += share;
-            e.claims.push(`Job ${c.jobNumber}: ${extraPayMoney(share)}${crew.length > 1 ? ` (share of ${extraPayMoney(cost)}, split ${crew.length} ways)` : ''}`);
+            e.claims.push(`Job ${c.jobNumber}: ${extraPayMoney(share)}${crew.length > 1 ? ` (${person === c.costCaptainName ? 'Captain' : 'wingman'} share of ${extraPayMoney(cost)}${split.weighted ? ', weighted by commission rate' : ', split evenly'})` : ''}`);
             if(weekAlreadyPaid) e.alreadyPaid = true;
           });
         });
@@ -10579,7 +10580,7 @@
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Tips</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Review Bonus</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Commission</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this person worked (split evenly across the crew on the claim) -- taken off Commission, up to all of it">Damage Claim</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this person worked (shared across the crew on the claim, weighted by commission rate) -- taken off Commission, up to all of it">Damage Claim</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
           </tr></thead>
@@ -24591,6 +24592,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const job = (dcArchiveCache || []).find(j => String(j.jobNumber) === String(jobNumber));
     return (job && job.captainName) || '';
   }
+  // Each person's share, weighted by commission rate (Configuration -> Pay):
+  // Captain at the driver rate, wingmen at the wingman rate; even split if
+  // both rates are 0. Same rule the server uses for the crew's notices.
+  window.damageCostShares = function(cost, captain, wingmen){
+    const rates = (window.appSettings || {}).commission || {};
+    const crew = [...new Set([captain, ...(wingmen || [])].filter(Boolean))];
+    const weight = n => (n === captain ? Number(rates.driverRate) : Number(rates.wingmanRate)) || 0;
+    const total = crew.reduce((t, n) => t + weight(n), 0);
+    const shares = {};
+    crew.forEach(n => { shares[n] = Math.round((total > 0 ? cost * weight(n) / total : cost / crew.length) * 100) / 100; });
+    return { crew, shares, weighted: total > 0 };
+  };
+
   // Everyone who shares a claim's cost: the Captain charged for it plus any
   // wingmen added to the claim.
   function dcCostCrew(c){
@@ -24616,8 +24630,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return `<div style="font-size:11px; color:#b3261e; font-weight:700; margin-top:3px; max-width:230px;">\u26a0 Job week of ${window.fmtDate(monStr)} \u2014 that payroll already ran, so this won\u2019t come out automatically \u2014 collect it by hand on a later payroll.</div>`;
     }
     if(crew.length === 1) return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:200px;">Comes off ${dcEsc(crew[0])}\u2019s commission, week of ${window.fmtDate(monStr)}</div>`;
-    const share = Math.round(Number(c.totalCost) / crew.length * 100) / 100;
-    return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:220px;">Split ${crew.length} ways \u2014 $${share.toFixed(2)} off each person\u2019s commission, week of ${window.fmtDate(monStr)}</div>`;
+    const split = window.damageCostShares(Number(c.totalCost), c.costCaptainName, c.costWingmen);
+    const capShare = split.shares[c.costCaptainName] || 0;
+    const wmShares = crew.filter(n => n !== c.costCaptainName).map(n => split.shares[n]);
+    const wmText = wmShares.length ? (wmShares.every(v => v === wmShares[0]) ? `$${wmShares[0].toFixed(2)} each wingman` : wmShares.map(v => '$' + v.toFixed(2)).join(' / ') + ' wingmen') : '';
+    return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:230px;">Captain $${capShare.toFixed(2)}${wmText ? ' \u00b7 ' + wmText : ''} ${split.weighted ? '(weighted by commission rate)' : '(split evenly)'}, off commission for week of ${window.fmtDate(monStr)}</div>`;
   }
 
   function dcRefreshJobNumbers(){
@@ -24873,7 +24890,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
       const useBtn = overlay.querySelector('#dcai_use');
       if(useBtn) useBtn.addEventListener('click', async () => {
-        if(!confirm(`Set this claim's Total Cost to ${dcMoney(r.recommendedTotal)}? It will come off the commission of the Captain (and any wingmen on the claim, split evenly) this week, up to each person's commission.`)) return;
+        if(!confirm(`Set this claim's Total Cost to ${dcMoney(r.recommendedTotal)}? It will come off the commission of the Captain (and any wingmen on the claim, weighted by commission rate) for the job's pay week, up to each person's commission.`)) return;
         const input = document.querySelector(`.dc-total-cost[data-id="${CSS.escape(claim.id)}"]`);
         if(input){ input.value = String(r.recommendedTotal); input.dispatchEvent(new Event('change')); }
         overlay.querySelector('#dcai_useStatus').textContent = 'Total Cost updated.';
@@ -25012,6 +25029,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let dcCrewAcks = {};   // claim id -> { person key: { name, at } }
   let dcPaidWeeks = new Set();   // pay weeks whose ADP payroll has been uploaded
   async function loadDamageClaimsData(){
+    try{ await ensureAppSettingsLoaded(); }catch(err){}
     try{ dcPaidWeeks = new Set(((await window.dashboardApi.get('labor-weeks', [])) || []).map(w => w.weekStart)); }catch(err){}
     try{ dcArchiveCache = await window.dashboardApi.get('paperwork-job-archive', []) || []; }catch(err){ dcArchiveCache = dcArchiveCache || []; }
     try{ dcRosterCache = await window.getCurrentEmployeeRoster() || []; }catch(err){ dcRosterCache = dcRosterCache || []; }
