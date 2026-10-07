@@ -5520,7 +5520,8 @@
         <h3>Roster Additions <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; background:var(--offwhite); padding:2px 8px; border-radius:10px; vertical-align:middle;">Admin Only</span></h3>
         <p class="form-note">Captain, driver, and employee dropdowns across the app pull from the last two payroll weeks, so someone who happened to be off one week still shows up. If someone hasn't appeared in payroll at all yet (a brand-new hire, for example), add them here as a last resort so they're still selectable everywhere.</p>
         <div class="form-actions">
-          <input type="text" id="rosterManualNameInput" placeholder="Full name">
+          <input type="text" id="rosterManualFirstInput" placeholder="First name" autocomplete="off" style="max-width:150px;">
+          <input type="text" id="rosterManualLastInput" placeholder="Last name" autocomplete="off" style="max-width:170px;">
           <input type="password" id="rosterManualSsnInput" placeholder="Last 4 of SSN (optional)" maxlength="4" inputmode="numeric" autocomplete="off" style="max-width:190px;">
           <button class="btn-primary" id="rosterManualAddBtn" type="button">Add</button>
           <span class="status-msg" id="rosterManualStatus"></span>
@@ -8083,10 +8084,26 @@
   }
 
   document.getElementById('rosterManualAddBtn').addEventListener('click', async ()=>{
-    const input = document.getElementById('rosterManualNameInput');
+    const firstInput = document.getElementById('rosterManualFirstInput');
+    const lastInput = document.getElementById('rosterManualLastInput');
     const ssnInput = document.getElementById('rosterManualSsnInput');
     const statusEl = document.getElementById('rosterManualStatus');
-    const name = input.value.trim();
+    // Payroll lists names as "Last, First M" (e.g. "Breed, Charlie E");
+    // building it the same way lets payroll recognize the person later.
+    // All-lowercase or ALL-CAPS entries get proper capitalization; names
+    // typed with deliberate capitals (McDonald, DeLoach) are kept as typed.
+    const tidy = v => {
+      const t = String(v || '').trim().replace(/\s+/g, ' ');
+      if(t !== t.toLowerCase() && t !== t.toUpperCase()) return t;
+      return t.toLowerCase().replace(/(^|[\s\-'])([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
+    };
+    const first = tidy(firstInput.value), last = tidy(lastInput.value);
+    if(!first || !last){
+      statusEl.textContent = 'Enter both a first and a last name.';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+    const name = `${last}, ${first}`;
     const last4 = ssnInput.value.trim();
     if(last4 && !/^\d{4}$/.test(last4)){
       statusEl.textContent = 'Last 4 of SSN must be exactly 4 digits (or leave it blank).';
@@ -8103,12 +8120,19 @@
       statusEl.className = 'status-msg err';
       return;
     }
+    // Already on the roster from payroll? (Same name in any word order.)
+    const onPayroll = (typeof rosterViewNames !== 'undefined' ? rosterViewNames : []).find(n => nameCoreKey(n) === nameCoreKey(name));
+    if(onPayroll){
+      statusEl.textContent = `"${onPayroll}" is already on the roster from payroll \u2014 no need to add them.`;
+      statusEl.className = 'status-msg err';
+      return;
+    }
     rosterManualAdditions.push(name);
     const ok = await window.dashboardApi.set(ROSTER_MANUAL_KEY, rosterManualAdditions);
     if(ok){
       statusEl.textContent = `Added "${name}".`;
       statusEl.className = 'status-msg ok';
-      input.value = '';
+      firstInput.value = ''; lastInput.value = '';
       if(last4){
         const r = await saveRosterManualAccess(name, last4);
         statusEl.textContent = r.ok ? `Added "${name}" \u2014 they can sign in to the HUNK Portal now.` : `Added "${name}", but app access wasn't set: ${r.error}`;
@@ -10833,13 +10857,22 @@
   }
   window.nameDedupKey = nameDedupKey;
 
+  // Matches a person by first and last name only, ignoring middle initials
+  // ("Breed, Charlie" == "Breed, Charlie E") -- used wherever a manually
+  // added name is matched to payroll. Safe because two employees never
+  // share a first and last name at the same time.
+  function nameCoreKey(name){
+    return String(name || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ');
+  }
+  window.nameCoreKey = nameCoreKey;
+
   function dedupeAndSortNames(names){
     const seen = new Set();
     const out = [];
     names.forEach(name => {
       const trimmed = (name || '').trim();
       if(!trimmed) return;
-      const key = nameDedupKey(trimmed);
+      const key = nameCoreKey(trimmed);
       if(seen.has(key)) return;
       seen.add(key);
       out.push(trimmed);
@@ -10893,12 +10926,12 @@
       const manualAdditions = await window.dashboardApi.get('roster-manual-additions', []) || [];
       if(manualAdditions.length === 0) return;
       const payrollByKey = {};
-      payrollEmployeeNames.forEach(name => { payrollByKey[nameDedupKey(name)] = name; });
+      payrollEmployeeNames.forEach(name => { payrollByKey[nameCoreKey(name)] = name; });
 
       const stillManual = [];
       const supersededPairs = []; // [oldName, newName]
       manualAdditions.forEach(oldName => {
-        const newName = payrollByKey[nameDedupKey(oldName)];
+        const newName = payrollByKey[nameCoreKey(oldName)];
         if(newName){ supersededPairs.push([oldName, newName]); }
         else { stillManual.push(oldName); }
       });
