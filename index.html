@@ -5755,7 +5755,7 @@
 
     <div class="panel" id="mgrreview_panel_jobs" style="display:none;">
       <h3>Job Reassignment</h3>
-      <p class="form-note"><strong style="color:#b3261e;">Red</strong> = the job has a damage claim that&rsquo;s still Pending, or was resolved in the last 7 days. Those jobs always show here, whatever the date range, and are counted on this tab.</p>
+      <p class="form-note"><strong style="color:#b3261e;">Red</strong> = the job has a damage claim that&rsquo;s still Pending. Those jobs always show here, whatever the date range, and are counted on this tab. Claims settled in the last 7 days show as a gray note on their job, for reference only.</p>
       <p class="form-note">Reassign a job&rsquo;s Captain at any time &mdash; before the job, mid-day, or after. A change here updates everywhere that job&rsquo;s Captain is used: Captain Metrics and Pre-Trip/End of Day credit, the Driver Portal&rsquo;s job lists and weight tickets, the Junk Removal list, completed paperwork, move damage reports, and damage claims (so any claim cost comes off the right Captain&rsquo;s commission).</p>
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
         <label style="margin:0; font-size:12.5px;">Show <select id="jc_range" style="font-size:13px; padding:6px;">
@@ -26353,7 +26353,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const daysBack = range === 'today' ? 0 : (range === 'month' ? 30 : 7);
     const from = new Date(Date.now() - daysBack * 864e5).toLocaleDateString('en-CA');
     const to = range === 'today' ? today : '9999-12-31';
-    const flagged = j => !!jcClaimsByJob[String(j.jobNumber)];
+    // Only claims still Pending need attention; recently settled ones are
+    // shown as a quiet note, not counted or pinned.
+    const jobClaims = j => jcClaimsByJob[String(j.jobNumber)] || [];
+    const flagged = j => jobClaims(j).some(c => (c.resolution || 'pending') === 'pending');
     const tabCount = jcJobs.filter(j => j.jobNumber && flagged(j)).length;
     document.getElementById('mgrreview_jobsTabCount').textContent = tabCount > 0 ? `(${tabCount})` : '';
     const rows = jcJobs
@@ -26368,9 +26371,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const claimNote = claims.map(c => (c.resolution || 'pending') === 'pending'
         ? `Damage claim pending${Number(c.totalCost) > 0 ? ' \u2014 ' + jcMoney(c.totalCost) : ''}`
         : `Damage claim ${JC_RESOLUTION_LABELS[c.resolution] || 'resolved'} ${window.fmtDate(c.resolvedDate)}${Number(c.totalCost) > 0 ? ' \u2014 ' + jcMoney(c.totalCost) : ''}`).join('<br>');
-      return `<tr style="vertical-align:top; ${claims.length ? 'background:#fdecea; box-shadow:inset 4px 0 0 #b3261e;' : ''}">
+      const isOpen = claims.some(c => (c.resolution || 'pending') === 'pending');
+      return `<tr style="vertical-align:top; ${isOpen ? 'background:#fdecea; box-shadow:inset 4px 0 0 #b3261e;' : ''}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line); white-space:nowrap;">${j.assignmentDate === today ? '<strong>Today</strong>' : window.fmtDate(j.assignmentDate)}</td>
-        <td style="padding:6px 4px 6px 8px; border-bottom:1px solid var(--line);"><strong>${mgrReviewEsc(j.jobNumber)}</strong>${j.clientName ? ' \u2014 ' + mgrReviewEsc(j.clientName) : ''}${claimNote ? `<div style="font-size:11.5px; color:#b3261e; font-weight:600; margin-top:2px;">\u26a0 ${claimNote}</div>` : ''}</td>
+        <td style="padding:6px 4px 6px 8px; border-bottom:1px solid var(--line);"><strong>${mgrReviewEsc(j.jobNumber)}</strong>${j.clientName ? ' \u2014 ' + mgrReviewEsc(j.clientName) : ''}${claimNote ? (isOpen ? `<div style="font-size:11.5px; color:#b3261e; font-weight:600; margin-top:2px;">\u26a0 ${claimNote}</div>` : `<div style="font-size:11.5px; color:var(--muted); margin-top:2px;">${claimNote}</div>`) : ''}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(JC_TYPE_LABELS[j.jobType] || j.jobType || '')}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">
           <select class="jc-captain" data-job="${mgrReviewEsc(j.jobNumber)}" style="font-size:13px; padding:5px; ${j.captainName ? '' : 'border:1px solid #E3A008; background:#FFFBEA;'}">
