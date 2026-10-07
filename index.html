@@ -4532,10 +4532,10 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(5)</span>
+            <span class="dashSectionCount">(6)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Ops Manager Metrics, Captain Metrics, Wingman Metrics, Attendance Tracking, Hiring</div>
+          <div class="dashSectionTileList">Ops Manager Metrics, Captain Metrics, Wingman Metrics, Attendance Tracking, Employee Roster, Hiring</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -4559,6 +4559,11 @@
         <span class="icon">🕒</span>
         <h3>Attendance Tracking</h3>
         <p>Log unexcused tardies and absences, pulled from your current payroll roster.</p>
+      </div>
+      <div class="tile" id="tile-roster" tabindex="0" role="button" aria-label="Open Employee Roster">
+        <span class="icon">&#129489;&#8205;&#129309;&#8205;&#129489;</span>
+        <h3>Employee Roster</h3>
+        <p>Everyone on the last two payroll weeks plus manual additions &mdash; who&rsquo;s a Captain, and who can sign in to the HUNK Portal.</p>
       </div>
       <div class="tile" id="tile-hiring" tabindex="0" role="button" aria-label="Open Hiring">
         <span class="icon">📋</span>
@@ -4759,19 +4764,6 @@
           <p class="form-note" id="noEmployeeNote" style="display:none;">Per-employee detail wasn't entered for this week &mdash; only the weekly totals below.</p>
         </div>
         <p class="form-note" id="employeeNonAdminNote" style="display:none;">This section only shows for administrators.</p>
-      </div>
-
-      <div class="panel" id="rosterManualPanel" style="display:none;">
-        <h3>Roster Additions <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; background:var(--offwhite); padding:2px 8px; border-radius:10px; vertical-align:middle;">Admin Only</span></h3>
-        <p class="form-note">Captain, driver, and employee dropdowns across the app pull from the last two payroll weeks, so someone who happened to be off one week still shows up. If someone hasn't appeared in payroll at all yet (a brand-new hire, for example), add them here as a last resort so they're still selectable everywhere.</p>
-        <div class="form-actions">
-          <input type="text" id="rosterManualNameInput" placeholder="Full name">
-          <input type="password" id="rosterManualSsnInput" placeholder="Last 4 of SSN (optional)" maxlength="4" inputmode="numeric" autocomplete="off" style="max-width:190px;">
-          <button class="btn-primary" id="rosterManualAddBtn" type="button">Add</button>
-          <span class="status-msg" id="rosterManualStatus"></span>
-        </div>
-        <p class="form-note" style="margin:6px 0 0;"><strong>Last 4 of SSN</strong> lets a new hire sign in to the Mobile App right away instead of waiting for their first payroll report &mdash; as a Captain if they&rsquo;re checked as a driver on Compliance, otherwise as a Wingman. Names with app access show &#128273;. The digits are stored on the server only and never shown again; once the person appears on payroll, payroll takes over.</p>
-        <div id="rosterManualList" style="margin-top:10px;"></div>
       </div>
 
       <div class="panel" id="summaryPanel">
@@ -5500,6 +5492,43 @@
 
     <div id="extraPay_weeksList"></div>
     <p class="form-note" id="extraPay_emptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
+  </div>
+
+  <div id="rosterDetail" style="display:none;">
+    <button class="backlink" id="rosterBackBtn">&larr; Dispatch</button>
+    <div class="detail-head">
+      <h2 class="display">Employee Roster</h2>
+    </div>
+    <p class="form-note">The roster every Captain, driver and employee dropdown in the app uses: everyone on the last two payroll weeks (so someone who happened to be off one week still shows up), plus anyone added by hand below.</p>
+
+    <div class="panel" id="rosterListPanel">
+      <h3>Current Roster (<span id="rosterListCount">0</span>)</h3>
+      <div style="margin:0 0 10px;"><input type="text" id="rosterListSearch" placeholder="Search names..." style="max-width:260px;"></div>
+      <div style="overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Name</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Role</th>
+          <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Source</th>
+          <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">HUNK Portal sign-in</th>
+        </tr></thead>
+        <tbody id="rosterListRows"></tbody>
+      </table></div>
+      <p class="form-note" id="rosterListEmpty" style="display:none;">No one on the roster yet &mdash; upload a payroll report on Labor Cost, or add people below.</p>
+    </div>
+
+      <div class="panel" id="rosterManualPanel" style="display:none;">
+        <h3>Roster Additions <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; background:var(--offwhite); padding:2px 8px; border-radius:10px; vertical-align:middle;">Admin Only</span></h3>
+        <p class="form-note">Captain, driver, and employee dropdowns across the app pull from the last two payroll weeks, so someone who happened to be off one week still shows up. If someone hasn't appeared in payroll at all yet (a brand-new hire, for example), add them here as a last resort so they're still selectable everywhere.</p>
+        <div class="form-actions">
+          <input type="text" id="rosterManualNameInput" placeholder="Full name">
+          <input type="password" id="rosterManualSsnInput" placeholder="Last 4 of SSN (optional)" maxlength="4" inputmode="numeric" autocomplete="off" style="max-width:190px;">
+          <button class="btn-primary" id="rosterManualAddBtn" type="button">Add</button>
+          <span class="status-msg" id="rosterManualStatus"></span>
+        </div>
+        <p class="form-note" style="margin:6px 0 0;"><strong>Last 4 of SSN</strong> lets a new hire sign in to the HUNK Portal right away instead of waiting for their first payroll report &mdash; as a Captain if they&rsquo;re checked as a driver on Compliance, otherwise as a Wingman. Names with app access show &#128273;. The digits are stored on the server only and never shown again; once the person appears on payroll, payroll takes over.</p>
+        <div id="rosterManualList" style="margin-top:10px;"></div>
+      </div>
+
   </div>
 
   <div id="hiringDetail" style="display:none;">
@@ -7780,6 +7809,7 @@
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
   const wingmanMetricsDetail = document.getElementById('wingmanMetricsDetail');
   const hiringDetail = document.getElementById('hiringDetail');
+  const rosterDetail = document.getElementById('rosterDetail');
   const extraPayDetail = document.getElementById('extraPayDetail');
   const materialsDetail = document.getElementById('materialsDetail');
   const damageClaimDetail = document.getElementById('damageClaimDetail');
@@ -7810,6 +7840,8 @@
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     wingmanMetricsDetail.style.display = view === 'wingmanmetrics' ? 'block' : 'none';
     hiringDetail.style.display = view === 'hiring' ? 'block' : 'none';
+    rosterDetail.style.display = view === 'roster' ? 'block' : 'none';
+    if(view === 'roster') window.loadEmployeeRosterView && window.loadEmployeeRosterView();
     extraPayDetail.style.display = view === 'extrapay' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
     damageClaimDetail.style.display = view === 'damageclaim' ? 'block' : 'none';
@@ -7912,8 +7944,8 @@
     renderWeek();
   });
 
-  document.getElementById('tile-labor').addEventListener('click', ()=>{ laborEmployeeDetailExpanded = false; navigateTo('labor'); loadAndRenderRosterManualList(); });
-  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); laborEmployeeDetailExpanded = false; navigateTo('labor'); loadAndRenderRosterManualList(); }});
+  document.getElementById('tile-labor').addEventListener('click', ()=>{ laborEmployeeDetailExpanded = false; navigateTo('labor'); });
+  document.getElementById('tile-labor').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); laborEmployeeDetailExpanded = false; navigateTo('labor'); }});
   document.getElementById('backBtn').addEventListener('click', ()=> history.back());
 
   // ---------- Roster Additions (manual employee list, admin only) ----------
@@ -7952,15 +7984,70 @@
     }catch(err){ return { ok: false, error: 'Could not reach the server \u2014 check your connection.' }; }
   }
 
+  // ---- Employee Roster tile ----
+  // The full roster (last two payroll weeks + manual additions), who's a
+  // Captain (checked as an active driver on Compliance), and who can sign in
+  // to the HUNK Portal. Roster Additions below it is admin-only, as before.
+  let rosterViewNames = [];
+  let rosterViewDrivers = new Set();
+  async function loadEmployeeRosterView(){
+    const admin = isCurrentUserAdmin();
+    document.getElementById('rosterManualPanel').style.display = admin ? 'block' : 'none';
+    try{
+      const [names, drivers] = await Promise.all([
+        getCurrentEmployeeRoster(),
+        window.dashboardApi.get('compliance-drivers', []).catch(() => [])
+      ]);
+      rosterViewNames = names || [];
+      const key = n => String(n).replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+      rosterViewDrivers = new Set((drivers || []).filter(d => d.active).map(d => key(d.employeeName || '')));
+    }catch(err){ console.error('Roster load failed:', err); rosterViewNames = []; }
+    if(admin) await loadAndRenderRosterManualList();
+    renderEmployeeRosterView();
+  }
+  window.loadEmployeeRosterView = loadEmployeeRosterView;
+  function renderEmployeeRosterView(){
+    const q = (document.getElementById('rosterListSearch').value || '').trim().toLowerCase();
+    // Who was added by hand and who has sign-in digits is admin-only.
+    const admin = isCurrentUserAdmin();
+    document.querySelectorAll('.roster-admin-col').forEach(th => th.style.display = admin ? '' : 'none');
+    const key = n => String(n).replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+    const manual = new Set((rosterManualAdditions || []).map(key));
+    const rows = rosterViewNames.filter(n => !q || n.toLowerCase().includes(q));
+    document.getElementById('rosterListCount').textContent = rosterViewNames.length;
+    document.getElementById('rosterListEmpty').style.display = rosterViewNames.length ? 'none' : 'block';
+    const cell = 'padding:6px 4px; border-bottom:1px solid var(--line);';
+    document.getElementById('rosterListRows').innerHTML = rows.map(n => {
+      const isManual = manual.has(key(n));
+      const isCaptain = rosterViewDrivers.has(key(n));
+      const access = !isManual ? '<span style="color:var(--brand-green-dark);">&#10003; via payroll</span>'
+        : (rosterManualAccess.has(n) ? '<span style="color:var(--brand-green-dark);">&#128273; last 4 added</span>' : '<span style="color:#8a6d00;">Not yet \u2014 add their last 4 below</span>');
+      return `<tr>
+        <td style="${cell} font-weight:600;">${rosterManualEsc(n)}</td>
+        <td style="${cell}">${isCaptain ? '<strong>Captain</strong>' : 'Wingman'}</td>
+        ${admin ? `<td style="${cell}">${isManual ? 'Added manually' : 'Payroll'}</td>
+        <td style="${cell}">${access}</td>` : ''}
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('rosterListSearch').addEventListener('input', renderEmployeeRosterView);
+
   async function loadAndRenderRosterManualList(){
     try{ rosterManualAdditions = await window.dashboardApi.get(ROSTER_MANUAL_KEY, []) || []; }
     catch(err){ console.error('Could not load manually-added roster names:', err); rosterManualAdditions = []; }
     await loadRosterManualAccess();
     renderRosterManualList();
   }
+  // Whenever Roster Additions changes, refresh the roster list above it.
+  async function refreshEmployeeRosterList(){
+    if(document.getElementById('rosterDetail').style.display === 'none') return;
+    try{ rosterViewNames = await getCurrentEmployeeRoster() || []; }catch(err){}
+    renderEmployeeRosterView();
+  }
 
   function renderRosterManualList(){
     const container = document.getElementById('rosterManualList');
+    refreshEmployeeRosterList();
     if(rosterManualAdditions.length === 0){
       container.innerHTML = '<p class="form-note" style="margin:0;">No manually-added names yet.</p>';
       return;
@@ -7968,17 +8055,17 @@
     container.innerHTML = rosterManualAdditions.map((name, i) => `
       <span style="display:inline-flex; align-items:center; gap:6px; background:var(--offwhite); border:1px solid var(--line); border-radius:20px; padding:4px 6px 4px 12px; margin:0 6px 6px 0; font-size:13px;">
         ${rosterManualEsc(name)}${rosterManualAccess.has(name)
-          ? ' <span title="Can sign in to the Mobile App" style="font-size:12px;">&#128273;</span>'
-          : ` <button type="button" class="rosterManual-access" data-name="${rosterManualEsc(name)}" title="Give this person Mobile App access" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); border-radius:10px; font-size:11px; padding:1px 7px; cursor:pointer;">+ App access</button>`}
+          ? ' <span title="Can sign in to the HUNK Portal" style="font-size:12px;">&#128273;</span>'
+          : ` <button type="button" class="rosterManual-access" data-name="${rosterManualEsc(name)}" title="Give this person HUNK Portal access" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); border-radius:10px; font-size:11px; padding:1px 7px; cursor:pointer;">+ App access</button>`}
         <button type="button" class="rosterManual-remove" data-index="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; width:18px; height:18px; border-radius:50%; cursor:pointer; font-size:11px; line-height:1; padding:0;">&times;</button>
       </span>`).join('');
     container.querySelectorAll('.rosterManual-access').forEach(btn => btn.addEventListener('click', async (e)=>{
       const name = e.currentTarget.dataset.name;
-      const last4 = (prompt(`Last 4 of ${name}'s SSN \u2014 lets them sign in to the Mobile App now:`) || '').trim();
+      const last4 = (prompt(`Last 4 of ${name}'s SSN \u2014 lets them sign in to the HUNK Portal now:`) || '').trim();
       if(!last4) return;
       const statusEl = document.getElementById('rosterManualStatus');
       const r = await saveRosterManualAccess(name, last4);
-      statusEl.textContent = r.ok ? `${name} can now sign in to the Mobile App.` : r.error;
+      statusEl.textContent = r.ok ? `${name} can now sign in to the HUNK Portal.` : r.error;
       statusEl.className = r.ok ? 'status-msg ok' : 'status-msg err';
       renderRosterManualList();
     }));
@@ -8024,7 +8111,7 @@
       input.value = '';
       if(last4){
         const r = await saveRosterManualAccess(name, last4);
-        statusEl.textContent = r.ok ? `Added "${name}" \u2014 they can sign in to the Mobile App now.` : `Added "${name}", but app access wasn't set: ${r.error}`;
+        statusEl.textContent = r.ok ? `Added "${name}" \u2014 they can sign in to the HUNK Portal now.` : `Added "${name}", but app access wasn't set: ${r.error}`;
         statusEl.className = r.ok ? 'status-msg ok' : 'status-msg err';
       }
       ssnInput.value = '';
@@ -8065,6 +8152,9 @@
   document.getElementById('tile-opsmetrics').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('opsmetrics'); }});
   document.getElementById('tile-wingman').addEventListener('click', ()=> navigateTo('wingmanmetrics'));
   document.getElementById('tile-wingman').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('wingmanmetrics'); }});
+  document.getElementById('tile-roster').addEventListener('click', ()=> navigateTo('roster'));
+  document.getElementById('tile-roster').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('roster'); }});
+  document.getElementById('rosterBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-hiring').addEventListener('click', ()=> navigateTo('hiring'));
   document.getElementById('tile-hiring').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('hiring'); }});
   document.getElementById('tile-extrapay').addEventListener('click', ()=> navigateTo('extrapay'));
@@ -8303,7 +8393,7 @@
     document.getElementById('employeeDetailHiddenNote').style.display = (isAdminUser && !laborEmployeeDetailExpanded) ? 'block' : 'none';
     document.getElementById('employeeDetailContent').style.display = (isAdminUser && laborEmployeeDetailExpanded) ? 'block' : 'none';
     document.getElementById('employeeDetailToggleBtn').textContent = laborEmployeeDetailExpanded ? 'Hide Detail' : 'Show Detail';
-    document.getElementById('rosterManualPanel').style.display = (mode === 'weekly' && isAdminUser) ? 'block' : 'none';
+
     if(!isAdminUser) document.getElementById('noEmployeeNote').style.display = 'none';
 
     if(!p){
