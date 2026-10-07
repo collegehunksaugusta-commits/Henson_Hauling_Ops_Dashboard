@@ -24572,7 +24572,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     y += 6;
     line('Items reviewed', 11.5, true);
     const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    (rec.items || []).forEach(it => {
+    (rec.items || []).filter(it => !it.removedByOffice).forEach(it => {
       let how;
       if(!it.covered) how = 'Not covered' + (it.preExistingOverlap && it.preExistingOverlap !== 'none' ? ' \u2014 this damage was documented before the move.' : (it.exclusionConcern && it.exclusionConcern !== 'none' ? ` \u2014 ${it.exclusionConcern}.` : '.'));
       else if(rec.option === '1') how = `${Math.round(it.estimatedWeightLbs)} lbs \u00d7 $0.60 = ${money(it.releasedValueCap)}` + (it.releasedValueAmount < it.releasedValueCap ? `; limited to the ${it.repairOrReplace} cost of ${money(it.releasedValueAmount)}` : '') + `. Item settlement: ${money(it.releasedValueAmount)}`;
@@ -24633,6 +24633,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // ---- AI reimbursement recommendation (Georgia Tariff No. 7) ----
   const DC_OPTION_LABELS = { '1': 'Option 1 \u2014 Released Value ($0.60/lb per article)', '2a': 'Option 2(a) \u2014 Full Value, no deductible', '2b': 'Option 2(b) \u2014 Full Value, $300 deductible' };
   function dcMoney(n){ return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  // Same math the server uses (Tariff No. 7, Section V), re-run after the
+  // office removes or restores items.
+  function dcRecalcRecommendation(r){
+    const counted = (r.items || []).filter(i => i.covered && !i.removedByOffice);
+    const round2 = n => Math.round(n * 100) / 100;
+    const released = round2(counted.reduce((t, i) => t + Math.min(Number(i.estimatedRepairOrReplaceCost) || 0, Math.round((Number(i.estimatedWeightLbs) || 0) * 0.60 * 100) / 100), 0));
+    const full = round2(counted.reduce((t, i) => t + (Number(i.estimatedRepairOrReplaceCost) || 0), 0));
+    const cap = v => r.declaredValue > 0 ? Math.min(v, r.declaredValue) : v;
+    r.totals = { '1': released, '2a': round2(cap(full)), '2b': round2(cap(Math.max(0, full - 300))) };
+    r.recommendedTotal = r.option ? r.totals[r.option] : null;
+    r.editedByOffice = (r.items || []).some(i => i.removedByOffice);
+    return r;
+  }
 
   function openDamageRecommendation(claim){
     const overlay = document.createElement('div');
@@ -24718,14 +24732,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         ${r.paperworkEvidence ? `<p class="form-note" style="margin:0 0 10px;">${dcEsc(r.paperworkEvidence)}</p>` : ''}
         <div style="border-left:4px solid #5b3fa8; background:#f6f3fc; padding:12px 14px; border-radius:6px; margin:10px 0 14px; white-space:pre-wrap; font-size:13.5px; line-height:1.5;">${dcEsc(r.writtenRecommendation)}</div>
         <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse;">
-          <thead><tr><th style="${th}">Article</th><th style="${th}">Damage</th><th style="${th} text-align:right;">Est. weight</th><th style="${th} text-align:right;">Option 1 ($0.60/lb)</th><th style="${th} text-align:right;">Repair / replace</th><th style="${th}">Notes</th></tr></thead>
-          <tbody>${(r.items || []).map(i => `<tr style="${i.covered ? '' : 'color:var(--muted); text-decoration:line-through;'}">
-            <td style="${td}"><strong>${dcEsc(i.article)}</strong></td>
+          <thead><tr><th style="${th}">Article</th><th style="${th}">Photos</th><th style="${th}">Damage</th><th style="${th} text-align:right;">Est. weight</th><th style="${th} text-align:right;">Option 1 ($0.60/lb)</th><th style="${th} text-align:right;">Repair / replace</th><th style="${th}">Notes</th></tr></thead>
+          <tbody>${(r.items || []).map((i, idx) => `<tr style="${i.covered && !i.removedByOffice ? '' : 'color:var(--muted); text-decoration:line-through;'}">
+            <td style="${td}"><strong>${dcEsc(i.article)}</strong>${i.removedByOffice ? '<div style="font-size:11px; color:#b3261e; text-decoration:none;">removed by office</div>' : ''}</td>
+            <td style="${td} white-space:nowrap;">${(i.photoNumbers || []).length ? '#' + i.photoNumbers.join(', #') : ''}</td>
             <td style="${td}">${dcEsc(i.damage)}</td>
             <td style="${td} text-align:right;">${Math.round(i.estimatedWeightLbs)} lbs</td>
             <td style="${td} text-align:right;">${dcMoney(i.releasedValueAmount)}${i.releasedValueAmount < i.estimatedRepairOrReplaceCost && i.covered ? `<div class="form-note" style="margin:0;">cap ${dcMoney(i.releasedValueCap)}</div>` : ''}</td>
             <td style="${td} text-align:right;">${dcMoney(i.estimatedRepairOrReplaceCost)} <span class="form-note" style="display:inline;">${i.repairOrReplace}</span></td>
-            <td style="${td}">${i.covered ? '' : '<strong>Not covered.</strong> '}${i.preExistingOverlap && i.preExistingOverlap !== 'none' ? 'Pre-existing: ' + dcEsc(i.preExistingOverlap) + '. ' : ''}${i.exclusionConcern && i.exclusionConcern !== 'none' ? 'Exclusion: ' + dcEsc(i.exclusionConcern) : ''}</td>
+            <td style="${td}"><button type="button" class="dcai-toggle-item" data-idx="${idx}" style="float:right; margin-left:6px; background:#fff; border:1px solid ${i.removedByOffice ? 'var(--brand-green)' : '#b3261e'}; color:${i.removedByOffice ? 'var(--brand-green-dark)' : '#b3261e'}; border-radius:4px; font-size:11px; padding:2px 7px; cursor:pointer;">${i.removedByOffice ? 'Restore' : 'Remove'}</button>${i.covered ? '' : '<strong>Not covered.</strong> '}${i.preExistingOverlap && i.preExistingOverlap !== 'none' ? 'Pre-existing: ' + dcEsc(i.preExistingOverlap) + '. ' : ''}${i.exclusionConcern && i.exclusionConcern !== 'none' ? 'Exclusion: ' + dcEsc(i.exclusionConcern) : ''}</td>
           </tr>`).join('')}</tbody>
         </table></div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0;">
@@ -24734,6 +24749,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <div style="font-size:18px; font-weight:800;">${dcMoney(r.totals[o])}</div>
           </div>`).join('')}
         </div>
+        ${r.editedByOffice ? '<p class="form-note" style="margin:0 0 8px; color:#8a6d00;">Adjusted by the office \u2014 one or more items removed; totals recalculated with the same tariff rules.</p>' : ''}
         ${(r.concerns || []).length ? `<p style="margin:0 0 4px; font-weight:700; font-size:13px;">Verify before paying:</p><ul style="margin:0 0 12px 18px; font-size:13px;">${r.concerns.map(c => `<li>${dcEsc(c)}</li>`).join('')}</ul>` : ''}
         <p class="form-note" style="margin:0 0 12px;">AI estimate based on photos \u2014 weights and costs are approximate. Under the tariff, the carrier may also choose to repair or restore an item instead of paying. Review before settling; this isn\u2019t legal advice.</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -24747,6 +24763,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`;
       overlay.querySelector('#dcai_close2').addEventListener('click', close);
       overlay.querySelector('#dcai_again').addEventListener('click', renderForm);
+      // Remove (or restore) an item -- e.g. the same article listed twice --
+      // and recalculate every option's total with the tariff's rules.
+      overlay.querySelectorAll('.dcai-toggle-item').forEach(b => b.addEventListener('click', async (e) => {
+        const it = r.items[Number(e.currentTarget.dataset.idx)];
+        if(!it) return;
+        it.removedByOffice = !it.removedByOffice;
+        dcRecalcRecommendation(r);
+        claim.aiRecommendation = r;
+        await saveDamageClaims();
+        renderDamageClaimsList();
+        renderResult(r);
+      }));
       overlay.querySelector('#dcai_final').addEventListener('click', async () => { if(await dcSendFinalEmail(claim)) close(); });
       overlay.querySelector('#dcai_print').addEventListener('click', () => {
         const w = window.open('', '_blank');
