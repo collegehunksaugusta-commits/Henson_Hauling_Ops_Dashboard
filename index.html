@@ -5846,6 +5846,30 @@
       </details>
     </div>
 
+    <style>
+      .dc-card{ border:1px solid var(--line); border-left:5px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; background:#fff; }
+      .dc-card-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+      .dc-card-title{ font-weight:800; font-size:16px; color:var(--charcoal); }
+      .dc-card-sub{ font-size:12.5px; color:var(--muted); margin-top:2px; }
+      .dc-pill{ padding:4px 11px; border-radius:12px; font-size:11.5px; font-weight:700; white-space:nowrap; }
+      .dc-grid{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-top:12px; }
+      @media (max-width:760px){ .dc-grid{ grid-template-columns:1fr; } }
+      .dc-section{ background:var(--offwhite); border-radius:8px; padding:10px 12px; min-width:0; }
+      .dc-section-label{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
+      .dc-section select, .dc-section input{ font-size:13px; padding:5px 7px; border:1px solid var(--line); border-radius:5px; background:#fff; max-width:100%; }
+      .dc-chip{ display:inline-flex; align-items:center; background:#fff; border:1px solid var(--line); border-radius:12px; padding:1px 4px 1px 9px; font-size:12px; margin:0 4px 4px 0; }
+      .dc-chip button{ background:none; border:none; color:#b3261e; cursor:pointer; font-size:13px; padding:0 4px; }
+      .dc-photos-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px dashed var(--line); font-size:12.5px; }
+      .dc-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
+      .dc-btn{ background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12px; font-weight:600; padding:6px 11px; border-radius:6px; cursor:pointer; font-family:inherit; }
+      .dc-btn.green{ border-color:#00612C; color:#00612C; }
+      .dc-btn.green-solid{ background:var(--brand-green); border-color:var(--brand-green); color:#fff; }
+      .dc-btn.purple{ border-color:#5b3fa8; color:#5b3fa8; }
+      .dc-btn.purple-solid{ background:#5b3fa8; border-color:#5b3fa8; color:#fff; }
+      .dc-btn.orange{ border-color:var(--brand-orange); color:var(--brand-orange); }
+      .dc-btn.danger{ border:none; background:none; color:#b3261e; font-weight:500; text-decoration:underline; margin-left:auto; }
+    </style>
+    <input type="file" id="dc_addPhotosInput" accept="image/*" multiple style="display:none;">
     <div id="mgrreview_panel_damageclaims" style="display:none;">
       <p class="form-note" style="margin-top:0;">Send a client a secure link to upload photos of moving damage, and track each claim through to resolution. <strong style="color:#b3261e;">Counted on this tab</strong> = a client has uploaded photos that haven&rsquo;t been looked at yet. Tip: <strong>Start Damage Claim</strong> on a flagged job in the Moving tab fills in the job for you.</p>
     <div class="panel" id="dcNewClaimPanel">
@@ -25302,8 +25326,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   const CLAIM_LINK_VALID_DAYS = 7; // matches the backend's enforcement window
 
+  const DC_RES_LABELS = { repaired: 'Repaired', replaced: 'Replaced', reimbursed: 'Reimbursed', denied: 'Denied', no_damage_found: 'No Damage Found' };
   function dcClaimStatus(claim){
-    if(claim.photosUploadedAt && !claim.acknowledgedAt) return { label: 'Photos Uploaded', color: '#B3261E', bg: '#FDEDEA' };
+    if(claim.photosUploadedAt && !claim.acknowledgedAt) return { label: 'Photos Uploaded', color: '#B3261E', bg: '#FDEDEA', edge: '#B3261E' };
+    if(claim.finalEmailSentAt) return { label: 'Settled \u2014 final email sent', color: 'var(--brand-green-dark)', bg: '#EAF6EE', edge: 'var(--brand-green)' };
+    if(claim.resolution && claim.resolution !== 'pending') return { label: DC_RES_LABELS[claim.resolution] || 'Resolved', color: 'var(--brand-green-dark)', bg: '#EAF6EE', edge: 'var(--brand-green)' };
     if(claim.photosUploadedAt && claim.acknowledgedAt) return { label: 'Reviewed', color: 'var(--brand-green-dark)', bg: '#EAF6EE' };
     if(claim.emailSentAt && !claim.photosUploadedAt && (claim.linkIssuedAt || claim.createdAt)){
       const ageMs = Date.now() - new Date(claim.linkIssuedAt || claim.createdAt).getTime();
@@ -25339,52 +25366,73 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const crewPreCount = (c.crewPreExistingPhotoKeys || []).length;
       const crewCausedCount = (c.crewCausedPhotoKeys || []).length;
       const crewTotal = crewPreCount + crewCausedCount;
+      const captain = c.costCaptainName || dcCaptainForJobSync(c.jobNumber);
+      const officeCount = (c.photos || []).filter(p => p.source === 'office').length;
+      const clientCount = photoCount - officeCount;
+      const rec = c.aiRecommendation;
       return `
-      <div data-id="${c.id}" style="padding:14px 0; border-bottom:1px solid var(--line);">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
+      <div class="dc-card" data-id="${c.id}" style="border-left-color:${status.edge || 'var(--line)'};">
+        <div class="dc-card-head">
           <div>
-            <div style="font-weight:700; font-size:14px;">${dcEsc(c.jobNumber)} ${c.clientName ? '\u2014 ' + dcEsc(c.clientName) : ''}</div>
-            <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${dcEsc(c.clientEmail)}</div>
-            <div style="font-size:12.5px; margin-top:2px;">${(() => { const cap = c.costCaptainName || dcCaptainForJobSync(c.jobNumber); return cap ? `Captain: <strong>${dcEsc(cap)}</strong>` : '<span style="color:#8a6d00;">Captain: not on file for this job</span>'; })()}</div>
-            <div style="font-size:12.5px; margin-top:4px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
-              <span>Wingmen:</span>
-              ${(c.costWingmen || []).map(w => `<span style="background:var(--offwhite); border:1px solid var(--line); border-radius:10px; padding:1px 4px 1px 8px; font-size:12px;">${dcEsc(w)} <button type="button" class="dc-wm-remove" data-id="${c.id}" data-name="${dcEsc(w)}" title="Remove" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:12px; padding:0 3px;">&times;</button></span>`).join('')}
-              <select class="dc-wm-add" data-id="${c.id}" style="font-size:12px; padding:2px 4px;">
-                <option value="">+ Add wingman\u2026</option>
-                ${dcRosterCache.filter(n => !(c.costWingmen || []).includes(n) && n !== (c.costCaptainName || dcCaptainForJobSync(c.jobNumber))).map(n => `<option value="${dcEsc(n)}">${dcEsc(n)}</option>`).join('')}
-              </select>
+            <div class="dc-card-title">Job ${dcEsc(c.jobNumber)}${c.clientName ? ' \u00b7 ' + dcEsc(c.clientName) : ''}</div>
+            <div class="dc-card-sub">${dcEsc(c.clientEmail || '')}${c.createdAt ? ' \u00b7 claim started ' + window.fmtDate(c.createdAt.slice(0,10)) : ''}</div>
+          </div>
+          <span class="dc-pill" style="background:${status.bg}; color:${status.color};">${status.label}</span>
+        </div>
+
+        <div class="dc-grid">
+          <div class="dc-section">
+            <div class="dc-section-label">Crew</div>
+            <div style="font-size:13px; margin-bottom:6px;">${captain ? `Captain: <strong>${dcEsc(captain)}</strong>` : '<span style="color:#8a6d00;">Captain not on file for this job</span>'}</div>
+            <div>${(c.costWingmen || []).map(w => `<span class="dc-chip">${dcEsc(w)}<button type="button" class="dc-wm-remove" data-id="${c.id}" data-name="${dcEsc(w)}" title="Remove">&times;</button></span>`).join('')}</div>
+            <select class="dc-wm-add" data-id="${c.id}" style="font-size:12px; margin-top:2px;">
+              <option value="">+ Add wingman\u2026</option>
+              ${dcRosterCache.filter(n => !(c.costWingmen || []).includes(n) && n !== captain).map(n => `<option value="${dcEsc(n)}">${dcEsc(n)}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="dc-section">
+            <div class="dc-section-label">Resolution</div>
+            <select class="dc-resolution" data-id="${c.id}" style="width:100%;">
+              <option value="pending"${(c.resolution||'pending')==='pending'?' selected':''}>Pending</option>
+              <option value="repaired"${c.resolution==='repaired'?' selected':''}>Repaired</option>
+              <option value="replaced"${c.resolution==='replaced'?' selected':''}>Replaced</option>
+              <option value="reimbursed"${c.resolution==='reimbursed'?' selected':''}>Reimbursed</option>
+              <option value="denied"${c.resolution==='denied'?' selected':''}>Denied</option>
+              <option value="no_damage_found"${c.resolution==='no_damage_found'?' selected':''}>No Damage Found</option>
+            </select>
+            <div style="font-size:12px; margin-top:8px; color:var(--muted);">Resolved on
+              ${(c.resolution || 'pending') === 'pending'
+                ? '<span style="color:var(--charcoal);"> \u2014 still open</span>'
+                : `<input type="date" class="dc-resolved-date" data-id="${c.id}" value="${c.resolvedDate || ''}" style="display:block; margin-top:3px; ${c.resolvedDate ? '' : 'border-color:#E3A008; background:#FFFBEA;'}">`}
             </div>
           </div>
-          <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Resolution
-              <select class="dc-resolution" data-id="${c.id}" style="display:block; margin-top:3px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
-                <option value="pending"${(c.resolution||'pending')==='pending'?' selected':''}>Pending</option>
-                <option value="repaired"${c.resolution==='repaired'?' selected':''}>Repaired</option>
-                <option value="replaced"${c.resolution==='replaced'?' selected':''}>Replaced</option>
-                <option value="reimbursed"${c.resolution==='reimbursed'?' selected':''}>Reimbursed</option>
-                <option value="denied"${c.resolution==='denied'?' selected':''}>Denied</option>
-                <option value="no_damage_found"${c.resolution==='no_damage_found'?' selected':''}>No Damage Found</option>
-              </select>
+
+          <div class="dc-section">
+            <div class="dc-section-label">Cost</div>
+            <label style="font-size:12px; color:var(--muted); margin:0;" title="Split evenly across the Captain and any wingmen, and taken off their commission for the job's pay week (never below $0)">Total Cost ($)
+              <input type="number" class="dc-total-cost" data-id="${c.id}" min="0" step="0.01" placeholder="0.00" value="${c.totalCost || c.totalCost === 0 ? c.totalCost : ''}" style="display:block; margin-top:3px; width:120px;">
             </label>
-            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;" title="Filled in automatically when the Resolution moves off Pending; can be changed">Resolved On
-              ${(c.resolution || 'pending') === 'pending'
-                ? '<div style="margin-top:6px; font-size:12.5px; text-transform:none; letter-spacing:0; font-family:inherit;">\u2014 open</div>'
-                : `<input type="date" class="dc-resolved-date" data-id="${c.id}" value="${c.resolvedDate || ''}" style="display:block; margin-top:3px; font-size:12.5px; padding:3px 5px; border:1px solid ${c.resolvedDate ? 'var(--line)' : '#E3A008'}; border-radius:4px;">`}
-            </label>
-            <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;" title="Comes off the job's Captain's commission the week it's entered (up to that week's whole commission)">Total Cost
-              <input type="number" class="dc-total-cost" data-id="${c.id}" min="0" step="0.01" placeholder="0.00" value="${c.totalCost || c.totalCost === 0 ? c.totalCost : ''}" style="display:block; margin-top:3px; width:90px; font-size:12.5px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;">
-            ${dcDeductionNote(c)}</label>
-            <span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>
+            ${dcDeductionNote(c)}
+            ${rec ? `<div style="font-size:12px; margin-top:6px; color:#5b3fa8;">AI recommends <strong>${rec.recommendedTotal != null ? dcMoney(rec.recommendedTotal) : '\u2014'}</strong>${rec.option ? ' \u00b7 Option ' + (rec.option === '1' ? '1' : rec.option === '2a' ? '2(a)' : '2(b)') : ''}</div>` : ''}
           </div>
         </div>
-        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
-          ${photoCount > 0 ? `<button type="button" class="dc-view-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View ${photoCount} Client Photo${photoCount===1?'':'s'}</button>` : ''}
-          ${crewTotal > 0 ? `<button type="button" class="dc-view-crew-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View Crew Documentation (${crewTotal})</button>` : ''}
-          ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-acknowledge" data-id="${c.id}" style="background:var(--brand-green); border:none; color:#fff; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Mark Reviewed</button>` : ''}
-          <button type="button" class="dc-ai" data-id="${c.id}" title="AI looks at the photos and the signed valuation choice, and recommends a reimbursement under Georgia Tariff No. 7" style="background:#fff; border:1px solid #5b3fa8; color:#5b3fa8; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.aiRecommendation ? 'AI Recommendation \u2713' : 'AI Recommendation'}</button>
-          <button type="button" class="dc-resend" data-id="${c.id}" title="${c.emailSentAt ? 'Last sent ' + new Date(c.emailSentAt).toLocaleString() : ''}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.emailSentAt ? 'Resend Initial Email' : 'Send Initial Email'}${(c.emailSendCount || 0) > 1 ? ` (sent ${c.emailSendCount}\u00d7)` : ''}</button>
-          ${c.aiRecommendation ? `<button type="button" class="dc-final" data-id="${c.id}" title="${c.finalEmailSentAt ? 'Final email sent ' + new Date(c.finalEmailSentAt).toLocaleString() : 'Email the client the settlement, with the Settlement Summary PDF'}" style="background:${c.finalEmailSentAt ? '#fff' : '#5b3fa8'}; border:1px solid #5b3fa8; color:${c.finalEmailSentAt ? '#5b3fa8' : '#fff'}; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.finalEmailSentAt ? 'Final Email Sent \u00b7 Resend' : 'Send Final Email'}</button>` : ''}
-          <button type="button" class="dc-delete" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Delete</button>
+
+        <div class="dc-photos-row">
+          <strong>Photos:</strong>
+          <span style="color:var(--muted);">${clientCount} from client${officeCount ? `, ${officeCount} added by office` : ''}${crewTotal ? `, ${crewTotal} from crew` : ''}</span>
+          ${photoCount > 0 ? `<button type="button" class="dc-btn dc-view-photos" data-id="${c.id}">View Claim Photos (${photoCount})</button>` : ''}
+          ${crewTotal > 0 ? `<button type="button" class="dc-btn orange dc-view-crew-photos" data-id="${c.id}">View Crew Photos (${crewTotal})</button>` : ''}
+          <button type="button" class="dc-btn dc-add-photos" data-id="${c.id}" title="Add photos the client sent by text or email">+ Add Photos</button>
+          <span class="status-msg dc-add-photos-status" data-id="${c.id}" style="margin:0;"></span>
+        </div>
+
+        <div class="dc-actions">
+          ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-btn green-solid dc-acknowledge" data-id="${c.id}">Mark Photos Reviewed</button>` : ''}
+          <button type="button" class="dc-btn purple dc-ai" data-id="${c.id}" title="AI looks at the photos and the signed valuation choice, and recommends a reimbursement under Georgia Tariff No. 7">${rec ? 'AI Recommendation \u2713' : 'AI Recommendation'}</button>
+          <button type="button" class="dc-btn green dc-resend" data-id="${c.id}" title="${c.emailSentAt ? 'Last sent ' + new Date(c.emailSentAt).toLocaleString() : ''}">${c.emailSentAt ? 'Resend Initial Email' : 'Send Initial Email'}${(c.emailSendCount || 0) > 1 ? ` (sent ${c.emailSendCount}\u00d7)` : ''}</button>
+          ${rec ? `<button type="button" class="dc-btn ${c.finalEmailSentAt ? 'purple' : 'purple-solid'} dc-final" data-id="${c.id}" title="${c.finalEmailSentAt ? 'Final email sent ' + new Date(c.finalEmailSentAt).toLocaleString() : 'Email the client the settlement, with the Settlement Summary PDF'}">${c.finalEmailSentAt ? 'Final Email Sent \u00b7 Resend' : 'Send Final Email'}</button>` : ''}
+          <button type="button" class="dc-btn danger dc-delete" data-id="${c.id}">Delete claim</button>
         </div>
         <div class="dc-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-wrap:wrap; gap:8px;"></div>
         <div class="dc-crew-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-direction:column; gap:10px;"></div>
@@ -25473,6 +25521,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       await saveDamageClaims();
       renderDamageClaimsList();
+    }));
+
+    // Photos a client sends later by text or email, added by the office.
+    // Stored like the client's own uploads, marked source 'office', so they
+    // show with the claim's photos and go into the AI Recommendation.
+    rowsEl.querySelectorAll('.dc-add-photos').forEach(btn => btn.addEventListener('click', (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const old = document.getElementById('dc_addPhotosInput');
+      const fresh = old.cloneNode(true);
+      old.replaceWith(fresh);
+      fresh.addEventListener('change', async () => {
+        const files = Array.from(fresh.files || []);
+        const claim = damageClaims.find(c => c.id === id);
+        const statusEl = rowsEl.querySelector(`.dc-add-photos-status[data-id="${id}"]`);
+        if(!claim || files.length === 0) return;
+        statusEl.textContent = `Adding ${files.length} photo${files.length === 1 ? '' : 's'}\u2026`; statusEl.className = 'status-msg dc-add-photos-status';
+        let added = 0;
+        for(const f of files){
+          try{
+            const dataUri = await compressImageForUpload(f, 1600, 0.82);
+            const photoId = 'office' + Date.now().toString(36) + Math.floor(Math.random() * 1000);
+            if(await window.dashboardApi.set(`damage-claim-photo-${claim.id}-${photoId}`, dataUri)){
+              claim.photos = (claim.photos || []).concat([{ id: photoId, source: 'office', uploadedAt: new Date().toISOString() }]);
+              added++;
+            }
+          }catch(err){ console.error('Adding claim photo failed:', err); }
+        }
+        const ok = added > 0 ? await saveDamageClaims() : false;
+        renderDamageClaimsList();
+        const st = rowsEl.querySelector(`.dc-add-photos-status[data-id="${id}"]`);
+        if(st){
+          st.textContent = ok ? `Added ${added} photo${added === 1 ? '' : 's'}${added < files.length ? ` (${files.length - added} couldn\u2019t be saved)` : ''}.` : 'Couldn\u2019t save the photos \u2014 check your connection.';
+          st.className = ok ? 'status-msg ok dc-add-photos-status' : 'status-msg err dc-add-photos-status';
+        }
+      });
+      fresh.click();
     }));
 
     rowsEl.querySelectorAll('.dc-view-photos').forEach(btn => btn.addEventListener('click', async (e)=>{
