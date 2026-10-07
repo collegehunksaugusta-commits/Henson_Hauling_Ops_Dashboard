@@ -3130,6 +3130,186 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
   }
 });
 
+// ============ Damage claim: AI reimbursement recommendation ============
+// Looks at a claim's photos (the client's, the crew's crew-caused photos,
+// and the crew's pre-existing-damage photos for comparison), reads the
+// valuation option the client signed on the bill of lading addendum in the
+// job's scanned paperwork, and recommends a reimbursement under Georgia DPS
+// Maximum Rate Tariff No. 7, Section V. Claude identifies the damaged
+// articles and estimates each one's weight and repair/replacement cost;
+// the tariff math itself is done here, so the dollar figure always follows
+// the tariff's rules exactly.
+const GA_TARIFF_7_VALUATION = `Georgia Department of Public Safety Maximum Rate Tariff No. 7 (effective January 13, 2026), Section V - Valuation and Declaration:
+- Option 1, Released Value Protection: coverage at $0.60 per pound per article, based solely on the weight of the lost or damaged article(s). No additional charge. Carrier has the option of repairing and/or restoring to original condition.
+- Option 2(a), Full Value Protection, no deductible: coverage based on current replacement value at the time of loss or damage, up to the dollar amount of valuation declared by the shipper. Carrier has the option of repairing and/or restoring to original condition.
+- Option 2(b), Full Value Protection, $300.00 deductible: same as 2(a), less a $300 deductible.
+- If the carrier fails to secure the shipper's signed declaration before the move, the shipper is considered to have chosen Option 2(a).
+- Declared value must be at least $5,000 per room (excluding halls, attics, garages, closets and baths).
+Bill of lading terms (Section 1): the carrier is not liable for damage resulting from an act, omission or order of the shipper; insects, moth, vermin and ordinary wear and tear; defect or inherent vice of the article (including susceptibility to temperature/humidity); acts of God; or for documents, currency, money, jewelry, watches, precious stones or articles of extraordinary value not specifically listed on the bill of lading. Claims must be filed in writing within 90 days.`;
+
+const DAMAGE_REC_TOOL = {
+  name: 'damage_claim_assessment',
+  description: 'Assessment of a household-goods moving damage claim.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      valuationFromPaperwork: { type: 'string', enum: ['1', '2a', '2b', 'not_found'], description: 'Which option is selected/signed on the "Addendum to Uniform Household Goods Bill of Lading - Shipper Declaration of Value" in the paperwork, or not_found if no signed selection can be seen.' },
+      declaredValueFromPaperwork: { type: 'number', description: 'Declared dollar value written on the addendum for Option 2(a)/2(b), or 0 if none.' },
+      paperworkEvidence: { type: 'string', description: 'Briefly, where/what you saw on the addendum (e.g. "Option 1 line signed and dated 10/3"), or why it could not be determined.' },
+      items: {
+        type: 'array',
+        description: 'One entry per damaged article visible in the photos.',
+        items: {
+          type: 'object',
+          properties: {
+            article: { type: 'string', description: 'What the article is, e.g. "Oak dresser, 6-drawer".' },
+            damage: { type: 'string', description: 'What the damage is and how severe.' },
+            estimatedWeightLbs: { type: 'number', description: 'Estimated weight of the whole article in pounds (Released Value is per pound of the article).' },
+            estimatedRepairOrReplaceCost: { type: 'number', description: 'Reasonable cost in dollars to repair the damage, or the current replacement value if repair is not practical.' },
+            repairOrReplace: { type: 'string', enum: ['repair', 'replace'] },
+            preExistingOverlap: { type: 'string', description: 'Whether the crew\'s pre-existing-damage photos show this same damage before the move ("none", "partial", "same damage"), with a few words.' },
+            exclusionConcern: { type: 'string', description: 'Any tariff exclusion that may apply (wear and tear, inherent vice, shipper-packed, extraordinary value not listed), or "none".' },
+            covered: { type: 'boolean', description: 'False if the damage appears pre-existing or excluded, so it should not be paid.' }
+          },
+          required: ['article', 'damage', 'estimatedWeightLbs', 'estimatedRepairOrReplaceCost', 'repairOrReplace', 'preExistingOverlap', 'exclusionConcern', 'covered']
+        }
+      },
+      confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+      concerns: { type: 'array', items: { type: 'string' }, description: 'Things the owner should verify before paying (unclear photos, missing receipts, possible pre-existing damage, etc.).' },
+      writtenRecommendation: { type: 'string', description: 'A plain-language recommendation for the business owner, 2-4 short paragraphs: what was damaged, which valuation option applies and why, how the amount was reached under Tariff No. 7, and anything to verify. Do not invent dollar totals different from the item estimates.' }
+    },
+    required: ['valuationFromPaperwork', 'declaredValueFromPaperwork', 'paperworkEvidence', 'items', 'confidence', 'concerns', 'writtenRecommendation']
+  }
+};
+
+function dataUriParts(uri) {
+  const m = /^data:([^;,]+);base64,(.+)$/s.exec(String(uri || ''));
+  return m ? { mediaType: m[1], data: m[2] } : null;
+}
+
+app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'AI recommendations need a Claude key (ANTHROPIC_API_KEY in Render).' });
+  const { claimId, valuation, declaredValue, notes } = req.body || {};
+  try {
+    const [claimsRaw, reportsRaw, uploadsRaw, archiveRaw] = await Promise.all([
+      redis.get('damage-claims'), redis.get('moving-damage-reports'), redis.get('paperwork-uploads'), redis.get(JOB_ARCHIVE_KEY)
+    ]);
+    const claim = (claimsRaw ? JSON.parse(claimsRaw) : []).find(c => c.id === claimId);
+    if (!claim) return res.status(404).json({ error: 'Claim not found.' });
+    const report = (reportsRaw ? JSON.parse(reportsRaw) : []).find(r => String(r.jobNumber) === String(claim.jobNumber)) || {};
+    const job = (archiveRaw ? JSON.parse(archiveRaw) : []).find(j => String(j.jobNumber) === String(claim.jobNumber)) || {};
+
+    // Photos, labeled by source, up to 18 in all.
+    const groups = [
+      { label: 'CLIENT CLAIM PHOTO (uploaded by the client after the move)', keys: (claim.photos || []).map(p => `damage-claim-photo-${claim.id}-${p.id}`) },
+      { label: 'CREW-CAUSED DAMAGE PHOTO (taken by the crew, documenting damage they caused)', keys: report.causedPhotoKeys || [] },
+      { label: 'PRE-EXISTING DAMAGE PHOTO (taken by the crew BEFORE the move -- damage here was already present and is not the carrier\'s responsibility)', keys: report.preExistingPhotoKeys || [] }
+    ];
+    const content = [];
+    const counts = {};
+    let total = 0;
+    for (const g of groups) {
+      counts[g.label.split(' (')[0]] = 0;
+      for (const key of g.keys) {
+        if (total >= 18) break;
+        const raw = await redis.get(key);
+        let uri = null; try { uri = raw ? JSON.parse(raw) : null; } catch (e) { uri = raw; }
+        const parts = dataUriParts(uri);
+        if (!parts || !parts.mediaType.startsWith('image/')) continue;
+        content.push({ type: 'text', text: g.label + ':' });
+        content.push({ type: 'image', source: { type: 'base64', media_type: parts.mediaType, data: parts.data } });
+        counts[g.label.split(' (')[0]]++;
+        total++;
+      }
+    }
+    if (total === 0) return res.status(400).json({ error: 'This claim has no photos to analyze yet.' });
+
+    // The job's scanned paperwork packet, to read the signed valuation addendum.
+    let paperworkIncluded = false;
+    if (!valuation || valuation === 'paperwork') {
+      const upload = (uploadsRaw ? JSON.parse(uploadsRaw) : []).filter(u => String(u.jobNumber) === String(claim.jobNumber))
+        .sort((a, b) => (b.invoiceUploadedAt || b.uploadedAt || '').localeCompare(a.invoiceUploadedAt || a.uploadedAt || ''))[0];
+      if (upload) {
+        const raw = await redis.get('paperwork-upload-' + upload.id);
+        let uri = null; try { uri = raw ? JSON.parse(raw) : null; } catch (e) { uri = raw; }
+        const parts = dataUriParts(uri);
+        if (parts && parts.mediaType === 'application/pdf') {
+          content.unshift({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: parts.data } });
+          content.unshift({ type: 'text', text: 'THE JOB\'S SCANNED PAPERWORK PACKET (find the "Addendum to Uniform Household Goods Bill of Lading - Shipper Declaration of Value" page and read which option the client signed):' });
+          paperworkIncluded = true;
+        } else if (parts && parts.mediaType.startsWith('image/')) {
+          content.unshift({ type: 'image', source: { type: 'base64', media_type: parts.mediaType, data: parts.data } });
+          content.unshift({ type: 'text', text: 'THE JOB\'S SCANNED PAPERWORK (look for the signed valuation addendum):' });
+          paperworkIncluded = true;
+        }
+      }
+    }
+
+    const chosen = ['1', '2a', '2b'].includes(valuation) ? valuation : null;
+    content.push({ type: 'text', text:
+      `You are helping a College Hunks Hauling Junk & Moving franchise owner in Georgia evaluate a customer's moving damage claim.\n\n${GA_TARIFF_7_VALUATION}\n\n` +
+      `Job ${claim.jobNumber}${job.jobType ? ' (' + job.jobType + ')' : ''}, client ${claim.clientName || job.clientName || 'unknown'}.\n` +
+      (chosen ? `The owner states the client chose Option ${chosen}${Number(declaredValue) > 0 ? ' with a declared value of $' + Number(declaredValue) : ''}. Use that.\n` : (paperworkIncluded ? 'Read the client\'s valuation choice from the signed addendum in the paperwork.\n' : 'No paperwork is available; report valuationFromPaperwork as not_found.\n')) +
+      (notes ? `Owner's notes about the claim: ${String(notes).slice(0, 2000)}\n` : '') +
+      `\nIdentify each damaged article shown in the claim and crew-caused photos. Compare against the pre-existing-damage photos: damage that was already there before the move is not covered. Estimate each article's full weight in pounds and a reasonable current repair or replacement cost in US dollars. Be conservative and realistic, not generous. Then write the recommendation.` });
+
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, tools: [DAMAGE_REC_TOOL], tool_choice: { type: 'tool', name: 'damage_claim_assessment' }, messages: [{ role: 'user', content }] })
+    });
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      console.error('[damage-rec] Claude call failed:', r.status, body.slice(0, 400));
+      return res.status(502).json({ error: 'The AI service returned an error \u2014 try again in a minute.' });
+    }
+    const d = await r.json();
+    const block = (d.content || []).find(b => b.type === 'tool_use');
+    if (!block) return res.status(502).json({ error: 'The AI didn\u2019t return an assessment \u2014 try again.' });
+    const a = block.input || {};
+
+    // Tariff math, done here.
+    const items = (a.items || []).map(it => {
+      const weight = Math.max(0, Number(it.estimatedWeightLbs) || 0);
+      const cost = Math.max(0, Number(it.estimatedRepairOrReplaceCost) || 0);
+      const covered = it.covered !== false;
+      const releasedCap = Math.round(weight * 0.60 * 100) / 100;
+      return { ...it, estimatedWeightLbs: weight, estimatedRepairOrReplaceCost: cost, covered,
+        releasedValueAmount: covered ? Math.min(cost, releasedCap) : 0, releasedValueCap: releasedCap,
+        fullValueAmount: covered ? cost : 0 };
+    });
+    const round2 = n => Math.round(n * 100) / 100;
+    const releasedTotal = round2(items.reduce((t, i) => t + i.releasedValueAmount, 0));
+    const fullCostTotal = round2(items.reduce((t, i) => t + i.fullValueAmount, 0));
+    const option = chosen || (['1', '2a', '2b'].includes(a.valuationFromPaperwork) ? a.valuationFromPaperwork : null);
+    const declared = Number(chosen ? declaredValue : a.declaredValueFromPaperwork) || 0;
+    const cap = v => declared > 0 ? Math.min(v, declared) : v;
+    const totals = {
+      '1': releasedTotal,
+      '2a': round2(cap(fullCostTotal)),
+      '2b': round2(cap(Math.max(0, fullCostTotal - 300)))
+    };
+    const result = {
+      generatedAt: new Date().toISOString(), by: req.userEmail || '',
+      option, optionSource: chosen ? 'entered' : (option ? 'paperwork' : 'not_found'),
+      declaredValue: declared, paperworkIncluded, paperworkEvidence: a.paperworkEvidence || '',
+      items, totals, recommendedTotal: option ? totals[option] : null,
+      confidence: a.confidence || 'low', concerns: a.concerns || [], writtenRecommendation: a.writtenRecommendation || '',
+      photoCounts: counts
+    };
+    // Kept on the claim so it can be reopened without re-running.
+    const claims = JSON.parse(await redis.get('damage-claims') || '[]');
+    const c = claims.find(x => x.id === claimId);
+    if (c) { c.aiRecommendation = result; await redis.set('damage-claims', JSON.stringify(claims)); }
+    console.log(`[damage-rec] claim ${claimId} job ${claim.jobNumber}: option ${option || 'unknown'} (${result.optionSource}), ${items.length} item(s), recommended ${result.recommendedTotal}`);
+    res.json(result);
+  } catch (err) {
+    console.error('[damage-rec] failed:', err.message);
+    res.status(500).json({ error: 'Could not prepare the recommendation.' });
+  }
+});
+
 // ============ Google Reviews (Places API) ============
 // Pulls the business's Google reviews so Manager Review can credit each
 // one to the employees it's about. Google only ever returns the 5 newest
