@@ -1,7 +1,7 @@
 {
-  "name": "Henson Hauling Driver Tools",
-  "short_name": "Driver Tools",
-  "description": "College HUNKS Hauling Junk & Moving \u2014 Augusta driver tools: Pre-Trip Inspection, Materials Checkout, End of Day Inspection, and more.",
+  "name": "HUNK Portal",
+  "short_name": "HUNK Portal",
+  "description": "College HUNKS Hauling Junk & Moving — the HUNK Portal for Captains and Wingmen: Pre-Trip and End of Day Inspections, Materials, clock in/out, and more.",
   "start_url": "./index.html#driver",
   "scope": "./",
   "id": "./index.html#driver",
@@ -10,9 +10,29 @@
   "background_color": "#F5F3EE",
   "theme_color": "#00843D",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
