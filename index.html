@@ -9936,7 +9936,7 @@
       <tr data-job="${g.jobNumber}">
         <td>${tipsEsc(g.date)}</td>
         <td style="font-weight:600;">${tipsEsc(g.jobNumber)}${g.paymentIds.length > 1 ? ` <span class="form-note">(${g.paymentIds.length} payments combined)</span>` : ''}</td>
-        <td>${tipsMoney(g.tipAmount)}</td>
+        <td><input type="number" class="tips-amount-input" data-job="${g.jobNumber}" min="0" step="0.01" value="${Number(g.tipAmount).toFixed(2)}" title="Square reported ${tipsMoney(g.tipAmount)} \u2014 changing it takes the Administrator Override PIN" style="width:90px; font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
         <td>${tipsEmployeeCheckboxesHtml([])}</td>
         <td><button type="button" class="tips-save-alloc" data-job="${g.jobNumber}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:3px; font-size:12px; cursor:pointer;">Split &amp; Save</button></td>
       </tr>`).join('');
@@ -9954,14 +9954,47 @@
       }
       const group = grouped.find(g => g.jobNumber === jobNumber);
       if(!group) return;
+      // A tip amount changed from what Square reported needs a reason, and
+      // keeps the original on record.
+      const entered = Math.round((Number(row.querySelector('.tips-amount-input').value) || 0) * 100) / 100;
+      const original = Math.round(Number(group.tipAmount) * 100) / 100;
+      let adjustment = null;
+      if(entered < 0){ alert('The tip can\u2019t be negative.'); return; }
+      if(entered !== original){
+        const reason = (prompt(`Square reported ${tipsMoney(original)}. Why is this tip ${tipsMoney(entered)}? (e.g. client lowered the tip after the move)`) || '').trim();
+        if(!reason){ alert('A reason is needed to change the tip amount.'); return; }
+        if(!(await tipsVerifyOverridePin())) return;
+        adjustment = { originalTipAmount: original, adjustReason: reason.slice(0, 300), adjustedAt: new Date().toISOString(), adjustedBy: localStorage.getItem('henson_auth_email') || '' };
+      }
       tipsAllocations[jobNumber] = {
-        jobNumber, tipAmount: group.tipAmount, date: group.date, paymentIds: group.paymentIds,
-        employees: noneChecked ? [] : checked, allocatedAt: new Date().toISOString()
+        jobNumber, tipAmount: entered, date: group.date, paymentIds: group.paymentIds,
+        employees: noneChecked ? [] : checked, allocatedAt: new Date().toISOString(),
+        ...(adjustment || {})
       };
       const ok = await tipsSaveAllocations();
       if(!ok){ alert('Save failed \u2014 check your connection and try again.'); return; }
       renderTipsAll();
     }));
+  }
+
+  // Changing a tip from what Square reported takes the Administrator
+  // Override PIN. Returns true only when a correct PIN was entered.
+  async function tipsVerifyOverridePin(){
+    const pin = prompt('Enter the Administrator Override PIN to change this tip from what Square reported:');
+    if(pin === null) return false;
+    try{
+      const res = await fetch(`${API_BASE}/api/verify-override-pin`, {
+        method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ pin })
+      });
+      if(handleAuthFailure(res)) return false;
+      const data = await res.json();
+      if(!res.ok){ alert(data.error || 'Could not verify the PIN.'); return false; }
+      if(!data.valid){ alert('Incorrect PIN \u2014 the tip was not changed.'); return false; }
+      return true;
+    }catch(err){
+      alert('Could not reach the server to check the PIN \u2014 the tip was not changed.');
+      return false;
+    }
   }
 
   function renderTipsAllocated(){
@@ -9984,11 +10017,36 @@
       <tr data-job="${jobNumber}">
         <td>${tipsEsc(a.date)}</td>
         <td style="font-weight:600;">${tipsEsc(a.jobNumber)}${paymentCount > 1 ? ` <span class="form-note">(${paymentCount} payments combined)</span>` : ''}</td>
-        <td>${tipsMoney(a.tipAmount)}</td>
+        <td>${tipsMoney(a.tipAmount)}${a.originalTipAmount != null && a.originalTipAmount !== a.tipAmount ? `<div style="font-size:11px; color:#8a6d00; max-width:200px;" title="Adjusted ${a.adjustedAt ? new Date(a.adjustedAt).toLocaleString() : ''}${a.adjustedBy ? ' by ' + tipsEsc(a.adjustedBy) : ''}">adjusted from ${tipsMoney(a.originalTipAmount)}${a.adjustReason ? ' \u2014 ' + tipsEsc(a.adjustReason) : ''}</div>` : ''}
+          <div><button type="button" class="tips-adjust-alloc" data-job="${jobNumber}" style="margin-top:3px; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:2px 8px; border-radius:3px; font-size:11px; cursor:pointer;">Adjust</button></div></td>
         <td>${employeesCell}</td>
         <td><button type="button" class="tips-undo-alloc" data-job="${jobNumber}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:5px 10px; border-radius:3px; font-size:12px; cursor:pointer;">Edit</button></td>
       </tr>`;
     }).join('');
+
+    tbody.querySelectorAll('.tips-adjust-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const jobNumber = e.target.dataset.job;
+      const a = tipsAllocations[jobNumber];
+      if(!a) return;
+      const original = a.originalTipAmount != null ? a.originalTipAmount : a.tipAmount;
+      const input = prompt(`New tip amount for job ${jobNumber} (Square reported ${tipsMoney(original)}):`, Number(a.tipAmount).toFixed(2));
+      if(input === null) return;
+      const amount = Math.round((Number(input) || 0) * 100) / 100;
+      if(!(amount >= 0) || input.trim() === ''){ alert('Enter an amount of $0 or more.'); return; }
+      if(amount === original){
+        // Back to what Square reported: clear the adjustment.
+        delete a.originalTipAmount; delete a.adjustReason; delete a.adjustedAt; delete a.adjustedBy;
+        a.tipAmount = original;
+      } else {
+        const reason = (prompt(`Why is this tip ${tipsMoney(amount)} instead of ${tipsMoney(original)}?`, a.adjustReason || '') || '').trim();
+        if(!reason){ alert('A reason is needed to change the tip amount.'); return; }
+        if(!(await tipsVerifyOverridePin())) return;
+        Object.assign(a, { tipAmount: amount, originalTipAmount: original, adjustReason: reason.slice(0, 300), adjustedAt: new Date().toISOString(), adjustedBy: localStorage.getItem('henson_auth_email') || '' });
+      }
+      const ok = await tipsSaveAllocations();
+      if(!ok){ alert('Save failed \u2014 check your connection and try again.'); return; }
+      renderTipsAll();
+    }));
 
     tbody.querySelectorAll('.tips-undo-alloc').forEach(btn => btn.addEventListener('click', async (e)=>{
       const jobNumber = e.target.dataset.job;
