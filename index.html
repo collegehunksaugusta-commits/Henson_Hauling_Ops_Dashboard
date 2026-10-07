@@ -24726,7 +24726,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     window.location.href = `mailto:${encodeURIComponent(claim.clientEmail || '')}${cc ? '?cc=' + encodeURIComponent(cc) + '&' : '?'}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     claim.finalEmailSentAt = new Date().toISOString();
     claim.finalSettlementAmount = amount;
+    // Sending the final settlement closes the claim: a Pending claim becomes
+    // Reimbursed (the email tells the client a refund is coming) with today
+    // as its resolution date -- an outcome already chosen is left alone --
+    // and any unreviewed client photos count as reviewed. That also lets the
+    // crew's "Damage Claim Closed" notice go out.
+    if((claim.resolution || 'pending') === 'pending'){
+      claim.resolution = 'reimbursed';
+      claim.resolvedDate = new Date().toLocaleDateString('en-CA');
+    }
+    if(claim.photosUploadedAt && !claim.acknowledgedAt) claim.acknowledgedAt = new Date().toISOString();
+    if(!(Number(claim.totalCost) > 0) && amount > 0){
+      claim.totalCost = amount;
+      if(!claim.costRecordedAt) claim.costRecordedAt = new Date().toLocaleDateString('en-CA');
+      if(!claim.costCaptainName) claim.costCaptainName = await dcCaptainForJob(claim.jobNumber);
+    }
     await saveDamageClaims();
+    updateDamageClaimTileBadge();
     renderDamageClaimsList();
     const statusEl = document.getElementById('dc_generateStatus');
     if(statusEl){
