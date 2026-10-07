@@ -3161,11 +3161,12 @@ const DAMAGE_REC_TOOL = {
       paperworkEvidence: { type: 'string', description: 'Briefly, where/what you saw on the addendum (e.g. "Option 1 line signed and dated 10/3"), or why it could not be determined.' },
       items: {
         type: 'array',
-        description: 'One entry per damaged article visible in the photos.',
+        description: 'One entry per distinct physical article that is damaged. Never list the same article twice -- several photos of one article (close-up, wide shot, other angle, client vs crew) are ONE entry.',
         items: {
           type: 'object',
           properties: {
             article: { type: 'string', description: 'What the article is, e.g. "Oak dresser, 6-drawer".' },
+            photoNumbers: { type: 'array', items: { type: 'integer' }, description: 'Every photo number that shows THIS physical article (close-ups and wide shots of the same thing all belong here).' },
             damage: { type: 'string', description: 'What the damage is and how severe.' },
             estimatedWeightLbs: { type: 'number', description: 'Estimated weight of the whole article in pounds (Released Value is per pound of the article).' },
             estimatedRepairOrReplaceCost: { type: 'number', description: 'Reasonable cost in dollars to repair the damage, or the current replacement value if repair is not practical.' },
@@ -3174,7 +3175,7 @@ const DAMAGE_REC_TOOL = {
             exclusionConcern: { type: 'string', description: 'Any tariff exclusion that may apply (wear and tear, inherent vice, shipper-packed, extraordinary value not listed), or "none".' },
             covered: { type: 'boolean', description: 'False if the damage appears pre-existing or excluded, so it should not be paid.' }
           },
-          required: ['article', 'damage', 'estimatedWeightLbs', 'estimatedRepairOrReplaceCost', 'repairOrReplace', 'preExistingOverlap', 'exclusionConcern', 'covered']
+          required: ['article', 'photoNumbers', 'damage', 'estimatedWeightLbs', 'estimatedRepairOrReplaceCost', 'repairOrReplace', 'preExistingOverlap', 'exclusionConcern', 'covered']
         }
       },
       confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
@@ -3220,7 +3221,7 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
         let uri = null; try { uri = raw ? JSON.parse(raw) : null; } catch (e) { uri = raw; }
         const parts = dataUriParts(uri);
         if (!parts || !parts.mediaType.startsWith('image/')) continue;
-        content.push({ type: 'text', text: g.label + ':' });
+        content.push({ type: 'text', text: `Photo ${total + 1} \u2014 ${g.label}:` });
         content.push({ type: 'image', source: { type: 'base64', media_type: parts.mediaType, data: parts.data } });
         counts[g.label.split(' (')[0]]++;
         total++;
@@ -3255,6 +3256,7 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
       `Job ${claim.jobNumber}${job.jobType ? ' (' + job.jobType + ')' : ''}, client ${claim.clientName || job.clientName || 'unknown'}.\n` +
       (chosen ? `The owner states the client chose Option ${chosen}${Number(declaredValue) > 0 ? ' with a declared value of $' + Number(declaredValue) : ''}. Use that.\n` : (paperworkIncluded ? 'Read the client\'s valuation choice from the signed addendum in the paperwork.\n' : 'No paperwork is available; report valuationFromPaperwork as not_found.\n')) +
       (notes ? `Owner's notes about the claim: ${String(notes).slice(0, 2000)}\n` : '') +
+      `\nIMPORTANT -- count each damaged ARTICLE once, not each photo. Clients and crews often send several photos of the same item: a zoomed-in close-up of the damage plus a wider shot, the same spot from another angle, or the client's photo and the crew's photo of the same piece. Before listing items, decide which photos show the same physical article (same color, material, shape, finish, setting) and group them into one entry, listing all of its photo numbers. Only list separate entries for articles that are clearly different objects. When unsure whether two photos show the same article, treat them as the same and say so in concerns.` +
       `\nIdentify each damaged article shown in the claim and crew-caused photos. Compare against the pre-existing-damage photos: damage that was already there before the move is not covered. Estimate each article's full weight in pounds and a reasonable current repair or replacement cost in US dollars. Be conservative and realistic, not generous. Then write the recommendation.` });
 
     const r = await fetch('https://api.anthropic.com/v1/messages', {
