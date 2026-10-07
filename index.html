@@ -7070,6 +7070,11 @@
           <h3>Damage Claims</h3>
           <label>Client Email Body <textarea id="appset_damageClaimEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
           <p class="form-note">Sent to the client when a Damage Claim link is generated. Include <span class="mono">{{link}}</span> anywhere you want the client's upload link to appear &mdash; it's swapped in automatically for each claim. Also available: <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{clientName}}</span>, <span class="mono">{{jobNumber}}</span>.</p>
+          <h4 style="margin:18px 0 6px; font-size:13px;">Final Settlement Email</h4>
+          <label>Subject <input type="text" id="appset_dcFinalSubject" style="width:100%;"></label>
+          <label>CC Recipients <input type="text" id="appset_dcFinalCc" placeholder="name@chhj.com, name2@chhj.com" style="width:100%;"></label>
+          <label>Email Body <textarea id="appset_dcFinalBody" rows="9" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
+          <p class="form-note">Sent from <strong>Send Final Email</strong> on a claim, with the Settlement Summary PDF downloaded and ready to attach. Available merge fields: <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{clientName}}</span>, <span class="mono">{{jobNumber}}</span>, <span class="mono">{{settlementAmount}}</span>, <span class="mono">{{valuationOption}}</span>.</p>
           <div class="form-actions">
             <button class="btn-primary" id="appset_damageClaimsSaveBtn" type="button">Save</button>
             <span class="status-msg" id="appset_damageClaimsStatus"></span>
@@ -7583,7 +7588,10 @@
       orderDeadlineTime: ''
     },
     damageClaims: {
-      emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team'
+      emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team',
+      finalEmailSubject: 'Your Damage Claim \u2014 Job {{jobNumber}}',
+      finalEmailCc: '',
+      finalEmailBody: 'Hi {{clientFirstName}},\n\nThank you for your patience while we reviewed your damage claim for job {{jobNumber}}. We\u2019ve completed our review using the photos provided and the valuation coverage you selected on your Bill of Lading: {{valuationOption}}.\n\nUnder Georgia Department of Public Safety Maximum Rate Tariff No. 7, the settlement amount for your claim is {{settlementAmount}}. The attached Settlement Summary explains how that amount was determined, item by item.\n\nIf you have any questions, just reply to this email.\n\nThanks,\n' + window.LOCATION_PROFILE.emailSignature
     },
     hiring: {
       emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
@@ -15299,6 +15307,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_orderDeadlineDay').value = (materials.orderDeadlineDay === 0 || materials.orderDeadlineDay) ? String(materials.orderDeadlineDay) : '';
     document.getElementById('appset_orderDeadlineTime').value = materials.orderDeadlineTime || '';
     document.getElementById('appset_damageClaimEmailBody').value = damageClaims.emailBodyTemplate || '';
+    document.getElementById('appset_dcFinalSubject').value = damageClaims.finalEmailSubject || '';
+    document.getElementById('appset_dcFinalCc').value = damageClaims.finalEmailCc || '';
+    document.getElementById('appset_dcFinalBody').value = damageClaims.finalEmailBody || '';
     const hiringEmailSettings = s.hiring || {};
     document.getElementById('appset_hiringEmailSubject').value = hiringEmailSettings.emailSubject || '';
     document.getElementById('appset_hiringEmailBody').value = hiringEmailSettings.emailBody || '';
@@ -16833,7 +16844,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('appset_damageClaimsSaveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('appset_damageClaimsStatus');
     const damageClaims = {
-      emailBodyTemplate: document.getElementById('appset_damageClaimEmailBody').value
+      emailBodyTemplate: document.getElementById('appset_damageClaimEmailBody').value,
+      finalEmailSubject: document.getElementById('appset_dcFinalSubject').value,
+      finalEmailCc: document.getElementById('appset_dcFinalCc').value,
+      finalEmailBody: document.getElementById('appset_dcFinalBody').value
     };
     statusEl.textContent = 'Saving...';
     statusEl.className = 'status-msg';
@@ -24465,6 +24479,103 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     window.damageClaimJobNumbers = new Set(damageClaims.map(c => String(c.jobNumber)));
   }
 
+  // ---- Final settlement email ----
+  // The client gets a Settlement Summary PDF -- the client-facing version of
+  // the AI recommendation: coverage selected, each item and how its amount
+  // was figured under the tariff, and the settlement total. Internal parts
+  // (confidence, "verify before paying", AI wording) are left out. The
+  // settlement amount is the claim's Total Cost when one is set, otherwise
+  // the recommendation. Like the other automated emails: the PDF downloads
+  // (email links can't attach files), the email opens filled in.
+  const DC_CLIENT_OPTION_TEXT = {
+    '1': { name: 'Option 1 \u2014 Released Value Protection', basis: 'Released Value Protection provides coverage at $0.60 per pound per article, based solely on the weight of each lost or damaged article.' },
+    '2a': { name: 'Option 2(a) \u2014 Full Value Protection (no deductible)', basis: 'Full Value Protection provides coverage based on the current replacement value of each damaged article at the time of damage (or its reasonable repair cost), up to the total value you declared.' },
+    '2b': { name: 'Option 2(b) \u2014 Full Value Protection ($300 deductible)', basis: 'Full Value Protection provides coverage based on the current replacement value of each damaged article at the time of damage (or its reasonable repair cost), up to the total value you declared, less a $300.00 deductible.' }
+  };
+
+  function dcBuildSettlementPdf(claim, rec, amount){
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const P = window.LOCATION_PROFILE;
+    const W = 612, M = 54; let y = 56;
+    const opt = DC_CLIENT_OPTION_TEXT[rec.option] || null;
+    const line = (txt, size, bold, color) => {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size || 10.5); doc.setTextColor(...(color || [30,30,30]));
+      const parts = doc.splitTextToSize(String(txt), W - 2 * M);
+      parts.forEach(t => { if(y > 740){ doc.addPage(); y = 56; } doc.text(t, M, y); y += (size || 10.5) * 1.35; });
+    };
+    // letterhead
+    doc.setFillColor(0, 97, 44); doc.rect(0, 0, W, 8, 'F');
+    line(`${P.legalName} dba ${P.dbaName}`, 13, true, [0, 97, 44]);
+    line(`${P.officeAddress}  \u2022  ${P.officePhone}  \u2022  USDOT ${P.usdotNumber}  \u2022  ${P.stateHhgLabel}`, 8.5, false, [90,90,90]);
+    y += 10;
+    line('Damage Claim Settlement Summary', 17, true);
+    line(`Date: ${new Date().toLocaleDateString()}     Job: ${claim.jobNumber}     Client: ${claim.clientName || ''}`, 10, false, [70,70,70]);
+    y += 8;
+    line('Valuation coverage selected', 11.5, true);
+    line(opt ? opt.name + (rec.declaredValue ? ` \u2014 declared value $${Number(rec.declaredValue).toLocaleString()}` : '') : 'Per Georgia DPS Maximum Rate Tariff No. 7', 10.5);
+    if(opt) line(opt.basis, 10, false, [60,60,60]);
+    y += 6;
+    line('Items reviewed', 11.5, true);
+    const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    (rec.items || []).forEach(it => {
+      let how;
+      if(!it.covered) how = 'Not covered' + (it.preExistingOverlap && it.preExistingOverlap !== 'none' ? ' \u2014 this damage was documented before the move.' : (it.exclusionConcern && it.exclusionConcern !== 'none' ? ` \u2014 ${it.exclusionConcern}.` : '.'));
+      else if(rec.option === '1') how = `${Math.round(it.estimatedWeightLbs)} lbs \u00d7 $0.60 = ${money(it.releasedValueCap)}` + (it.releasedValueAmount < it.releasedValueCap ? `; limited to the ${it.repairOrReplace} cost of ${money(it.releasedValueAmount)}` : '') + `. Item settlement: ${money(it.releasedValueAmount)}`;
+      else how = `${it.repairOrReplace === 'replace' ? 'Replacement value' : 'Repair cost'}: ${money(it.estimatedRepairOrReplaceCost)}`;
+      line(`\u2022 ${it.article} \u2014 ${it.damage}`, 10.5, true);
+      line(`   ${how}`, 10, false, [60,60,60]);
+    });
+    y += 4;
+    if(rec.option === '2b') line('A $300.00 deductible applies under Option 2(b).', 10, false, [60,60,60]);
+    if((rec.option === '2a' || rec.option === '2b') && rec.declaredValue) line(`Total coverage is limited to your declared value of $${Number(rec.declaredValue).toLocaleString()}.`, 10, false, [60,60,60]);
+    y += 8;
+    doc.setDrawColor(200); doc.line(M, y, W - M, y); y += 20;
+    line(`Settlement amount: ${money(amount)}`, 15, true, [0, 97, 44]);
+    y += 6;
+    line('This settlement is determined under Georgia Department of Public Safety Maximum Rate Tariff No. 7, Section V (Valuation and Declaration), based on the valuation option selected on your signed Bill of Lading addendum and the photos provided. Under the tariff, the carrier may elect to repair or restore damaged articles instead of a cash settlement.', 9, false, [100,100,100]);
+    return doc;
+  }
+
+  async function dcSendFinalEmail(claim){
+    const rec = claim.aiRecommendation;
+    if(!rec){ alert('Run the AI Recommendation first.'); return false; }
+    const recommended = rec.recommendedTotal;
+    let amount = Number(claim.totalCost) > 0 ? Number(claim.totalCost) : recommended;
+    if(amount == null){
+      alert('The valuation option wasn\u2019t found, so there\u2019s no single settlement amount yet. Re-run the recommendation with the option selected, or enter the claim\u2019s Total Cost first.');
+      return false;
+    }
+    if(!(Number(claim.totalCost) > 0) && !confirm(`This claim has no Total Cost yet. Send the recommended ${dcMoney(amount)} as the settlement? (Set the Total Cost first if the amount is different.)`)) return false;
+    if(!rec.option){ alert('The valuation option wasn\u2019t found \u2014 re-run the recommendation with the option selected first.'); return false; }
+    await ensureAppSettingsLoaded();
+    const dc = window.appSettings.damageClaims || {};
+    const fullName = String(claim.clientName || '').trim();
+    const clientFirstName = (fullName.includes(',') ? fullName.split(',')[1] : fullName).trim().split(/\s+/)[0] || 'there';
+    const fields = { clientFirstName, clientName: fullName, jobNumber: claim.jobNumber || '', settlementAmount: dcMoney(amount), valuationOption: (DC_CLIENT_OPTION_TEXT[rec.option] || {}).name || '' };
+    const subject = mergeEmailTemplate(dc.finalEmailSubject || 'Your Damage Claim \u2014 Job {{jobNumber}}', fields);
+    const body = mergeEmailTemplate(dc.finalEmailBody || '', fields);
+    let filename = '';
+    try{
+      filename = `Damage Claim Settlement - ${fullName || claim.jobNumber}.pdf`.replace(/[\\/:*?"<>|]/g, '');
+      dcBuildSettlementPdf(claim, rec, amount).save(filename);
+    }catch(err){ console.error('Settlement PDF failed:', err); filename = ''; }
+    const cc = dc.finalEmailCc || '';
+    window.location.href = `mailto:${encodeURIComponent(claim.clientEmail || '')}${cc ? '?cc=' + encodeURIComponent(cc) + '&' : '?'}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    claim.finalEmailSentAt = new Date().toISOString();
+    claim.finalSettlementAmount = amount;
+    await saveDamageClaims();
+    renderDamageClaimsList();
+    const statusEl = document.getElementById('dc_generateStatus');
+    if(statusEl){
+      statusEl.textContent = filename
+        ? `"${filename}" downloaded and your email to ${claim.clientName || 'the client'} is open \u2014 attach the downloaded file, review, then send.`
+        : 'Your email is open \u2014 review, then send. (The Settlement Summary PDF couldn\u2019t be created; attach it manually.)';
+      statusEl.className = 'status-msg ok';
+    }
+    return true;
+  }
+
   // ---- AI reimbursement recommendation (Georgia Tariff No. 7) ----
   const DC_OPTION_LABELS = { '1': 'Option 1 \u2014 Released Value ($0.60/lb per article)', '2a': 'Option 2(a) \u2014 Full Value, no deductible', '2b': 'Option 2(b) \u2014 Full Value, $300 deductible' };
   function dcMoney(n){ return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -24573,6 +24684,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <p class="form-note" style="margin:0 0 12px;">AI estimate based on photos \u2014 weights and costs are approximate. Under the tariff, the carrier may also choose to repair or restore an item instead of paying. Review before settling; this isn\u2019t legal advice.</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
           ${r.recommendedTotal != null ? `<button type="button" id="dcai_use" style="${btn('#5b3fa8','#fff','#5b3fa8')}">Use ${dcMoney(r.recommendedTotal)} as Total Cost</button>` : ''}
+          <button type="button" id="dcai_final" style="${btn('#fff','#5b3fa8','#5b3fa8')}">Send Final Email</button>
           <button type="button" id="dcai_print" style="${btn('#fff','var(--charcoal)','var(--line)')}">Print</button>
           <button type="button" id="dcai_again" style="${btn('#fff','#5b3fa8','#5b3fa8')}">Run Again</button>
           <button type="button" id="dcai_close2" style="${btn('#fff','var(--charcoal)','var(--line)')}">Close</button>
@@ -24581,6 +24693,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`;
       overlay.querySelector('#dcai_close2').addEventListener('click', close);
       overlay.querySelector('#dcai_again').addEventListener('click', renderForm);
+      overlay.querySelector('#dcai_final').addEventListener('click', async () => { if(await dcSendFinalEmail(claim)) close(); });
       overlay.querySelector('#dcai_print').addEventListener('click', () => {
         const w = window.open('', '_blank');
         if(w){ w.document.write(`<title>Damage claim ${dcEsc(claim.jobNumber)}</title><body style="font-family:Arial,sans-serif; padding:24px;">${overlay.firstElementChild.innerHTML}</body>`); w.document.close(); w.print(); }
@@ -25227,6 +25340,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${crewTotal > 0 ? `<button type="button" class="dc-view-crew-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View Crew Documentation (${crewTotal})</button>` : ''}
           ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-acknowledge" data-id="${c.id}" style="background:var(--brand-green); border:none; color:#fff; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Mark Reviewed</button>` : ''}
           <button type="button" class="dc-ai" data-id="${c.id}" title="AI looks at the photos and the signed valuation choice, and recommends a reimbursement under Georgia Tariff No. 7" style="background:#fff; border:1px solid #5b3fa8; color:#5b3fa8; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.aiRecommendation ? 'AI Recommendation \u2713' : 'AI Recommendation'}</button>
+          ${c.aiRecommendation ? `<button type="button" class="dc-final" data-id="${c.id}" title="${c.finalEmailSentAt ? 'Final email sent ' + new Date(c.finalEmailSentAt).toLocaleString() : 'Email the client the settlement, with the Settlement Summary PDF'}" style="background:${c.finalEmailSentAt ? '#fff' : '#5b3fa8'}; border:1px solid #5b3fa8; color:${c.finalEmailSentAt ? '#5b3fa8' : '#fff'}; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.finalEmailSentAt ? 'Final Email Sent \u00b7 Resend' : 'Send Final Email'}</button>` : ''}
           <button type="button" class="dc-resend" data-id="${c.id}" title="${c.emailSentAt ? 'Last sent ' + new Date(c.emailSentAt).toLocaleString() : ''}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.emailSentAt ? 'Resend Email' : 'Send Email'}${(c.emailSendCount || 0) > 1 ? ` (sent ${c.emailSendCount}\u00d7)` : ''}</button>
           <button type="button" class="dc-delete" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Delete</button>
         </div>
@@ -25235,6 +25349,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`;
     }).join('');
 
+    rowsEl.querySelectorAll('.dc-final').forEach(btn => btn.addEventListener('click', (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      if(claim) dcSendFinalEmail(claim);
+    }));
     rowsEl.querySelectorAll('.dc-ai').forEach(btn => btn.addEventListener('click', (e)=>{
       const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
       if(claim) openDamageRecommendation(claim);
