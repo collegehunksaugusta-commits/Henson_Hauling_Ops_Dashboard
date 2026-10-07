@@ -1575,6 +1575,18 @@ app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
 const DAMAGE_ACKS_KEY = 'damage-claim-crew-acks';
 const DAMAGE_RES_LABELS = { repaired: 'Repaired', replaced: 'Replaced', reimbursed: 'Reimbursed', denied: 'Denied', no_damage_found: 'No Damage Found' };
 
+// Each person's share of a claim's cost, weighted by commission rate
+// (Configuration -> Pay): the Captain at the driver rate, each wingman at
+// the wingman rate. If both rates are 0, it falls back to an even split.
+function damageCostShares(cost, captain, wingmen, rates) {
+  const crew = [...new Set([captain, ...(wingmen || [])].filter(Boolean))];
+  const weight = n => (n === captain ? Number(rates.driverRate) : Number(rates.wingmanRate)) || 0;
+  const total = crew.reduce((t, n) => t + weight(n), 0);
+  const shares = {};
+  crew.forEach(n => { shares[n] = Math.round((total > 0 ? cost * weight(n) / total : cost / crew.length) * 100) / 100; });
+  return { crew, shares, weighted: total > 0 };
+}
+
 async function crewDamageNoticesFor(personName) {
   const [claimsRaw, archiveRaw, acksRaw, reportsRaw] = await Promise.all([
     redis.get('damage-claims'), redis.get(JOB_ARCHIVE_KEY), redis.get(DAMAGE_ACKS_KEY), redis.get('moving-damage-reports')
@@ -1584,6 +1596,8 @@ async function crewDamageNoticesFor(personName) {
   const acks = acksRaw ? JSON.parse(acksRaw) : {};
   const reports = reportsRaw ? JSON.parse(reportsRaw) : [];
   const me = nameDedupKey(personName);
+  const settingsRaw = await redis.get(APP_SETTINGS_KEY);
+  const rates = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null).commission || {};
   const cutoff = easternDateFromMs(Date.now() - 60 * 24 * 60 * 60 * 1000);
   const out = [];
   claims.forEach(c => {
@@ -1598,12 +1612,14 @@ async function crewDamageNoticesFor(personName) {
     if (acks[c.id] && acks[c.id][me]) return;
     const cost = Number(c.totalCost) || 0;
     const deducted = cost > 0 && c.costRecordedAt;
-    const share = deducted ? Math.round(cost / crew.length * 100) / 100 : 0;
+    const split = damageCostShares(cost, captain, c.costWingmen, rates);
+    const mine = Object.keys(split.shares).find(n => nameDedupKey(n) === me);
+    const share = deducted && mine ? split.shares[mine] : 0;
     const report = reports.find(r => String(r.jobNumber) === String(c.jobNumber)) || {};
     out.push({
       claimId: c.id, jobNumber: c.jobNumber, clientName: c.clientName || job.clientName || '',
       outcome: DAMAGE_RES_LABELS[res] || 'Closed', closedOn,
-      totalCost: cost, share, splitWays: crew.length, jobDate: job.assignmentDate || null,
+      totalCost: cost, share, splitWays: crew.length, weightedSplit: split.weighted, isCaptain: nameDedupKey(captain) === me, jobDate: job.assignmentDate || null,
       photoCount: (c.photos || []).length + (report.causedPhotoKeys || []).length
     });
   });
