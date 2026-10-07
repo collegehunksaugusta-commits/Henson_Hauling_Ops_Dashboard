@@ -89,6 +89,7 @@ const ALLOWED_KEYS = new Set([
   'wingman-review-skips',
   'google-review-allocations',
   'weight-tickets',
+  'damage-claim-crew-acks',
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
@@ -1563,6 +1564,99 @@ app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
     console.error('Office weight ticket upload failed:', err.message);
     res.status(500).json({ error: 'Could not save that weight ticket.' });
   }
+});
+
+// ============ Closed damage claims, shown to the crew ============
+// When a damage claim is closed (its Resolution moved off Pending), the
+// Captain and any wingmen it's charged to see it in their portal: the
+// damage photos, the outcome, and their share coming off commission. Each
+// person clears their own copy with "Reviewed". Acknowledgements live in
+// their own key so the dashboard saving a claim never wipes them out.
+const DAMAGE_ACKS_KEY = 'damage-claim-crew-acks';
+const DAMAGE_RES_LABELS = { repaired: 'Repaired', replaced: 'Replaced', reimbursed: 'Reimbursed', denied: 'Denied', no_damage_found: 'No Damage Found' };
+
+async function crewDamageNoticesFor(personName) {
+  const [claimsRaw, archiveRaw, acksRaw, reportsRaw] = await Promise.all([
+    redis.get('damage-claims'), redis.get(JOB_ARCHIVE_KEY), redis.get(DAMAGE_ACKS_KEY), redis.get('moving-damage-reports')
+  ]);
+  const claims = claimsRaw ? JSON.parse(claimsRaw) : [];
+  const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+  const acks = acksRaw ? JSON.parse(acksRaw) : {};
+  const reports = reportsRaw ? JSON.parse(reportsRaw) : [];
+  const me = nameDedupKey(personName);
+  const cutoff = easternDateFromMs(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  const out = [];
+  claims.forEach(c => {
+    const res = c.resolution || 'pending';
+    if (res === 'pending') return;
+    const closedOn = c.resolvedDate || String(c.createdAt || '').slice(0, 10);
+    if (closedOn < cutoff) return;
+    const job = archive.find(j => String(j.jobNumber) === String(c.jobNumber)) || {};
+    const captain = c.costCaptainName || job.captainName || '';
+    const crew = [...new Set([captain, ...(c.costWingmen || [])].filter(Boolean))];
+    if (!crew.some(n => nameDedupKey(n) === me)) return;
+    if (acks[c.id] && acks[c.id][me]) return;
+    const cost = Number(c.totalCost) || 0;
+    const deducted = cost > 0 && c.costRecordedAt;
+    const share = deducted ? Math.round(cost / crew.length * 100) / 100 : 0;
+    const report = reports.find(r => String(r.jobNumber) === String(c.jobNumber)) || {};
+    out.push({
+      claimId: c.id, jobNumber: c.jobNumber, clientName: c.clientName || job.clientName || '',
+      outcome: DAMAGE_RES_LABELS[res] || 'Closed', closedOn,
+      totalCost: cost, share, splitWays: crew.length, jobDate: job.assignmentDate || null,
+      photoCount: (c.photos || []).length + (report.causedPhotoKeys || []).length
+    });
+  });
+  return out.sort((a, b) => (b.closedOn || '').localeCompare(a.closedOn || ''));
+}
+
+async function crewDamagePhotos(personName, claimId) {
+  const notices = await crewDamageNoticesFor(personName);
+  const n = notices.find(x => x.claimId === claimId);
+  if (!n) return null;
+  const claims = JSON.parse(await redis.get('damage-claims') || '[]');
+  const c = claims.find(x => x.id === claimId);
+  const report = JSON.parse(await redis.get('moving-damage-reports') || '[]').find(r => String(r.jobNumber) === String(c.jobNumber)) || {};
+  const keys = [...(c.photos || []).map(p => `damage-claim-photo-${c.id}-${p.id}`), ...(report.causedPhotoKeys || [])].slice(0, 12);
+  const photos = [];
+  for (const k of keys) {
+    const raw = await redis.get(k);
+    let uri = null; try { uri = raw ? JSON.parse(raw) : null; } catch (e) { uri = raw; }
+    if (typeof uri === 'string' && uri.startsWith('data:image/')) photos.push(uri);
+  }
+  return photos;
+}
+
+async function acknowledgeCrewDamage(personName, claimId) {
+  const notices = await crewDamageNoticesFor(personName);
+  if (!notices.some(x => x.claimId === claimId)) return false;
+  const acks = JSON.parse(await redis.get(DAMAGE_ACKS_KEY) || '{}');
+  acks[claimId] = acks[claimId] || {};
+  acks[claimId][nameDedupKey(personName)] = { name: personName, at: new Date().toISOString() };
+  await redis.set(DAMAGE_ACKS_KEY, JSON.stringify(acks));
+  return true;
+}
+
+[['/api/driver/damage-notices', requireDriverAuth, req => req.driverName],
+ ['/api/wingman/damage-notices', requireWingmanAuth, req => req.wingmanName]].forEach(([base, auth, who]) => {
+  app.get(base, auth, async (req, res) => {
+    try { res.json({ notices: await crewDamageNoticesFor(who(req)) }); }
+    catch (err) { console.error('Damage notices failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+  });
+  app.get(base + '/:claimId/photos', auth, async (req, res) => {
+    try {
+      const photos = await crewDamagePhotos(who(req), req.params.claimId);
+      if (!photos) return res.status(404).json({ error: 'Not found.' });
+      res.json({ photos });
+    } catch (err) { console.error('Damage notice photos failed:', err.message); res.status(500).json({ error: 'Could not load photos.' }); }
+  });
+  app.post(base + '/:claimId/reviewed', auth, async (req, res) => {
+    try {
+      if (!(await acknowledgeCrewDamage(who(req), req.params.claimId))) return res.status(404).json({ error: 'Not found.' });
+      console.log(`[damage-notice] ${who(req)} reviewed claim ${req.params.claimId}`);
+      res.json({ ok: true });
+    } catch (err) { console.error('Damage notice review failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+  });
 });
 
 // ============ Captain -> Wingman task assignment ============
