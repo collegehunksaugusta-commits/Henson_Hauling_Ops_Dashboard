@@ -10186,6 +10186,8 @@
       // A week's ADP payroll report has been uploaded once Labor Cost has
       // a record for it -- that's the trigger to auto-collapse it here.
       const adpUploadedWeeks = new Set((laborWeeks || []).map(w => w.weekStart));
+      const jobDateForClaims = {};
+      (archiveResult || []).forEach(j => { if(j.jobNumber && j.assignmentDate) jobDateForClaims[String(j.jobNumber)] = j.assignmentDate; });
       const laborWeeksByStart = {};
       (laborWeeks || []).forEach(w => { laborWeeksByStart[w.weekStart] = w; });
       const activeDriverKeys = new Set((driversResult || []).filter(d => d.active).map(d => nameDedupKey(d.employeeName)));
@@ -10239,10 +10241,13 @@
         // Damage claims whose Total Cost was entered this week come off the
         // job's Captain's commission -- the last step, never below $0.
         const damageByName = {};
+        const weekAlreadyPaid = adpUploadedWeeks.has(weekStart);
         (damageClaimsForPay || []).forEach(c => {
           const cost = Number(c.totalCost) || 0;
           if(!(cost > 0) || !c.costRecordedAt || !c.costCaptainName) return;
-          if(c.costRecordedAt < week.weekStart || c.costRecordedAt > week.weekEnd) return;
+          // The job's pay week (job date), falling back to when the cost was entered.
+          const when = jobDateForClaims[String(c.jobNumber)] || c.costRecordedAt;
+          if(when < week.weekStart || when > week.weekEnd) return;
           // Split evenly between the Captain and any wingmen on the claim.
           const crew = [...new Set([c.costCaptainName, ...(c.costWingmen || [])].filter(Boolean))];
           const share = Math.round(cost / crew.length * 100) / 100;
@@ -10252,6 +10257,7 @@
             const e = damageByName[match] = damageByName[match] || { total: 0, claims: [] };
             e.total += share;
             e.claims.push(`Job ${c.jobNumber}: ${extraPayMoney(share)}${crew.length > 1 ? ` (share of ${extraPayMoney(cost)}, split ${crew.length} ways)` : ''}`);
+            if(weekAlreadyPaid) e.alreadyPaid = true;
           });
         });
         return {
@@ -10387,7 +10393,7 @@
     const damage = Math.min(damageOwed, Math.max(0, commission));
     const damageCell = row.querySelector('.extraPay-damage');
     damageCell.innerHTML = damageOwed > 0
-      ? `\u2212${extraPayMoney(damage)}${damage < damageOwed ? `<div style="font-size:10.5px; font-weight:400;">of ${extraPayMoney(damageOwed)}</div>` : ''}`
+      ? `\u2212${extraPayMoney(damage)}${damage < damageOwed ? `<div style="font-size:10.5px; font-weight:400;">of ${extraPayMoney(damageOwed)}</div>` : ''}${row.dataset.damagePaid ? '<div style="font-size:10.5px; font-weight:700;">\u26a0 payroll already ran</div>' : ''}`
       : '<span style="color:var(--muted); font-weight:400;">\u2014</span>';
     const total = tips + reviewBonus + commission - damage + misc;
     row.querySelector('.extraPay-total').textContent = extraPayMoney(total);
@@ -10431,7 +10437,7 @@
       const reviewBonusStyle = reviewIsAuto ? `${inputStyle} background:#e8f5e9;` : inputStyle;
       const reviewBonusTitle = reviewCount > 0 ? ` title="${reviewCount} Google review${reviewCount === 1 ? '' : 's'} credited${reviewIsAuto ? ' -- auto-filled; edit and save to override' : ''}"` : '';
       const damage = (w.damageByName && w.damageByName[name]) || null;
-      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}" data-damage="${damage ? damage.total : 0}">
+      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}" data-damage="${damage ? damage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
@@ -24477,14 +24483,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return [...new Set([cap, ...(c.costWingmen || [])].filter(Boolean))];
   }
   window.dcCostCrew = dcCostCrew;
+  // The deduction belongs to the job's pay week (the job date), or -- if
+  // the job date isn't on file -- the week the cost was entered.
+  function dcDeductionDate(c){
+    const job = (dcArchiveCache || []).find(j => String(j.jobNumber) === String(c.jobNumber));
+    return (job && job.assignmentDate) || c.costRecordedAt;
+  }
   function dcDeductionNote(c){
     if(!(Number(c.totalCost) > 0)) return '';
     if(!c.costRecordedAt) return '<div style="font-size:11px; color:var(--muted); margin-top:3px; max-width:200px;">Entered before commission deductions began \u2014 not deducted</div>';
-    const d = new Date(c.costRecordedAt + 'T00:00:00'); const dow = d.getDay();
+    const d = new Date(dcDeductionDate(c) + 'T00:00:00'); const dow = d.getDay();
     const mon = new Date(d); mon.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
     const monStr = `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
     const crew = dcCostCrew(c);
     if(crew.length === 0) return '<div style="font-size:11px; color:#8a6d00; margin-top:3px; max-width:200px;">No Captain on file for this job \u2014 not deducted</div>';
+    if(dcPaidWeeks.has(monStr)){
+      return `<div style="font-size:11px; color:#b3261e; font-weight:700; margin-top:3px; max-width:230px;">\u26a0 Job week of ${window.fmtDate(monStr)} \u2014 that payroll already ran, so this won\u2019t come out automatically \u2014 collect it by hand on a later payroll.</div>`;
+    }
     if(crew.length === 1) return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:200px;">Comes off ${dcEsc(crew[0])}\u2019s commission, week of ${window.fmtDate(monStr)}</div>`;
     const share = Math.round(Number(c.totalCost) / crew.length * 100) / 100;
     return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:220px;">Split ${crew.length} ways \u2014 $${share.toFixed(2)} off each person\u2019s commission, week of ${window.fmtDate(monStr)}</div>`;
@@ -24851,7 +24866,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   let dcRosterCache = [];
+  let dcPaidWeeks = new Set();   // pay weeks whose ADP payroll has been uploaded
   async function loadDamageClaimsData(){
+    try{ dcPaidWeeks = new Set(((await window.dashboardApi.get('labor-weeks', [])) || []).map(w => w.weekStart)); }catch(err){}
     try{ dcArchiveCache = await window.dashboardApi.get('paperwork-job-archive', []) || []; }catch(err){ dcArchiveCache = dcArchiveCache || []; }
     try{ dcRosterCache = await window.getCurrentEmployeeRoster() || []; }catch(err){ dcRosterCache = dcRosterCache || []; }
     try{
