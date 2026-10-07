@@ -7591,7 +7591,7 @@
       emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team',
       finalEmailSubject: 'Your Damage Claim \u2014 Job {{jobNumber}}',
       finalEmailCc: '',
-      finalEmailBody: 'Hi {{clientFirstName}},\n\nThank you for your patience while we reviewed your damage claim for job {{jobNumber}}. We\u2019ve completed our review using the photos provided and the valuation coverage you selected on your Bill of Lading: {{valuationOption}}.\n\nUnder Georgia Department of Public Safety Maximum Rate Tariff No. 7, the settlement amount for your claim is {{settlementAmount}}. The attached Settlement Summary explains how that amount was determined, item by item.\n\nIf you have any questions, just reply to this email.\n\nThanks,\n' + window.LOCATION_PROFILE.emailSignature
+      finalEmailBody: 'Hi {{clientFirstName}},\n\nThank you for your patience while we reviewed your damage claim for job {{jobNumber}}. We\u2019ve completed our review using the photos provided and the valuation coverage you selected on your Bill of Lading: {{valuationOption}}.\n\nUnder Georgia Department of Public Safety Maximum Rate Tariff No. 7, the settlement amount for your claim is {{settlementAmount}}. The attached Settlement Summary explains how that amount was determined, item by item.\n\nThis will be refunded via the payment method you used for final billing. Please allow 5-7 business days for the refund to process.\n\nIf you have any questions, just reply to this email.\n\nThanks,\n' + window.LOCATION_PROFILE.emailSignature
     },
     hiring: {
       emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
@@ -10243,10 +10243,16 @@
           const cost = Number(c.totalCost) || 0;
           if(!(cost > 0) || !c.costRecordedAt || !c.costCaptainName) return;
           if(c.costRecordedAt < week.weekStart || c.costRecordedAt > week.weekEnd) return;
-          const match = names.find(n => nameDedupKey(n) === nameDedupKey(c.costCaptainName));
-          if(!match) return;
-          const e = damageByName[match] = damageByName[match] || { total: 0, claims: [] };
-          e.total += cost; e.claims.push(`Job ${c.jobNumber}: ${extraPayMoney(cost)}`);
+          // Split evenly between the Captain and any wingmen on the claim.
+          const crew = [...new Set([c.costCaptainName, ...(c.costWingmen || [])].filter(Boolean))];
+          const share = Math.round(cost / crew.length * 100) / 100;
+          crew.forEach(person => {
+            const match = names.find(n => nameDedupKey(n) === nameDedupKey(person));
+            if(!match) return;
+            const e = damageByName[match] = damageByName[match] || { total: 0, claims: [] };
+            e.total += share;
+            e.claims.push(`Job ${c.jobNumber}: ${extraPayMoney(share)}${crew.length > 1 ? ` (share of ${extraPayMoney(cost)}, split ${crew.length} ways)` : ''}`);
+          });
         });
         return {
           weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName,
@@ -10452,7 +10458,7 @@
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Tips</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Review Bonus</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Commission</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this Captain ran -- taken off Commission, up to all of it">Damage Claim</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this person worked (split evenly across the crew on the claim) -- taken off Commission, up to all of it">Damage Claim</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
           </tr></thead>
@@ -24464,15 +24470,24 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const job = (dcArchiveCache || []).find(j => String(j.jobNumber) === String(jobNumber));
     return (job && job.captainName) || '';
   }
+  // Everyone who shares a claim's cost: the Captain charged for it plus any
+  // wingmen added to the claim.
+  function dcCostCrew(c){
+    const cap = c.costCaptainName || '';
+    return [...new Set([cap, ...(c.costWingmen || [])].filter(Boolean))];
+  }
+  window.dcCostCrew = dcCostCrew;
   function dcDeductionNote(c){
     if(!(Number(c.totalCost) > 0)) return '';
     if(!c.costRecordedAt) return '<div style="font-size:11px; color:var(--muted); margin-top:3px; max-width:200px;">Entered before commission deductions began \u2014 not deducted</div>';
     const d = new Date(c.costRecordedAt + 'T00:00:00'); const dow = d.getDay();
     const mon = new Date(d); mon.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
     const monStr = `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
-    return c.costCaptainName
-      ? `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:200px;">Comes off ${dcEsc(c.costCaptainName)}\u2019s commission, week of ${window.fmtDate(monStr)}</div>`
-      : '<div style="font-size:11px; color:#8a6d00; margin-top:3px; max-width:200px;">No Captain on file for this job \u2014 not deducted</div>';
+    const crew = dcCostCrew(c);
+    if(crew.length === 0) return '<div style="font-size:11px; color:#8a6d00; margin-top:3px; max-width:200px;">No Captain on file for this job \u2014 not deducted</div>';
+    if(crew.length === 1) return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:200px;">Comes off ${dcEsc(crew[0])}\u2019s commission, week of ${window.fmtDate(monStr)}</div>`;
+    const share = Math.round(Number(c.totalCost) / crew.length * 100) / 100;
+    return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:220px;">Split ${crew.length} ways \u2014 $${share.toFixed(2)} off each person\u2019s commission, week of ${window.fmtDate(monStr)}</div>`;
   }
 
   function dcRefreshJobNumbers(){
@@ -24700,7 +24715,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
       const useBtn = overlay.querySelector('#dcai_use');
       if(useBtn) useBtn.addEventListener('click', async () => {
-        if(!confirm(`Set this claim's Total Cost to ${dcMoney(r.recommendedTotal)}? It will come off the job's Captain's commission this week (up to that week's commission).`)) return;
+        if(!confirm(`Set this claim's Total Cost to ${dcMoney(r.recommendedTotal)}? It will come off the commission of the Captain (and any wingmen on the claim, split evenly) this week, up to each person's commission.`)) return;
         const input = document.querySelector(`.dc-total-cost[data-id="${CSS.escape(claim.id)}"]`);
         if(input){ input.value = String(r.recommendedTotal); input.dispatchEvent(new Event('change')); }
         overlay.querySelector('#dcai_useStatus').textContent = 'Total Cost updated.';
@@ -24835,8 +24850,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(window.updateManagerReviewTileBadge) window.updateManagerReviewTileBadge();
   }
 
+  let dcRosterCache = [];
   async function loadDamageClaimsData(){
     try{ dcArchiveCache = await window.dashboardApi.get('paperwork-job-archive', []) || []; }catch(err){ dcArchiveCache = dcArchiveCache || []; }
+    try{ dcRosterCache = await window.getCurrentEmployeeRoster() || []; }catch(err){ dcRosterCache = dcRosterCache || []; }
     try{
       damageClaims = await window.dashboardApi.get(DAMAGE_CLAIMS_KEY, []) || [];
       dcRefreshJobNumbers();
@@ -25312,6 +25329,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <div style="font-weight:700; font-size:14px;">${dcEsc(c.jobNumber)} ${c.clientName ? '\u2014 ' + dcEsc(c.clientName) : ''}</div>
             <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${dcEsc(c.clientEmail)}</div>
             <div style="font-size:12.5px; margin-top:2px;">${(() => { const cap = c.costCaptainName || dcCaptainForJobSync(c.jobNumber); return cap ? `Captain: <strong>${dcEsc(cap)}</strong>` : '<span style="color:#8a6d00;">Captain: not on file for this job</span>'; })()}</div>
+            <div style="font-size:12.5px; margin-top:4px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+              <span>Wingmen:</span>
+              ${(c.costWingmen || []).map(w => `<span style="background:var(--offwhite); border:1px solid var(--line); border-radius:10px; padding:1px 4px 1px 8px; font-size:12px;">${dcEsc(w)} <button type="button" class="dc-wm-remove" data-id="${c.id}" data-name="${dcEsc(w)}" title="Remove" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:12px; padding:0 3px;">&times;</button></span>`).join('')}
+              <select class="dc-wm-add" data-id="${c.id}" style="font-size:12px; padding:2px 4px;">
+                <option value="">+ Add wingman\u2026</option>
+                ${dcRosterCache.filter(n => !(c.costWingmen || []).includes(n) && n !== (c.costCaptainName || dcCaptainForJobSync(c.jobNumber))).map(n => `<option value="${dcEsc(n)}">${dcEsc(n)}</option>`).join('')}
+              </select>
+            </div>
           </div>
           <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
             <label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Resolution
@@ -25340,14 +25365,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${crewTotal > 0 ? `<button type="button" class="dc-view-crew-photos" data-id="${c.id}" style="background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">View Crew Documentation (${crewTotal})</button>` : ''}
           ${c.photosUploadedAt && !c.acknowledgedAt ? `<button type="button" class="dc-acknowledge" data-id="${c.id}" style="background:var(--brand-green); border:none; color:#fff; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Mark Reviewed</button>` : ''}
           <button type="button" class="dc-ai" data-id="${c.id}" title="AI looks at the photos and the signed valuation choice, and recommends a reimbursement under Georgia Tariff No. 7" style="background:#fff; border:1px solid #5b3fa8; color:#5b3fa8; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.aiRecommendation ? 'AI Recommendation \u2713' : 'AI Recommendation'}</button>
+          <button type="button" class="dc-resend" data-id="${c.id}" title="${c.emailSentAt ? 'Last sent ' + new Date(c.emailSentAt).toLocaleString() : ''}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.emailSentAt ? 'Resend Initial Email' : 'Send Initial Email'}${(c.emailSendCount || 0) > 1 ? ` (sent ${c.emailSendCount}\u00d7)` : ''}</button>
           ${c.aiRecommendation ? `<button type="button" class="dc-final" data-id="${c.id}" title="${c.finalEmailSentAt ? 'Final email sent ' + new Date(c.finalEmailSentAt).toLocaleString() : 'Email the client the settlement, with the Settlement Summary PDF'}" style="background:${c.finalEmailSentAt ? '#fff' : '#5b3fa8'}; border:1px solid #5b3fa8; color:${c.finalEmailSentAt ? '#5b3fa8' : '#fff'}; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.finalEmailSentAt ? 'Final Email Sent \u00b7 Resend' : 'Send Final Email'}</button>` : ''}
-          <button type="button" class="dc-resend" data-id="${c.id}" title="${c.emailSentAt ? 'Last sent ' + new Date(c.emailSentAt).toLocaleString() : ''}" style="background:#fff; border:1px solid #00612C; color:#00612C; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">${c.emailSentAt ? 'Resend Email' : 'Send Email'}${(c.emailSendCount || 0) > 1 ? ` (sent ${c.emailSendCount}\u00d7)` : ''}</button>
           <button type="button" class="dc-delete" data-id="${c.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Delete</button>
         </div>
         <div class="dc-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-wrap:wrap; gap:8px;"></div>
         <div class="dc-crew-photos-wrap" data-id="${c.id}" style="display:none; margin-top:10px; flex-direction:column; gap:10px;"></div>
       </div>`;
     }).join('');
+
+    // Wingmen on the job share the claim cost evenly with the Captain.
+    rowsEl.querySelectorAll('.dc-wm-add').forEach(sel => sel.addEventListener('change', async (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      const name = e.currentTarget.value;
+      if(!claim || !name) return;
+      claim.costWingmen = [...new Set([...(claim.costWingmen || []), name])];
+      await saveDamageClaims();
+      renderDamageClaimsList();
+    }));
+    rowsEl.querySelectorAll('.dc-wm-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
+      if(!claim) return;
+      claim.costWingmen = (claim.costWingmen || []).filter(n => n !== e.currentTarget.dataset.name);
+      await saveDamageClaims();
+      renderDamageClaimsList();
+    }));
 
     rowsEl.querySelectorAll('.dc-final').forEach(btn => btn.addEventListener('click', (e)=>{
       const claim = damageClaims.find(c => c.id === e.currentTarget.dataset.id);
