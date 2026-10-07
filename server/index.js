@@ -297,15 +297,15 @@ async function rebuildDriverAuthLookup() {
       const [manualRaw, manualSsnRaw] = await Promise.all([redis.get('roster-manual-additions'), redis.get(MANUAL_SSN_KEY)]);
       const manualNames = manualRaw ? JSON.parse(manualRaw) : [];
       const manualSsn = manualSsnRaw ? JSON.parse(manualSsnRaw) : {};
-      const onManualList = new Set(manualNames.map(n => nameDedupKey(n)));
-      const onPayroll = new Set(employees.filter(e => e && e.name).map(e => nameDedupKey(e.name)));
+      const onManualList = new Set(manualNames.map(n => nameCoreKey(n)));
+      const onPayroll = new Set(employees.filter(e => e && e.name).map(e => nameCoreKey(e.name)));
       let pruned = false;
       Object.keys(manualSsn).forEach(name => {
         // Removed from the list, or now on payroll: forget the manual digits.
-        if (!onManualList.has(nameDedupKey(name)) || onPayroll.has(nameDedupKey(name))) { delete manualSsn[name]; pruned = true; return; }
+        if (!onManualList.has(nameCoreKey(name)) || onPayroll.has(nameCoreKey(name))) { delete manualSsn[name]; pruned = true; return; }
         const last4 = manualSsn[name];
         if (!/^\d{4}$/.test(last4) || lookup[last4] || wingmanLookup[last4]) return;
-        const isDriver = [...activeDriverNames].some(d => nameDedupKey(d) === nameDedupKey(name));
+        const isDriver = [...activeDriverNames].some(d => nameCoreKey(d) === nameCoreKey(name));
         if (isDriver) lookup[last4] = name; else wingmanLookup[last4] = name;
       });
       if (pruned) await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
@@ -346,18 +346,18 @@ app.post('/api/admin/manual-employee-access', requireAuth, requireAdmin, async (
   try {
     const [manualRaw, ssnRaw, weeksRaw] = await Promise.all([redis.get('roster-manual-additions'), redis.get(MANUAL_SSN_KEY), redis.get('labor-weeks')]);
     const manualNames = manualRaw ? JSON.parse(manualRaw) : [];
-    const listed = manualNames.find(n => nameDedupKey(n) === nameDedupKey(name));
+    const listed = manualNames.find(n => nameCoreKey(n) === nameCoreKey(name));
     if (!listed) return res.status(400).json({ error: 'Add the name to Roster Additions first.' });
     const manualSsn = ssnRaw ? JSON.parse(ssnRaw) : {};
     // The same 4 digits can only sign in one person.
     const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
     const recent = weeks.slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || '')).slice(0, 2).flatMap(w => w.employees || []);
-    const payrollHolder = recent.find(e => e && e.ssnLast4 === last4 && nameDedupKey(e.name || '') !== nameDedupKey(listed));
-    const manualHolder = Object.keys(manualSsn).find(n => manualSsn[n] === last4 && nameDedupKey(n) !== nameDedupKey(listed));
+    const payrollHolder = recent.find(e => e && e.ssnLast4 === last4 && nameCoreKey(e.name || '') !== nameCoreKey(listed));
+    const manualHolder = Object.keys(manualSsn).find(n => manualSsn[n] === last4 && nameCoreKey(n) !== nameCoreKey(listed));
     if (payrollHolder || manualHolder) {
       return res.status(409).json({ error: `Those 4 digits already belong to ${payrollHolder ? payrollHolder.name : manualHolder} \u2014 double-check them.` });
     }
-    Object.keys(manualSsn).forEach(n => { if (nameDedupKey(n) === nameDedupKey(listed)) delete manualSsn[n]; });
+    Object.keys(manualSsn).forEach(n => { if (nameCoreKey(n) === nameCoreKey(listed)) delete manualSsn[n]; });
     manualSsn[listed] = last4;
     await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
     await rebuildDriverAuthLookup();
@@ -374,7 +374,7 @@ app.delete('/api/admin/manual-employee-access', requireAuth, requireAdmin, async
   try {
     const raw = await redis.get(MANUAL_SSN_KEY);
     const manualSsn = raw ? JSON.parse(raw) : {};
-    Object.keys(manualSsn).forEach(n => { if (nameDedupKey(n) === nameDedupKey(name)) delete manualSsn[n]; });
+    Object.keys(manualSsn).forEach(n => { if (nameCoreKey(n) === nameCoreKey(name)) delete manualSsn[n]; });
     await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
     await rebuildDriverAuthLookup();
     res.json({ ok: true });
@@ -4873,6 +4873,14 @@ function nameDedupKey(name){
   return name.replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
 }
 
+// Matches a person by first and last name only, ignoring middle initials
+// ("Breed, Charlie" == "Breed, Charlie E") -- used wherever a manually
+// added name is matched to payroll. Safe because two employees never share
+// a first and last name at the same time.
+function nameCoreKey(name){
+  return String(name || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ');
+}
+
 function computeRosterNames(weeks, manualAdditions){
   const sorted = [...(weeks || [])].sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
   const recentTwo = sorted.slice(0, 2);
@@ -4883,7 +4891,7 @@ function computeRosterNames(weeks, manualAdditions){
   combined.forEach(name => {
     const trimmed = (name || '').trim();
     if(!trimmed) return;
-    const key = nameDedupKey(trimmed);
+    const key = nameCoreKey(trimmed);
     if(seen.has(key)) return;
     seen.add(key);
     deduped.push(trimmed);
