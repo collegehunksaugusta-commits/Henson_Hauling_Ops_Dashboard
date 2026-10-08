@@ -10983,8 +10983,15 @@
     const rowsHtml = w.names.map(name => {
       const tips = w.tipTotals[name] || 0;
       const manual = weekManualData[name] || {};
-      const isAutoCalculated = manual.commission === undefined && w.commissionCalc && w.commissionCalc[name] !== undefined;
-      const commissionValue = manual.commission !== undefined ? manual.commission : ((w.commissionCalc && w.commissionCalc[name]) || 0);
+      // A saved commission only sticks when it's a real override. The Ops
+      // Manager's is always worked out fresh from his converted revenue (so a
+      // rate change shows up) -- except in weeks already paid, where every
+      // saved amount stays exactly as paid.
+      const autoCommission = (w.commissionCalc && w.commissionCalc[name]) || 0;
+      const omLive = w.opsManagerName === name && !w.adpUploaded && manual.convertedRevenue !== undefined;
+      const savedCommission = omLive ? undefined : manual.commission;
+      const isAutoCalculated = savedCommission === undefined && w.commissionCalc && w.commissionCalc[name] !== undefined;
+      const commissionValue = savedCommission !== undefined ? savedCommission : autoCommission;
       const commissionStyle = isAutoCalculated ? `${inputStyle} background:#e8f5e9;` : inputStyle;
       const commissionTitle = isAutoCalculated ? ' title="Auto-calculated from revenue \u00d7 rate \u00d7 score \u00d7 hours worked -- edit and save to override"' : '';
       // Review Bonus works like Commission: filled in from credited Google
@@ -11006,14 +11013,14 @@
         </div>` : ''}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" data-auto="${autoCommission.toFixed(2)}" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
     }).join('');
 
-    return `<div class="panel extraPay-week-panel" data-week="${w.weekStart}" style="padding:16px 18px; margin-bottom:16px;">
+    return `<div class="panel extraPay-week-panel" data-week="${w.weekStart}"${w.adpUploaded ? ' data-paid="1"' : ''} style="padding:16px 18px; margin-bottom:16px;">
       <button type="button" class="extraPay-week-toggle" data-week="${w.weekStart}" style="display:flex; align-items:center; justify-content:space-between; width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
         <h3 style="margin:0;">${extraPayWeekLabel(w.week)} ${w.inProgress ? '<span class="form-note" style="font-weight:400; display:inline;">(current week \u2014 in progress)</span>' : ''}${w.adpUploaded ? '<span class="form-note" style="font-weight:400; display:inline;">(ADP uploaded)</span>' : ''}</h3>
         <span class="extraPay-week-chevron" style="font-size:13px; color:var(--muted); transition:transform .15s; flex-shrink:0; margin-left:10px; transform:${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">&#9656;</span>
@@ -11087,6 +11094,7 @@
         const d = e.currentTarget.dataset;
         const amount = (Number(e.currentTarget.value) || 0) * (Number(d.rate) || 0) / 100 * ((Number(d.score) || 0) / 100) * ((Number(d.hours) || 0) / 40);
         row.querySelector('.extraPay-commission').value = amount.toFixed(2);
+        row.querySelector('.extraPay-commission').dataset.auto = amount.toFixed(2);
         row.querySelector('.extraPay-convRevResult').textContent = extraPayMoney(amount);
       }
       extraPayRecalcWeekTotals(panel);
@@ -11106,7 +11114,13 @@
           // Left unset while it still matches the credited-reviews amount,
           // so reviews credited later keep flowing in.
           reviewBonus: (reviewAutoValue > 0 && Math.abs(reviewValue - reviewAutoValue) < 0.005) ? undefined : reviewValue,
-          commission: Number(row.querySelector('.extraPay-commission').value) || 0,
+          // Saved only when it differs from the calculated amount, so later
+          // rate or data changes keep flowing into weeks not yet paid.
+          commission: (() => {
+            const inp = row.querySelector('.extraPay-commission');
+            const v = Number(inp.value) || 0, auto = Number(inp.dataset.auto) || 0;
+            return Math.abs(v - auto) < 0.005 && !panel.dataset.paid ? undefined : v;
+          })(),
           misc: Number(row.querySelector('.extraPay-misc').value) || 0
         };
         const conv = row.querySelector('.extraPay-convRev');
