@@ -7959,6 +7959,12 @@
       view = 'home';
       history.replaceState({view}, '', '#home');
     }
+    // Extra Pay (everyone's tips, bonuses and commission) is admin-only too.
+    if(view === 'extrapay' && localStorage.getItem('henson_auth_role') !== 'admin'){
+      alert('Extra Pay is only accessible to administrators.');
+      view = 'home';
+      history.replaceState({view}, '', '#home');
+    }
     home.style.display = view === 'home' ? 'block' : 'none';
     detail.style.display = view === 'labor' ? 'block' : 'none';
     calcDetail.style.display = view === 'calc' ? 'block' : 'none';
@@ -13354,6 +13360,20 @@
     if(listEl) listEl.textContent = isAdmin ? 'State Taxes, Monthly Financials' : 'State Taxes';
   }
   applyMonthlyFinancialsPermission();
+
+  // Extra Pay shows every employee's tips, bonuses and commission -- admins
+  // only. (The Ops Manager sees his own commission on Ops Manager Metrics.)
+  function applyExtraPayPermission(){
+    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
+    const tile = document.getElementById('tile-extrapay');
+    if(tile) tile.style.display = isAdmin ? '' : 'none';
+    const countEl = document.querySelector('#dashSection-pay .dashSectionCount');
+    const listEl = document.querySelector('#dashSection-pay .dashSectionTileList');
+    if(countEl) countEl.textContent = isAdmin ? '(3)' : '(2)';
+    if(listEl) listEl.textContent = isAdmin ? 'ADP, Labor Cost, Extra Pay' : 'ADP, Labor Cost';
+  }
+  applyExtraPayPermission();
+  window.applyExtraPayPermission = applyExtraPayPermission;
 
   // Reflects each collapsed section's own tiles' "needs attention" badges on
   // its header, so nothing important goes invisible just because a category
