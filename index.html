@@ -2899,12 +2899,13 @@
     const tile = document.getElementById('driverWeightTicketTile');
     const sub = document.getElementById('driverWeightTicketTileSub');
     if(weightTicketJobs.length === 0){ tile.style.display = 'none'; return; }
-    const missing = weightTicketJobs.reduce((n, j) => n + (j.empty ? 0 : 1) + (j.full ? 0 : 1), 0);
+    const trucksOf = j => j.trucks || [{ truck: 1, empty: j.empty, full: j.full }];
+    const missing = weightTicketJobs.reduce((n, j) => n + trucksOf(j).reduce((m, t) => m + (t.empty ? 0 : 1) + (t.full ? 0 : 1), 0), 0);
     tile.style.display = 'block';
     if(missing > 0){
       tile.style.background = '#FFF4CC';
       tile.style.border = '2px solid #E3A008';
-      sub.textContent = `Long Distance Move today \u2014 ${missing} weight ticket${missing === 1 ? '' : 's'} still needed (empty and full).`;
+      sub.textContent = `Long Distance Move today \u2014 ${missing} weight ticket${missing === 1 ? '' : 's'} still needed (empty and full${weightTicketJobs.some(j => (j.truckCount || 1) > 1) ? ', for each truck' : ''}).`;
     } else {
       tile.style.background = '#e8f5e9';
       tile.style.border = '1px solid var(--brand-green)';
@@ -2925,39 +2926,59 @@
     }
     const greenBtn = 'width:100%; padding:13px; font-size:15px; font-weight:700; border-radius:8px; cursor:pointer; font-family:inherit; background:var(--brand-green); border:none; color:#fff;';
     const whiteBtn = 'width:100%; padding:11px; font-size:14px; font-weight:600; border-radius:8px; cursor:pointer; font-family:inherit; background:#fff; border:1px solid var(--line); color:var(--charcoal); margin-top:8px;';
-    const slot = (job, kind) => {
-      const t = job[kind];
+    const slot = (job, tr, kind) => {
+      const t = tr[kind];
       const label = kind === 'empty' ? 'Empty Truck' : 'Full Truck';
+      const keyAttrs = `data-job="${driverEsc(job.jobNumber)}" data-truck="${tr.truck}" data-kind="${kind}"`;
       return `<div style="border:1px solid ${t ? 'var(--brand-green)' : '#E3A008'}; background:${t ? '#f3faf4' : '#FFFBEA'}; border-radius:8px; padding:14px; margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
           <strong>${label}</strong>
           ${t ? `<span style="font-size:18px; font-weight:800; color:var(--brand-green-dark);">${fmtLbs(t.highestWeight)}</span>` : '<span class="form-note" style="margin:0;">Not uploaded yet</span>'}
         </div>
         ${t && !t.confident ? '<p class="form-note" style="color:#8a6d00; margin:6px 0 0;">That photo was hard to read \u2014 double-check the number, and retake it if it\u2019s off.</p>' : ''}
-        <button type="button" class="wt-take" data-job="${driverEsc(job.jobNumber)}" data-kind="${kind}" style="${greenBtn} margin-top:10px;">&#128247; ${t ? 'Retake Photo' : 'Take Photo'}</button>
-        <button type="button" class="wt-choose" data-job="${driverEsc(job.jobNumber)}" data-kind="${kind}" style="${whiteBtn}">&#128444; Choose from Photos</button>
-        <p class="status-msg wt-status" data-job="${driverEsc(job.jobNumber)}" data-kind="${kind}" style="margin:8px 0 0;"></p>
+        <button type="button" class="wt-take" ${keyAttrs} style="${greenBtn} margin-top:10px;">&#128247; ${t ? 'Retake Photo' : 'Take Photo'}</button>
+        <button type="button" class="wt-choose" ${keyAttrs} style="${whiteBtn}">&#128444; Choose from Photos</button>
+        <p class="status-msg wt-status" ${keyAttrs} style="margin:8px 0 0;"></p>
       </div>`;
     };
-    wrap.innerHTML = weightTicketJobs.map(job => `
+    const truckBlock = (job, tr, many) => `
+      <div style="${many ? 'border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; background:var(--offwhite);' : ''}">
+        ${many ? `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong style="font-size:15px;">&#128666; Truck ${tr.truck}</strong>
+          ${tr.netWeight !== null ? `<span style="font-weight:700; color:var(--brand-green-dark);">${fmtLbs(tr.netWeight)} load</span>` : ''}
+        </div>` : ''}
+        ${slot(job, tr, 'empty')}
+        ${slot(job, tr, 'full')}
+        ${many && tr.truck === (job.truckCount || 1) && tr.truck > 1 && !tr.empty && !tr.full ? `<button type="button" class="wt-remove-truck" data-job="${driverEsc(job.jobNumber)}" data-count="${tr.truck - 1}" style="background:none; border:none; color:#b3261e; text-decoration:underline; font-size:13px; cursor:pointer; padding:2px 0;">Remove Truck ${tr.truck}</button>` : ''}
+      </div>`;
+    wrap.innerHTML = weightTicketJobs.map(job => {
+      const trucks = job.trucks || [{ truck: 1, empty: job.empty, full: job.full, netWeight: job.netWeight }];
+      const many = trucks.length > 1;
+      const total = job.netWeight;
+      return `
       <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px;">
         <h3 style="margin:0 0 4px;">Job ${driverEsc(job.jobNumber)}${job.clientName ? ' \u2014 ' + driverEsc(job.clientName) : ''}</h3>
         ${job.isToday ? '' : '<p class="form-note" style="margin:0 0 8px;">From yesterday \u2014 still missing a ticket.</p>'}
-        ${slot(job, 'empty')}
-        ${slot(job, 'full')}
-        <div style="text-align:center; padding:12px; border-radius:8px; background:${job.netWeight !== null ? '#e8f5e9' : 'var(--offwhite)'};">
-          <div class="form-note" style="margin:0;">Load Weight</div>
-          <div style="font-size:26px; font-weight:800; color:${job.netWeight !== null ? 'var(--brand-green-dark)' : 'var(--muted)'};">${job.netWeight !== null ? fmtLbs(job.netWeight) : '\u2014'}</div>
-          ${job.netWeight !== null ? `<div class="form-note" style="margin:0;">${fmtLbs(Math.max(job.empty.highestWeight, job.full.highestWeight))} \u2212 ${fmtLbs(Math.min(job.empty.highestWeight, job.full.highestWeight))}</div>` : '<div class="form-note" style="margin:0;">Shows once both tickets are in</div>'}
+        ${trucks.map(tr => truckBlock(job, tr, many)).join('')}
+        <button type="button" class="wt-add-truck" data-job="${driverEsc(job.jobNumber)}" data-count="${trucks.length + 1}" style="${whiteBtn} margin-bottom:12px; border-style:dashed;">+ Add Another Truck</button>
+        <p class="status-msg wt-truck-status" data-job="${driverEsc(job.jobNumber)}" style="margin:-6px 0 10px;"></p>
+        <div style="text-align:center; padding:12px; border-radius:8px; background:${total !== null && total !== undefined ? '#e8f5e9' : 'var(--offwhite)'};">
+          <div class="form-note" style="margin:0;">${many ? `Total Load Weight (${trucks.length} trucks)` : 'Load Weight'}</div>
+          <div style="font-size:26px; font-weight:800; color:${total !== null && total !== undefined ? 'var(--brand-green-dark)' : 'var(--muted)'};">${total !== null && total !== undefined ? fmtLbs(total) : '\u2014'}</div>
+          ${total !== null && total !== undefined ? (many
+            ? `<div class="form-note" style="margin:0;">${trucks.map(t => `Truck ${t.truck}: ${fmtLbs(t.netWeight)}`).join(' + ')}</div>`
+            : `<div class="form-note" style="margin:0;">${fmtLbs(Math.max(trucks[0].empty.highestWeight, trucks[0].full.highestWeight))} \u2212 ${fmtLbs(Math.min(trucks[0].empty.highestWeight, trucks[0].full.highestWeight))}</div>`) : ''}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
+    wrap.querySelectorAll('.wt-add-truck, .wt-remove-truck').forEach(b => b.addEventListener('click', e => setWeightTicketTrucks(e.currentTarget.dataset.job, Number(e.currentTarget.dataset.count))));
     wrap.querySelectorAll('.wt-take').forEach(b => b.addEventListener('click', e => openWeightTicketPicker(e.currentTarget, 'weightTicketCameraInput')));
     wrap.querySelectorAll('.wt-choose').forEach(b => b.addEventListener('click', e => openWeightTicketPicker(e.currentTarget, 'weightTicketFileInput')));
   }
 
   // A fresh <input> each time, so a retake always fires.
   function openWeightTicketPicker(btn, inputId){
-    weightTicketPending = { jobNumber: btn.dataset.job, kind: btn.dataset.kind };
+    weightTicketPending = { jobNumber: btn.dataset.job, kind: btn.dataset.kind, truck: Number(btn.dataset.truck) || 1 };
     const old = document.getElementById(inputId);
     const fresh = old.cloneNode(true);
     old.replaceWith(fresh);
@@ -2972,7 +2993,7 @@
   async function uploadWeightTicket(file){
     const pending = weightTicketPending;
     if(!pending) return;
-    const statusEl = document.querySelector(`.wt-status[data-job="${CSS.escape(pending.jobNumber)}"][data-kind="${pending.kind}"]`);
+    const statusEl = document.querySelector(`.wt-status[data-job="${CSS.escape(pending.jobNumber)}"][data-truck="${pending.truck}"][data-kind="${pending.kind}"]`);
     const setStatus = (msg, cls) => { if(statusEl){ statusEl.textContent = msg; statusEl.className = 'status-msg wt-status ' + (cls || ''); } };
     document.querySelectorAll('.wt-take, .wt-choose').forEach(b => b.disabled = true);
     setStatus('Reading the ticket...');
@@ -2982,7 +3003,7 @@
       const res = await fetch(API_BASE_AUTH + '/api/driver/weight-ticket', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
-        body: JSON.stringify({ jobNumber: pending.jobNumber, kind: pending.kind, photo })
+        body: JSON.stringify({ jobNumber: pending.jobNumber, kind: pending.kind, truck: pending.truck, photo })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -2998,6 +3019,25 @@
       console.error('Weight ticket upload failed:', err);
       document.querySelectorAll('.wt-take, .wt-choose').forEach(b => b.disabled = false);
       setStatus('Could not reach the server \u2014 check your connection and try again.', 'err');
+    }
+  }
+
+  // + Add Another Truck / Remove Truck N
+  async function setWeightTicketTrucks(jobNumber, count){
+    const statusEl = document.querySelector(`.wt-truck-status[data-job="${CSS.escape(jobNumber)}"]`);
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/weight-ticket-trucks', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ jobNumber, count })
+      });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const data = await res.json();
+      if(!res.ok){ if(statusEl){ statusEl.textContent = data.error || 'Could not change the trucks.'; statusEl.className = 'status-msg wt-truck-status err'; } return; }
+      weightTicketJobs = weightTicketJobs.map(j => j.jobNumber === data.job.jobNumber ? Object.assign({}, j, data.job) : j);
+      renderWeightTicketJobs();
+      renderWeightTicketTile();
+    }catch(err){
+      if(statusEl){ statusEl.textContent = 'Could not reach the server \u2014 check your connection.'; statusEl.className = 'status-msg wt-truck-status err'; }
     }
   }
 
@@ -19148,6 +19188,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let pwBatchPastedImages = []; // {id, previewDataUri, originalFile, isPdf}
   let pwBatchReview = [];       // review rows before generation
   let pwBatchPackages = [];     // generated work packages {jobNumber, clientName, jobType, html, extraNote}
+  let pwBatchSeq = 0;           // which Read Work Orders batch -- keeps packets in upload order across batches
+  const pwBySortKey = (a, b) => (a.sortKey || 0) - (b.sortKey || 0);
   let pwBatchExcluded = [];     // estimates found but excluded (no paperwork needed until booked)
   let pwBatchUnclear = [];      // orderType came back 'unclear' -- never silently treated as Job or Estimate; a human confirms
   let pwBatchJunkRemoval = [];  // all active junk removal jobs (any day), available here for Captain assignment/reassignment
@@ -19464,6 +19506,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     return {
       reviewId,
+      sortKey: d.sortKey || 0,
+      typeFieldText: d.typeFieldText || '',
       jobNumber: d.jobNumber || '',
       clientName: d.clientName || '',
       clientPhone: d.clientPhone || '',
@@ -19515,7 +19559,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         statusEl.className = 'status-msg err';
         return;
       }
-      const allDocuments = data.documents || [];
+      // Keep work orders in the order they appear in the uploaded file(s)
+      // -- file by file, page by page -- so the review list and the printed
+      // packets follow the stack you dropped in, not the order the reader
+      // happened to return them. Later batches sort after earlier ones.
+      pwBatchSeq++;
+      const allDocuments = (data.documents || []).slice()
+        .sort((a, b) => ((a.fileIndex || 0) - (b.fileIndex || 0)) || ((a.firstPageIndex || 0) - (b.firstPageIndex || 0)));
+      allDocuments.forEach((d, i) => { d.sortKey = pwBatchSeq * 10000 + i; });
       if(allDocuments.length === 0){
         statusEl.textContent = 'Could not read any work orders from those files.';
         statusEl.className = 'status-msg err';
@@ -19775,6 +19826,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         }catch(err){ /* fall through with no distance info -- the review row is still editable */ }
       }
       pwBatchReview.push(buildPwReviewRow(d, dist, x.unclearId));
+      pwBatchReview.sort(pwBySortKey);
       pwBatchUnclear = pwBatchUnclear.filter(u => u.unclearId !== x.unclearId);
       await renderPwBatchReview();
       renderPwBatchUnclear();
@@ -19970,6 +20022,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <option value="longdistance">Long Distance Move</option>
           </select>
           ${distNote}
+          ${r.typeFieldText ? `<span title="What the work order's Type field says -- estimates never get a packet" style="font-size:11.5px; padding:2px 8px; border-radius:10px; background:var(--offwhite); border:1px solid var(--line);">Type: <strong>${pwBatchEsc(r.typeFieldText)}</strong></span>` : '<span title="No Type field was read -- you confirmed this is a job" style="font-size:11.5px; padding:2px 8px; border-radius:10px; background:#FFFBEA; border:1px solid #E3A008;">Type: confirmed by you</span>'}
           <select class="pwrev-captain" data-review-id="${r.reviewId}" style="font-size:12.5px;">${captainOptions}</select>
           <button type="button" class="pwrev-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:auto;">Remove</button>
         </div>
@@ -20153,6 +20206,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     statusEl.className = 'status-msg';
     const generated = [];
     try{
+      ready.sort(pwBySortKey);
       for(const r of ready){
         document.getElementById('pw_jobNumber').value = r.jobNumber;
         document.getElementById('pw_clientName').value = r.clientName;
@@ -20178,11 +20232,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
         await archiveJobData(r.packingMaterials);
         const { html, extraNote } = await buildWorkPackageHtml(r.jobType, r.workOrderPages);
-        generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote });
+        generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote, sortKey: r.sortKey });
       }
 
       pwClearFormFields();
-      pwBatchPackages = pwBatchPackages.concat(generated);
+      pwBatchPackages = pwBatchPackages.concat(generated).sort(pwBySortKey);
       pwBatchReview = pwBatchReview.filter(r => !ready.includes(r));
       renderPwBatchReview();
       renderPwBatchPackages();
@@ -20657,6 +20711,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // office upload, i.e. a coaching point for the Captain. If there are no
   // tickets at all, closing anyway takes the Administrator Override PIN
   // and a reason, and the record is marked so the owner sees it.
+  // A Long Distance Move can send more than one truck: each truck has its
+  // own empty and full ticket. Tickets from before trucks were numbered are
+  // Truck 1; how many trucks a job has lives in 'weight-ticket-trucks'.
+  const wtTruckOf = t => Number(t && t.truck) || 1;
+  function wtSummarize(jobNumber, tickets, counts){
+    const forJob = (tickets || []).filter(t => t.jobNumber === jobNumber);
+    const count = Math.max(Number((counts || {})[jobNumber]) || 1, ...forJob.map(wtTruckOf), 1);
+    const trucks = [];
+    for(let n = 1; n <= count; n++){
+      const empty = forJob.find(t => t.kind === 'empty' && wtTruckOf(t) === n) || null;
+      const full = forJob.find(t => t.kind === 'full' && wtTruckOf(t) === n) || null;
+      trucks.push({ truck: n, empty, full, netWeight: empty && full ? Math.abs(full.highestWeight - empty.highestWeight) : null });
+    }
+    const complete = trucks.every(t => t.netWeight !== null);
+    return { trucks, count, complete, total: complete ? trucks.reduce((s, t) => s + t.netWeight, 0) : null,
+      anyTicket: forJob.length > 0, pending: forJob.some(t => !t.mergedAt) };
+  }
+  window.wtSummarize = wtSummarize;
+
   async function ensureWeightTicketsForClosure(upload, continueLabel){
     let job = null;
     try{
@@ -20665,15 +20738,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Job lookup for weight tickets failed:', err); }
     if(!job || job.jobType !== 'longdistance') return true;
     if(upload.weightTicketsWaived) return true;
-    const ticketsOnFile = async () => {
-      const tickets = await window.dashboardApi.get('weight-tickets', []) || [];
-      const forJob = tickets.filter(t => t.jobNumber === upload.jobNumber);
-      return { empty: forJob.find(t => t.kind === 'empty') || null, full: forJob.find(t => t.kind === 'full') || null, pending: forJob.some(t => !t.mergedAt) };
-    };
-    let state = await ticketsOnFile();
+    const [tickets, counts] = await Promise.all([
+      window.dashboardApi.get('weight-tickets', []).then(v => v || []),
+      window.dashboardApi.get('weight-ticket-trucks', {}).then(v => v || {})
+    ]);
+    const state = wtSummarize(upload.jobNumber, tickets, counts);
     // Already merged into the package earlier (tickets get pruned after 30 days).
-    if(!state.empty && !state.full && upload.weightTickets && upload.weightTickets.netWeight !== null) return true;
-    if(state.empty && state.full){
+    if(!state.anyTicket && upload.weightTickets && upload.weightTickets.netWeight !== null && upload.weightTickets.netWeight !== undefined) return true;
+    if(state.complete){
       if(state.pending) await mergePendingWeightTickets();
       return true;
     }
@@ -20681,7 +20753,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   // uploadOnly: opened from Manager Review just to add tickets -- no
-  // closing, no override, and Done works with one ticket or both.
+  // closing, no override, and Done works whatever is in.
   function openWeightTicketClosureModal(upload, job, state, continueLabel, uploadOnly){
     return new Promise(resolve => {
       const overlay = document.createElement('div');
@@ -20690,12 +20762,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const lbs = n => Number(n || 0).toLocaleString() + ' lbs';
       const btnGreen = 'background:var(--brand-green); color:#fff; border:none; padding:11px 14px; border-radius:6px; font-weight:700; cursor:pointer; font-size:14px; font-family:inherit;';
       const btnWhite = 'background:#fff; color:var(--charcoal); border:1px solid var(--line); padding:11px 14px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; font-family:inherit;';
-      const tickets = { empty: state.empty, full: state.full };
+      let trucks = (state.trucks || [{ truck: 1, empty: state.empty || null, full: state.full || null }]).map(t => ({ truck: t.truck, empty: t.empty, full: t.full }));
       const finish = ok => { overlay.remove(); resolve(ok); };
+      const net = t => t.empty && t.full ? Math.abs(t.full.highestWeight - t.empty.highestWeight) : null;
 
-      function slotHtml(kind){
-        const t = tickets[kind];
+      function slotHtml(tr, kind){
+        const t = tr[kind];
         const label = kind === 'empty' ? 'Empty Truck' : 'Full Truck';
+        const k = `data-truck="${tr.truck}" data-kind="${kind}"`;
         return `<div style="border:1px solid ${t ? 'var(--brand-green)' : '#E3A008'}; background:${t ? '#f3faf4' : '#FFFBEA'}; border-radius:8px; padding:12px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
             <strong>${label} Ticket</strong>
@@ -20703,23 +20777,29 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
           ${t ? `<div class="form-note" style="margin:4px 0 0;">Uploaded by ${t.uploadedBy === 'office' ? 'the office' : 'the Captain'}</div>` : ''}
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-            <button type="button" class="wtc-pick" data-kind="${kind}" data-capture="1" style="${btnGreen} flex:1;">&#128247; ${t ? 'Retake' : 'Take Photo'}</button>
-            <button type="button" class="wtc-pick" data-kind="${kind}" style="${btnWhite} flex:1;">Choose File</button>
+            <button type="button" class="wtc-pick" ${k} data-capture="1" style="${btnGreen} flex:1;">&#128247; ${t ? 'Retake' : 'Take Photo'}</button>
+            <button type="button" class="wtc-pick" ${k} style="${btnWhite} flex:1;">Choose File</button>
           </div>
-          <p class="status-msg wtc-status" data-kind="${kind}" style="margin:8px 0 0;"></p>
+          <p class="status-msg wtc-status" ${k} style="margin:8px 0 0;"></p>
         </div>`;
       }
       function render(){
-        const both = tickets.empty && tickets.full;
-        const net = both ? Math.abs(tickets.full.highestWeight - tickets.empty.highestWeight) : null;
-        overlay.innerHTML = `<div style="background:#fff; border-radius:10px; max-width:480px; width:100%; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,.25);">
+        const many = trucks.length > 1;
+        const complete = trucks.every(t => net(t) !== null);
+        const total = complete ? trucks.reduce((s, t) => s + net(t), 0) : null;
+        overlay.innerHTML = `<div style="background:#fff; border-radius:10px; max-width:500px; width:100%; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,.25);">
           <h3 style="margin:0 0 6px;">${uploadOnly ? 'Upload Weight Tickets' : 'Weight Tickets Required'}</h3>
-          <p class="form-note" style="margin:0 0 14px;">Job ${esc(upload.jobNumber)}${upload.clientName ? ' \u2014 ' + esc(upload.clientName) : ''} is a Long Distance Move. ${uploadOnly ? 'Add whichever ticket the Captain didn\u2019t upload.' : 'Both weight tickets must be on file before this work package can be closed \u2014 including for an Angry client.'}${job.captainName ? ` If ${esc(job.captainName)} handed you paper tickets, upload them here.` : ''}</p>
-          ${slotHtml('empty')}
-          ${slotHtml('full')}
-          ${both ? `<div style="text-align:center; padding:10px; border-radius:8px; background:#e8f5e9; margin-bottom:12px;"><div class="form-note" style="margin:0;">Load Weight</div><div style="font-size:22px; font-weight:800; color:var(--brand-green-dark);">${lbs(net)}</div></div>` : ''}
+          <p class="form-note" style="margin:0 0 14px;">Job ${esc(upload.jobNumber)}${upload.clientName ? ' \u2014 ' + esc(upload.clientName) : ''} is a Long Distance Move. ${uploadOnly ? 'Add whichever tickets the Captain didn\u2019t.' : 'Every truck\u2019s empty and full scale tickets are needed before the package can close.'}</p>
+          ${trucks.map(tr => `<div style="${many ? 'border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; background:var(--offwhite);' : ''}">
+            ${many ? `<div style="display:flex; justify-content:space-between; margin-bottom:6px;"><strong>&#128666; Truck ${tr.truck}</strong>${net(tr) !== null ? `<span style="font-weight:700; color:var(--brand-green-dark);">${lbs(net(tr))} load</span>` : ''}</div>` : ''}
+            ${slotHtml(tr, 'empty')}${slotHtml(tr, 'full')}
+            ${many && tr.truck === trucks.length && !tr.empty && !tr.full ? `<button type="button" class="wtc-remove-truck" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; font-size:13px; padding:0;">Remove Truck ${tr.truck}</button>` : ''}
+          </div>`).join('')}
+          <button type="button" id="wtc_addTruck" style="${btnWhite} width:100%; border-style:dashed; margin-bottom:10px;">+ Add Another Truck</button>
+          <p class="status-msg" id="wtc_truckStatus" style="margin:-4px 0 8px;"></p>
+          ${complete ? `<div style="text-align:center; padding:10px; border-radius:8px; background:#e8f5e9; margin-bottom:12px;"><div class="form-note" style="margin:0;">${many ? `Total Load Weight (${trucks.length} trucks)` : 'Load Weight'}</div><div style="font-size:22px; font-weight:800; color:var(--brand-green-dark);">${lbs(total)}</div>${many ? `<div class="form-note" style="margin:0;">${trucks.map(t => `Truck ${t.truck}: ${lbs(net(t))}`).join(' + ')}</div>` : ''}</div>` : ''}
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="button" id="wtc_continue" style="${btnGreen} flex:1; ${both || uploadOnly ? '' : 'opacity:.45; cursor:not-allowed;'}" ${both || uploadOnly ? '' : 'disabled'}>${esc(continueLabel)}</button>
+            <button type="button" id="wtc_continue" style="${btnGreen} flex:1; ${complete || uploadOnly ? '' : 'opacity:.45; cursor:not-allowed;'}" ${complete || uploadOnly ? '' : 'disabled'}>${esc(continueLabel)}</button>
             <button type="button" id="wtc_cancel" style="${btnWhite}">Cancel</button>
           </div>
           <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line); ${uploadOnly ? 'display:none;' : ''}">
@@ -20732,7 +20812,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             </div>
           </div>
         </div>`;
-        overlay.querySelectorAll('.wtc-pick').forEach(b => b.addEventListener('click', ev => pick(ev.currentTarget.dataset.kind, !!ev.currentTarget.dataset.capture)));
+        overlay.querySelectorAll('.wtc-pick').forEach(b => b.addEventListener('click', ev => pick(Number(ev.currentTarget.dataset.truck), ev.currentTarget.dataset.kind, !!ev.currentTarget.dataset.capture)));
+        overlay.querySelector('#wtc_addTruck').addEventListener('click', () => setTrucks(trucks.length + 1));
+        const rm = overlay.querySelector('.wtc-remove-truck'); if(rm) rm.addEventListener('click', () => setTrucks(trucks.length - 1));
         overlay.querySelector('#wtc_cancel').addEventListener('click', () => finish(false));
         overlay.querySelector('#wtc_continue').addEventListener('click', async ev => {
           ev.currentTarget.disabled = true;
@@ -20747,20 +20829,33 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         overlay.querySelector('#wtc_override').addEventListener('click', override);
       }
 
-      function pick(kind, capture){
+      async function setTrucks(count){
+        const st = overlay.querySelector('#wtc_truckStatus');
+        try{
+          const res = await fetch(`${API_BASE}/api/admin/weight-ticket-trucks`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ jobNumber: upload.jobNumber, count }) });
+          if(handleAuthFailure(res)){ finish(false); return; }
+          const data = await res.json();
+          if(!res.ok){ st.textContent = data.error || 'Could not change the trucks.'; st.className = 'status-msg err'; return; }
+          if(count > trucks.length){ for(let n = trucks.length + 1; n <= count; n++) trucks.push({ truck: n, empty: null, full: null }); }
+          else trucks = trucks.slice(0, count);
+          render();
+        }catch(err){ st.textContent = 'Could not reach the server \u2014 check your connection.'; st.className = 'status-msg err'; }
+      }
+
+      function pick(truck, kind, capture){
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
         if(capture) input.setAttribute('capture', 'environment');
         input.addEventListener('change', async () => {
           const file = input.files && input.files[0];
-          if(file) await uploadTicket(kind, file);
+          if(file) await uploadTicket(truck, kind, file);
         });
         input.click();
       }
 
-      async function uploadTicket(kind, file){
-        const statusEl = overlay.querySelector(`.wtc-status[data-kind="${kind}"]`);
+      async function uploadTicket(truck, kind, file){
+        const statusEl = overlay.querySelector(`.wtc-status[data-truck="${truck}"][data-kind="${kind}"]`);
         statusEl.textContent = 'Reading the ticket...';
         statusEl.className = 'status-msg wtc-status';
         overlay.querySelectorAll('.wtc-pick').forEach(b => b.disabled = true);
@@ -20768,7 +20863,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           const photo = await compressImageForUpload(file, 1800, 0.85);
           const res = await fetch(`${API_BASE}/api/admin/weight-ticket`, {
             method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),
-            body: JSON.stringify({ jobNumber: upload.jobNumber, kind, photo })
+            body: JSON.stringify({ jobNumber: upload.jobNumber, kind, truck, photo })
           });
           if(handleAuthFailure(res)){ finish(false); return; }
           const data = await res.json();
@@ -20778,10 +20873,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             statusEl.className = 'status-msg wtc-status err';
             return;
           }
-          const j = data.job || {};
-          ['empty', 'full'].forEach(k => {
-            if(j[k]) tickets[k] = Object.assign({}, tickets[k], j[k], k === kind ? { uploadedBy: 'office' } : {});
-          });
+          const fresh = ((data.job || {}).trucks || []).find(t => t.truck === truck) || {};
+          const tr = trucks.find(t => t.truck === truck);
+          if(tr && fresh[kind]) tr[kind] = Object.assign({}, fresh[kind], { uploadedBy: 'office' });
           render();
         }catch(err){
           console.error('Office weight ticket upload failed:', err);
@@ -20814,15 +20908,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             statusEl.className = 'status-msg err';
             return;
           }
+          const many = trucks.length > 1;
           upload.weightTicketsWaived = {
             at: new Date().toISOString(),
             reason: reason.slice(0, 500),
-            missing: ['empty', 'full'].filter(k => !tickets[k]),
+            missing: trucks.flatMap(t => ['empty', 'full'].filter(k => !t[k]).map(k => many ? `Truck ${t.truck} ${k}` : k)),
             by: localStorage.getItem('henson_auth_email') || ''
           };
           await savePaperworkUploadsList();
           renderPaperworkUploadsList();
-          await mergePendingWeightTickets(); // attach whichever ticket did come in
+          await mergePendingWeightTickets(); // attach whichever tickets did come in
           finish(true);
         }catch(err){
           console.error('Weight ticket override failed:', err);
@@ -20860,7 +20955,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           .sort((a, b) => (b.invoiceUploadedAt || '').localeCompare(a.invoiceUploadedAt || ''))[0];
         if(!upload) continue; // invoice not uploaded yet -- keep waiting
         const pending = tickets.filter(t => t.jobNumber === jobNumber && !t.mergedAt)
-          .sort((a, b) => (a.kind === 'empty' ? 0 : 1) - (b.kind === 'empty' ? 0 : 1));
+          .sort((a, b) => (wtTruckOf(a) - wtTruckOf(b)) || ((a.kind === 'empty' ? 0 : 1) - (b.kind === 'empty' ? 0 : 1)));
         try{
           const packetUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
           if(!packetUri) continue;
@@ -20868,7 +20963,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           let unreadable = false;
           for(const t of pending){
             const photo = await window.dashboardApi.get(t.photoKey, null);
-            if(photo) files.push(window.dataUriToFile(photo, `weight-ticket-${t.kind}.jpg`));
+            if(photo) files.push(window.dataUriToFile(photo, `weight-ticket-truck${wtTruckOf(t)}-${t.kind}.jpg`));
             else unreadable = true;
           }
           // Never mark a ticket attached (or delete its photo) unless the
@@ -20889,11 +20984,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           for(const t of pending){ await window.dashboardApi.delete(t.photoKey); }
           // Load weight on the record, from every ticket for the job.
           const all = tickets.filter(t => t.jobNumber === jobNumber);
-          const empty = all.find(t => t.kind === 'empty'), full = all.find(t => t.kind === 'full');
+          const counts = await window.dashboardApi.get('weight-ticket-trucks', {}) || {};
+          const sum = wtSummarize(jobNumber, all, counts);
           upload.weightTickets = Object.assign({}, upload.weightTickets, {
-            emptyWeight: empty ? empty.highestWeight : null,
-            fullWeight: full ? full.highestWeight : null,
-            netWeight: empty && full ? Math.abs(full.highestWeight - empty.highestWeight) : null,
+            // Truck 1's pair (as before), every truck's weights, and the total load.
+            emptyWeight: sum.trucks[0].empty ? sum.trucks[0].empty.highestWeight : null,
+            fullWeight: sum.trucks[0].full ? sum.trucks[0].full.highestWeight : null,
+            trucks: sum.trucks.map(t => ({ truck: t.truck, emptyWeight: t.empty ? t.empty.highestWeight : null, fullWeight: t.full ? t.full.highestWeight : null, netWeight: t.netWeight })),
+            netWeight: sum.total,
             // Office uploads mean the Captain handed in paper instead.
             uploadedByOffice: all.some(t => t.uploadedBy === 'office')
           });
@@ -26639,10 +26737,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let wtrJobs = [];
   async function loadMgrReviewWeightTickets(){
     try{
-      const [archive, uploads, tickets] = await Promise.all([
+      const [archive, uploads, tickets, truckCounts] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
-        window.dashboardApi.get('weight-tickets', [])
+        window.dashboardApi.get('weight-tickets', []),
+        window.dashboardApi.get('weight-ticket-trucks', {})
       ]);
       const cutoff = new Date(Date.now() - 60*24*60*60*1000).toISOString().slice(0,10);
       const today = new Date().toLocaleDateString('en-CA');
@@ -26655,13 +26754,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           const closed = ups.some(u => u.emailSentAt || u.satisfaction === 'angry' || u.weightTicketsWaived);
           const forJob = (tickets || []).filter(t => t.jobNumber === j.jobNumber);
           const upload = ups.find(u => u.invoiceUploadedAt) || ups[0] || null;
-          return {
-            job: j, closed, upload,
-            empty: forJob.find(t => t.kind === 'empty') || null,
-            full: forJob.find(t => t.kind === 'full') || null,
-            invoiced: ups.some(u => u.invoiceUploadedAt),
-            mergedWeights: upload && upload.weightTickets ? upload.weightTickets : null
-          };
+          const sum = window.wtSummarize(j.jobNumber, forJob, truckCounts || {});
+          const merged = upload && upload.weightTickets ? upload.weightTickets : null;
+          // Per truck: the ticket on file, or the weight already attached to the package.
+          const mergedTrucks = merged ? (merged.trucks || [{ truck: 1, emptyWeight: merged.emptyWeight, fullWeight: merged.fullWeight }]) : [];
+          const count = Math.max(sum.count, mergedTrucks.length);
+          const trucks = [];
+          for(let n = 1; n <= count; n++){
+            const live = sum.trucks.find(t => t.truck === n) || { empty: null, full: null };
+            const m = mergedTrucks.find(t => t.truck === n) || {};
+            const w = (kind) => live[kind] ? live[kind].highestWeight : (m[kind + 'Weight'] != null ? m[kind + 'Weight'] : null);
+            trucks.push({ truck: n, empty: live.empty, full: live.full, emptyWeight: w('empty'), fullWeight: w('full') });
+          }
+          return { job: j, closed, upload, trucks, invoiced: ups.some(u => u.invoiceUploadedAt) };
         })
         .filter(r => !r.closed)
         .sort((a, b) => (b.job.assignmentDate || '').localeCompare(a.job.assignmentDate || ''));
@@ -26675,32 +26780,33 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function renderMgrReviewWeightTickets(){
     const list = document.getElementById('wtr_list');
     const emptyNote = document.getElementById('wtr_emptyNote');
-    const missingCount = wtrJobs.filter(r => !(r.empty || (r.mergedWeights && r.mergedWeights.emptyWeight != null)) || !(r.full || (r.mergedWeights && r.mergedWeights.fullWeight != null))).length;
+    const jobComplete = r => r.trucks.every(t => t.emptyWeight != null && t.fullWeight != null);
+    const missingCount = wtrJobs.filter(r => !jobComplete(r)).length;
     document.getElementById('mgrreview_weightTicketsTabCount').textContent = wtrJobs.length > 0 ? `(${missingCount > 0 ? missingCount + ' missing' : wtrJobs.length})` : '';
     emptyNote.style.display = wtrJobs.length === 0 ? 'block' : 'none';
     const lbs = n => Number(n || 0).toLocaleString() + ' lbs';
     const today = new Date().toLocaleDateString('en-CA');
     list.innerHTML = wtrJobs.map((r, idx) => {
-      const weight = kind => r[kind] ? r[kind].highestWeight : (r.mergedWeights ? r.mergedWeights[kind + 'Weight'] : null);
-      const e = weight('empty'), f = weight('full');
-      const complete = e != null && f != null;
-      const slot = (kind, label) => {
-        const t = r[kind]; const w = weight(kind);
+      const complete = jobComplete(r);
+      const many = r.trucks.length > 1;
+      const total = complete ? r.trucks.reduce((sum, t) => sum + Math.abs(t.fullWeight - t.emptyWeight), 0) : null;
+      const slot = (tr, kind, label) => {
+        const t = tr[kind]; const w = tr[kind + 'Weight'];
         return `<div style="flex:1; min-width:150px; border:1px solid ${w != null ? 'var(--brand-green)' : '#E3A008'}; background:${w != null ? '#f3faf4' : '#FFFBEA'}; border-radius:6px; padding:8px 10px;">
           <div style="font-size:12px; color:var(--muted);">${label}</div>
           <div style="font-weight:800; font-size:15px; color:${w != null ? 'var(--brand-green-dark)' : '#8a6d00'};">${w != null ? lbs(w) : 'Missing'}</div>
           ${t ? `<div style="font-size:11.5px; color:var(--muted);">by ${t.uploadedBy === 'office' ? 'the office' : 'Captain'}${t.mergedAt ? ' \u00b7 attached to package' : ''}</div>` : ''}
-          ${t && !t.mergedAt ? `<button type="button" class="wtr-view" data-key="${mgrReviewEsc(t.photoKey)}" style="background:none; border:none; padding:0; margin-top:3px; color:var(--brand-green-dark); font-size:12px; cursor:pointer; text-decoration:underline;">View photo</button>` : ''}
+          ${t && !t.mergedAt ? `<button type="button" class="wtr-view" data-key="${mgrReviewEsc(t.photoKey)}" style="background:none; border:none; padding:0; margin-top:3px; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; font-size:12px;">View photo</button>` : ''}
         </div>`;
       };
-      return `<div style="border:1px solid ${complete ? 'var(--line)' : '#E3A008'}; border-left:5px solid ${complete ? 'var(--brand-green)' : '#E3A008'}; background:${complete ? '#fff' : '#FFFBEA'}; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+      return `<div style="border:1px solid ${complete ? 'var(--line)' : '#E3A008'}; border-left:5px solid ${complete ? 'var(--brand-green)' : '#E3A008'}; background:${complete ? '#fff' : '#FFFBEA'}; border-radius:8px; padding:12px 14px; margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;">
           <strong style="font-size:15px;">Job ${mgrReviewEsc(r.job.jobNumber)}${r.job.clientName ? ' \u2014 ' + mgrReviewEsc(r.job.clientName) : ''}</strong>
-          <span style="font-size:12.5px; font-weight:700; color:${complete ? 'var(--brand-green-dark)' : '#8a6d00'};">${complete ? 'Load ' + lbs(Math.abs(f - e)) : 'Ticket missing'}</span>
+          <span style="font-size:12.5px; font-weight:700; color:${complete ? 'var(--brand-green-dark)' : '#8a6d00'};">${complete ? (many ? `Total load ${lbs(total)} (${r.trucks.length} trucks)` : 'Load ' + lbs(total)) : 'Ticket missing'}</span>
         </div>
-        <div style="font-size:12.5px; color:var(--charcoal); margin:3px 0 8px;">${r.job.assignmentDate === today ? 'Today' : window.fmtDate(r.job.assignmentDate)}${r.job.captainName ? ' &middot; Captain ' + mgrReviewEsc(r.job.captainName) : ''} &middot; ${r.invoiced ? 'invoice uploaded, not emailed yet' : 'invoice not uploaded yet'}</div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">${slot('empty', 'Empty Truck')}${slot('full', 'Full Truck')}</div>
-        ${complete ? '' : `<button type="button" class="wtr-upload" data-idx="${idx}" style="margin-top:10px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Upload Paper Ticket</button>`}
+        <div style="font-size:12.5px; color:var(--charcoal); margin:3px 0 8px;">${r.job.assignmentDate === today ? 'Today' : window.fmtDate(r.job.assignmentDate)}${r.job.captainName ? ' &middot; Captain: ' + mgrReviewEsc(r.job.captainName) : ''}${r.invoiced ? '' : ' &middot; invoice not uploaded yet'}</div>
+        ${r.trucks.map(tr => `${many ? `<div style="font-size:12.5px; font-weight:700; margin:6px 0 4px;">&#128666; Truck ${tr.truck}</div>` : ''}<div style="display:flex; gap:8px; flex-wrap:wrap;">${slot(tr, 'empty', 'Empty Truck')}${slot(tr, 'full', 'Full Truck')}</div>`).join('')}
+        ${complete ? '' : `<button type="button" class="wtr-upload" data-idx="${idx}" style="margin-top:10px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Upload Paper Ticket</button>`}
       </div>`;
     }).join('');
     list.querySelectorAll('.wtr-view').forEach(b => b.addEventListener('click', async e => {
@@ -26714,7 +26820,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const r = wtrJobs[Number(e.currentTarget.dataset.idx)];
       if(!r) return;
       const pseudoUpload = r.upload || { jobNumber: r.job.jobNumber, clientName: r.job.clientName || '' };
-      await openWeightTicketClosureModal(pseudoUpload, r.job, { empty: r.empty, full: r.full }, 'Done', true);
+      await openWeightTicketClosureModal(pseudoUpload, r.job, { trucks: r.trucks.map(t => ({ truck: t.truck, empty: t.empty, full: t.full })) }, 'Done', true);
       await loadMgrReviewWeightTickets();
     }));
   }
