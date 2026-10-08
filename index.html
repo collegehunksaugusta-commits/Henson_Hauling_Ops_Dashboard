@@ -5649,6 +5649,12 @@
     <p class="form-note" id="om_assignedToNote"></p>
     <p class="form-note" id="om_activeMonthNote" style="font-weight:600;"></p>
 
+    <div class="panel" id="omCommissionPanel" style="border:2px solid var(--brand-orange);">
+      <h3>Your Commission</h3>
+      <p class="form-note" style="margin-top:0;">Your commission starts with <strong>the revenue from estimates you convert</strong>. Each pay week: converted revenue &times; the Ops Manager rate &times; your overall score &times; your hours out of 40 (salaried counts as 40; hours over 40 don&rsquo;t add more).</p>
+      <div id="om_commissionRows"></div>
+    </div>
+
     <div class="panel" id="omOverallScorePanel">
       <h3>Overall Score</h3>
       <div id="om_overallScoreDisplay" style="font-size:36px; font-weight:800; line-height:1.1;"></div>
@@ -7513,7 +7519,7 @@
           <p class="form-note" style="margin-top:0;">A commission rate for each role below. Driver applies to anyone currently checked as a driver on the Compliance tile's Driver List. Ops Manager applies to whoever is assigned that role here, independent of the Driver checkbox &mdash; someone can be both. Wingman isn't a fixed role like the other two &mdash; it applies to whoever was actually rated as a wingman that week, using their Wingman Score for that week; someone not rated at all that week simply earns no wingman commission.</p>
           <div class="form-grid" style="grid-template-columns:auto auto auto; align-items:end;">
             <label>Driver Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionDriverRate" style="max-width:120px;"></label>
-            <label>Ops Manager Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOpsManagerRate" style="max-width:120px;"></label>
+            <label title="Ops Manager commission = converted revenue (entered each week in his Extra Pay row) x this rate x his score x his hours/40">Ops Manager Commission Rate (% of converted revenue) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOpsManagerRate" style="max-width:120px;"></label>
             <label>Wingman Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionWingmanRate" style="max-width:120px;"></label>
           </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
@@ -7525,7 +7531,7 @@
               <label style="margin:0;">Revenue-Based Cap (% of revenue) <input type="number" min="0" max="100" step="0.1" id="appset_commissionRevenueCap" style="max-width:100px;"></label>
               <label style="margin:0;">Allowed Over Target (percentage points) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOverTarget" style="max-width:100px;"></label>
             </div>
-            <p class="form-note" style="margin:6px 0 0;">Rewards efficiency: total commission for a pay week can&rsquo;t be more than this share of what labor came in <strong>under target</strong> that week (labor cost = field pay minus tips plus employer taxes, as on Labor Cost). Example: target 28%, actual 22% on $20,000 revenue = $1,200 saved; at 50%, commission is capped at $600. If the calculated total is higher, <strong>everyone&rsquo;s</strong> auto-calculated commission is scaled down by the same percentage. <strong>Revenue-Based Cap</strong> covers weeks where savings alone wouldn&rsquo;t pay: the week&rsquo;s cap is the <em>higher</em> of the savings cap and this % of revenue, as long as labor is no more than <strong>Allowed Over Target</strong> points above target (e.g. target 28% + 2 = weeks up to 30% can still pay; 0 = only at or under target). Example: labor exactly 28% on $10,000 at 1% = up to $100. Beyond the allowance, no commission is paid. Leave Revenue-Based Cap at 0 to pay nothing at or over target. <strong>Commission Cap 0</strong> turns all capping off. Commission typed in by hand isn&rsquo;t scaled; damage-claim deductions still come off afterward.</p>
+            <p class="form-note" style="margin:6px 0 0;">Rewards efficiency: total commission for a pay week can&rsquo;t be more than this share of what labor came in <strong>under target</strong> that week (labor cost = field pay minus tips, <strong>commission and bonuses</strong>, plus employer taxes). Example: target 28%, actual 22% on $20,000 revenue = $1,200 saved; at 50%, commission is capped at $600. If the calculated total is higher, <strong>everyone&rsquo;s</strong> auto-calculated commission is scaled down by the same percentage. <strong>Revenue-Based Cap</strong> covers weeks where savings alone wouldn&rsquo;t pay: the week&rsquo;s cap is the <em>higher</em> of the savings cap and this % of revenue, as long as labor is no more than <strong>Allowed Over Target</strong> points above target (e.g. target 28% + 2 = weeks up to 30% can still pay; 0 = only at or under target). Example: labor exactly 28% on $10,000 at 1% = up to $100. Beyond the allowance, no commission is paid. Leave Revenue-Based Cap at 0 to pay nothing at or over target. <strong>Commission Cap 0</strong> turns all capping off. Commission typed in by hand isn&rsquo;t scaled; damage-claim deductions still come off afterward.</p>
           </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
             <label style="margin:0;">New Employee Waiting Period (weeks) <input type="number" min="0" max="52" step="1" id="appset_commissionNewEmployeeWeeks" style="max-width:100px;"></label>
@@ -8029,6 +8035,7 @@
     }
     if(view === 'opsmetrics'){
       window.loadOpsMetricsData();
+      if(window.loadOpsManagerCommissionPanel) window.loadOpsManagerCommissionPanel();
     }
     if(view === 'wingmanmetrics'){
       window.loadWingmanMetricsData();
@@ -8826,6 +8833,10 @@
       const numEarningSlots = Math.max(0, Math.floor((TOTAL_EARNINGS_COL - 1 - 5) / 4));
 
       let fieldGross = 0, adminGross = 0, tipsField = 0, erTaxTotal = 0, otHoursTotal = 0, otPremiumTotal = 0;
+      // Commission paid this week, kept separately so the commission cap's
+      // labor-cost figure can leave it out (commission counted as labor
+      // would pull every week toward the target).
+      let commissionField = 0, bonusField = 0;
       let employeeCount = 0;
       const skippedNoRegRate = [];
       const employees = [];
@@ -8876,6 +8887,10 @@
             }
           } else if(label === 'Credit card tips owed' && !isAdmin){
             tipsField += amount || 0;
+          } else if(/commission/i.test(label) && !isAdmin){
+            commissionField += amount || 0;
+          } else if(/bonus/i.test(label) && !isAdmin){
+            bonusField += amount || 0;
           }
         }
         employees.push({ name: String(name).trim(), role: isAdmin ? 'Admin' : 'Field', regHrs, otHrs, totalEarnings, erTax: erTaxThis, ssnLast4 });
@@ -8890,8 +8905,10 @@
       document.getElementById('f_otHours').value = otHoursTotal.toFixed(2);
       document.getElementById('f_otPremium').value = otPremiumTotal.toFixed(2);
       window.__pendingEmployees = employees;
+      window.__pendingCommissionPaid = Math.round(commissionField * 100) / 100;
+      window.__pendingBonusPaid = Math.round(bonusField * 100) / 100;
 
-      let msg = `Filled in from ${employeeCount} employees: Field Gross ${money(fieldGross)}, Admin Gross ${money(adminGross)}, Tips ${money(tipsField)}, ER Taxes ${money(erTaxTotal)}, OT ${otHoursTotal.toFixed(2)} hrs / ${money(otPremiumTotal)} premium.`;
+      let msg = `Filled in from ${employeeCount} employees: Field Gross ${money(fieldGross)}, Admin Gross ${money(adminGross)}, Tips ${money(tipsField)}, Commission ${money(commissionField)}, Bonus ${money(bonusField)}, ER Taxes ${money(erTaxTotal)}, OT ${otHoursTotal.toFixed(2)} hrs / ${money(otPremiumTotal)} premium.`;
       if(skippedNoRegRate.length > 0){
         msg += ` Note: couldn't compute OT premium for ${skippedNoRegRate.join(', ')} (no Regular rate on file) \u2014 check that OT premium total manually.`;
       }
@@ -9038,13 +9055,18 @@
     const employees = window.__pendingEmployees || [];
 
     weeks = weeks.filter(w => w.weekStart !== startSnapped);
-    weeks.push({ weekStart: startSnapped, weekEnd: end, revenue, fieldGross, adminGross, tips, erTax, otHours, otPremium, employees });
+    const commissionPaid = typeof window.__pendingCommissionPaid === 'number' ? window.__pendingCommissionPaid : undefined;
+    const bonusPaid = typeof window.__pendingBonusPaid === 'number' ? window.__pendingBonusPaid : undefined;
+    weeks.push(Object.assign({ weekStart: startSnapped, weekEnd: end, revenue, fieldGross, adminGross, tips, erTax, otHours, otPremium, employees },
+      commissionPaid !== undefined ? { commissionPaid } : {}, bonusPaid !== undefined ? { bonusPaid } : {}));
 
     const ok = await saveWeeks();
     statusEl.textContent = ok ? 'Week saved.' : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
     if(ok){
       window.__pendingEmployees = [];
+      window.__pendingCommissionPaid = undefined;
+      window.__pendingBonusPaid = undefined;
       ['f_start','f_end','f_revenue','f_fieldGross','f_adminGross','f_tips','f_erTax','f_otHours','f_otPremium'].forEach(id => {
         document.getElementById(id).value = '';
       });
@@ -10760,6 +10782,7 @@
         const laborWeek = laborWeeksByStart[priorWeekStart];
         const revenue = laborWeek ? Number(laborWeek.revenue) || 0 : 0;
         let opsManagerScoreNote = null;
+        let omScoreVal = null, omHoursVal = 0, omHoursActual = 0, omSalaried = false;   // the Ops Manager's score and hours for the work week
         if(revenue > 0){
           const hoursByKey = {};
           const paidByKey = {};   // on this week's payroll with earnings (salaried people have no hourly hours)
@@ -10775,6 +10798,15 @@
           const captainScoreValues = Object.values(captainScores).map(s => s && s.overall).filter(v => typeof v === 'number');
           const captainScoresPct = captainScoreValues.length > 0 ? Math.round(captainScoreValues.reduce((sum, v) => sum + v, 0) / captainScoreValues.length) : null;
           const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, omWeights);
+          omScoreVal = opsManagerScore;
+          if(opsManagerAssignmentKey){
+            // Salaried: pay but no hourly hours on the payroll report -> full-time (40).
+            const h = hoursByKey[opsManagerAssignmentKey] || 0;
+            // Capped at 40 -- more hours don't earn more commission.
+            omHoursActual = h;
+            omHoursVal = h > 0 ? Math.min(40, h) : (paidByKey[opsManagerAssignmentKey] ? 40 : 0);
+            omSalaried = h === 0 && omHoursVal === 40;
+          }
           if(opsManagerAssignmentKey && opsManagerScore === null){
             opsManagerScoreNote = extraPayOpsManagerScoreNote(timelyCloseoutPct, reviewPct, captainScoresPct, extraPayWeekLabel(priorWeekBounds));
           }
@@ -10802,18 +10834,9 @@
                 total += revenue * ((Number(commission.driverRate)||0)/100) * (captainScore/100) * (hours/40);
               }
             }
-            if(opsManagerAssignmentKey && key === opsManagerAssignmentKey){
-              // A salaried Ops Manager has pay but no hourly hours on the
-              // payroll report -- count them as full-time (40 hours).
-              const omHours = hours > 0 ? hours : (paidByKey[key] ? 40 : 0);
-              if(opsManagerScore === null) omReason = `No Ops Manager score for ${extraPayWeekLabel(priorWeekBounds)}`;
-              else if(!(Number(commission.opsManagerRate) > 0)) omReason = 'Ops Manager commission rate is 0% (Configuration \u2192 Commission)';
-              else if(omHours === 0) omReason = `Not on the ${extraPayWeekLabel(priorWeekBounds)} payroll`;
-              else {
-                total += revenue * ((Number(commission.opsManagerRate)||0)/100) * (opsManagerScore/100) * (omHours/40);
-                if(hours === 0) omSalariedNote = 'Salaried \u2014 counted as 40 hrs';
-              }
-            }
+            // The Ops Manager is paid on estimate conversions instead -- set
+            // after the cap below, from the Converted Revenue entered in his row.
+            if(opsManagerAssignmentKey && key === opsManagerAssignmentKey) return;
             // Wingman isn't a fixed role like the other two -- it applies
             // to whoever actually has a score for this week, which only
             // exists if a Captain rated them. Someone can be a driver,
@@ -10840,7 +10863,32 @@
           const targetPct = commission.targetLaborPct != null ? Number(commission.targetLaborPct) : 28;
           const revCapPct = Number(commission.revenueCapPct) || 0;
           const allowance = Number(commission.overTargetAllowancePts) || 0;
-          const laborCostDollars = ((Number(laborWeek.fieldGross) || 0) - (Number(laborWeek.tips) || 0)) + (Number(laborWeek.erTax) || 0);
+          // Labor cost here leaves out commission -- commission counted as
+          // labor would push every week toward the target. Taken from the
+          // payroll report's commission lines when it was read that way;
+          // otherwise the commission saved in Extra Pay for that pay week.
+          let commissionExcluded = 0, commissionSource = '', bonusExcluded = 0;
+          if(typeof laborWeek.commissionPaid === 'number'){
+            commissionExcluded = laborWeek.commissionPaid; commissionSource = 'from the payroll report';
+            bonusExcluded = Number(laborWeek.bonusPaid) || 0;
+          } else {
+            // Field employees only -- owners/office (Location Profile
+            // adminEmployeeNames) are already outside field pay.
+            const saved = (manualData || {})[priorWeekStart] || {};
+            const office = new Set(((window.LOCATION_PROFILE || {}).adminEmployeeNames || []).map(n => nameDedupKey(n)));
+            commissionExcluded = Object.entries(saved).reduce((t, [n, v]) => office.has(nameDedupKey(n)) ? t : t + (Number(v && v.commission) || 0), 0);
+            // Review bonuses paid that week: the amount saved in Extra Pay,
+            // or the automatic per-review amount when it wasn't changed.
+            const payWeek = weeksDataRaw.find(x => x.weekStart === priorWeekStart);
+            const names = new Set([...Object.keys(saved), ...Object.keys((payWeek && payWeek.reviewBonusCalc) || {})]);
+            names.forEach(n => {
+              if(office.has(nameDedupKey(n))) return;
+              const v = saved[n] && saved[n].reviewBonus !== undefined ? saved[n].reviewBonus : ((payWeek && payWeek.reviewBonusCalc && payWeek.reviewBonusCalc[n]) || 0);
+              bonusExcluded += Number(v) || 0;
+            });
+            commissionSource = 'as saved in Extra Pay';
+          }
+          const laborCostDollars = ((Number(laborWeek.fieldGross) || 0) - (Number(laborWeek.tips) || 0) - commissionExcluded - bonusExcluded) + (Number(laborWeek.erTax) || 0);
           const actualPct = laborCostDollars / revenue * 100;
           const savings = Math.max(0, (targetPct - actualPct) / 100 * revenue);
           const savingsCap = Math.round(savings * capPct / 100 * 100) / 100;
@@ -10853,7 +10901,7 @@
           const basis = revenueCap > savingsCap ? `revenue-based cap ${revCapPct}% of revenue = ${extraPayMoney(revenueCap)}` : `cap ${capPct}% of savings = ${extraPayMoney(savingsCap)}`;
           const totalCalc = Object.values(commissionCalc).reduce((t, v) => t + v, 0);
           const label = extraPayWeekLabel(priorWeekBounds);
-          const head = `Labor cost ${label}: ${actualPct.toFixed(1)}% vs. ${targetPct}% target` + (savings > 0 ? ` \u2192 ${extraPayMoney(savings)} saved` : '');
+          const head = `Labor cost ${label} (excluding ${extraPayMoney(commissionExcluded)} commission${bonusExcluded ? ` and ${extraPayMoney(bonusExcluded)} bonus` : ''} ${commissionSource}): ${actualPct.toFixed(1)}% vs. ${targetPct}% target` + (savings > 0 ? ` \u2192 ${extraPayMoney(savings)} saved` : '');
           if(capAmount <= 0){
             Object.keys(commissionCalc).forEach(n => { commissionCalc[n] = 0; });
             commissionCapBinding = true;
@@ -10869,10 +10917,23 @@
             commissionCapNote = `${head}; ${basis}. Calculated commission (${extraPayMoney(totalCalc)}) is under the cap.`;
           }
         }
-        if(revenue <= 0 && opsManagerAssignmentKey) omReason = `No payroll report or revenue on file for ${extraPayWeekLabel(priorWeekBounds)}`;
+        // Ops Manager: commission = converted revenue (entered in his row for
+        // this pay week) x the Ops Manager rate x his score x (hours / 40).
+        // Not scaled by the cap.
+        const omNameForWeek = opsManagerAssignmentKey ? (w.names || []).find(n => nameDedupKey(n) === opsManagerAssignmentKey) : null;
+        let omConvertedRevenue = null;
+        if(omNameForWeek){
+          const saved = ((extraPayManualData || {})[w.weekStart] || {})[omNameForWeek] || {};
+          omConvertedRevenue = Number(saved.convertedRevenue) || 0;
+          const omRate = Number(commission.opsManagerRate) || 0;
+          if(!(omRate > 0)) omReason = 'Ops Manager commission rate is 0% (Configuration \u2192 Commission)';
+          else if(omScoreVal === null) omReason = `No Ops Manager score for ${extraPayWeekLabel(priorWeekBounds)}`;
+          else if(!(omHoursVal > 0)) omReason = `Not on the ${extraPayWeekLabel(priorWeekBounds)} payroll`;
+          else if(omConvertedRevenue > 0) commissionCalc[omNameForWeek] = omConvertedRevenue * omRate / 100 * (omScoreVal / 100) * (omHoursVal / 40);
+        }
         const opsManagerName = opsManagerAssignmentKey ? (w.names || []).find(n => nameDedupKey(n) === opsManagerAssignmentKey) : null;
         const noOpsManagerSelected = !opsManagerAssignmentKey && Number(commission.opsManagerRate) > 0;
-        return Object.assign({}, w, { commissionCapNote, commissionCapBinding, opsManagerName, omReason, omSalariedNote, noOpsManagerSelected, commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
+        return Object.assign({}, w, { omConvertedRevenue, omScoreVal, omHoursVal, omHoursActual, omSalaried, omRatePct: Number(commission.opsManagerRate) || 0, commissionCapNote, commissionCapBinding, opsManagerName, omReason, omSalariedNote, noOpsManagerSelected, commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
       });
 
       renderExtraPayWeeksList(weeksData);
@@ -10937,8 +10998,12 @@
       const reviewBonusStyle = reviewIsAuto ? `${inputStyle} background:#e8f5e9;` : inputStyle;
       const reviewBonusTitle = reviewCount > 0 ? ` title="${reviewCount} Google review${reviewCount === 1 ? '' : 's'} credited${reviewIsAuto ? ' -- auto-filled; edit and save to override' : ''}"` : '';
       const damage = (w.damageByName && w.damageByName[name]) || null;
-      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}" data-damage="${damage ? damage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
-        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
+      const isOm = w.opsManagerName === name;
+      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}${isOm ? `<div style="margin-top:6px; padding:6px 8px; background:#FFF4E5; border:1px solid var(--brand-orange); border-radius:6px; font-size:12px;" title="Ops Manager commission = revenue from his estimate conversions x the Ops Manager rate">
+          <div style="font-weight:700; color:var(--brand-orange-dark);">Ops Manager &mdash; Converted Revenue (${extraPayEsc(extraPayWeekLabel(w.commissionSourceWeek || extraPayGetWeekBounds(extraPayPriorWeekStart(w.weekStart))))})</div>
+          <div style="display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">$<input type="number" min="0" step="0.01" class="extraPay-convRev" data-rate="${w.omRatePct}" data-score="${w.omScoreVal == null ? '' : w.omScoreVal}" data-hours="${w.omHoursVal || 0}" value="${w.omConvertedRevenue ? Number(w.omConvertedRevenue).toFixed(2) : ''}" placeholder="0.00" style="width:110px; text-align:right; padding:4px 6px;"> <span style="color:var(--muted);">&times; ${w.omRatePct}% &times; ${w.omScoreVal == null ? '<span style="color:#b3261e;">no score</span>' : w.omScoreVal + '% score'} &times; ${Math.round((w.omHoursVal || 0) * 10) / 10}/40 hrs${w.omSalaried ? ' (salaried)' : (w.omHoursActual > 40 ? ` (worked ${Math.round(w.omHoursActual * 10) / 10}, capped at 40)` : '')} = <span class="extraPay-convRevResult" style="color:var(--charcoal); font-weight:700;">${extraPayMoney((w.omConvertedRevenue || 0) * w.omRatePct / 100 * ((w.omScoreVal || 0) / 100) * ((w.omHoursVal || 0) / 40))}</span></span></div>
+        </div>` : ''}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
@@ -11016,6 +11081,14 @@
 
     listEl.querySelectorAll('.extraPay-employee-row input').forEach(input => input.addEventListener('input', (e)=>{
       const panel = e.currentTarget.closest('.extraPay-week-panel');
+      // Ops Manager: typing his converted revenue fills in his commission.
+      if(e.currentTarget.classList.contains('extraPay-convRev')){
+        const row = e.currentTarget.closest('.extraPay-employee-row');
+        const d = e.currentTarget.dataset;
+        const amount = (Number(e.currentTarget.value) || 0) * (Number(d.rate) || 0) / 100 * ((Number(d.score) || 0) / 100) * ((Number(d.hours) || 0) / 40);
+        row.querySelector('.extraPay-commission').value = amount.toFixed(2);
+        row.querySelector('.extraPay-convRevResult').textContent = extraPayMoney(amount);
+      }
       extraPayRecalcWeekTotals(panel);
     }));
 
@@ -11036,6 +11109,14 @@
           commission: Number(row.querySelector('.extraPay-commission').value) || 0,
           misc: Number(row.querySelector('.extraPay-misc').value) || 0
         };
+        const conv = row.querySelector('.extraPay-convRev');
+        if(conv){
+          // Kept with the week so Ops Manager Metrics can show the math.
+          weekData[name].convertedRevenue = Number(conv.value) || 0;
+          weekData[name].omRatePct = Number(conv.dataset.rate) || 0;
+          weekData[name].omScore = conv.dataset.score === '' ? null : Number(conv.dataset.score);
+          weekData[name].omHours = Number(conv.dataset.hours) || 0;
+        }
       });
       extraPayManualData[weekStart] = weekData;
       statusEl.textContent = 'Saving...';
@@ -23883,6 +23964,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // Ops Manager is a single-entity metric (one role, not one score per
   // person), so this trend is a single "Overall Score" line -- no
   // per-person dropdown the way Captain and Wingman's trends have.
+  // "Your Commission" on Ops Manager Metrics: each recent pay week's
+  // converted revenue x the Ops Manager rate, as entered in Extra Pay.
+  async function loadOpsManagerCommissionPanel(){
+    const wrap = document.getElementById('om_commissionRows');
+    if(!wrap) return;
+    try{
+      await ensureAppSettingsLoaded();
+      const commission = (window.appSettings || {}).commission || {};
+      const omName = commission.opsManagerAssignment || '';
+      const rate = Number(commission.opsManagerRate) || 0;
+      const manual = await window.dashboardApi.get('extra-pay-manual', {}) || {};
+      const key = n => String(n || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+      const weeks = Object.keys(manual).sort().reverse().map(ws => {
+        const entry = Object.entries(manual[ws] || {}).find(([n]) => key(n) === key(omName));
+        return entry ? { weekStart: ws, conv: Number(entry[1].convertedRevenue) || 0, paid: Number(entry[1].commission) || 0,
+          rate: entry[1].omRatePct != null ? entry[1].omRatePct : rate, score: entry[1].omScore, hours: entry[1].omHours } : null;
+      }).filter(Boolean).slice(0, 8);
+      const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const span = ws => { const s = new Date(ws + 'T00:00:00'); const p = new Date(s); p.setDate(s.getDate() - 7); const e = new Date(p); e.setDate(p.getDate() + 6); const f = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); return `${f(p)} \u2013 ${f(e)}`; };
+      if(!omName){ wrap.innerHTML = '<p class="form-note" style="margin:0;">No Ops Manager is selected in Configuration \u2192 Commission yet.</p>'; return; }
+      if(weeks.length === 0){ wrap.innerHTML = `<p class="form-note" style="margin:0;">No commission weeks saved yet. Current rate: <strong>${rate}%</strong> of converted revenue.</p>`; return; }
+      const th = 'text-align:right; padding:6px 8px;';
+      wrap.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:14px;">
+        <thead><tr><th style="text-align:left; padding:6px 8px;">Conversions week</th><th style="${th}">Converted revenue</th><th style="${th}">Rate</th><th style="${th}">Score</th><th style="${th}">Hours</th><th style="${th}">Commission</th></tr></thead>
+        <tbody>${weeks.map(w => `<tr style="border-bottom:1px solid var(--line);">
+          <td style="padding:8px;">${span(w.weekStart)}<div style="font-size:11.5px; color:var(--muted);">paid week of ${new Date(w.weekStart + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div></td>
+          <td style="padding:8px; text-align:right;">${w.conv ? money(w.conv) : '<span style="color:var(--muted);">\u2014</span>'}</td>
+          <td style="padding:8px; text-align:right;">\u00d7 ${w.rate}%</td>
+          <td style="padding:8px; text-align:right;">${w.score == null ? '<span style="color:var(--muted);">\u2014</span>' : '\u00d7 ' + w.score + '%'}</td>
+          <td style="padding:8px; text-align:right;">${w.hours == null ? '<span style="color:var(--muted);">\u2014</span>' : '\u00d7 ' + (Math.round(w.hours * 10) / 10) + '/40'}</td>
+          <td style="padding:8px; text-align:right; font-weight:800; font-size:16px; color:var(--brand-green-dark);">${money(w.paid)}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+    }catch(err){ console.error('Ops Manager commission panel failed:', err); wrap.innerHTML = '<p class="form-note" style="margin:0;">Couldn\u2019t load commission history.</p>'; }
+  }
+  window.loadOpsManagerCommissionPanel = loadOpsManagerCommissionPanel;
+
   async function loadOpsManagerMetricsTrend(){
     try{
       await window.ensureAppSettingsLoaded();
