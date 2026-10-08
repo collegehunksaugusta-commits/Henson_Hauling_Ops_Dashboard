@@ -3239,6 +3239,8 @@ const DEFAULT_APP_SETTINGS = {
   opsManagerMetrics: {},
   commission: {
     driverRate: 0,
+    // Weeks a new employee is on payroll before commission starts (0 = off).
+    newEmployeeWaitWeeks: 0,
     opsManagerRate: 0,
     opsManagerAssignment: '',
     wingmanRate: 0,
