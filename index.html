@@ -7517,8 +7517,15 @@
             <label>Wingman Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionWingmanRate" style="max-width:120px;"></label>
           </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
-            <label style="margin:0;">Weekly Commission Cap (% of revenue) <input type="number" min="0" max="100" step="0.1" id="appset_commissionWeeklyCap" style="max-width:100px;"></label>
-            <p class="form-note" style="margin:6px 0 0;">Total commission for a pay week can&rsquo;t be more than this percentage of that week&rsquo;s revenue. If it would be, <strong>everyone&rsquo;s</strong> auto-calculated commission is scaled down by the same percentage, so the shares stay proportional. <strong>0</strong> turns the cap off. Commission typed in by hand isn&rsquo;t scaled; damage-claim deductions still come off afterward.</p>
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+              <label style="margin:0;">Target Labor Cost (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionTargetLabor" style="max-width:100px;"></label>
+              <label style="margin:0;">Commission Cap (% of labor savings) <input type="number" min="0" max="100" step="1" id="appset_commissionLaborCap" style="max-width:100px;"></label>
+            </div>
+            <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:10px;">
+              <label style="margin:0;">Revenue-Based Cap (% of revenue) <input type="number" min="0" max="100" step="0.1" id="appset_commissionRevenueCap" style="max-width:100px;"></label>
+              <label style="margin:0;">Allowed Over Target (percentage points) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOverTarget" style="max-width:100px;"></label>
+            </div>
+            <p class="form-note" style="margin:6px 0 0;">Rewards efficiency: total commission for a pay week can&rsquo;t be more than this share of what labor came in <strong>under target</strong> that week (labor cost = field pay minus tips plus employer taxes, as on Labor Cost). Example: target 28%, actual 22% on $20,000 revenue = $1,200 saved; at 50%, commission is capped at $600. If the calculated total is higher, <strong>everyone&rsquo;s</strong> auto-calculated commission is scaled down by the same percentage. <strong>Revenue-Based Cap</strong> covers weeks where savings alone wouldn&rsquo;t pay: the week&rsquo;s cap is the <em>higher</em> of the savings cap and this % of revenue, as long as labor is no more than <strong>Allowed Over Target</strong> points above target (e.g. target 28% + 2 = weeks up to 30% can still pay; 0 = only at or under target). Example: labor exactly 28% on $10,000 at 1% = up to $100. Beyond the allowance, no commission is paid. Leave Revenue-Based Cap at 0 to pay nothing at or over target. <strong>Commission Cap 0</strong> turns all capping off. Commission typed in by hand isn&rsquo;t scaled; damage-claim deductions still come off afterward.</p>
           </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
             <label style="margin:0;">New Employee Waiting Period (weeks) <input type="number" min="0" max="52" step="1" id="appset_commissionNewEmployeeWeeks" style="max-width:100px;"></label>
@@ -10820,24 +10827,52 @@
             if(total > 0) commissionCalc[name] = total;
           });
         }
-        // Weekly cap: total commission can't exceed this % of revenue. If it
-        // would, everyone's auto-calculated commission is scaled by the same
-        // factor, so the shares stay proportional.
-        let commissionCapNote = null;
-        const capPct = Number(commission.weeklyCapPctOfRevenue) || 0;
-        if(capPct > 0 && revenue > 0){
-          const capAmount = Math.round(revenue * capPct / 100 * 100) / 100;
+        // Efficiency cap: the commission pool can't exceed a share of what
+        // labor came in under target for the revenue week:
+        //   savings = (target labor % - actual labor %) x revenue
+        //   cap     = savings x capPctOfLaborSavings
+        // Over the cap, everyone's auto-calculated commission is scaled by the
+        // same factor (shares stay proportional). At or over target there are
+        // no savings, so the cap -- and commission -- is $0.
+        let commissionCapNote = null, commissionCapBinding = false;
+        const capPct = Number(commission.capPctOfLaborSavings) || 0;
+        if(capPct > 0 && revenue > 0 && laborWeek){
+          const targetPct = commission.targetLaborPct != null ? Number(commission.targetLaborPct) : 28;
+          const revCapPct = Number(commission.revenueCapPct) || 0;
+          const allowance = Number(commission.overTargetAllowancePts) || 0;
+          const laborCostDollars = ((Number(laborWeek.fieldGross) || 0) - (Number(laborWeek.tips) || 0)) + (Number(laborWeek.erTax) || 0);
+          const actualPct = laborCostDollars / revenue * 100;
+          const savings = Math.max(0, (targetPct - actualPct) / 100 * revenue);
+          const savingsCap = Math.round(savings * capPct / 100 * 100) / 100;
+          // Revenue-based cap applies while labor is within the allowance
+          // over target; the week's cap is the higher of the two, so a
+          // slightly efficient week never pays less than an at-target one.
+          const withinAllowance = actualPct <= targetPct + allowance + 1e-9;
+          const revenueCap = revCapPct > 0 && withinAllowance ? Math.round(revenue * revCapPct / 100 * 100) / 100 : 0;
+          const capAmount = Math.max(savingsCap, revenueCap);
+          const basis = revenueCap > savingsCap ? `revenue-based cap ${revCapPct}% of revenue = ${extraPayMoney(revenueCap)}` : `cap ${capPct}% of savings = ${extraPayMoney(savingsCap)}`;
           const totalCalc = Object.values(commissionCalc).reduce((t, v) => t + v, 0);
-          if(totalCalc > capAmount && totalCalc > 0){
-            const factor = capAmount / totalCalc;
+          const label = extraPayWeekLabel(priorWeekBounds);
+          const head = `Labor cost ${label}: ${actualPct.toFixed(1)}% vs. ${targetPct}% target` + (savings > 0 ? ` \u2192 ${extraPayMoney(savings)} saved` : '');
+          if(capAmount <= 0){
+            Object.keys(commissionCalc).forEach(n => { commissionCalc[n] = 0; });
+            commissionCapBinding = true;
+            commissionCapNote = savings <= 0 && revCapPct > 0
+              ? `${head} \u2014 more than ${allowance} point${allowance === 1 ? '' : 's'} over target (limit ${(targetPct + allowance).toFixed(1)}%), so no commission this week.`
+              : `${head} \u2014 at or over target, so there are no labor savings and no commission this week.`;
+          } else if(totalCalc > capAmount){
+            const factor = totalCalc > 0 ? capAmount / totalCalc : 0;
             Object.keys(commissionCalc).forEach(n => { commissionCalc[n] = commissionCalc[n] * factor; });
-            commissionCapNote = `Commission capped at ${capPct}% of revenue (${extraPayMoney(capAmount)}): the calculated total of ${extraPayMoney(totalCalc)} was scaled down ${Math.round((1 - factor) * 1000) / 10}% for everyone, keeping the same proportions.`;
+            commissionCapBinding = true;
+            commissionCapNote = `${head}; ${basis}. The calculated total of ${extraPayMoney(totalCalc)} was scaled down ${Math.round((1 - factor) * 1000) / 10}% for everyone, keeping the same proportions.`;
+          } else {
+            commissionCapNote = `${head}; ${basis}. Calculated commission (${extraPayMoney(totalCalc)}) is under the cap.`;
           }
         }
         if(revenue <= 0 && opsManagerAssignmentKey) omReason = `No payroll report or revenue on file for ${extraPayWeekLabel(priorWeekBounds)}`;
         const opsManagerName = opsManagerAssignmentKey ? (w.names || []).find(n => nameDedupKey(n) === opsManagerAssignmentKey) : null;
         const noOpsManagerSelected = !opsManagerAssignmentKey && Number(commission.opsManagerRate) > 0;
-        return Object.assign({}, w, { commissionCapNote, opsManagerName, omReason, omSalariedNote, noOpsManagerSelected, commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
+        return Object.assign({}, w, { commissionCapNote, commissionCapBinding, opsManagerName, omReason, omSalariedNote, noOpsManagerSelected, commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
       });
 
       renderExtraPayWeeksList(weeksData);
@@ -10923,7 +10958,7 @@
           ? `Commission below is calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report, revenue, and performance scores.`
           : `Commission will be calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report once it's uploaded to Labor Cost \u2014 not yet available.`}</p>
         ${w.opsManagerScoreNote ? `<p class="form-note" style="margin-top:4px; color:#8a6d00;">${extraPayEsc(w.opsManagerScoreNote)}</p>` : ''}
-        ${w.commissionCapNote ? `<p class="form-note" style="margin-top:4px; color:#8a6d00; font-weight:600;">${extraPayEsc(w.commissionCapNote)}</p>` : ''}
+        ${w.commissionCapNote ? `<p class="form-note" style="margin-top:4px; color:${w.commissionCapBinding ? '#8a6d00' : 'var(--brand-green-dark)'}; font-weight:600;">${extraPayEsc(w.commissionCapNote)}</p>` : ''}
         ${w.noOpsManagerSelected ? `<p class="form-note" style="margin-top:4px; color:#8a6d00;">No Ops Manager is selected in Configuration \u2192 Commission, so no Ops Manager commission is calculated.</p>` : ''}
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr>
@@ -16235,7 +16270,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function renderCommissionSection(commission){
     document.getElementById('appset_commissionDriverRate').value = commission.driverRate || 0;
     document.getElementById('appset_commissionNewEmployeeWeeks').value = commission.newEmployeeWaitWeeks || 0;
-    document.getElementById('appset_commissionWeeklyCap').value = commission.weeklyCapPctOfRevenue || 0;
+    document.getElementById('appset_commissionTargetLabor').value = commission.targetLaborPct != null ? commission.targetLaborPct : 28;
+    document.getElementById('appset_commissionLaborCap').value = commission.capPctOfLaborSavings || 0;
+    document.getElementById('appset_commissionRevenueCap').value = commission.revenueCapPct || 0;
+    document.getElementById('appset_commissionOverTarget').value = commission.overTargetAllowancePts || 0;
     document.getElementById('appset_commissionOpsManagerRate').value = commission.opsManagerRate || 0;
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
@@ -16307,7 +16345,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const opsManagerRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionOpsManagerRate').value) || 0));
     const wingmanRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionWingmanRate').value) || 0));
     const newEmployeeWaitWeeks = Math.max(0, Math.min(52, Math.round(Number(document.getElementById('appset_commissionNewEmployeeWeeks').value) || 0)));
-    const weeklyCapPctOfRevenue = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionWeeklyCap').value) || 0));
+    const targetLaborPct = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionTargetLabor').value) || 0));
+    const capPctOfLaborSavings = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionLaborCap').value) || 0));
+    const revenueCapPct = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionRevenueCap').value) || 0));
+    const overTargetAllowancePts = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionOverTarget').value) || 0));
     const pin = prompt('Enter the Administrator Override PIN to change commission rates:');
     if(pin === null) return; // cancelled
     statusEl.textContent = 'Verifying PIN...';
@@ -16334,7 +16375,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks, weeklyCapPctOfRevenue } } })
+        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks, targetLaborPct, capPctOfLaborSavings, revenueCapPct, overTargetAllowancePts } } })
       });
       if(handleAuthFailure(saveRes)) return;
       const saveData = await saveRes.json();
@@ -16343,7 +16384,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         statusEl.className = 'status-msg err';
         return;
       }
-      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks, weeklyCapPctOfRevenue });
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks, targetLaborPct, capPctOfLaborSavings, revenueCapPct, overTargetAllowancePts });
       statusEl.textContent = 'Rates saved.';
       statusEl.className = 'status-msg ok';
     }catch(err){
