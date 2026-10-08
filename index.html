@@ -5728,8 +5728,25 @@
       <p class="form-note" id="mat_itemEmptyNote" style="display:none;">No items yet &mdash; add one below or upload an invoice.</p>
     </div>
 
+    <div class="panel" id="matReceivePanel" style="border:2px solid var(--brand-green);">
+      <h3 style="margin-bottom:4px;">Receive a Vendor Shipment</h3>
+      <p class="form-note" style="margin:0 0 12px;">Every time materials arrive, do both steps: upload the vendor&rsquo;s invoice, then count what&rsquo;s actually on the shelf. Anything short is recorded as a <strong>markdown</strong> at cost &mdash; evidence of materials used but not billed.</p>
+      <div id="mat_recvOpenBanner" style="display:none; background:#FFFBEA; border:1px solid #E3A008; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:13.5px; color:#6b4f00;"></div>
+      <div style="display:flex; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+        <div id="mat_recvStep1Chip" class="mat-recv-chip">1&nbsp; Upload the Invoice</div>
+        <div id="mat_recvStep2Chip" class="mat-recv-chip">2&nbsp; Count Inventory</div>
+      </div>
+      <style>
+        .mat-recv-chip{ flex:1; min-width:160px; text-align:center; padding:9px 10px; border-radius:20px; font-weight:700; font-size:13.5px; border:2px solid var(--line); color:var(--muted); background:#fff; }
+        .mat-recv-chip.active{ border-color:var(--brand-green); color:#fff; background:var(--brand-green); }
+        .mat-recv-chip.done{ border-color:var(--brand-green); color:var(--brand-green-dark); background:#EAF6EE; }
+        .mat-recv-diff-up{ color:var(--brand-green-dark); font-weight:700; }
+        .mat-recv-diff-down{ color:#b3261e; font-weight:700; }
+      </style>
+    </div>
+
     <div class="panel" id="matInvoicePanel">
-      <h3>Upload Invoice</h3>
+      <h3>Step 1 &mdash; Upload the Invoice</h3>
       <p class="form-note">Upload a supplier invoice and Claude will read the line items &mdash; item number, description, price, and quantity &mdash; so you can add them to inventory without typing each one in by hand. Matches against existing items by Supplier Item Number where possible.</p>
       <div id="mat_invoiceDropzone" tabindex="0" style="border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; outline:none;">
         <p style="margin:0; color:var(--muted); font-size:14px;">Drag &amp; drop an invoice here, or click to paste (Ctrl+V or Cmd+V)</p>
@@ -5747,10 +5764,49 @@
         <p class="form-note">Lines matching an existing Supplier Item Number will add to that item's quantity on hand. New item numbers will be created (with a Minimum Quantity of 0 &mdash; set that once added, on the item list above).</p>
         <div id="mat_invoiceReviewRows"></div>
         <div class="form-actions">
-          <button class="btn-primary" id="mat_invoiceApplyBtn" type="button">Add to Inventory</button>
+          <button class="btn-primary" id="mat_invoiceApplyBtn" type="button">Add to Inventory &amp; Go to Step 2</button>
           <span class="status-msg" id="mat_invoiceApplyStatus"></span>
         </div>
       </div>
+    </div>
+
+    <div class="panel" id="matCountPanel" style="display:none;">
+      <h3>Step 2 &mdash; Count Inventory</h3>
+      <p class="form-note" style="margin-top:0;">Count what&rsquo;s actually on the shelf and enter it under <strong>Counted</strong>. <strong>Should Have</strong> already includes the shipment you just received. Leave an item blank to skip it (no change). Short items are a <span class="mat-recv-diff-down">markdown</span> at the item&rsquo;s cost; extra items are a <span class="mat-recv-diff-up">markup</span>.</p>
+      <div id="mat_countInvoiceNote" class="form-note" style="margin:0 0 10px;"></div>
+      <div style="overflow-x:auto;"><table class="cj-table" style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Item</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Should Have</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); background:#FFF8EC;">Counted</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Difference</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Value</th>
+        </tr></thead>
+        <tbody id="mat_countRows"></tbody>
+      </table></div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;">
+        <div style="flex:1; min-width:170px; border:2px solid #b3261e; border-radius:8px; padding:10px 12px; background:#fdecea;">
+          <div style="font-size:12px; color:#8c1d18;">Markdown (short, at cost)</div>
+          <div id="mat_countMarkdown" style="font-size:24px; font-weight:800; color:#b3261e;">$0.00</div>
+          <div id="mat_countMarkdownUnits" style="font-size:12px; color:#8c1d18;"></div>
+        </div>
+        <div style="flex:1; min-width:170px; border:1px solid var(--brand-green); border-radius:8px; padding:10px 12px; background:#EAF6EE;">
+          <div style="font-size:12px; color:var(--brand-green-dark);">Markup (extra, at cost)</div>
+          <div id="mat_countMarkup" style="font-size:24px; font-weight:800; color:var(--brand-green-dark);">$0.00</div>
+          <div id="mat_countCounted" style="font-size:12px; color:var(--brand-green-dark);"></div>
+        </div>
+      </div>
+      <label style="display:block;">Notes (optional) <input type="text" id="mat_countNotes" placeholder="e.g. 3 boxes found water-damaged"></label>
+      <div class="form-actions">
+        <button class="btn-primary" id="mat_countSaveBtn" type="button">Save Count &amp; Finish</button>
+        <span class="status-msg" id="mat_countStatus"></span>
+      </div>
+    </div>
+
+    <div class="panel" id="matReceivingHistoryPanel" data-collapsible="true">
+      <h3>Shipment History</h3>
+      <p class="form-note" style="margin-top:0;">Every shipment received, with its count. <strong>Shrinkage Report</strong> prints the short items and their cost &mdash; share it with Captains as evidence of materials used but not billed.</p>
+      <div id="mat_recvHistory"></div>
     </div>
 
     <div class="panel" id="matItemFormPanel">
@@ -24167,6 +24223,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const tile = document.getElementById('tile-materials');
     const badge = document.getElementById('materialsTileBadge');
     const parts = [];
+    if(typeof matOpenReceiving === 'function' && matOpenReceiving()) parts.push('Count Needed');
     if(lowCount > 0) parts.push('Low Stock');
     if(materialsOrderDeadlineInfo) parts.push(materialsOrderDeadlineInfo.label);
     if(parts.length > 0){
@@ -24526,6 +24583,200 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     e.target.value = '';
   });
 
+  // ---- Receive a Vendor Shipment: Step 1 invoice, Step 2 count ----
+  // Each shipment is a record in 'materials-receivings'. Adding an invoice
+  // to inventory opens one (status 'counting'); saving the shelf count
+  // closes it, setting on-hand quantities to what was counted and keeping
+  // each item's difference -- short = markdown at cost, extra = markup.
+  const MATERIALS_RECEIVINGS_KEY = 'materials-receivings';
+  let materialsReceivings = [];
+  const matRecvMoney = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const matOpenReceiving = () => materialsReceivings.find(r => r.status === 'counting') || null;
+
+  async function loadMaterialsReceivings(){
+    try{ materialsReceivings = await window.dashboardApi.get(MATERIALS_RECEIVINGS_KEY, []) || []; }
+    catch(err){ console.error('Shipment history load failed:', err); materialsReceivings = materialsReceivings || []; }
+    renderMatReceiving();
+  }
+  async function saveMaterialsReceivings(){
+    // Keep a year of history.
+    const cutoff = new Date(Date.now() - 365 * 864e5).toISOString();
+    materialsReceivings = materialsReceivings.filter(r => (r.createdAt || '') >= cutoff || r.status === 'counting');
+    try{ return await window.dashboardApi.set(MATERIALS_RECEIVINGS_KEY, materialsReceivings); }
+    catch(err){ console.error('Shipment save failed:', err); return false; }
+  }
+
+  async function matStartReceiving(lines){
+    const rec = {
+      id: 'recv_' + Date.now(),
+      createdAt: new Date().toISOString(),
+      createdBy: localStorage.getItem('henson_auth_email') || '',
+      status: 'counting',
+      invoiceLines: lines.map(l => ({ supplierItemNumber: l.supplierItemNumber || '', description: l.description, quantity: l.quantity, priceEach: l.priceEach || 0 })),
+      invoiceTotal: Math.round(lines.reduce((t, l) => t + (l.quantity || 0) * (l.priceEach || 0), 0) * 100) / 100
+    };
+    // An earlier shipment still waiting for its count is folded into this one.
+    const open = matOpenReceiving();
+    if(open){
+      rec.invoiceLines = open.invoiceLines.concat(rec.invoiceLines);
+      rec.invoiceTotal = Math.round((open.invoiceTotal + rec.invoiceTotal) * 100) / 100;
+      rec.createdAt = open.createdAt;
+      materialsReceivings = materialsReceivings.filter(r => r !== open);
+    }
+    materialsReceivings.unshift(rec);
+    await saveMaterialsReceivings();
+    renderMatReceiving();
+    document.getElementById('matCountPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderMatReceiving(){
+    const open = matOpenReceiving();
+    document.getElementById('mat_recvStep1Chip').className = 'mat-recv-chip ' + (open ? 'done' : 'active');
+    document.getElementById('mat_recvStep2Chip').className = 'mat-recv-chip ' + (open ? 'active' : '');
+    const banner = document.getElementById('mat_recvOpenBanner');
+    banner.style.display = open ? 'block' : 'none';
+    if(open) banner.innerHTML = `&#9888; <strong>Step 2 still needed</strong> \u2014 the invoice received ${new Date(open.createdAt).toLocaleDateString()} (${matRecvMoney(open.invoiceTotal)}) hasn\u2019t been counted yet.`;
+    document.getElementById('matCountPanel').style.display = open ? 'block' : 'none';
+    if(open) renderMatCount(open);
+    renderMatReceivingHistory();
+    updateMaterialsTileBadge();
+  }
+
+  function renderMatCount(open){
+    const received = {};
+    open.invoiceLines.forEach(l => { const k = String(l.supplierItemNumber || l.description).toLowerCase(); received[k] = (received[k] || 0) + Number(l.quantity || 0); });
+    document.getElementById('mat_countInvoiceNote').textContent = `Invoice received ${new Date(open.createdAt).toLocaleString()}: ${open.invoiceLines.length} line${open.invoiceLines.length === 1 ? '' : 's'}, ${matRecvMoney(open.invoiceTotal)}.`;
+    const items = [...materialsItems].sort((a, b) => {
+      const ra = received[String(a.supplierItemNumber || a.description).toLowerCase()] ? 0 : 1;
+      const rb = received[String(b.supplierItemNumber || b.description).toLowerCase()] ? 0 : 1;
+      return ra - rb || (a.description || '').localeCompare(b.description || '');
+    });
+    const cell = 'padding:6px 4px; border-bottom:1px solid var(--line);';
+    const draft = open.draftCounts || {};
+    document.getElementById('mat_countRows').innerHTML = items.map(i => {
+      const got = received[String(i.supplierItemNumber || i.description).toLowerCase()];
+      return `<tr data-id="${matEsc(i.id)}">
+        <td style="${cell}"><strong>${matEsc(i.nickname || i.description)}</strong>${i.nickname ? `<div style="font-size:11.5px; color:var(--muted);">${matEsc(i.description)}</div>` : ''}${got ? `<div style="font-size:11.5px; color:var(--brand-green-dark);">+${got} on this invoice</div>` : ''}</td>
+        <td style="${cell} text-align:right;">${Number(i.quantityOnHand || 0)}</td>
+        <td style="${cell} text-align:right; background:#FFF8EC;"><input type="number" class="mat-count-input" data-id="${matEsc(i.id)}" min="0" step="1" inputmode="numeric" value="${draft[i.id] != null ? draft[i.id] : ''}" placeholder="\u2014" style="width:80px; text-align:right; font-size:14px; padding:5px 6px;"></td>
+        <td style="${cell} text-align:right;" class="mat-count-diff"></td>
+        <td style="${cell} text-align:right;" class="mat-count-value"></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" class="form-note" style="padding:8px;">No items in inventory yet.</td></tr>';
+    document.querySelectorAll('.mat-count-input').forEach(inp => inp.addEventListener('input', () => { matUpdateCountTotals(); matSaveDraftSoon(); }));
+    matUpdateCountTotals();
+  }
+
+  function matCollectCount(){
+    const lines = [];
+    document.querySelectorAll('.mat-count-input').forEach(inp => {
+      if(inp.value.trim() === '') return;
+      const item = materialsItems.find(i => i.id === inp.dataset.id);
+      if(!item) return;
+      const expected = Number(item.quantityOnHand || 0);
+      const counted = Math.max(0, Math.round(Number(inp.value) || 0));
+      const diff = counted - expected;
+      lines.push({ itemId: item.id, description: item.nickname || item.description, supplierItemNumber: item.supplierItemNumber || '', expected, counted, diff, priceEach: Number(item.priceEach || 0), value: Math.round(diff * Number(item.priceEach || 0) * 100) / 100 });
+    });
+    return lines;
+  }
+
+  function matUpdateCountTotals(){
+    const lines = matCollectCount();
+    const byId = {}; lines.forEach(l => byId[l.itemId] = l);
+    document.querySelectorAll('#mat_countRows tr[data-id]').forEach(tr => {
+      const l = byId[tr.dataset.id];
+      tr.querySelector('.mat-count-diff').innerHTML = !l ? '' : l.diff === 0 ? '<span style="color:var(--muted);">0</span>' : `<span class="${l.diff > 0 ? 'mat-recv-diff-up' : 'mat-recv-diff-down'}">${l.diff > 0 ? '+' : '\u2212'}${Math.abs(l.diff)}</span>`;
+      tr.querySelector('.mat-count-value').innerHTML = !l || l.diff === 0 ? '' : `<span class="${l.diff > 0 ? 'mat-recv-diff-up' : 'mat-recv-diff-down'}">${l.diff > 0 ? '+' : '\u2212'}${matRecvMoney(Math.abs(l.value))}</span>`;
+      tr.style.background = !l || l.diff === 0 ? '' : (l.diff < 0 ? '#fdecea' : '#f3faf4');
+    });
+    const down = lines.filter(l => l.diff < 0), up = lines.filter(l => l.diff > 0);
+    document.getElementById('mat_countMarkdown').textContent = matRecvMoney(down.reduce((t, l) => t - l.value, 0));
+    document.getElementById('mat_countMarkdownUnits').textContent = down.length ? `${down.reduce((t, l) => t - l.diff, 0)} units short across ${down.length} item${down.length === 1 ? '' : 's'}` : 'Nothing short';
+    document.getElementById('mat_countMarkup').textContent = matRecvMoney(up.reduce((t, l) => t + l.value, 0));
+    document.getElementById('mat_countCounted').textContent = `${lines.length} of ${materialsItems.length} items counted`;
+  }
+
+  // The count in progress is saved as you go, so stepping away loses nothing.
+  let matDraftTimer = null;
+  function matSaveDraftSoon(){
+    clearTimeout(matDraftTimer);
+    matDraftTimer = setTimeout(async () => {
+      const open = matOpenReceiving(); if(!open) return;
+      open.draftCounts = {};
+      matCollectCount().forEach(l => { open.draftCounts[l.itemId] = l.counted; });
+      await saveMaterialsReceivings();
+    }, 800);
+  }
+
+  document.getElementById('mat_countSaveBtn').addEventListener('click', async (e) => {
+    const open = matOpenReceiving(); if(!open) return;
+    const statusEl = document.getElementById('mat_countStatus');
+    const lines = matCollectCount();
+    if(lines.length === 0){ statusEl.textContent = 'Enter at least one counted quantity first.'; statusEl.className = 'status-msg err'; return; }
+    const skipped = materialsItems.length - lines.length;
+    const markdown = Math.round(lines.filter(l => l.diff < 0).reduce((t, l) => t - l.value, 0) * 100) / 100;
+    const markup = Math.round(lines.filter(l => l.diff > 0).reduce((t, l) => t + l.value, 0) * 100) / 100;
+    if(!confirm(`Finish this count?\n\nMarkdown: ${matRecvMoney(markdown)}\nMarkup: ${matRecvMoney(markup)}${skipped ? `\n${skipped} item${skipped === 1 ? '' : 's'} not counted (left unchanged)` : ''}\n\nOn-hand quantities will be set to what you counted.`)) return;
+    e.target.disabled = true;
+    lines.forEach(l => { const item = materialsItems.find(i => i.id === l.itemId); if(item) item.quantityOnHand = l.counted; });
+    const okItems = await saveMaterialsItems();
+    if(!okItems){ e.target.disabled = false; statusEl.textContent = 'Could not save \u2014 check your connection.'; statusEl.className = 'status-msg err'; return; }
+    Object.assign(open, { status: 'complete', countedAt: new Date().toISOString(), countedBy: localStorage.getItem('henson_auth_email') || '',
+      countLines: lines, markdownValue: markdown, markupValue: markup, notes: document.getElementById('mat_countNotes').value.trim().slice(0, 500) });
+    delete open.draftCounts;
+    await saveMaterialsReceivings();
+    e.target.disabled = false;
+    document.getElementById('mat_countNotes').value = '';
+    renderMaterialsItemList(); renderMaterialsLowStock();
+    renderMatReceiving();
+    const hist = document.getElementById('matReceivingHistoryPanel');
+    hist.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const first = document.querySelector('#mat_recvHistory .mat-recv-done-msg');
+    if(first) first.textContent = `\u2713 Count saved. Markdown ${matRecvMoney(markdown)} \u00b7 Markup ${matRecvMoney(markup)}.`;
+  });
+
+  function renderMatReceivingHistory(){
+    const wrap = document.getElementById('mat_recvHistory');
+    const done = materialsReceivings.filter(r => r.status === 'complete');
+    if(done.length === 0){ wrap.innerHTML = '<p class="form-note" style="margin:0;">No shipments counted yet.</p>'; return; }
+    wrap.innerHTML = '<p class="status-msg ok mat-recv-done-msg" style="margin:0 0 8px;"></p>' + done.slice(0, 30).map(r => `
+      <div style="border:1px solid var(--line); border-left:5px solid ${r.markdownValue > 0 ? '#b3261e' : 'var(--brand-green)'}; border-radius:8px; padding:10px 12px; margin-bottom:8px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
+        <div>
+          <strong>${new Date(r.createdAt).toLocaleDateString()}</strong> \u00b7 invoice ${matRecvMoney(r.invoiceTotal)} \u00b7 ${r.countLines.length} items counted
+          <div style="font-size:12px; color:var(--muted);">Counted ${new Date(r.countedAt).toLocaleString()}${r.countedBy ? ' by ' + matEsc(r.countedBy) : ''}${r.notes ? ' \u00b7 ' + matEsc(r.notes) : ''}</div>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <span class="${r.markdownValue > 0 ? 'mat-recv-diff-down' : ''}" style="${r.markdownValue > 0 ? '' : 'color:var(--muted);'}">Markdown ${matRecvMoney(r.markdownValue)}</span>
+          <span class="${r.markupValue > 0 ? 'mat-recv-diff-up' : ''}" style="${r.markupValue > 0 ? '' : 'color:var(--muted);'}">Markup ${matRecvMoney(r.markupValue)}</span>
+          <button type="button" class="mat-recv-report" data-id="${matEsc(r.id)}" style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:5px 10px; cursor:pointer; font-size:12px; font-weight:600;">Shrinkage Report</button>
+        </div>
+      </div>`).join('');
+    wrap.querySelectorAll('.mat-recv-report').forEach(b => b.addEventListener('click', () => matPrintShrinkage(materialsReceivings.find(r => r.id === b.dataset.id))));
+  }
+
+  // A one-page report of what was short, at cost -- to share with Captains.
+  function matPrintShrinkage(r){
+    if(!r) return;
+    const short = r.countLines.filter(l => l.diff < 0).sort((a, b) => a.value - b.value);
+    const w = window.open('', '_blank');
+    if(!w){ alert('Allow pop-ups to print the report.'); return; }
+    const P = window.LOCATION_PROFILE || {};
+    w.document.write(`<title>Materials Shrinkage Report</title><body style="font-family:Arial,sans-serif; padding:28px; color:#222;">
+      <div style="font-weight:bold; color:#00612C;">${matEsc(P.displayName || 'College Hunks')}</div>
+      <h2 style="margin:4px 0;">Materials Shrinkage Report</h2>
+      <div style="color:#555; font-size:13px;">Shipment received ${new Date(r.createdAt).toLocaleDateString()} \u00b7 counted ${new Date(r.countedAt).toLocaleDateString()}${r.countedBy ? ' by ' + matEsc(r.countedBy) : ''}</div>
+      <p style="font-size:14px; margin:16px 0;">After receiving this shipment, the shelf count came up <strong>short</strong> on the items below. Materials that leave the warehouse must be billed to the job they were used on; these shortages represent materials used but not billed.</p>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <tr style="background:#f2f2f2;"><th style="text-align:left; padding:6px; border:1px solid #ccc;">Item</th><th style="text-align:right; padding:6px; border:1px solid #ccc;">Should Have</th><th style="text-align:right; padding:6px; border:1px solid #ccc;">Counted</th><th style="text-align:right; padding:6px; border:1px solid #ccc;">Short</th><th style="text-align:right; padding:6px; border:1px solid #ccc;">Cost Each</th><th style="text-align:right; padding:6px; border:1px solid #ccc;">Cost</th></tr>
+        ${short.map(l => `<tr><td style="padding:6px; border:1px solid #ccc;">${matEsc(l.description)}</td><td style="text-align:right; padding:6px; border:1px solid #ccc;">${l.expected}</td><td style="text-align:right; padding:6px; border:1px solid #ccc;">${l.counted}</td><td style="text-align:right; padding:6px; border:1px solid #ccc; color:#b3261e; font-weight:bold;">${-l.diff}</td><td style="text-align:right; padding:6px; border:1px solid #ccc;">${matRecvMoney(l.priceEach)}</td><td style="text-align:right; padding:6px; border:1px solid #ccc; color:#b3261e; font-weight:bold;">${matRecvMoney(-l.value)}</td></tr>`).join('') || '<tr><td colspan="6" style="padding:8px; border:1px solid #ccc;">Nothing was short on this count.</td></tr>'}
+        <tr><td colspan="5" style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold;">Total markdown</td><td style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold; color:#b3261e; font-size:15px;">${matRecvMoney(r.markdownValue)}</td></tr>
+      </table>
+      ${r.notes ? `<p style="font-size:13px; margin-top:12px;"><strong>Notes:</strong> ${matEsc(r.notes)}</p>` : ''}
+    </body>`);
+    w.document.close(); w.print();
+  }
+
   function renderMatInvoiceReview(){
     const wrap = document.getElementById('mat_invoiceReviewWrap');
     const container = document.getElementById('mat_invoiceReviewRows');
@@ -24647,6 +24898,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(ok){
       statusEl.textContent = `Added ${applicable.length} line item(s) to inventory.`;
       statusEl.className = 'status-msg ok';
+      await matStartReceiving(applicable);
       matInvoiceReview = [];
       renderMatInvoiceReview();
       renderMaterialsItemList();
@@ -24818,6 +25070,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       ]);
       materialsItems = items || [];
       materialsCheckouts = checkouts || [];
+      await loadMaterialsReceivings();
       renderMaterialsItemList();
       renderMaterialsLowStock();
       // The Materials tile no longer shows its own Underbilled Jobs list --
