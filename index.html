@@ -5551,6 +5551,7 @@
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Role</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Source</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">HUNK Portal sign-in</th>
+          <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);" title="First payroll week on file, and when commission starts under the New Employee waiting period">Started &middot; Commission</th>
         </tr></thead>
         <tbody id="rosterListRows"></tbody>
       </table></div>
@@ -7503,6 +7504,10 @@
             <label>Ops Manager Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOpsManagerRate" style="max-width:120px;"></label>
             <label>Wingman Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionWingmanRate" style="max-width:120px;"></label>
           </div>
+          <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
+            <label style="margin:0;">New Employee Waiting Period (weeks) <input type="number" min="0" max="52" step="1" id="appset_commissionNewEmployeeWeeks" style="max-width:100px;"></label>
+            <p class="form-note" style="margin:6px 0 0;">How many weeks someone must be on payroll before they start earning commission. A person&rsquo;s start is the first payroll week they appear in (everyone on the earliest payroll report on file counts as established). <strong>0</strong> turns this off. Extra Pay shows when each new employee&rsquo;s commission begins.</p>
+          </div>
           <div class="form-actions">
             <button type="button" id="appset_commissionRatesSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Save Rates</button>
             <span class="status-msg" id="appset_commissionRatesStatus"></span>
@@ -8087,6 +8092,7 @@
   // Captain (checked as an active driver on Compliance), and who can sign in
   // to the HUNK Portal. Roster Additions below it is admin-only, as before.
   let rosterViewNames = [];
+  let rosterNewHireInfo = null;
   let rosterViewDrivers = new Set();
   async function loadEmployeeRosterView(){
     const admin = isCurrentUserAdmin();
@@ -8097,6 +8103,13 @@
         window.dashboardApi.get('compliance-drivers', []).catch(() => [])
       ]);
       rosterViewNames = names || [];
+      if(admin){
+        try{
+          await ensureAppSettingsLoaded();
+          const weeks = await window.dashboardApi.get('labor-weeks', []);
+          rosterNewHireInfo = newEmployeeCommissionInfo(weeks || [], ((window.appSettings || {}).commission || {}).newEmployeeWaitWeeks);
+        }catch(err){ rosterNewHireInfo = null; }
+      }
       const key = n => String(n).replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
       rosterViewDrivers = new Set((drivers || []).filter(d => d.active).map(d => key(d.employeeName || '')));
     }catch(err){ console.error('Roster load failed:', err); rosterViewNames = []; }
@@ -8124,7 +8137,17 @@
         <td style="${cell} font-weight:600;">${rosterManualEsc(n)}</td>
         <td style="${cell}">${isCaptain ? '<strong>Captain</strong>' : 'Wingman'}</td>
         ${admin ? `<td style="${cell}">${isManual ? 'Added manually' : 'Payroll'}</td>
-        <td style="${cell}">${access}</td>` : ''}
+        <td style="${cell}">${access}</td>
+        <td style="${cell}">${(() => {
+          const first = rosterNewHireInfo && rosterNewHireInfo.firstWeek(n);
+          const from = rosterNewHireInfo && rosterNewHireInfo.eligibleFrom(n);
+          if(!first) return isManual ? '<span style="color:var(--muted);">Not on payroll yet</span>' : '';
+          const started = first === rosterNewHireInfo.earliestWeek ? 'Established' : 'Wk of ' + window.fmtDate(first);
+          if(!from) return started;
+          const pay = new Date(from + 'T00:00:00'); pay.setDate(pay.getDate() + 7);
+          const payStr = pay.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+          return started + ` \u00b7 <span style="color:${pay <= new Date() ? 'var(--brand-green-dark)' : '#8a6d00'};">commission ${pay <= new Date() ? 'since' : 'starts'} wk of ${payStr}</span>`;
+        })()}</td>` : ''}
       </tr>`;
     }).join('');
   }
@@ -10704,8 +10727,10 @@
         ];
       }));
 
+      const newHireInfo = newEmployeeCommissionInfo(laborWeeks, commission.newEmployeeWaitWeeks);
       const weeksData = weeksDataRaw.map(w => {
         const commissionCalc = {};
+        const newEmployeeHold = {};   // name -> pay week their commission starts
         const priorWeekStart = extraPayPriorWeekStart(w.weekStart);
         const priorWeekBounds = extraPayGetWeekBounds(priorWeekStart);
         const laborWeek = laborWeeksByStart[priorWeekStart];
@@ -10731,6 +10756,14 @@
             const key = nameDedupKey(name);
             const hours = hoursByKey[key] || 0;
             let total = 0;
+            // New Employee waiting period: no commission for work weeks
+            // before they've been on payroll the set number of weeks.
+            const eligibleFrom = newHireInfo.eligibleFrom(name);
+            if(eligibleFrom && priorWeekStart < eligibleFrom){
+              const payWeek = new Date(eligibleFrom + 'T00:00:00'); payWeek.setDate(payWeek.getDate() + 7);
+              newEmployeeHold[name] = `${payWeek.getFullYear()}-${String(payWeek.getMonth()+1).padStart(2,'0')}-${String(payWeek.getDate()).padStart(2,'0')}`;
+              return;
+            }
 
             if(activeDriverKeys.has(key)){
               // Match by normalized name against whatever spelling
@@ -10757,7 +10790,7 @@
             if(total > 0) commissionCalc[name] = total;
           });
         }
-        return Object.assign({}, w, { commissionCalc, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
+        return Object.assign({}, w, { commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
       });
 
       renderExtraPayWeeksList(weeksData);
@@ -10826,7 +10859,7 @@
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
@@ -10962,6 +10995,33 @@
     return String(name || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ');
   }
   window.nameCoreKey = nameCoreKey;
+
+  // New Employee waiting period: each person's start is the first payroll
+  // week they appear in. Anyone on the earliest payroll week on file counts
+  // as established (that's just when uploads began). Returns
+  // { firstWeekByKey, earliestWeek, eligibleFrom(name) -> 'YYYY-MM-DD' | null }.
+  function newEmployeeCommissionInfo(laborWeeks, waitWeeks){
+    const weeks = (laborWeeks || []).filter(w => w && w.weekStart).sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    const earliestWeek = weeks.length ? weeks[0].weekStart : null;
+    const firstWeekByKey = {};
+    weeks.forEach(w => (w.employees || []).forEach(e => {
+      const k = nameCoreKey(e && e.name);
+      if(k && !firstWeekByKey[k]) firstWeekByKey[k] = w.weekStart;
+    }));
+    const n = Math.max(0, Number(waitWeeks) || 0);
+    return {
+      firstWeekByKey, earliestWeek,
+      firstWeek: name => firstWeekByKey[nameCoreKey(name)] || null,
+      eligibleFrom(name){
+        if(!n || !earliestWeek) return null;
+        const first = firstWeekByKey[nameCoreKey(name)];
+        if(!first || first === earliestWeek) return null;   // established
+        const d = new Date(first + 'T00:00:00'); d.setDate(d.getDate() + n * 7);
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      }
+    };
+  }
+  window.newEmployeeCommissionInfo = newEmployeeCommissionInfo;
 
   function dedupeAndSortNames(names){
     const seen = new Set();
@@ -16125,6 +16185,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // needs an explicit, easily-reassignable designation here instead.
   async function renderCommissionSection(commission){
     document.getElementById('appset_commissionDriverRate').value = commission.driverRate || 0;
+    document.getElementById('appset_commissionNewEmployeeWeeks').value = commission.newEmployeeWaitWeeks || 0;
     document.getElementById('appset_commissionOpsManagerRate').value = commission.opsManagerRate || 0;
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
@@ -16195,6 +16256,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const driverRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionDriverRate').value) || 0));
     const opsManagerRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionOpsManagerRate').value) || 0));
     const wingmanRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionWingmanRate').value) || 0));
+    const newEmployeeWaitWeeks = Math.max(0, Math.min(52, Math.round(Number(document.getElementById('appset_commissionNewEmployeeWeeks').value) || 0)));
     const pin = prompt('Enter the Administrator Override PIN to change commission rates:');
     if(pin === null) return; // cancelled
     statusEl.textContent = 'Verifying PIN...';
@@ -16221,7 +16283,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate, wingmanRate } } })
+        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks } } })
       });
       if(handleAuthFailure(saveRes)) return;
       const saveData = await saveRes.json();
@@ -16230,7 +16292,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         statusEl.className = 'status-msg err';
         return;
       }
-      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate, wingmanRate });
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks });
       statusEl.textContent = 'Rates saved.';
       statusEl.className = 'status-msg ok';
     }catch(err){
