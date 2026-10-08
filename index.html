@@ -263,7 +263,9 @@
   .mail-sidebar{display:flex; flex-direction:column; gap:6px; min-width:210px; flex-shrink:0;}
   .mail-sidebar .mail-section-btn{text-align:left; width:100%;}
   .mail-sidebar .tips-section-btn{text-align:left; width:100%;}
-  .mail-content{flex:1; min-width:0; width:100%; overflow-x:auto;}
+  /* Not its own scroll area -- that trapped table headings so they couldn't
+     freeze against the page. (html/body already clip sideways overflow.) */
+  .mail-content{flex:1; min-width:0; width:100%;}
   @media (max-width:760px){
     .mail-layout{flex-direction:column;}
     .mail-sidebar{flex-direction:row; flex-wrap:wrap; min-width:0; width:100%;}
@@ -344,7 +346,9 @@
 
   table{width:100%; border-collapse:collapse; font-size:13px;}
   @media (max-width:600px){
-    table{display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap;}
+    /* On phones each table scrolls inside itself, both ways, so its heading
+       row can stay frozen at the top of the box. */
+    table{display:block; overflow:auto; max-height:75vh; -webkit-overflow-scrolling:touch; white-space:nowrap;}
   }
   /* Wide, editable tables (Marketing tile's Apartment/Storage/Neighborhood
      lists) get their own bounded scroll region instead of relying on the
@@ -422,7 +426,7 @@
     font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-left:8px;
   }#calcDetail .modebadge.local{background:#E6F4EC; color:var(--brand-green-dark);}#calcDetail .modebadge.longdist{background:#FFF1E0; color:var(--brand-orange-dark);}#calcDetail table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px;}
   @media (max-width:600px){
-    #calcDetail table{display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap;}
+    #calcDetail table{display:block; overflow:auto; max-height:75vh; -webkit-overflow-scrolling:touch; white-space:nowrap;}
   }
   #calcDetail th{text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); border-bottom:2px solid var(--line); padding:6px 6px;}#calcDetail td{padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:middle;}#calcDetail td.num{font-family:'IBM Plex Mono',monospace; text-align:right;}#calcDetail td input[type=number]{width:56px; padding:5px 6px; font-size:12.5px;}#calcDetail .item-name{font-size:12.5px;}#calcDetail .lineitems{margin-top:10px;}#calcDetail .lineitem{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--line); font-size:13px;}#calcDetail .lineitem .amt{font-family:'IBM Plex Mono',monospace; font-weight:600;}#calcDetail .totalbar{
     background:var(--charcoal); color:#fff; border-radius:6px; padding:18px 22px; display:flex;
