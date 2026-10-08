@@ -7517,6 +7517,10 @@
             <label>Wingman Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionWingmanRate" style="max-width:120px;"></label>
           </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
+            <label style="margin:0;">Weekly Commission Cap (% of revenue) <input type="number" min="0" max="100" step="0.1" id="appset_commissionWeeklyCap" style="max-width:100px;"></label>
+            <p class="form-note" style="margin:6px 0 0;">Total commission for a pay week can&rsquo;t be more than this percentage of that week&rsquo;s revenue. If it would be, <strong>everyone&rsquo;s</strong> auto-calculated commission is scaled down by the same percentage, so the shares stay proportional. <strong>0</strong> turns the cap off. Commission typed in by hand isn&rsquo;t scaled; damage-claim deductions still come off afterward.</p>
+          </div>
+          <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
             <label style="margin:0;">New Employee Waiting Period (weeks) <input type="number" min="0" max="52" step="1" id="appset_commissionNewEmployeeWeeks" style="max-width:100px;"></label>
             <p class="form-note" style="margin:6px 0 0;">How many weeks someone must be on payroll before they start earning commission. A person&rsquo;s start is the first payroll week they appear in (everyone on the earliest payroll report on file counts as established). <strong>0</strong> turns this off. Extra Pay shows when each new employee&rsquo;s commission begins.</p>
           </div>
@@ -10816,10 +10820,24 @@
             if(total > 0) commissionCalc[name] = total;
           });
         }
+        // Weekly cap: total commission can't exceed this % of revenue. If it
+        // would, everyone's auto-calculated commission is scaled by the same
+        // factor, so the shares stay proportional.
+        let commissionCapNote = null;
+        const capPct = Number(commission.weeklyCapPctOfRevenue) || 0;
+        if(capPct > 0 && revenue > 0){
+          const capAmount = Math.round(revenue * capPct / 100 * 100) / 100;
+          const totalCalc = Object.values(commissionCalc).reduce((t, v) => t + v, 0);
+          if(totalCalc > capAmount && totalCalc > 0){
+            const factor = capAmount / totalCalc;
+            Object.keys(commissionCalc).forEach(n => { commissionCalc[n] = commissionCalc[n] * factor; });
+            commissionCapNote = `Commission capped at ${capPct}% of revenue (${extraPayMoney(capAmount)}): the calculated total of ${extraPayMoney(totalCalc)} was scaled down ${Math.round((1 - factor) * 1000) / 10}% for everyone, keeping the same proportions.`;
+          }
+        }
         if(revenue <= 0 && opsManagerAssignmentKey) omReason = `No payroll report or revenue on file for ${extraPayWeekLabel(priorWeekBounds)}`;
         const opsManagerName = opsManagerAssignmentKey ? (w.names || []).find(n => nameDedupKey(n) === opsManagerAssignmentKey) : null;
         const noOpsManagerSelected = !opsManagerAssignmentKey && Number(commission.opsManagerRate) > 0;
-        return Object.assign({}, w, { opsManagerName, omReason, omSalariedNote, noOpsManagerSelected, commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
+        return Object.assign({}, w, { commissionCapNote, opsManagerName, omReason, omSalariedNote, noOpsManagerSelected, commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
       });
 
       renderExtraPayWeeksList(weeksData);
@@ -10905,6 +10923,7 @@
           ? `Commission below is calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report, revenue, and performance scores.`
           : `Commission will be calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report once it's uploaded to Labor Cost \u2014 not yet available.`}</p>
         ${w.opsManagerScoreNote ? `<p class="form-note" style="margin-top:4px; color:#8a6d00;">${extraPayEsc(w.opsManagerScoreNote)}</p>` : ''}
+        ${w.commissionCapNote ? `<p class="form-note" style="margin-top:4px; color:#8a6d00; font-weight:600;">${extraPayEsc(w.commissionCapNote)}</p>` : ''}
         ${w.noOpsManagerSelected ? `<p class="form-note" style="margin-top:4px; color:#8a6d00;">No Ops Manager is selected in Configuration \u2192 Commission, so no Ops Manager commission is calculated.</p>` : ''}
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr>
@@ -16216,6 +16235,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   async function renderCommissionSection(commission){
     document.getElementById('appset_commissionDriverRate').value = commission.driverRate || 0;
     document.getElementById('appset_commissionNewEmployeeWeeks').value = commission.newEmployeeWaitWeeks || 0;
+    document.getElementById('appset_commissionWeeklyCap').value = commission.weeklyCapPctOfRevenue || 0;
     document.getElementById('appset_commissionOpsManagerRate').value = commission.opsManagerRate || 0;
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
@@ -16287,6 +16307,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const opsManagerRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionOpsManagerRate').value) || 0));
     const wingmanRate = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionWingmanRate').value) || 0));
     const newEmployeeWaitWeeks = Math.max(0, Math.min(52, Math.round(Number(document.getElementById('appset_commissionNewEmployeeWeeks').value) || 0)));
+    const weeklyCapPctOfRevenue = Math.max(0, Math.min(100, Number(document.getElementById('appset_commissionWeeklyCap').value) || 0));
     const pin = prompt('Enter the Administrator Override PIN to change commission rates:');
     if(pin === null) return; // cancelled
     statusEl.textContent = 'Verifying PIN...';
@@ -16313,7 +16334,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
         method: 'POST',
         headers: authHeaders({'Content-Type': 'application/json'}),
-        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks } } })
+        body: JSON.stringify({ settings: { commission: { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks, weeklyCapPctOfRevenue } } })
       });
       if(handleAuthFailure(saveRes)) return;
       const saveData = await saveRes.json();
@@ -16322,7 +16343,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         statusEl.className = 'status-msg err';
         return;
       }
-      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks });
+      window.appSettings.commission = Object.assign({}, window.appSettings.commission, { driverRate, opsManagerRate, wingmanRate, newEmployeeWaitWeeks, weeklyCapPctOfRevenue });
       statusEl.textContent = 'Rates saved.';
       statusEl.className = 'status-msg ok';
     }catch(err){
