@@ -3241,6 +3241,8 @@ const DEFAULT_APP_SETTINGS = {
     driverRate: 0,
     // Weeks a new employee is on payroll before commission starts (0 = off).
     newEmployeeWaitWeeks: 0,
+    // Total weekly commission can't exceed this % of revenue (0 = no cap).
+    weeklyCapPctOfRevenue: 0,
     opsManagerRate: 0,
     opsManagerAssignment: '',
     wingmanRate: 0,
