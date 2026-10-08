@@ -89,6 +89,7 @@ const ALLOWED_KEYS = new Set([
   'wingman-review-skips',
   'google-review-allocations',
   'weight-tickets',
+  'weight-ticket-trucks',
   'damage-claim-crew-acks',
   'hiring-documents',
   'hiring-candidates',
@@ -1411,6 +1412,16 @@ app.post('/api/driver/materials-checkin', requireDriverOrTaskWingman(['materials
 // completed paperwork package and deletes them.
 const WEIGHT_TICKETS_KEY = 'weight-tickets';
 const WEIGHT_TICKET_KINDS = ['empty', 'full'];
+// More than one truck can go out of town on a job: each truck has its own
+// empty and full ticket ("truck" 1, 2, ...; tickets from before trucks were
+// numbered are Truck 1). How many trucks a job has is kept here, by job.
+const WEIGHT_TICKET_TRUCKS_KEY = 'weight-ticket-trucks';
+const WEIGHT_TICKET_MAX_TRUCKS = 10;
+const ticketTruck = t => Number(t && t.truck) || 1;
+async function weightTicketTruckCounts() {
+  const raw = await redis.get(WEIGHT_TICKET_TRUCKS_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
 const READ_WEIGHT_TICKET_TOOL = {
   name: 'read_weight_ticket',
   description: 'Report the weights printed on a truck scale ticket.',
@@ -1477,25 +1488,37 @@ async function captainLongDistanceJobs(captainName) {
     (j.assignmentDate === today || j.assignmentDate === yesterday));
 }
 
-function summarizeWeightTicketJob(job, tickets, today) {
+function summarizeWeightTicketJob(job, tickets, today, truckCounts) {
   const forJob = tickets.filter(t => t.jobNumber === job.jobNumber);
-  const pick = kind => {
-    const t = forJob.find(x => x.kind === kind);
+  const count = Math.max(Number((truckCounts || {})[job.jobNumber]) || 1, ...forJob.map(ticketTruck), 1);
+  const pick = (kind, truck) => {
+    const t = forJob.find(x => x.kind === kind && ticketTruck(x) === truck);
     return t ? { highestWeight: t.highestWeight, uploadedAt: t.uploadedAt, confident: t.confident } : null;
   };
-  const empty = pick('empty'), full = pick('full');
-  const netWeight = empty && full ? Math.abs(full.highestWeight - empty.highestWeight) : null;
-  return { jobNumber: job.jobNumber, clientName: job.clientName || '', assignmentDate: job.assignmentDate, isToday: job.assignmentDate === today, empty, full, netWeight };
+  const trucks = [];
+  for (let n = 1; n <= count; n++) {
+    const empty = pick('empty', n), full = pick('full', n);
+    trucks.push({ truck: n, empty, full, netWeight: empty && full ? Math.abs(full.highestWeight - empty.highestWeight) : null });
+  }
+  const complete = trucks.every(t => t.netWeight !== null);
+  return {
+    jobNumber: job.jobNumber, clientName: job.clientName || '', assignmentDate: job.assignmentDate, isToday: job.assignmentDate === today,
+    trucks, truckCount: count, complete,
+    // Total load across every truck, once every truck has both tickets.
+    netWeight: complete ? trucks.reduce((sum, t) => sum + t.netWeight, 0) : null,
+    // Truck 1, for anything that still reads a single pair.
+    empty: trucks[0].empty, full: trucks[0].full
+  };
 }
 
 app.get('/api/driver/weight-tickets', requireDriverAuth, async (req, res) => {
   try {
-    const [jobs, raw] = await Promise.all([captainLongDistanceJobs(req.driverName), redis.get(WEIGHT_TICKETS_KEY)]);
+    const [jobs, raw, counts] = await Promise.all([captainLongDistanceJobs(req.driverName), redis.get(WEIGHT_TICKETS_KEY), weightTicketTruckCounts()]);
     const tickets = raw ? JSON.parse(raw) : [];
     const today = easternDateFromMs(Date.now());
     // Yesterday's job only stays on the list while it's still missing a ticket.
-    const summaries = jobs.map(j => summarizeWeightTicketJob(j, tickets, today))
-      .filter(sm => sm.isToday || !(sm.empty && sm.full));
+    const summaries = jobs.map(j => summarizeWeightTicketJob(j, tickets, today, counts))
+      .filter(sm => sm.isToday || !sm.complete);
     res.json({ jobs: summaries });
   } catch (err) {
     console.error('Weight tickets fetch failed:', err.message);
@@ -1506,8 +1529,11 @@ app.get('/api/driver/weight-tickets', requireDriverAuth, async (req, res) => {
 // Reads and stores one ticket for a job; shared by the Captain's upload
 // and the office's upload at work package closure. A retake replaces the
 // earlier ticket of the same kind.
-async function saveWeightTicket(job, kind, photo, uploadedBy, uploaderName) {
+async function saveWeightTicket(job, kind, photo, uploadedBy, uploaderName, truckRaw) {
   if (!WEIGHT_TICKET_KINDS.includes(kind)) return { status: 400, body: { error: 'Say which ticket this is \u2014 empty or full.' } };
+  const truck = Number(truckRaw) || 1;
+  const counts = await weightTicketTruckCounts();
+  if (!(truck >= 1 && truck <= Math.max(Number(counts[job.jobNumber]) || 1, 1))) return { status: 400, body: { error: 'Add that truck to the job first.' } };
   if (typeof photo !== 'string' || !photo.startsWith('data:image/')) return { status: 400, body: { error: 'Take a photo of the ticket first.' } };
   const reading = await readWeightTicketPhoto(photo);
   if (reading.error) return { status: 502, body: { error: reading.error } };
@@ -1516,11 +1542,12 @@ async function saveWeightTicket(job, kind, photo, uploadedBy, uploaderName) {
   }
   const raw = await redis.get(WEIGHT_TICKETS_KEY);
   const tickets = raw ? JSON.parse(raw) : [];
-  const previous = tickets.filter(t => t.jobNumber === job.jobNumber && t.kind === kind);
+  const sameSlot = t => t.jobNumber === job.jobNumber && t.kind === kind && ticketTruck(t) === truck;
+  const previous = tickets.filter(sameSlot);
   const id = 'wt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-  const kept = tickets.filter(t => !(t.jobNumber === job.jobNumber && t.kind === kind));
+  const kept = tickets.filter(t => !sameSlot(t));
   kept.push({
-    id, jobNumber: job.jobNumber, kind, captainName: job.captainName || '', jobDate: job.assignmentDate,
+    id, jobNumber: job.jobNumber, kind, truck, captainName: job.captainName || '', jobDate: job.assignmentDate,
     highestWeight: reading.highestWeight, weights: reading.weights, unitRead: reading.unitRead, confident: reading.confident,
     // 'captain' from the Driver Portal; 'office' when the Ops Manager had
     // to upload it at closure -- i.e. the Captain didn't.
@@ -1532,16 +1559,58 @@ async function saveWeightTicket(job, kind, photo, uploadedBy, uploaderName) {
   await redis.set('weight-ticket-photo-' + id, JSON.stringify(photo));
   await redis.set(WEIGHT_TICKETS_KEY, JSON.stringify(kept));
   if (previous.length) await redis.del(...previous.map(t => t.photoKey));
-  return { status: 200, body: { ok: true, job: summarizeWeightTicketJob(job, kept, easternDateFromMs(Date.now())) } };
+  return { status: 200, body: { ok: true, job: summarizeWeightTicketJob(job, kept, easternDateFromMs(Date.now()), counts) } };
 }
 
+// Add or remove a truck on a job. A truck can only be removed while it has
+// no tickets, so nothing uploaded is ever lost this way.
+async function setWeightTicketTruckCount(job, countRaw) {
+  const count = Math.round(Number(countRaw) || 0);
+  if (!(count >= 1 && count <= WEIGHT_TICKET_MAX_TRUCKS)) return { status: 400, body: { error: `A job can have 1 to ${WEIGHT_TICKET_MAX_TRUCKS} trucks.` } };
+  const raw = await redis.get(WEIGHT_TICKETS_KEY);
+  const tickets = raw ? JSON.parse(raw) : [];
+  const highestUsed = Math.max(0, ...tickets.filter(t => t.jobNumber === job.jobNumber).map(ticketTruck));
+  if (count < highestUsed) return { status: 409, body: { error: `Truck ${highestUsed} already has a ticket \u2014 it can\u2019t be removed.` } };
+  const counts = await weightTicketTruckCounts();
+  if (count === 1) delete counts[job.jobNumber]; else counts[job.jobNumber] = count;
+  await redis.set(WEIGHT_TICKET_TRUCKS_KEY, JSON.stringify(counts));
+  return { status: 200, body: { ok: true, job: summarizeWeightTicketJob(job, tickets, easternDateFromMs(Date.now()), counts) } };
+}
+
+app.post('/api/driver/weight-ticket-trucks', requireDriverAuth, async (req, res) => {
+  const { jobNumber, count } = req.body || {};
+  try {
+    const job = (await captainLongDistanceJobs(req.driverName)).find(j => j.jobNumber === String(jobNumber));
+    if (!job) return res.status(403).json({ error: 'That isn\u2019t one of your Long Distance Moves today.' });
+    const r = await setWeightTicketTruckCount(job, count);
+    res.status(r.status).json(r.body);
+  } catch (err) {
+    console.error('Weight ticket truck count failed:', err.message);
+    res.status(500).json({ error: 'Could not change the trucks.' });
+  }
+});
+
+app.post('/api/admin/weight-ticket-trucks', requireAuth, async (req, res) => {
+  const { jobNumber, count } = req.body || {};
+  try {
+    const archive = JSON.parse(await redis.get(JOB_ARCHIVE_KEY) || '[]');
+    const job = archive.find(j => j.jobNumber === String(jobNumber) && j.jobType === 'longdistance');
+    if (!job) return res.status(404).json({ error: 'That job isn\u2019t on file as a Long Distance Move.' });
+    const r = await setWeightTicketTruckCount(job, count);
+    res.status(r.status).json(r.body);
+  } catch (err) {
+    console.error('Office weight ticket truck count failed:', err.message);
+    res.status(500).json({ error: 'Could not change the trucks.' });
+  }
+});
+
 app.post('/api/driver/weight-ticket', requireDriverAuth, async (req, res) => {
-  const { jobNumber, kind, photo } = req.body || {};
+  const { jobNumber, kind, photo, truck } = req.body || {};
   try {
     const jobs = await captainLongDistanceJobs(req.driverName);
     const job = jobs.find(j => j.jobNumber === String(jobNumber));
     if (!job) return res.status(403).json({ error: 'That isn\u2019t one of your Long Distance Moves today.' });
-    const result = await saveWeightTicket(job, kind, photo, 'captain', req.driverName);
+    const result = await saveWeightTicket(job, kind, photo, 'captain', req.driverName, truck);
     res.status(result.status).json(result.body);
   } catch (err) {
     console.error('Weight ticket upload failed:', err.message);
@@ -1552,13 +1621,13 @@ app.post('/api/driver/weight-ticket', requireDriverAuth, async (req, res) => {
 // The office side: any Long Distance Move, any date -- used when a
 // Captain handed in paper tickets instead of uploading them.
 app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
-  const { jobNumber, kind, photo } = req.body || {};
+  const { jobNumber, kind, photo, truck } = req.body || {};
   try {
     const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
     const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
     const job = archive.find(j => j.jobNumber === String(jobNumber) && j.jobType === 'longdistance');
     if (!job) return res.status(404).json({ error: 'That job isn\u2019t on file as a Long Distance Move.' });
-    const result = await saveWeightTicket(job, kind, photo, 'office', req.userEmail);
+    const result = await saveWeightTicket(job, kind, photo, 'office', req.userEmail, truck);
     res.status(result.status).json(result.body);
   } catch (err) {
     console.error('Office weight ticket upload failed:', err.message);
@@ -5505,6 +5574,7 @@ const EXTRACT_WORK_ORDER_TOOL = {
               enum: ['move', 'movelabor', 'junkremoval', 'unclear'],
               description: '"move" if this is a full moving service (packing/loading/transporting/unloading household goods). "movelabor" if it\u2019s a labor-only service (e.g. just loading/unloading help, no long-haul transport of goods). "junkremoval" if this is a junk/hauling-away job rather than a household move (this company does both moving and junk removal work orders). "unclear" only if the service type genuinely can\u2019t be determined -- do not guess between the other three if it isn\u2019t reasonably clear.'
             },
+            typeFieldText: { type: 'string', description: 'The text printed in the work order\u2019s own "Type:" field near the top, copied exactly as printed (e.g. "EST", "ESTIMATE", "JOB"). Empty string if there is no Type field or it cannot be read.' },
             orderType: {
               type: 'string',
               enum: ['job', 'estimate', 'unclear'],
@@ -5525,7 +5595,7 @@ const EXTRACT_WORK_ORDER_TOOL = {
             },
             confident: { type: 'boolean', description: 'True if the job number, client info, and addresses were all read clearly. False if the image was blurry, cut off, or key fields were ambiguous.' }
           },
-          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'orderType', 'confident', 'scheduledHours', 'quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees', 'packingMaterials']
+          required: ['firstPageIndex', 'lastPageIndex', 'jobNumber', 'clientName', 'originAddress', 'destAddress', 'serviceType', 'typeFieldText', 'orderType', 'confident', 'scheduledHours', 'quotedHours', 'quotedHourlyRate', 'quotedCrewSize', 'quotedOtherFees', 'packingMaterials']
         }
       }
     },
@@ -5627,6 +5697,16 @@ app.post('/api/admin/extract-work-orders', requireAuth, async (req, res) => {
       }
       const documents = (Array.isArray(toolUseBlock.input.documents) ? toolUseBlock.input.documents : []).map(d => ({
         ...d,
+        // Job vs. estimate is decided from the Type field's printed text, not
+        // the model's judgment: anything with "EST" is an estimate, "JOB" is
+        // a job, and no readable Type goes to Unclear for a person to confirm
+        // -- never silently treated as a job.
+        orderType: (() => {
+          const t = String(d.typeFieldText || '').toUpperCase();
+          if (/EST/.test(t)) return 'estimate';
+          if (/\bJOB\b/.test(t)) return 'job';
+          return 'unclear';
+        })(),
         firstPageIndex: (Number(d.firstPageIndex) || 0) + offset,
         lastPageIndex: (Number(d.lastPageIndex ?? d.firstPageIndex) || 0) + offset
       }));
