@@ -71,6 +71,7 @@ const ALLOWED_KEYS = new Set([
   'roster-manual-additions',
   'materials-items',
   'materials-checkouts',
+  'materials-receivings',
   'compliance-eod-inspections',
   'damage-claims',
   'junk-removal-jobs',
