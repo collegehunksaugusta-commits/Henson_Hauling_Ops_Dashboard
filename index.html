@@ -86,6 +86,13 @@
   .mono{font-family:'IBM Plex Mono',monospace;}
 
   /* ---------- Header ---------- */
+  /* Frozen column headings: every data table's heading row stays in view
+     while its rows scroll beneath. Tables inside a sideways-scrolling box
+     become their own scroll area (up to ~3/4 of the screen) so the
+     headings freeze there too. */
+  table thead th{ position:sticky; top:0; z-index:3; background:#fff; box-shadow:inset 0 -1px 0 var(--line); }
+  div[style*="overflow-x:auto"]:has(> table), div[style*="overflow-x: auto"]:has(> table), .mail-table-wrap{ max-height:75vh; overflow-y:auto; }
+  thead th.mail-sticky-col, thead th.mail-sticky-col-2{ z-index:4; }
   .topbar{
     background:var(--charcoal);
     color:#fff;
@@ -10730,6 +10737,7 @@
       const newHireInfo = newEmployeeCommissionInfo(laborWeeks, commission.newEmployeeWaitWeeks);
       const weeksData = weeksDataRaw.map(w => {
         const commissionCalc = {};
+        let omReason = null, omSalariedNote = null;
         const newEmployeeHold = {};   // name -> pay week their commission starts
         const priorWeekStart = extraPayPriorWeekStart(w.weekStart);
         const priorWeekBounds = extraPayGetWeekBounds(priorWeekStart);
@@ -10738,8 +10746,12 @@
         let opsManagerScoreNote = null;
         if(revenue > 0){
           const hoursByKey = {};
+          const paidByKey = {};   // on this week's payroll with earnings (salaried people have no hourly hours)
           if(laborWeek && Array.isArray(laborWeek.employees)){
-            laborWeek.employees.forEach(e => { hoursByKey[nameDedupKey(e.name)] = (Number(e.regHrs)||0) + (Number(e.otHrs)||0); });
+            laborWeek.employees.forEach(e => {
+              hoursByKey[nameDedupKey(e.name)] = (Number(e.regHrs)||0) + (Number(e.otHrs)||0);
+              if(Number(e.totalEarnings) > 0) paidByKey[nameDedupKey(e.name)] = true;
+            });
           }
           const timelyCloseoutPct = window.computeOpsManagerTimelyCloseoutForWeek(archiveResult || [], uploadsResult || [], timelyCloseoutWindowDays, priorWeekBounds.weekStart, priorWeekBounds.weekEnd);
           const reviewPct = window.computeOpsManagerReviewCloseoutForWeek(reviewItemsResult || [], reviewWindowDays, priorWeekBounds.weekStart, priorWeekBounds.weekEnd);
@@ -10774,8 +10786,17 @@
                 total += revenue * ((Number(commission.driverRate)||0)/100) * (captainScore/100) * (hours/40);
               }
             }
-            if(opsManagerAssignmentKey && key === opsManagerAssignmentKey && opsManagerScore !== null){
-              total += revenue * ((Number(commission.opsManagerRate)||0)/100) * (opsManagerScore/100) * (hours/40);
+            if(opsManagerAssignmentKey && key === opsManagerAssignmentKey){
+              // A salaried Ops Manager has pay but no hourly hours on the
+              // payroll report -- count them as full-time (40 hours).
+              const omHours = hours > 0 ? hours : (paidByKey[key] ? 40 : 0);
+              if(opsManagerScore === null) omReason = `No Ops Manager score for ${extraPayWeekLabel(priorWeekBounds)}`;
+              else if(!(Number(commission.opsManagerRate) > 0)) omReason = 'Ops Manager commission rate is 0% (Configuration \u2192 Commission)';
+              else if(omHours === 0) omReason = `Not on the ${extraPayWeekLabel(priorWeekBounds)} payroll`;
+              else {
+                total += revenue * ((Number(commission.opsManagerRate)||0)/100) * (opsManagerScore/100) * (omHours/40);
+                if(hours === 0) omSalariedNote = 'Salaried \u2014 counted as 40 hrs';
+              }
             }
             // Wingman isn't a fixed role like the other two -- it applies
             // to whoever actually has a score for this week, which only
@@ -10790,7 +10811,10 @@
             if(total > 0) commissionCalc[name] = total;
           });
         }
-        return Object.assign({}, w, { commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
+        if(revenue <= 0 && opsManagerAssignmentKey) omReason = `No payroll report or revenue on file for ${extraPayWeekLabel(priorWeekBounds)}`;
+        const opsManagerName = opsManagerAssignmentKey ? (w.names || []).find(n => nameDedupKey(n) === opsManagerAssignmentKey) : null;
+        const noOpsManagerSelected = !opsManagerAssignmentKey && Number(commission.opsManagerRate) > 0;
+        return Object.assign({}, w, { opsManagerName, omReason, omSalariedNote, noOpsManagerSelected, commissionCalc, newEmployeeHold, commissionSourceWeek: priorWeekBounds, commissionSourceAvailable: revenue > 0, opsManagerScoreNote });
       });
 
       renderExtraPayWeeksList(weeksData);
@@ -10859,7 +10883,7 @@
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}</td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
@@ -10876,6 +10900,7 @@
           ? `Commission below is calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report, revenue, and performance scores.`
           : `Commission will be calculated from the ${extraPayWeekLabel(w.commissionSourceWeek)} payroll report once it's uploaded to Labor Cost \u2014 not yet available.`}</p>
         ${w.opsManagerScoreNote ? `<p class="form-note" style="margin-top:4px; color:#8a6d00;">${extraPayEsc(w.opsManagerScoreNote)}</p>` : ''}
+        ${w.noOpsManagerSelected ? `<p class="form-note" style="margin-top:4px; color:#8a6d00;">No Ops Manager is selected in Configuration \u2192 Commission, so no Ops Manager commission is calculated.</p>` : ''}
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr>
             <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Employee</th>
