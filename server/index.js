@@ -3241,8 +3241,16 @@ const DEFAULT_APP_SETTINGS = {
     driverRate: 0,
     // Weeks a new employee is on payroll before commission starts (0 = off).
     newEmployeeWaitWeeks: 0,
-    // Total weekly commission can't exceed this % of revenue (0 = no cap).
-    weeklyCapPctOfRevenue: 0,
+    // Commission pool is capped at a % of the labor savings vs. target:
+    // savings = (target labor % - actual labor %) x revenue for the week the
+    // commission is based on. 0 = no cap. Over target = no savings = $0.
+    targetLaborPct: 28,
+    capPctOfLaborSavings: 0,
+    // Revenue-based cap used when savings alone wouldn't pay (cap = the higher
+    // of the two), as long as labor is no more than overTargetAllowancePts
+    // above target. 0 = no revenue-based cap.
+    revenueCapPct: 0,
+    overTargetAllowancePts: 0,
     opsManagerRate: 0,
     opsManagerAssignment: '',
     wingmanRate: 0,
