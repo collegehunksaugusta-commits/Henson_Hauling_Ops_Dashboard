@@ -1660,7 +1660,11 @@ async function myTipsFor(personName) {
     if (!a.employees.some(n => nameCoreKey(n) === me)) return;
     const share = Math.round((Number(a.tipAmount) || 0) / a.employees.length * 100) / 100;
     const wk = payWeekStartOf(a.date);
-    if (wk === thisWeek) jobs.push({ date: a.date, jobNumber: a.jobNumber, tipAmount: Number(a.tipAmount) || 0, share, splitWays: a.employees.length });
+    // A tip the office changed from what Square reported carries the
+    // original amount and the reason given, so the crew can see why.
+    const adjusted = a.originalTipAmount != null && Number(a.originalTipAmount) !== Number(a.tipAmount);
+    if (wk === thisWeek) jobs.push({ date: a.date, jobNumber: a.jobNumber, tipAmount: Number(a.tipAmount) || 0, share, splitWays: a.employees.length,
+      ...(adjusted ? { originalTipAmount: Number(a.originalTipAmount), adjustReason: String(a.adjustReason || '') } : {}) });
     else if (wk === lastWeek) lastWeekTotal += share;
   });
   jobs.sort((x, y) => (y.date || '').localeCompare(x.date || ''));
