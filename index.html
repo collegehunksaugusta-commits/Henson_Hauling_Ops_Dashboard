@@ -5618,6 +5618,11 @@
     <div style="position:relative;">
       <div id="kd_map" style="height:68vh; min-height:360px; border-radius:14px; border:4px solid var(--brand-green); background:var(--offwhite);"></div>
       <div id="kd_burst" style="position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center; font-size:90px; opacity:0; transition:opacity .25s;"></div>
+      <div id="kd_cheer" aria-hidden="true">
+        <svg class="kd-cheerleader" style="animation-delay:0s" viewBox="0 0 60 90" width="60" height="90"><g class="kd-arm-l"><line x1="30" y1="38" x2="12" y2="18" stroke="#8d5a3b" stroke-width="5" stroke-linecap="round"/><circle cx="10" cy="14" r="9" fill="#F7941D"/></g><g class="kd-arm-r"><line x1="30" y1="38" x2="48" y2="18" stroke="#8d5a3b" stroke-width="5" stroke-linecap="round"/><circle cx="50" cy="14" r="9" fill="#00612C"/></g><circle cx="30" cy="24" r="9" fill="#f2c9a0"/><path d="M21 22 q9 -13 18 0" fill="#5a3315"/><path d="M22 34 h16 l6 26 h-28 z" fill="#00612C"/><path d="M22 46 h16" stroke="#F7941D" stroke-width="3"/><line x1="25" y1="60" x2="23" y2="82" stroke="#8d5a3b" stroke-width="5" stroke-linecap="round"/><line x1="35" y1="60" x2="37" y2="82" stroke="#8d5a3b" stroke-width="5" stroke-linecap="round"/></svg>
+        <svg class="kd-cheerleader" style="animation-delay:.15s" viewBox="0 0 60 90" width="60" height="90"><g class="kd-arm-l"><line x1="30" y1="38" x2="12" y2="18" stroke="#f2c9a0" stroke-width="5" stroke-linecap="round"/><circle cx="10" cy="14" r="9" fill="#00612C"/></g><g class="kd-arm-r"><line x1="30" y1="38" x2="48" y2="18" stroke="#f2c9a0" stroke-width="5" stroke-linecap="round"/><circle cx="50" cy="14" r="9" fill="#F7941D"/></g><circle cx="30" cy="24" r="9" fill="#ffe0c2"/><path d="M20 24 q10 -16 20 0 l3 10 q-4 -6 -6 -8 q-7 -4 -14 0 q-2 2 -6 8 z" fill="#f0c040"/><path d="M22 34 h16 l6 26 h-28 z" fill="#F7941D"/><path d="M22 46 h16" stroke="#00612C" stroke-width="3"/><line x1="25" y1="60" x2="23" y2="82" stroke="#f2c9a0" stroke-width="5" stroke-linecap="round"/><line x1="35" y1="60" x2="37" y2="82" stroke="#f2c9a0" stroke-width="5" stroke-linecap="round"/></svg>
+        <svg class="kd-cheerleader" style="animation-delay:.3s" viewBox="0 0 60 90" width="60" height="90"><g class="kd-arm-l"><line x1="30" y1="38" x2="12" y2="18" stroke="#c68a5c" stroke-width="5" stroke-linecap="round"/><circle cx="10" cy="14" r="9" fill="#F7941D"/></g><g class="kd-arm-r"><line x1="30" y1="38" x2="48" y2="18" stroke="#c68a5c" stroke-width="5" stroke-linecap="round"/><circle cx="50" cy="14" r="9" fill="#00612C"/></g><circle cx="30" cy="24" r="9" fill="#d9a77a"/><path d="M21 21 q9 -12 18 0 q2 6 -1 12 l-2 -9 h-12 l-2 9 q-3 -6 -1 -12 z" fill="#2b1a10"/><path d="M22 34 h16 l6 26 h-28 z" fill="#00612C"/><path d="M22 46 h16" stroke="#F7941D" stroke-width="3"/><line x1="25" y1="60" x2="23" y2="82" stroke="#c68a5c" stroke-width="5" stroke-linecap="round"/><line x1="35" y1="60" x2="37" y2="82" stroke="#c68a5c" stroke-width="5" stroke-linecap="round"/></svg>
+      </div>
     </div>
     <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
       <button type="button" id="kd_honk" class="kd-btn" style="background:var(--brand-orange);">📣 Honk!</button>
@@ -5630,6 +5635,14 @@
       .kd-truck{ transition:transform .15s; filter:drop-shadow(0 3px 3px rgba(0,0,0,.35)); }
       .kd-junk{ font-size:38px; line-height:1; filter:drop-shadow(0 2px 2px rgba(0,0,0,.3)); animation:kdBob 1.4s ease-in-out infinite; }
       @keyframes kdBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-6px); } }
+      #kd_cheer{ position:absolute; left:10px; bottom:10px; z-index:900; pointer-events:none; display:flex; gap:2px; opacity:0; transform:translateY(30px); transition:opacity .25s, transform .25s; }
+      #kd_cheer.on{ opacity:1; transform:translateY(0); }
+      #kd_cheer.on .kd-cheerleader{ animation:kdJump .45s ease-in-out infinite alternate; }
+      #kd_cheer.on .kd-arm-l{ animation:kdWaveL .25s ease-in-out infinite alternate; transform-origin:30px 38px; }
+      #kd_cheer.on .kd-arm-r{ animation:kdWaveR .25s ease-in-out infinite alternate; transform-origin:30px 38px; }
+      @keyframes kdJump{ from{ transform:translateY(0); } to{ transform:translateY(-16px); } }
+      @keyframes kdWaveL{ from{ transform:rotate(-12deg); } to{ transform:rotate(14deg); } }
+      @keyframes kdWaveR{ from{ transform:rotate(12deg); } to{ transform:rotate(-14deg); } }
     </style>
   </div>
 
@@ -8223,7 +8236,64 @@
         });
       }catch(e){}
     }
-    const honk = () => { beep([392, 330], 0.35); burst('📣'); };
+    function ctx(){ audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if(audio.state === 'suspended') audio.resume(); return audio; }
+
+    // Big-rig air horn: a low, buzzy two-tone chord with a quick "puff" in
+    // and a held blast, slightly detuned so it sounds like real horn bells.
+    function airHorn(){
+      try{
+        const a = ctx(), t = a.currentTime, len = 1.3;
+        const out = a.createGain(); out.gain.setValueAtTime(0.0001, t);
+        out.gain.exponentialRampToValueAtTime(0.32, t + 0.06); out.gain.setValueAtTime(0.32, t + len - 0.15);
+        out.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1600; lp.Q.value = 0.7;
+        lp.connect(out); out.connect(a.destination);
+        [[155.6, 0], [156.4, 0], [233.1, 0], [234.2, 0], [311.1, -6]].forEach(([f, det]) => {
+          const o = a.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+          const v = a.createGain(); v.gain.value = 0.2; o.connect(v); v.connect(lp);
+          o.frequency.setValueAtTime(f * 0.93, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.08);
+          o.start(t); o.stop(t + len + 0.05);
+        });
+      }catch(e){}
+    }
+    // Vroom vroom: an engine revving up twice, then settling.
+    function vroom(){
+      try{
+        const a = ctx(), t = a.currentTime;
+        const out = a.createGain(); out.gain.value = 0.0001;
+        const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+        lp.connect(out); out.connect(a.destination);
+        const o = a.createOscillator(), o2 = a.createOscillator();
+        o.type = 'sawtooth'; o2.type = 'square';
+        [[0, 55], [0.35, 120], [0.55, 70], [0.9, 135], [1.25, 80], [1.6, 60]].forEach(([dt, f]) => {
+          o.frequency.linearRampToValueAtTime(f, t + dt); o2.frequency.linearRampToValueAtTime(f / 2, t + dt);
+        });
+        [[0, 0.0001], [0.08, 0.28], [0.5, 0.18], [0.85, 0.3], [1.4, 0.15], [1.7, 0.0001]].forEach(([dt, g]) => out.gain.linearRampToValueAtTime(g, t + dt));
+        const g2 = a.createGain(); g2.gain.value = 0.5; o2.connect(g2); g2.connect(lp); o.connect(lp);
+        o.start(t); o2.start(t); o.stop(t + 1.75); o2.stop(t + 1.75);
+      }catch(e){}
+    }
+    // Applause: lots of quick, randomly timed claps (filtered noise bursts).
+    function applause(){
+      try{
+        const a = ctx(), t = a.currentTime, n = Math.floor(a.sampleRate * 0.06);
+        const buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+        for(let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+        const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8;
+        const out = a.createGain(); out.gain.value = 0.5; bp.connect(out); out.connect(a.destination);
+        for(let k = 0; k < 90; k++){
+          const when = t + Math.random() * 1.8 * Math.pow(Math.random(), 0.6);
+          const src = a.createBufferSource(); src.buffer = buf; src.playbackRate.value = 0.8 + Math.random() * 0.6;
+          const g = a.createGain(); g.gain.value = 0.25 + Math.random() * 0.5; src.connect(g); g.connect(bp);
+          src.start(when);
+        }
+      }catch(e){}
+    }
+    function cheer(){
+      const c = $('kd_cheer'); c.classList.add('on'); applause();
+      clearTimeout(cheer._t); cheer._t = setTimeout(() => c.classList.remove('on'), 2300);
+    }
+    const honk = () => { airHorn(); burst('📣'); };
     function burst(t){ const b = $('kd_burst'); b.textContent = t; b.style.opacity = 1; clearTimeout(burst._t); burst._t = setTimeout(() => b.style.opacity = 0, 700); }
 
     async function snap(latlng){
@@ -8259,7 +8329,7 @@
         if(dist(pos, j.at) > 45) return true;
         map.removeLayer(j.marker);
         score++; $('kd_score').textContent = '⭐ ' + score;
-        beep([523, 659, 784], 0.12); burst(j.e + '✨');
+        beep([523, 659, 784], 0.12); burst(j.e + '✨'); cheer();
         say(['Great job!', 'You got it!', 'Junk picked up!', 'Awesome driving!'][score % 4]);
         return false;
       });
@@ -8269,7 +8339,7 @@
     async function driveTo(dest){
       if(driving) return;
       driving = true;
-      say('Vroom vroom! 🚚');
+      say('Vroom vroom! 🚚'); vroom();
       const path = await routeTo(dest);
       let total = 0; const seg = [];
       for(let i = 1; i < path.length; i++){ const d = dist(path[i-1], path[i]); seg.push(d); total += d; }
