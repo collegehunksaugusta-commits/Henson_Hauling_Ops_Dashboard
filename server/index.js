@@ -1636,6 +1636,46 @@ app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
   }
 });
 
+// ============ My Tips (HUNK Portal) ============
+// Each person's own tips for this pay week (Mon-Sun, by job date) and last
+// week, from the Tip Allocator -- split evenly among everyone allocated to
+// the job, exactly as Extra Pay pays them. Only allocated tips appear.
+function payWeekStartOf(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+  return d.toISOString().slice(0, 10);
+}
+async function myTipsFor(personName) {
+  const raw = await redis.get('square-tip-allocations');
+  const allocations = (raw ? JSON.parse(raw) : {}).allocations || {};
+  const me = nameCoreKey(personName);
+  const thisWeek = payWeekStartOf(easternDateFromMs(Date.now()));
+  const lastWeekD = new Date(thisWeek + 'T00:00:00Z'); lastWeekD.setUTCDate(lastWeekD.getUTCDate() - 7);
+  const lastWeek = lastWeekD.toISOString().slice(0, 10);
+  const jobs = [];
+  let lastWeekTotal = 0;
+  Object.values(allocations).forEach(a => {
+    if (!a || !a.date || !Array.isArray(a.employees) || a.employees.length === 0) return;
+    if (!a.employees.some(n => nameCoreKey(n) === me)) return;
+    const share = Math.round((Number(a.tipAmount) || 0) / a.employees.length * 100) / 100;
+    const wk = payWeekStartOf(a.date);
+    if (wk === thisWeek) jobs.push({ date: a.date, jobNumber: a.jobNumber, tipAmount: Number(a.tipAmount) || 0, share, splitWays: a.employees.length });
+    else if (wk === lastWeek) lastWeekTotal += share;
+  });
+  jobs.sort((x, y) => (y.date || '').localeCompare(x.date || ''));
+  const weekEnd = new Date(thisWeek + 'T00:00:00Z'); weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+  return { weekStart: thisWeek, weekEnd: weekEnd.toISOString().slice(0, 10),
+    total: Math.round(jobs.reduce((t, j) => t + j.share, 0) * 100) / 100, jobs,
+    lastWeekTotal: Math.round(lastWeekTotal * 100) / 100 };
+}
+app.get('/api/driver/my-tips', requireDriverAuth, async (req, res) => {
+  try { res.json(await myTipsFor(req.driverName)); } catch (err) { console.error('My tips failed:', err.message); res.status(500).json({ error: 'Could not load tips.' }); }
+});
+app.get('/api/wingman/my-tips', requireWingmanAuth, async (req, res) => {
+  try { res.json(await myTipsFor(req.wingmanName)); } catch (err) { console.error('My tips failed:', err.message); res.status(500).json({ error: 'Could not load tips.' }); }
+});
+
 // ============ Closed damage claims, shown to the crew ============
 // When a damage claim is closed (its Resolution moved off Pending), the
 // Captain and any wingmen it's charged to see it in their portal: the
