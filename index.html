@@ -4688,6 +4688,28 @@
         </div>
       </div>
     </div>
+    <div class="dashSection" id="dashSection-fun" data-category="fun" style="display:none;">
+      <button type="button" class="dashSectionHeader" id="dashSectionHeader-fun" aria-expanded="false" aria-controls="tilesContainer-fun">
+        <span class="dashSectionChevron">&#9656;</span>
+        <div class="dashSectionHeaderText">
+          <div class="dashSectionTitleRow">
+            <span class="dashSectionEmoji" aria-hidden="true">🎈</span>
+            <span>Just for Fun</span>
+            <span class="dashSectionCount">(1)</span>
+          </div>
+          <div class="dashSectionTileList">Truck Driver</div>
+        </div>
+      </button>
+      <div class="dashSectionBody">
+        <div class="tiles tilesCategory" id="tilesContainer-fun">
+      <div class="tile" id="tile-kidsdrive" tabindex="0" role="button" aria-label="Open Truck Driver game">
+        <span class="icon">🚚</span>
+        <h3>Truck Driver</h3>
+        <p>Drive a College Hunks truck around town and pick up the junk!</p>
+      </div>
+        </div>
+      </div>
+    </div>
     <div class="dashSection" id="dashSection-marketing" data-category="marketing">
       <button type="button" class="dashSectionHeader" id="dashSectionHeader-marketing" aria-expanded="false" aria-controls="tilesContainer-marketing">
         <span class="dashSectionChevron">&#9656;</span>
@@ -5584,6 +5606,31 @@
         <div id="rosterManualList" style="margin-top:10px;"></div>
       </div>
 
+  </div>
+
+  <div id="kidsDriveDetail" style="display:none;">
+    <button class="backlink" id="kidsDriveBackBtn">&larr; Dispatch</button>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin:6px 0 10px;">
+      <h2 class="display" style="margin:0; font-size:28px;">🚚 Truck Driver</h2>
+      <div id="kd_score" style="font-size:26px; font-weight:800; color:var(--brand-green-dark);">⭐ 0</div>
+    </div>
+    <p id="kd_msg" style="font-size:22px; font-weight:700; margin:0 0 10px; color:var(--charcoal);">Tap anywhere on the map to drive!</p>
+    <div style="position:relative;">
+      <div id="kd_map" style="height:68vh; min-height:360px; border-radius:14px; border:4px solid var(--brand-green); background:var(--offwhite);"></div>
+      <div id="kd_burst" style="position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center; font-size:90px; opacity:0; transition:opacity .25s;"></div>
+    </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+      <button type="button" id="kd_honk" class="kd-btn" style="background:var(--brand-orange);">📣 Honk!</button>
+      <button type="button" id="kd_home" class="kd-btn" style="background:var(--brand-green);">🏠 Go Home</button>
+      <button type="button" id="kd_more" class="kd-btn" style="background:#5b3fa8;">🛋️ More Junk</button>
+    </div>
+    <style>
+      .kd-btn{ flex:1; min-width:150px; color:#fff; border:none; border-radius:16px; padding:18px 10px; font-size:24px; font-weight:800; cursor:pointer; font-family:inherit; box-shadow:0 4px 0 rgba(0,0,0,.2); }
+      .kd-btn:active{ transform:translateY(3px); box-shadow:0 1px 0 rgba(0,0,0,.2); }
+      .kd-truck{ transition:transform .15s; filter:drop-shadow(0 3px 3px rgba(0,0,0,.35)); }
+      .kd-junk{ font-size:38px; line-height:1; filter:drop-shadow(0 2px 2px rgba(0,0,0,.3)); animation:kdBob 1.4s ease-in-out infinite; }
+      @keyframes kdBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-6px); } }
+    </style>
   </div>
 
   <div id="hiringDetail" style="display:none;">
@@ -7941,6 +7988,7 @@
   const opsMetricsDetail = document.getElementById('opsMetricsDetail');
   const wingmanMetricsDetail = document.getElementById('wingmanMetricsDetail');
   const hiringDetail = document.getElementById('hiringDetail');
+  const kidsDriveDetail = document.getElementById('kidsDriveDetail');
   const rosterDetail = document.getElementById('rosterDetail');
   const extraPayDetail = document.getElementById('extraPayDetail');
   const materialsDetail = document.getElementById('materialsDetail');
@@ -7956,6 +8004,11 @@
     // relying only on the tile being absent from the dashboard.
     if(view === 'monthlyfinancials' && localStorage.getItem('henson_auth_role') !== 'admin'){
       alert('Monthly Financials is only accessible to administrators.');
+      view = 'home';
+      history.replaceState({view}, '', '#home');
+    }
+    // The Truck Driver game is admin-only.
+    if(view === 'kidsdrive' && localStorage.getItem('henson_auth_role') !== 'admin'){
       view = 'home';
       history.replaceState({view}, '', '#home');
     }
@@ -7978,6 +8031,8 @@
     opsMetricsDetail.style.display = view === 'opsmetrics' ? 'block' : 'none';
     wingmanMetricsDetail.style.display = view === 'wingmanmetrics' ? 'block' : 'none';
     hiringDetail.style.display = view === 'hiring' ? 'block' : 'none';
+    kidsDriveDetail.style.display = view === 'kidsdrive' ? 'block' : 'none';
+    if(view === 'kidsdrive') setTimeout(() => window.startKidsDrive && window.startKidsDrive(), 50);
     rosterDetail.style.display = view === 'roster' ? 'block' : 'none';
     if(view === 'roster') window.loadEmployeeRosterView && window.loadEmployeeRosterView();
     extraPayDetail.style.display = view === 'extrapay' ? 'block' : 'none';
@@ -8122,6 +8177,146 @@
       return { ok: true };
     }catch(err){ return { ok: false, error: 'Could not reach the server \u2014 check your connection.' }; }
   }
+
+  // ---- Truck Driver (a game for little drivers) ----
+  // Same map and street tiles as the Dispatch truck map. The truck starts at
+  // one of the real trucks (Motive) or the office. Tap the map and it drives
+  // there along real roads (public OSRM router); pass a junk pile and it's
+  // picked up. If the router can't be reached it just drives straight there.
+  (function(){
+    let map = null, truck = null, pos = null, driving = false, score = 0, junk = [], audio = null;
+    const P = () => window.LOCATION_PROFILE || {};
+    const home = () => [P().officeLat || 33.55, P().officeLng || -82.12];
+    const $ = id => document.getElementById(id);
+    const say = t => { $('kd_msg').textContent = t; };
+    const R = 6371000, toRad = d => d * Math.PI / 180;
+    const dist = (a, b) => { const dLat = toRad(b[0]-a[0]), dLng = toRad(b[1]-a[1]); const h = Math.sin(dLat/2)**2 + Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); };
+
+    function truckIcon(faceLeft){
+      const logo = (document.querySelector('.badge-mark') || {}).src || '';
+      return L.divIcon({ className: '', iconSize: [96, 60], iconAnchor: [48, 52], html:
+        `<div class="kd-truck" style="transform:scaleX(${faceLeft ? -1 : 1});">
+          <svg width="96" height="60" viewBox="0 0 96 60" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="6" width="62" height="38" rx="5" fill="#00612C" stroke="#003d1c" stroke-width="2"/>
+            <rect x="2" y="30" width="62" height="6" fill="#F7941D"/>
+            <path d="M64 18 h16 l12 14 v12 h-28 z" fill="#00612C" stroke="#003d1c" stroke-width="2"/>
+            <path d="M68 21 h10 l8 10 h-18 z" fill="#cfe9ff"/>
+            <rect x="0" y="44" width="94" height="5" rx="2" fill="#333"/>
+            <circle cx="18" cy="50" r="8" fill="#222"/><circle cx="18" cy="50" r="3" fill="#bbb"/>
+            <circle cx="76" cy="50" r="8" fill="#222"/><circle cx="76" cy="50" r="3" fill="#bbb"/>
+          </svg>
+          ${logo ? `<img src="${logo}" style="position:absolute; left:10px; top:9px; width:46px; height:20px; object-fit:contain; border-radius:3px; background:#fff;">` : ''}
+        </div>` });
+    }
+    const JUNK = ['🛋️','📦','🪑','🛏️','🧸','🗄️','🚲','📺'];
+    function junkIcon(e){ return L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 22], html: `<div class="kd-junk">${e}</div>` }); }
+
+    function beep(freqs, len){
+      try{
+        audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+        freqs.forEach((f, i) => {
+          const o = audio.createOscillator(), g = audio.createGain();
+          o.type = 'square'; o.frequency.value = f; o.connect(g); g.connect(audio.destination);
+          const t = audio.currentTime + i * (len * 0.9);
+          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+          o.start(t); o.stop(t + len + 0.02);
+        });
+      }catch(e){}
+    }
+    const honk = () => { beep([392, 330], 0.35); burst('📣'); };
+    function burst(t){ const b = $('kd_burst'); b.textContent = t; b.style.opacity = 1; clearTimeout(burst._t); burst._t = setTimeout(() => b.style.opacity = 0, 700); }
+
+    async function snap(latlng){
+      try{
+        const r = await fetch(`https://router.project-osrm.org/nearest/v1/driving/${latlng[1]},${latlng[0]}?number=1`);
+        const d = await r.json();
+        const w = d.waypoints && d.waypoints[0];
+        return w ? [w.location[1], w.location[0]] : latlng;
+      }catch(e){ return latlng; }
+    }
+    async function routeTo(dest){
+      try{
+        const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${pos[1]},${pos[0]};${dest[1]},${dest[0]}?overview=full&geometries=geojson`);
+        const d = await r.json();
+        const c = d.routes && d.routes[0] && d.routes[0].geometry.coordinates;
+        if(c && c.length > 1) return c.map(x => [x[1], x[0]]);
+      }catch(e){}
+      return [pos, dest];   // no router -- straight line
+    }
+
+    async function spawnJunk(n){
+      const [lat, lng] = pos || home();
+      for(let i = 0; i < n; i++){
+        const ang = Math.random() * Math.PI * 2, d = 120 + Math.random() * 380;   // a few blocks -- all on screen
+        const p = [lat + (d * Math.cos(ang)) / 111320, lng + (d * Math.sin(ang)) / (111320 * Math.cos(toRad(lat)))];
+        const at = await snap(p);
+        const e = JUNK[Math.floor(Math.random() * JUNK.length)];
+        junk.push({ at, marker: L.marker(at, { icon: junkIcon(e) }).addTo(map), e });
+      }
+    }
+    function checkJunk(){
+      junk = junk.filter(j => {
+        if(dist(pos, j.at) > 45) return true;
+        map.removeLayer(j.marker);
+        score++; $('kd_score').textContent = '⭐ ' + score;
+        beep([523, 659, 784], 0.12); burst(j.e + '✨');
+        say(['Great job!', 'You got it!', 'Junk picked up!', 'Awesome driving!'][score % 4]);
+        return false;
+      });
+      if(junk.length === 0) setTimeout(() => { say('You picked up all the junk! 🎉 Tap “More Junk” for more!'); burst('🎉'); }, 600);
+    }
+
+    async function driveTo(dest){
+      if(driving) return;
+      driving = true;
+      say('Vroom vroom! 🚚');
+      const path = await routeTo(dest);
+      let total = 0; const seg = [];
+      for(let i = 1; i < path.length; i++){ const d = dist(path[i-1], path[i]); seg.push(d); total += d; }
+      const duration = Math.max(1500, Math.min(9000, total * 2.2));
+      const start = performance.now();
+      await new Promise(done => {
+        function step(now){
+          const k = Math.min(1, (now - start) / duration);
+          let target = total * k, i = 0;
+          while(i < seg.length && target > seg[i]){ target -= seg[i]; i++; }
+          const a = path[Math.min(i, path.length - 1)], b = path[Math.min(i + 1, path.length - 1)];
+          const f = seg[i] ? target / seg[i] : 1;
+          const next = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+          if(Math.abs(next[1] - pos[1]) > 1e-7) truck.setIcon(truckIcon(next[1] < pos[1]));
+          pos = next; truck.setLatLng(pos); map.panTo(pos, { animate: false });
+          checkJunk();
+          if(k < 1) requestAnimationFrame(step); else done();
+        }
+        requestAnimationFrame(step);
+      });
+      driving = false;
+      if(junk.length) say('Tap the map to drive to the junk!');
+    }
+
+    window.startKidsDrive = async function(){
+      if(typeof L === 'undefined'){ say('The map couldn’t load — check the internet.'); return; }
+      if(map){ map.invalidateSize(); return; }
+      pos = home();
+      try{
+        const res = await fetch(`${API_BASE}/api/motive-locations`, { headers: authHeaders() });
+        const d = await res.json();
+        const t = (d.trucks || [])[0];
+        if(res.ok && t) pos = [t.lat, t.lon];
+      }catch(e){}
+      map = L.map('kd_map', { zoomControl: true }).setView(pos, 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19
+      }).addTo(map);
+      truck = L.marker(pos, { icon: truckIcon(false), zIndexOffset: 1000 }).addTo(map);
+      map.on('click', e => driveTo([e.latlng.lat, e.latlng.lng]));
+      $('kd_honk').addEventListener('click', honk);
+      $('kd_home').addEventListener('click', () => driveTo(home()));
+      $('kd_more').addEventListener('click', async () => { say('Here comes more junk!'); await spawnJunk(5); say('Tap the map to drive to the junk!'); });
+      await spawnJunk(5);
+      say('Tap anywhere on the map to drive!');
+    };
+  })();
 
   // ---- Employee Roster tile ----
   // The full roster (last two payroll weeks + manual additions), who's a
@@ -8332,6 +8527,9 @@
   document.getElementById('tile-opsmetrics').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('opsmetrics'); }});
   document.getElementById('tile-wingman').addEventListener('click', ()=> navigateTo('wingmanmetrics'));
   document.getElementById('tile-wingman').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('wingmanmetrics'); }});
+  document.getElementById('tile-kidsdrive').addEventListener('click', ()=> navigateTo('kidsdrive'));
+  document.getElementById('tile-kidsdrive').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('kidsdrive'); }});
+  document.getElementById('kidsDriveBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-roster').addEventListener('click', ()=> navigateTo('roster'));
   document.getElementById('tile-roster').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('roster'); }});
   document.getElementById('rosterBackBtn').addEventListener('click', ()=> history.back());
@@ -13374,6 +13572,11 @@
   }
   applyExtraPayPermission();
   window.applyExtraPayPermission = applyExtraPayPermission;
+  // "Just for Fun" (the Truck Driver game) only shows for admins.
+  (function(){
+    const sec = document.getElementById('dashSection-fun');
+    if(sec) sec.style.display = localStorage.getItem('henson_auth_role') === 'admin' ? '' : 'none';
+  })();
 
   // Reflects each collapsed section's own tiles' "needs attention" badges on
   // its header, so nothing important goes invisible just because a category
