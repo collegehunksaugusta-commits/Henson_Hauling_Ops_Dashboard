@@ -1733,7 +1733,7 @@
     document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
-    document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
+    document.getElementById('pti_date').value = driverLocalDate();
     renderPtiChecklist();
     ptiCapturedPhoto = null;
     document.getElementById('pti_photoPreviewWrap').style.display = 'none';
@@ -2188,9 +2188,26 @@
           <div style="font-weight:600; font-size:14px;">${driverEsc(i.nickname || i.description)}</div>
           ${i.supplierItemNumber ? `<div style="font-size:11.5px; color:var(--muted);">${driverEsc(i.supplierItemNumber)}</div>` : ''}
         </div>
-        <input type="number" min="0" step="1" class="${qtyClass}" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:8px; border:1px solid var(--line); border-radius:4px; text-align:center; font-size:15px;">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="${qtyClass} driver-qty" data-item-id="${i.id}" placeholder="0" style="width:70px; padding:8px; border:1px solid var(--line); border-radius:4px; text-align:center; font-size:15px;">
       </div>`).join('');
   }
+  // Quantity boxes are plain text with the number keypad: a strict number
+  // field silently empties itself when the phone sees something it can't
+  // parse ("2.", "1,5", a stray space), which made a typed quantity count as
+  // nothing. Here anything typed is kept to its digits.
+  // Today in the phone's own time zone (Augusta), as YYYY-MM-DD. The old
+  // toISOString() date was UTC -- already "tomorrow" from 8 PM (7 PM in
+  // winter) -- which filed evening checkouts/returns under the wrong day and
+  // made a finished Material Checkout look undone.
+  function driverLocalDate(){ return new Date().toLocaleDateString('en-CA'); }
+  function driverQty(input){ return parseInt(String(input && input.value || '').replace(/[^0-9]/g, ''), 10) || 0; }
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if(t && t.classList && t.classList.contains('driver-qty')){
+      const clean = String(t.value).replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+      if(clean !== t.value) t.value = clean;
+    }
+  });
   function loadDriverEodItems(){ return fetchDriverMaterialsItemsInto('eod_itemList', 'eod_noItemsNote', 'eod-qty'); }
   function loadDriverPtiMaterialsItems(){ return fetchDriverMaterialsItemsInto('pti_matco_itemList', 'pti_matco_noItemsNote', 'pti-matco-qty'); }
 
@@ -2240,7 +2257,7 @@
     const jobNumbers = document.getElementById('eod_jobNumbers').value
       .split(',').map(s => s.trim()).filter(Boolean);
     const returnedItems = Array.from(document.querySelectorAll('.eod-qty'))
-      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: driverQty(input) }))
       .filter(i => i.quantity > 0);
 
     if(returnedItems.length > 0 && jobNumbers.length === 0){
@@ -2255,7 +2272,7 @@
       const res = await fetch(API_BASE_AUTH + '/api/driver/eod-inspection', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
-        body: JSON.stringify({ truckId, truckNickname, jobNumbers, returnedItems, backPhoto: eodCapturedPhoto, date: new Date().toISOString().slice(0,10) })
+        body: JSON.stringify({ truckId, truckNickname, jobNumbers, returnedItems, backPhoto: eodCapturedPhoto, date: driverLocalDate() })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -2722,7 +2739,7 @@
       }
       statusEl.textContent = 'Submitting Material Checkout...';
       statusEl.className = 'status-msg';
-      const todayStr = new Date().toISOString().slice(0,10);
+      const todayStr = driverLocalDate();
       while(ptiLoggedMaterialsCheckouts.length > 0){
         const entry = ptiLoggedMaterialsCheckouts[0];
         try{
@@ -2782,7 +2799,7 @@
     const statusEl = document.getElementById('eod_submitStatus');
     const jobNumbers = document.getElementById('eod_jobNumbers').value.split(',').map(x => x.trim()).filter(Boolean);
     const returnedItems = Array.from(document.querySelectorAll('.eod-qty'))
-      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: driverQty(input) }))
       .filter(i => i.quantity > 0);
     if(returnedItems.length > 0 && jobNumbers.length === 0){
       statusEl.textContent = 'Enter at least one Job Number for the materials being returned.';
@@ -2795,7 +2812,7 @@
       const res = await fetch(API_BASE_AUTH + '/api/driver/materials-checkin', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()},
-        body: JSON.stringify({ jobNumbers, returnedItems, date: new Date().toISOString().slice(0,10) })
+        body: JSON.stringify({ jobNumbers, returnedItems, date: driverLocalDate() })
       });
       if(res.status === 401){ driverSessionExpired(); return; }
       const data = await res.json();
@@ -3818,7 +3835,7 @@
     const section = document.getElementById('pti_materialsSection');
     const alreadyDoneNote = document.getElementById('pti_materialsAlreadyDoneNote');
     try{
-      const today = new Date().toISOString().slice(0,10);
+      const today = driverLocalDate();
       const res = await fetch(API_BASE_AUTH + `/api/driver/materials-checkout-status?date=${today}`, {
         headers: {'Authorization': 'Bearer ' + driverToken, ...driverTaskHeader()}
       });
@@ -4094,7 +4111,7 @@
 
   function ptiMatcoCurrentItems(){
     return Array.from(document.querySelectorAll('.pti-matco-qty'))
-      .map(input => ({ itemId: input.dataset.itemId, quantity: Number(input.value) || 0 }))
+      .map(input => ({ itemId: input.dataset.itemId, quantity: driverQty(input) }))
       .filter(i => i.quantity > 0);
   }
 
@@ -4110,7 +4127,7 @@
       <div style="display:flex; justify-content:space-between; align-items:start; gap:10px; background:var(--offwhite); border-radius:6px; padding:10px 12px; margin-bottom:8px;">
         <div>
           <div style="font-weight:600; font-size:13.5px;">Job # ${driverLbEsc(entry.jobNumber)}</div>
-          <div style="font-size:12.5px; color:var(--muted);">${entry.items.map(it => `${it.quantity} ${driverLbEsc(ptiMatcoItemDescription(it.itemId))}`).join(', ')}</div>
+          <div style="font-size:12.5px; color:var(--muted);">${entry.items.length ? entry.items.map(it => `${it.quantity} ${driverLbEsc(ptiMatcoItemDescription(it.itemId))}`).join(', ') : 'Nothing taken'}</div>
         </div>
         <button type="button" class="pti-matco-remove-btn" data-index="${i}" style="background:none; border:none; color:#b3261e; font-size:12px; cursor:pointer; font-weight:600; flex-shrink:0;">Remove</button>
       </div>`
@@ -4131,18 +4148,16 @@
       statusEl.className = 'status-msg err';
       return;
     }
-    if(items.length === 0){
-      statusEl.textContent = 'Enter at least one quantity before logging.';
-      statusEl.className = 'status-msg err';
-      return;
-    }
+    // All zeros is a valid answer: nothing was taken for this job.
     ptiLoggedMaterialsCheckouts.push({ jobNumber, items });
     renderPtiMatcoLoggedList();
     document.getElementById('pti_matco_jobSelect').value = '';
     document.getElementById('pti_matco_jobOtherWrap').style.display = 'none';
     document.getElementById('pti_matco_jobOther').value = '';
     document.querySelectorAll('.pti-matco-qty').forEach(input => input.value = '');
-    statusEl.textContent = `Logged for Job # ${jobNumber}. Select another job if you have more, or submit below when done.`;
+    statusEl.textContent = items.length
+      ? `Logged for Job # ${jobNumber}. Select another job if you have more, or submit below when done.`
+      : `Logged Job # ${jobNumber} \u2014 nothing taken. Select another job if you have more, or submit below when done.`;
     statusEl.className = 'status-msg ok';
     savePtiDraft();
   });
@@ -4248,7 +4263,7 @@
     if(materialsSectionVisible && ptiLoggedMaterialsCheckouts.length > 0){
       statusEl.textContent = 'Submitting Materials Checkout...';
       statusEl.className = 'status-msg';
-      const todayStr = new Date().toISOString().slice(0,10);
+      const todayStr = driverLocalDate();
       for(const entry of ptiLoggedMaterialsCheckouts){
         try{
           const matcoRes = await fetch(API_BASE_AUTH + '/api/driver/materials-checkout', {
@@ -4291,7 +4306,7 @@
       statusEl.className = 'status-msg ok';
       document.getElementById('pti_odometer').value = '';
       document.getElementById('pti_additionalNotes').value = '';
-      document.getElementById('pti_date').value = new Date().toISOString().slice(0,10);
+      document.getElementById('pti_date').value = driverLocalDate();
       ptiLoggedMaterialsCheckouts = [];
       document.getElementById('pti_matco_loggedList').innerHTML = '';
       document.getElementById('pti_matco_jobSelect').value = '';
