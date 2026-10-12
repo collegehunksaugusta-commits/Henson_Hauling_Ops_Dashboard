@@ -8014,6 +8014,30 @@
         </div>
       </div>
 
+      <div class="setGroup" id="setGroup-financials" data-setgroup="financials">
+        <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-financials" aria-expanded="false" aria-controls="setGroupBody-financials">
+          <span class="dashSectionChevron">&#9656;</span>
+          <div class="dashSectionHeaderText">
+            <div class="dashSectionTitleRow">
+              <span class="dashSectionEmoji" aria-hidden="true">📊</span>
+              <span>Financials</span>
+              <span class="dashSectionCount">(1)</span>
+            </div>
+          </div>
+        </button>
+        <div class="dashSectionBody" id="setGroupBody-financials">
+        <div class="panel" id="set_financialMetricsPanel" data-collapsible="true">
+          <h3>Monthly Financials: Metrics Shown</h3>
+          <p class="form-note" style="margin-top:0;">Uncheck a metric to hide it from the Monthly Financials chart and yearly tables. Nothing is deleted &mdash; its numbers stay saved and are still captured from each P&amp;L, so checking it again brings its full history back.</p>
+          <div id="appset_financialMetricsList" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:8px; margin:6px 0 4px;"></div>
+          <div class="form-actions">
+            <button type="button" id="appset_financialMetricsSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-family:inherit;">Save</button>
+            <span class="status-msg" id="appset_financialMetricsStatus"></span>
+          </div>
+        </div>
+        </div>
+      </div>
+
       <div class="setGroup" id="setGroup-general" data-setgroup="general">
         <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-general" aria-expanded="false" aria-controls="setGroupBody-general">
           <span class="dashSectionChevron">&#9656;</span>
@@ -17087,6 +17111,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
     document.getElementById('appset_mileageRate').value = ((window.appSettings || {}).extraPay || {}).mileageRate || 0;
+    renderFinancialMetricsSettings();
 
     const select = document.getElementById('appset_opsManagerAssignment');
     let roster = [];
@@ -17105,6 +17130,39 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       `<option value="${settingsEsc(name)}" ${name === currentValue ? 'selected' : ''}>${settingsEsc(name)}</option>`
     ).join('');
   }
+
+  // Configuration -> Financials: which Monthly Financials metrics show.
+  function renderFinancialMetricsSettings(){
+    const list = document.getElementById('appset_financialMetricsList');
+    if(!list || !window.MF_METRICS) return;
+    const hidden = (((window.appSettings || {}).financials || {}).hiddenMetrics) || [];
+    list.innerHTML = window.MF_METRICS.map(m => `
+      <label style="display:flex; align-items:center; gap:10px; margin:0; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:#fff; cursor:pointer;">
+        <input type="checkbox" class="fin-metric-cb" data-key="${m.key}" ${hidden.includes(m.key) ? '' : 'checked'} style="width:18px; height:18px; margin:0;">
+        <span style="flex:1;"><span style="font-weight:600; font-size:14px;">${settingsEsc(m.label)}</span><span style="display:block; font-size:11.5px; color:var(--muted);">${settingsEsc(m.where)}</span></span>
+      </label>`).join('');
+  }
+  window.renderFinancialMetricsSettings = renderFinancialMetricsSettings;
+  // Drawn whenever the Financials section is opened, so it never depends on
+  // the rest of Configuration having loaded first.
+  document.getElementById('setGroupHeader-financials').addEventListener('click', async () => {
+    try{ await ensureAppSettingsLoaded(); }catch(err){}
+    renderFinancialMetricsSettings();
+  });
+  document.getElementById('appset_financialMetricsSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_financialMetricsStatus');
+    const hiddenMetrics = [...document.querySelectorAll('.fin-metric-cb')].filter(cb => !cb.checked).map(cb => cb.dataset.key);
+    statusEl.textContent = 'Saving...'; statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { financials: { hiddenMetrics } } }) });
+      if(handleAuthFailure(res)) return;
+      const d = await res.json();
+      if(!res.ok){ statusEl.textContent = d.error || 'Could not save.'; statusEl.className = 'status-msg err'; return; }
+      window.appSettings.financials = Object.assign({}, window.appSettings.financials, { hiddenMetrics });
+      statusEl.textContent = hiddenMetrics.length ? `Saved \u2014 ${hiddenMetrics.length} metric${hiddenMetrics.length === 1 ? '' : 's'} hidden.` : 'Saved \u2014 all metrics shown.';
+      statusEl.className = 'status-msg ok';
+    }catch(err){ statusEl.textContent = 'Could not reach the server \u2014 check your connection.'; statusEl.className = 'status-msg err'; }
+  });
 
   document.getElementById('appset_mileageRateSaveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('appset_mileageRateStatus');
@@ -23442,7 +23500,24 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
   }
 
+  // Every metric Monthly Financials tracks, and where it shows. Any can be
+  // switched off in Configuration -> Financials.
+  const MF_METRICS = [
+    { key: 'revenue', label: 'Total Revenue', where: 'Chart & tables' },
+    { key: 'labor', label: 'Total Hunk Team Payroll Cost', where: 'Chart & tables' },
+    { key: 'grossProfit', label: 'Gross Profit', where: 'Chart & tables' },
+    { key: 'operatingProfit', label: 'Operating Profit', where: 'Chart & tables' },
+    { key: 'ebit', label: 'EBIT', where: 'Chart & tables' },
+    { key: 'ownerWagesNetIncome', label: 'Owner Wages + Net Income', where: 'Chart line & badge' },
+    { key: 'ownerWages', label: 'Owner Wages', where: 'Tables' },
+    { key: 'netIncome', label: 'Net Income', where: 'Tables' },
+    { key: 'totalEquity', label: 'Total Equity', where: 'Chart & tables' }
+  ];
+  window.MF_METRICS = MF_METRICS;
+  const mfShown = key => !((((window.appSettings || {}).financials || {}).hiddenMetrics) || []).includes(key);
+
   async function loadMonthlyFinancialsData(){
+    try{ await ensureAppSettingsLoaded(); }catch(err){}
     try{
       monthlyFinancialsRecords = await window.dashboardApi.get(MONTHLY_FINANCIALS_KEY, []) || [];
       renderMonthlyFinancialsChart();
@@ -23511,22 +23586,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const monthsOfYear = MF_MONTH_ABBR.map((_, i) => byMonthKey[`${mfSelectedYear}-${String(i+1).padStart(2,'0')}`] || null);
 
     const datasets = [
-      { label: 'Total Revenue', data: mfCumulative(monthsOfYear.map(r => r ? r.revenue : null)), borderColor: '#2E5C8A', backgroundColor: '#2E5C8A' },
-      { label: 'Total Hunk Team Payroll Cost', data: mfCumulative(monthsOfYear.map(r => r ? r.labor : null)), borderColor: '#C1392B', backgroundColor: '#C1392B' },
-      { label: 'Gross Profit', data: mfCumulative(monthsOfYear.map(r => r ? r.grossProfit : null)), borderColor: '#00843D', backgroundColor: '#00843D' },
-      { label: 'Operating Profit', data: mfCumulative(monthsOfYear.map(r => r ? r.operatingProfit : null)), borderColor: '#17A398', backgroundColor: '#17A398' },
-      { label: 'EBIT', data: mfCumulative(monthsOfYear.map(r => r ? r.ebit : null)), borderColor: '#F2A900', backgroundColor: '#F2A900' },
+      { key: 'revenue', label: 'Total Revenue', data: mfCumulative(monthsOfYear.map(r => r ? r.revenue : null)), borderColor: '#2E5C8A', backgroundColor: '#2E5C8A' },
+      { key: 'labor', label: 'Total Hunk Team Payroll Cost', data: mfCumulative(monthsOfYear.map(r => r ? r.labor : null)), borderColor: '#C1392B', backgroundColor: '#C1392B' },
+      { key: 'grossProfit', label: 'Gross Profit', data: mfCumulative(monthsOfYear.map(r => r ? r.grossProfit : null)), borderColor: '#00843D', backgroundColor: '#00843D' },
+      { key: 'operatingProfit', label: 'Operating Profit', data: mfCumulative(monthsOfYear.map(r => r ? r.operatingProfit : null)), borderColor: '#17A398', backgroundColor: '#17A398' },
+      { key: 'ebit', label: 'EBIT', data: mfCumulative(monthsOfYear.map(r => r ? r.ebit : null)), borderColor: '#F2A900', backgroundColor: '#F2A900' },
       // Combined, not a raw ledger figure -- dashed to visually set it apart
       // from the four lines that come straight off the books.
-      { label: 'Owner Wages + Net Income', data: mfCumulative(monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null)), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] },
+      { key: 'ownerWagesNetIncome', label: 'Owner Wages + Net Income', data: mfCumulative(monthsOfYear.map(r => r ? (Number(r.ownerWages)||0) + (Number(r.netIncome)||0) : null)), borderColor: '#7A4FA3', backgroundColor: '#7A4FA3', borderDash: [4,3] },
       // NOT run through mfCumulative -- Total Equity is a point-in-time
       // balance sheet snapshot as of each month's end, not a monthly flow
       // like the other lines. Summing several months' snapshots together
       // would be a meaningless number, unlike summing several months'
       // revenue. Dotted (not dashed) to visually mark it as a different
       // kind of figure again from the derived Owner Wages + Net Income line.
-      { label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] }
-    ].map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
+      { key: 'totalEquity', label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] }
+    ].filter(ds => mfShown(ds.key))   // metrics switched off in Configuration -> Financials
+     .map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
 
     // Shows the latest Owner Wages + Net Income figure in a plain HTML
     // badge above the chart, rather than drawing a callout box on the
@@ -23548,7 +23624,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           if(owNiValues[i] != null){ lastOwNiIndex = i; break; }
         }
       }
-      if(lastOwNiIndex !== -1){
+      if(lastOwNiIndex !== -1 && mfShown('ownerWagesNetIncome')){
         calloutEl.textContent = `Owner Wages + Net Income (through ${MF_MONTH_ABBR[lastOwNiIndex]}): ${mfMoney(datasets[owNiDatasetIndex].data[lastOwNiIndex])}`;
         calloutEl.style.display = 'inline-block';
       } else {
@@ -23626,14 +23702,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <thead>
               <tr>
                 <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line);">Month</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Revenue</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Hunk Team Payroll Cost</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Gross Profit</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Operating Profit</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">EBIT</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Owner Wages</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>
-                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Equity</th>
+${mfShown('revenue') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Revenue</th>` : ''}
+${mfShown('labor') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Hunk Team Payroll Cost</th>` : ''}
+${mfShown('grossProfit') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Gross Profit</th>` : ''}
+${mfShown('operatingProfit') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Operating Profit</th>` : ''}
+${mfShown('ebit') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">EBIT</th>` : ''}
+${mfShown('ownerWages') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Owner Wages</th>` : ''}
+${mfShown('netIncome') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>` : ''}
+${mfShown('totalEquity') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Equity</th>` : ''}
                 <th style="border-bottom:2px solid var(--line);"></th>
               </tr>
             </thead>
@@ -23641,14 +23717,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
               ${rows.map(r => `
               <tr>
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line);">${mfMonthLabel(r.month)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.revenue)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.labor)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.grossProfit)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.operatingProfit)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ebit)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ownerWages)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.totalEquity)}</td>
+                ${mfShown('revenue') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.revenue)}</td>` : ''}
+                ${mfShown('labor') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.labor)}</td>` : ''}
+                ${mfShown('grossProfit') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.grossProfit)}</td>` : ''}
+                ${mfShown('operatingProfit') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.operatingProfit)}</td>` : ''}
+                ${mfShown('ebit') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ebit)}</td>` : ''}
+                ${mfShown('ownerWages') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ownerWages)}</td>` : ''}
+                ${mfShown('netIncome') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>` : ''}
+                ${mfShown('totalEquity') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.totalEquity)}</td>` : ''}
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;">
                   <button type="button" class="mf-edit" data-month="${r.month}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
                   <button type="button" class="mf-delete" data-month="${r.month}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
@@ -23656,14 +23732,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
               </tr>`).join('')}
               <tr style="font-weight:600; background:#faf8f3;">
                 <td style="padding:6px 8px; border-top:2px solid var(--line);">${year} Total</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.revenue)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.labor)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.grossProfit)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.operatingProfit)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ebit)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ownerWages)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>
-                <td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;" title="Year-end balance, not a sum -- Total Equity is a point-in-time figure">${mfMoney(latestEquity)}</td>
+                ${mfShown('revenue') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.revenue)}</td>` : ''}
+                ${mfShown('labor') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.labor)}</td>` : ''}
+                ${mfShown('grossProfit') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.grossProfit)}</td>` : ''}
+                ${mfShown('operatingProfit') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.operatingProfit)}</td>` : ''}
+                ${mfShown('ebit') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ebit)}</td>` : ''}
+                ${mfShown('ownerWages') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ownerWages)}</td>` : ''}
+                ${mfShown('netIncome') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>` : ''}
+                ${mfShown('totalEquity') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;" title="Year-end balance, not a sum -- Total Equity is a point-in-time figure">${mfMoney(latestEquity)}</td>` : ''}
                 <td style="border-top:2px solid var(--line);"></td>
               </tr>
             </tbody>
