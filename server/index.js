@@ -3539,6 +3539,58 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
   }
 });
 
+// ============ D&A backfill (Monthly Financials) ============
+// Reads depreciation and amortization for EVERY month a report shows (e.g.
+// an ACUTE report's 12-month monthly detail), so past months can get their
+// D&A filled in without touching any of their other figures.
+const EXTRACT_DA_HISTORY_TOOL = {
+  name: 'extract_da_history',
+  description: 'Depreciation and amortization expense for every month shown in a financial report.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      months: { type: 'array', items: { type: 'object', properties: {
+        month: { type: 'string', description: 'YYYY-MM' },
+        depreciation: { type: 'number', description: 'Total depreciation expense that month (sum of all depreciation lines), 0 if none.' },
+        amortization: { type: 'number', description: 'Total amortization expense that month (sum of all amortization lines, e.g. franchise fee amortization), 0 if none.' },
+        linesAsPrinted: { type: 'string', description: 'The labels of the lines used, exactly as printed.' }
+      }, required: ['month', 'depreciation', 'amortization', 'linesAsPrinted'] },
+      description: 'One entry per individual month column shown (not YTD or total columns).' },
+      confident: { type: 'boolean' }
+    },
+    required: ['months', 'confident']
+  }
+};
+app.post('/api/admin/extract-da-history', requireAuth, requireAdmin, async (req, res) => {
+  const { images, pageTexts } = req.body || {};
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'AI is not configured on this server.' });
+  if (!Array.isArray(images) || images.length === 0 || images.length > 80) return res.status(400).json({ error: 'Upload a report of 1\u201380 pages.' });
+  try {
+    const texts = Array.isArray(pageTexts) ? pageTexts.map(t => (typeof t === 'string' ? t : '')) : [];
+    const useText = texts.length === images.length && texts.reduce((n, t) => n + t.length, 0) > 50;
+    const content = useText
+      ? [{ type: 'text', text: texts.map((t, i) => `--- PAGE ${i} ---\n${t}`).join('\n\n') }]
+      : images.map(u => { const m = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(u || ''); return m ? { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } } : null; }).filter(Boolean);
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, tools: [EXTRACT_DA_HISTORY_TOOL], tool_choice: { type: 'tool', name: 'extract_da_history' },
+        messages: [{ role: 'user', content: [...content, { type: 'text', text: 'This is a monthly financial report for a small business. Find the income statement / P&L detail that shows individual month columns (management reports often include a trailing 12-month monthly detail). For EACH individual month column, add up every Depreciation line and every Amortization line (e.g. "Amortization - Franchise Fee", "Depreciation Expense"). Ignore YTD, quarter, total, budget, and prior-year comparison columns. If the report only shows a single month, return just that month.' }] }] })
+    });
+    if (!r.ok) { console.error('D&A history read failed:', r.status, (await r.text().catch(() => '')).slice(0, 300)); return res.status(502).json({ error: 'Could not read the report right now \u2014 try again.' }); }
+    const d = await r.json();
+    const block = (d.content || []).find(b => b.type === 'tool_use' && b.name === 'extract_da_history');
+    const months = ((block && block.input && block.input.months) || [])
+      .filter(m => /^\d{4}-\d{2}$/.test(m.month || ''))
+      .map(m => ({ month: m.month, depreciation: Math.round(Math.max(0, Number(m.depreciation) || 0) * 100) / 100, amortization: Math.round(Math.max(0, Number(m.amortization) || 0) * 100) / 100, linesAsPrinted: String(m.linesAsPrinted || '').slice(0, 400) }));
+    console.log(`[da-history] read ${months.length} month(s)`);
+    res.json({ months, confident: !!(block && block.input && block.input.confident) });
+  } catch (err) {
+    console.error('D&A history read failed:', err.message);
+    res.status(500).json({ error: 'Could not read the report.' });
+  }
+});
+
 // ============ Business valuation estimate (Monthly Financials) ============
 // Trailing-12-month figures and Seller's Discretionary Earnings (SDE) are
 // computed here from the saved monthly P&Ls; Claude only judges the SDE
@@ -3573,14 +3625,22 @@ function valuationFigures(records, inputs) {
   const scale = last12.length && last12.length < 12 ? 12 / last12.length : 1;   // annualize a short history
   const ttm = {};
   ['revenue', 'labor', 'grossProfit', 'operatingProfit', 'ebit', 'ownerWages', 'netIncome'].forEach(k => { ttm[k] = Math.round(sum(last12, k) * scale); });
-  const da = Math.max(0, Number(inputs.depreciationAmortization) || 0);
+  // D&A: the owner's override if entered, otherwise the saved months' own
+  // D&A (filled in by the P&L reader or the D&A backfill).
+  const monthsWithDA = last12.filter(r => r.depreciationAmortization != null && r.depreciationAmortization !== '');
+  // D&A is steady month to month, so a year is the monthly average x 12
+  // (covers months whose D&A hasn't been filled in yet).
+  const daFromMonths = monthsWithDA.length ? Math.round(sum(monthsWithDA, 'depreciationAmortization') / monthsWithDA.length * 12) : 0;
+  const daOverride = inputs.depreciationAmortization;
+  const da = daOverride != null ? Math.max(0, Number(daOverride) || 0) : daFromMonths;
   const oneTime = Math.max(0, Number(inputs.oneTimeExpenses) || 0);
   const sde = ttm.ebit + ttm.ownerWages + da + oneTime;
   const priorRevenue = prior12.length === 12 ? sum(prior12, 'revenue') : null;
   const latest = months[months.length - 1] || null;
   return {
     monthsUsed: last12.length, firstMonth: last12[0] ? last12[0].month : null, lastMonth: latest ? latest.month : null, annualized: scale !== 1,
-    ttm, addBacks: { ownerWages: ttm.ownerWages, depreciationAmortization: da, oneTimeExpenses: oneTime },
+    ttm, addBacks: { ownerWages: ttm.ownerWages, depreciationAmortization: da, oneTimeExpenses: oneTime,
+      daSource: daOverride != null ? 'entered' : !monthsWithDA.length ? 'none on file yet' : monthsWithDA.length === 12 ? 'saved P&Ls, 12 months' : `saved P&Ls, ${monthsWithDA.length}-month average \u00d7 12` },
     sde: Math.round(sde),
     revenueGrowthPct: priorRevenue ? Math.round((ttm.revenue - priorRevenue) / priorRevenue * 1000) / 10 : null,
     totalEquity: latest ? Number(latest.totalEquity) || 0 : null,
@@ -3603,7 +3663,8 @@ app.post('/api/admin/business-valuation', requireAuth, requireAdmin, async (req,
     managerRunsDayToDay: !!b.managerRunsDayToDay,
     franchiseExpiresYear: Number(b.franchiseExpiresYear) || null,
     openedMonth: /^\d{4}-\d{2}$/.test(b.openedMonth || '') ? b.openedMonth : '',
-    depreciationAmortization: Math.max(0, Number(b.depreciationAmortization) || 0),
+    // Blank = use the saved months' D&A; a number = an override.
+    depreciationAmortization: (b.depreciationAmortization === '' || b.depreciationAmortization == null) ? null : Math.max(0, Number(b.depreciationAmortization) || 0),
     oneTimeExpenses: Math.max(0, Number(b.oneTimeExpenses) || 0),
     notes: String(b.notes || '').slice(0, 1500)
   };
@@ -3617,7 +3678,7 @@ app.post('/api/admin/business-valuation', requireAuth, requireAdmin, async (req,
       `${inputs.openedMonth ? 'Opened ' + inputs.openedMonth + '; ' : ''}${f.monthsOnRecord} months of P&L on file (first ${f.firstOnFile}).`,
       `Trailing ${f.monthsUsed} months (${f.firstMonth} to ${f.lastMonth})${f.annualized ? ', annualized to 12 months' : ''}: revenue $${f.ttm.revenue.toLocaleString()}, crew payroll $${f.ttm.labor.toLocaleString()}, gross profit $${f.ttm.grossProfit.toLocaleString()}, operating profit $${f.ttm.operatingProfit.toLocaleString()}, EBIT $${f.ttm.ebit.toLocaleString()}, owner wages $${f.ttm.ownerWages.toLocaleString()}, net income $${f.ttm.netIncome.toLocaleString()}.`,
       `Revenue growth vs the prior 12 months: ${f.revenueGrowthPct === null ? 'not enough history' : f.revenueGrowthPct + '%'}.`,
-      `SDE (computed): $${f.sde.toLocaleString()} = EBIT + owner wages + depreciation/amortization ($${inputs.depreciationAmortization.toLocaleString()}) + one-time expenses ($${inputs.oneTimeExpenses.toLocaleString()}).`,
+      `SDE (computed): $${f.sde.toLocaleString()} = EBIT + owner wages + depreciation/amortization ($${f.addBacks.depreciationAmortization.toLocaleString()}, from ${f.addBacks.daSource}) + one-time expenses ($${inputs.oneTimeExpenses.toLocaleString()}).`,
       `Owner involvement: about ${inputs.ownerHoursPerWeek} hours/week. ${inputs.managerRunsDayToDay ? 'A paid Operations Manager (already in the expenses) runs day-to-day operations, so a buyer would not need to replace the owner\u2019s labor.' : 'The owner still runs day-to-day operations.'}`,
       `Systems: a custom operations platform built for this business \u2014 a crew mobile app (pre-trip and end-of-day inspections, materials checkout, damage photos, weight tickets, tips/expenses/mileage), DOT/driver compliance tracking, automated weekly commission and extra-pay calculation tied to labor efficiency, damage-claim workflow with AI reimbursement recommendations, AI work-order paperwork generation, captain/wingman/ops-manager performance scorecards, materials inventory with shrinkage tracking, and monthly financial tracking. It documents the operation so a manager or new owner can run it with little owner involvement.`,
       inputs.franchiseExpiresYear ? `Franchise agreement expires ${inputs.franchiseExpiresYear} (about ${inputs.franchiseExpiresYear - new Date().getFullYear()} years left); a buyer would need franchisor approval and likely a transfer fee.` : 'Franchise agreement term not provided.',
@@ -5110,6 +5171,8 @@ const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
       netIncomeLineAsPrinted: { type: 'string', description: 'The complete text of the line the net income figure was read from, exactly as printed, including enough surrounding text (e.g. a nearby column header) to show this is the reporting month\u2019s own figure and not a YTD or trailing-table total. Empty string if no such line exists; in that case netIncome must be 0.' },
       totalEquity: { type: 'number', description: 'Total equity as of the end of the reporting month, in dollars, read from a "Balance Sheet" or "Balance Sheet Detailed" section -- a completely different statement from the Income Statement/P&L that the other fields above come from, usually appearing later in the document. Read ONLY from a line explicitly labeled "Total Equity" (it typically appears as the last line of an "EQUITY" section, just above a "Total Liabilities & Equity" line that should equal Total Assets). Do NOT confuse this with "Total Other Equity", a smaller sub-total that often appears just one or two lines above it in the same section -- that is a different, smaller figure, not the one wanted here. Unlike the P&L fields above, this is a point-in-time balance, not a monthly flow -- use the reporting month\u2019s own column (usually the first/leftmost dollar column in that table). Never calculate this yourself as Total Assets minus Total Liabilities -- report 0 if no explicitly labeled "Total Equity" line is present.' },
       totalEquityLineAsPrinted: { type: 'string', description: 'The complete text of the line the total equity figure was read from, exactly as printed. Empty string if no such line exists; in that case totalEquity must be 0.' },
+      depreciationAmortization: { type: 'number', description: 'Depreciation PLUS amortization expense for the reporting month, in dollars: add together every expense line for the reporting month labeled Depreciation, Amortization, "Depreciation & Amortization", or similar (e.g. "Amortization - Franchise Fee", "Depreciation Expense - Vehicles"). Reporting month\u2019s own column only. 0 if no such lines.' },
+      depreciationAmortizationLinesAsPrinted: { type: 'string', description: 'The complete text of every line added into depreciationAmortization, exactly as printed. Empty string if none.' },
       confident: { type: 'boolean', description: 'True only if periodFound is true, the month/period was clearly identifiable, AND at least Revenue and Net Income were both read clearly from explicitly labeled lines for the correct reporting month specifically (not a YTD or other-month figure mistaken for it). False otherwise, including whenever periodFound is false or the month couldn\u2019t be determined.' }
     },
     required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'operatingProfit', 'ebit', 'ownerWages', 'netIncome', 'totalEquity', 'confident']
