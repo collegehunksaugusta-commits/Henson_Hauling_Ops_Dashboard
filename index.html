@@ -559,7 +559,7 @@
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
         <span style="display:block; font-size:18px; font-weight:800; color:var(--brand-green-dark);">My Money</span>
-        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips and pay &middot; tap to open</span>
+        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips and expenses &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
     </button>
@@ -671,7 +671,7 @@
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
         <span style="display:block; font-size:18px; font-weight:800; color:var(--brand-green-dark);">My Money</span>
-        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips and pay &middot; tap to open</span>
+        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips and expenses &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
     </button>
@@ -735,6 +735,36 @@
         <div id="moneyTipsTotal" style="font-size:30px; font-weight:800; color:var(--brand-green-dark);">&mdash;</div>
       </div>
       <div id="moneyTipsList" style="margin-top:10px; border-top:1px solid var(--line); padding-top:8px;"></div>
+    </div>
+
+    <div class="panel" id="moneyExpensesPanel" style="border:2px solid var(--brand-orange);">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div>
+          <div style="font-size:13px; font-weight:700; color:var(--brand-orange-dark); letter-spacing:.03em;">&#129534; EXPENSES</div>
+          <div style="font-size:12px; color:var(--muted); margin-top:2px;">Paid for something for work? Snap the receipt to get reimbursed.</div>
+        </div>
+      </div>
+      <button type="button" id="expAddBtn" style="width:100%; margin-top:12px; padding:14px; font-size:16px; font-weight:800; background:var(--brand-orange); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Add Expense</button>
+      <div id="expForm" style="display:none; margin-top:12px; border-top:1px solid var(--line); padding-top:12px;">
+        <div style="display:flex; gap:12px; align-items:flex-start;">
+          <img id="expPhotoPreview" alt="Receipt" style="width:84px; height:112px; object-fit:cover; border-radius:6px; border:1px solid var(--line);">
+          <div style="flex:1;" id="expReadStatus" class="status-msg"></div>
+        </div>
+        <div id="expFields" style="display:none; margin-top:10px;">
+          <label style="display:block; margin-bottom:8px; font-size:13px;">Store <input type="text" id="expMerchant" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
+          <div style="display:flex; gap:10px;">
+            <label style="flex:1; margin-bottom:8px; font-size:13px;">Date <input type="date" id="expDate" style="display:block; width:100%; margin-top:3px; padding:8px; font-size:15px;"></label>
+            <label style="flex:1; margin-bottom:8px; font-size:13px;">Total ($) <input type="text" inputmode="decimal" id="expTotal" autocomplete="off" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:17px; font-weight:700;"></label>
+          </div>
+          <label style="display:block; margin-bottom:8px; font-size:13px;">Category <select id="expCategory" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></select></label>
+          <label style="display:block; margin-bottom:8px; font-size:13px;">What was it? <input type="text" id="expDescription" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
+          <label style="display:block; margin-bottom:10px; font-size:13px;">Note for the office (optional) <input type="text" id="expNote" placeholder="e.g. Fuel for truck 2 on the Savannah move" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
+          <button type="button" id="expSubmitBtn" style="width:100%; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit for Approval</button>
+          <button type="button" id="expCancelBtn" style="width:100%; margin-top:8px; padding:10px; font-size:14px; background:#fff; color:var(--charcoal); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Cancel</button>
+          <p class="status-msg" id="expSubmitStatus" style="margin:8px 0 0;"></p>
+        </div>
+      </div>
+      <div id="expList" style="margin-top:12px;"></div>
     </div>
   </div>
 
@@ -1441,9 +1471,112 @@
       </div>`).join('') : '<div style="font-size:13px; color:var(--muted); padding:4px 0;">No tips allocated to you yet this week.</div>')
       + '<div style="font-size:11.5px; color:var(--muted); margin-top:8px;">Tips show up here once the office allocates them to the crew. Paid with this week\u2019s Extra Pay.</div>';
   }
+  // ---- My Money -> Expenses ----
+  // Snap a receipt; the server reads it with AI; he checks the fields and
+  // submits; the office approves in Manager Review; approved expenses are
+  // paid in that week's Extra Pay.
+  let expPhoto = null, expAiRead = null;
+  const expBase = () => API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman' : '/api/driver');
+  const expMoney = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  async function loadMyExpenses(){
+    try{
+      const res = await fetch(expBase() + '/expenses', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      if(!res.ok) return;
+      const d = await res.json();
+      const cat = document.getElementById('expCategory');
+      if(!cat.options.length) cat.innerHTML = (d.categories || []).map(c => `<option>${driverEsc(c)}</option>`).join('');
+      const short = x => x ? new Date(x + (x.length === 10 ? 'T00:00:00' : '')).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+      const pill = e => e.status === 'approved' ? `<span style="background:#EAF6EE; color:var(--brand-green-dark); padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Approved${e.payWeek ? ' \u00b7 paid wk of ' + short(e.payWeek) : ''}</span>`
+        : e.status === 'denied' ? `<span style="background:#fdecea; color:#b3261e; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Denied</span>`
+        : `<span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Pending</span>`;
+      document.getElementById('expList').innerHTML = (d.expenses || []).length ? d.expenses.map(e => `
+        <div style="display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:14px;">
+          <div><strong>${driverEsc(e.merchant || 'Receipt')}</strong> \u00b7 ${short(e.date) || short(e.submittedAt.slice(0,10))}
+            <div style="font-size:12px; color:var(--muted);">${driverEsc(e.category)}${e.description ? ' \u2014 ' + driverEsc(e.description) : ''}</div>
+            <div style="margin-top:3px;">${pill(e)}</div>
+            ${e.status === 'denied' && e.denyReason ? `<div style="font-size:12px; color:#b3261e; margin-top:3px;">${driverEsc(e.denyReason)}</div>` : ''}
+          </div>
+          <div style="font-weight:800; white-space:nowrap; color:${e.status === 'denied' ? 'var(--muted)' : 'var(--charcoal)'}; ${e.status === 'denied' ? 'text-decoration:line-through;' : ''}">${expMoney(e.status === 'approved' && e.approvedAmount != null ? e.approvedAmount : e.total)}</div>
+        </div>`).join('') : '<div style="font-size:13px; color:var(--muted); border-top:1px solid var(--line); padding-top:8px;">No expenses submitted yet.</div>';
+    }catch(err){}
+  }
+  function expReset(){
+    expPhoto = null; expAiRead = null;
+    document.getElementById('expForm').style.display = 'none';
+    document.getElementById('expFields').style.display = 'none';
+    ['expMerchant','expDate','expTotal','expDescription','expNote'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('expSubmitStatus').textContent = '';
+    document.getElementById('expAddBtn').style.display = 'block';
+  }
+  document.getElementById('expAddBtn').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*'; input.setAttribute('capture', 'environment');
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if(!file) return;
+      const statusEl = document.getElementById('expReadStatus');
+      document.getElementById('expAddBtn').style.display = 'none';
+      document.getElementById('expForm').style.display = 'block';
+      document.getElementById('expFields').style.display = 'none';
+      statusEl.textContent = 'Reading the receipt\u2026'; statusEl.className = 'status-msg';
+      try{
+        expPhoto = await window.compressImageForUpload(file, 1600, 0.82);
+        document.getElementById('expPhotoPreview').src = expPhoto;
+        const res = await fetch(expBase() + '/expense/read', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ photo: expPhoto }) });
+        if(res.status === 401){ driverSessionExpired(); return; }
+        const r = await res.json();
+        if(!res.ok) throw new Error(r.error || 'read failed');
+        expAiRead = r;
+        document.getElementById('expMerchant').value = r.merchant || '';
+        document.getElementById('expDate').value = r.date || driverLocalDate();
+        document.getElementById('expTotal').value = r.total ? Number(r.total).toFixed(2) : '';
+        document.getElementById('expCategory').value = r.category || 'Other';
+        document.getElementById('expDescription').value = r.description || '';
+        statusEl.textContent = !r.isReceipt ? 'That doesn\u2019t look like a receipt \u2014 fill in the details, or retake the photo.'
+          : (r.confident ? 'Read it! Check the details below, then submit.' : 'Parts were hard to read \u2014 please check the total and date.');
+        statusEl.className = 'status-msg ' + (r.isReceipt && r.confident ? 'ok' : 'err');
+      }catch(err){
+        statusEl.textContent = 'Couldn\u2019t read it automatically \u2014 fill in the details below.';
+        statusEl.className = 'status-msg err';
+        document.getElementById('expDate').value = driverLocalDate();
+      }
+      document.getElementById('expFields').style.display = 'block';
+    });
+    input.click();
+  });
+  document.getElementById('expCancelBtn').addEventListener('click', expReset);
+  document.getElementById('expSubmitBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById('expSubmitStatus');
+    const total = Math.round((parseFloat(String(document.getElementById('expTotal').value).replace(/[^0-9.]/g, '')) || 0) * 100) / 100;
+    if(!expPhoto){ statusEl.textContent = 'Take a photo of the receipt first.'; statusEl.className = 'status-msg err'; return; }
+    if(!(total > 0)){ statusEl.textContent = 'Enter the receipt total.'; statusEl.className = 'status-msg err'; return; }
+    btn.disabled = true;
+    statusEl.textContent = 'Submitting\u2026'; statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(expBase() + '/expense', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+        body: JSON.stringify({ photo: expPhoto, merchant: document.getElementById('expMerchant').value.trim(), date: document.getElementById('expDate').value,
+          total, category: document.getElementById('expCategory').value, description: document.getElementById('expDescription').value.trim(),
+          note: document.getElementById('expNote').value.trim(), aiRead: expAiRead }) });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || 'submit failed');
+      expReset();
+      await loadMyExpenses();
+      const list = document.getElementById('expList');
+      list.insertAdjacentHTML('afterbegin', '<p class="status-msg ok" style="margin:0 0 6px;">\u2713 Sent to the office for approval.</p>');
+    }catch(err){
+      statusEl.textContent = err.message && err.message !== 'submit failed' ? err.message : 'Couldn\u2019t submit \u2014 check your connection and try again.';
+      statusEl.className = 'status-msg err';
+    }finally{ btn.disabled = false; }
+  });
+
   function showMyMoney(){
     showOnlyDriverGateView('driverMoneyView');
     loadMyTips();
+    expReset();
+    loadMyExpenses();
   }
   document.querySelectorAll('.my-money-tile').forEach(t => t.addEventListener('click', showMyMoney));
   document.getElementById('moneyBackBtn').addEventListener('click', () => driverRole === 'wingman' ? showWingmanMenu() : showDriverMenu());
@@ -6056,6 +6189,7 @@
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="expenses" id="mgrreview_tab_expenses" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Expenses <span id="mgrreview_expensesTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="damageclaims" id="mgrreview_tab_damageclaims" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Damage Claims <span id="mgrreview_damageClaimsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving <span id="mgrreview_movingTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="greviews" id="mgrreview_tab_greviews" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Google Reviews <span id="mgrreview_greviewsTabCount"></span></button>
@@ -6283,6 +6417,14 @@
       .dc-btn.danger{ border:none; background:none; color:#b3261e; font-weight:500; text-decoration:underline; margin-left:auto; }
     </style>
     <input type="file" id="dc_addPhotosInput" accept="image/*" multiple style="display:none;">
+    <div class="panel" id="mgrreview_panel_expenses" style="display:none;">
+      <h3>Expenses</h3>
+      <p class="form-note" style="margin-top:0;">Receipts the crew submitted from the HUNK Portal (My Money &rarr; Expenses). AI read each receipt and the employee checked it. Correct the amount if needed, then <strong>Approve</strong> &mdash; approved expenses are paid in this week&rsquo;s Extra Pay (Expenses column) &mdash; or <strong>Deny</strong> with a reason the employee will see.</p>
+      <div id="exp_pendingList"></div>
+      <h4 style="margin:18px 0 6px; font-size:13px; color:var(--muted);">Decided in the last 30 days</h4>
+      <div id="exp_decidedList"></div>
+    </div>
+
     <div id="mgrreview_panel_damageclaims" style="display:none;">
       <p class="form-note" style="margin-top:0;">Send a client a secure link to upload photos of moving damage, and track each claim through to resolution. <strong style="color:#b3261e;">Counted on this tab</strong> = a client has uploaded photos that haven&rsquo;t been looked at yet. Tip: <strong>Start Damage Claim</strong> on a flagged job in the Moving tab fills in the job for you.</p>
     <div class="panel" id="dcNewClaimPanel">
@@ -11011,7 +11153,7 @@
       const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
 
       const reviewBonusRate = Number(commission.reviewBonusPerReview) || 0;
-      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations, damageClaimsForPay] = await Promise.all([
+      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations, damageClaimsForPay, expenseClaimsForPay] = await Promise.all([
         window.getCurrentEmployeeRoster(),
         window.dashboardApi.get('square-tip-allocations', {allocations:{}, overrides:{}}),
         window.dashboardApi.get(EXTRA_PAY_MANUAL_KEY, {}),
@@ -11021,7 +11163,8 @@
         window.dashboardApi.get('manager-review-items', []),
         window.dashboardApi.get('compliance-drivers', []),
         window.dashboardApi.get('google-review-allocations', {}),
-        window.dashboardApi.get('damage-claims', [])
+        window.dashboardApi.get('damage-claims', []),
+        window.dashboardApi.get('expense-claims', [])
       ]);
       extraPayManualData = manualData || {};
       const allocations = (tipsData && tipsData.allocations) || {};
@@ -11082,6 +11225,16 @@
         const names = dedupeAndSortNames([...(roster || []), ...Object.keys(tipTotals), ...Object.keys(reviewCounts)]);
         // Damage claims whose Total Cost was entered this week come off the
         // job's Captain's commission -- the last step, never below $0.
+        // Approved expenses are paid in the pay week they were approved.
+        const expensesByName = {};
+        (expenseClaimsForPay || []).forEach(c => {
+          if(c.status !== 'approved' || c.payWeek !== weekStart) return;
+          const match = names.find(n => nameCoreKey(n) === nameCoreKey(c.employeeName));
+          if(!match) return;
+          const e = expensesByName[match] = expensesByName[match] || { total: 0, lines: [] };
+          e.total += Number(c.approvedAmount) || 0;
+          e.lines.push(`${c.merchant || 'Receipt'} (${c.category}): ${extraPayMoney(c.approvedAmount)}`);
+        });
         const damageByName = {};
         const weekAlreadyPaid = adpUploadedWeeks.has(weekStart);
         (damageClaimsForPay || []).forEach(c => {
@@ -11104,17 +11257,18 @@
           });
         });
         return {
-          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName,
+          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName, expensesByName,
           adpUploaded: adpUploadedWeeks.has(weekStart),
           hasManualData: !!extraPayManualData[weekStart],
           hasAnyTips: Object.keys(tipTotals).length > 0,
           hasAnyReviews: Object.keys(reviewCounts).length > 0,
-          hasAnyDamage: Object.keys(damageByName).length > 0
+          hasAnyDamage: Object.keys(damageByName).length > 0,
+          hasAnyExpenses: Object.keys(expensesByName).length > 0
         };
       // Skip a purely-empty older week with nothing going on at all -- no
       // point showing a blank $0 table for a week no one ever touched,
       // except the current week, which always shows regardless.
-      }).filter(w => w.weekStart === currentWeekStart || w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews || w.hasAnyDamage);
+      }).filter(w => w.weekStart === currentWeekStart || w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews || w.hasAnyDamage || w.hasAnyExpenses);
       weeksDataRaw.forEach(w => { w.inProgress = w.weekStart === currentWeekStart; });
 
       // Default expanded unless ADP's already been uploaded for that week
@@ -11346,22 +11500,24 @@
     damageCell.innerHTML = damageOwed > 0
       ? `\u2212${extraPayMoney(damage)}${damage < damageOwed ? `<div style="font-size:10.5px; font-weight:400;">of ${extraPayMoney(damageOwed)}</div>` : ''}${row.dataset.damagePaid ? '<div style="font-size:10.5px; font-weight:700;">\u26a0 payroll already ran</div>' : ''}`
       : '<span style="color:var(--muted); font-weight:400;">\u2014</span>';
-    const total = tips + reviewBonus + commission - damage + misc;
+    const expenses = Number(row.dataset.expenses) || 0;
+    const total = tips + reviewBonus + commission - damage + expenses + misc;
     row.querySelector('.extraPay-total').textContent = extraPayMoney(total);
-    return { tips, reviewBonus, commission, damage, misc, total };
+    return { tips, reviewBonus, commission, damage, expenses, misc, total };
   }
 
   function extraPayRecalcWeekTotals(weekPanel){
     const rows = weekPanel.querySelectorAll('.extraPay-employee-row');
-    const sums = { tips: 0, reviewBonus: 0, commission: 0, damage: 0, misc: 0, total: 0 };
+    const sums = { tips: 0, reviewBonus: 0, commission: 0, damage: 0, expenses: 0, misc: 0, total: 0 };
     rows.forEach(row => {
       const r = extraPayRecalcRow(row);
-      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.damage += r.damage; sums.misc += r.misc; sums.total += r.total;
+      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.damage += r.damage; sums.expenses += r.expenses; sums.misc += r.misc; sums.total += r.total;
     });
     weekPanel.querySelector('.extraPay-totalTips').textContent = extraPayMoney(sums.tips);
     weekPanel.querySelector('.extraPay-totalReviewBonus').textContent = extraPayMoney(sums.reviewBonus);
     weekPanel.querySelector('.extraPay-totalCommission').textContent = extraPayMoney(sums.commission);
     weekPanel.querySelector('.extraPay-totalDamage').textContent = sums.damage > 0 ? '\u2212' + extraPayMoney(sums.damage) : '';
+    weekPanel.querySelector('.extraPay-totalExpenses').textContent = sums.expenses > 0 ? extraPayMoney(sums.expenses) : '';
     weekPanel.querySelector('.extraPay-totalMisc').textContent = extraPayMoney(sums.misc);
     weekPanel.querySelector('.extraPay-totalGrand').textContent = extraPayMoney(sums.total);
   }
@@ -11395,8 +11551,9 @@
       const reviewBonusStyle = reviewIsAuto ? `${inputStyle} background:#e8f5e9;` : inputStyle;
       const reviewBonusTitle = reviewCount > 0 ? ` title="${reviewCount} Google review${reviewCount === 1 ? '' : 's'} credited${reviewIsAuto ? ' -- auto-filled; edit and save to override' : ''}"` : '';
       const damage = (w.damageByName && w.damageByName[name]) || null;
+      const expenses = (w.expensesByName && w.expensesByName[name]) || null;
       const isOm = w.opsManagerName === name;
-      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
+      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-expenses="${expenses ? expenses.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}${isOm ? `<div style="margin-top:6px; padding:6px 8px; background:#FFF4E5; border:1px solid var(--brand-orange); border-radius:6px; font-size:12px;" title="Ops Manager commission = revenue from his estimate conversions x the Ops Manager rate">
           <div style="font-weight:700; color:var(--brand-orange-dark);">Ops Manager &mdash; Converted Revenue (${extraPayEsc(extraPayWeekLabel(w.commissionSourceWeek || extraPayGetWeekBounds(extraPayPriorWeekStart(w.weekStart))))})</div>
           <div style="display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">$<input type="number" min="0" step="0.01" class="extraPay-convRev" data-rate="${w.omRatePct}" data-score="${w.omScoreVal == null ? '' : w.omScoreVal}" data-hours="${w.omHoursVal || 0}" value="${w.omConvertedRevenue ? Number(w.omConvertedRevenue).toFixed(2) : ''}" placeholder="0.00" style="width:110px; text-align:right; padding:4px 6px;"> <span style="color:var(--muted);">&times; ${w.omRatePct}% &times; ${w.omScoreVal == null ? '<span style="color:#b3261e;">no score</span>' : w.omScoreVal + '% score'} &times; ${Math.round((w.omHoursVal || 0) * 10) / 10}/40 hrs${w.omSalaried ? ' (salaried)' : (w.omHoursActual > 40 ? ` (worked ${Math.round(w.omHoursActual * 10) / 10}, capped at 40)` : '')} = <span class="extraPay-convRevResult" style="color:var(--charcoal); font-weight:700;">${extraPayMoney((w.omConvertedRevenue || 0) * w.omRatePct / 100 * ((w.omScoreVal || 0) / 100) * ((w.omHoursVal || 0) / 40))}</span></span></div>
@@ -11405,6 +11562,7 @@
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" data-auto="${autoCommission.toFixed(2)}" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
+        <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"${expenses ? ` title="Approved expenses:\n${extraPayEsc(expenses.lines.join('\n'))}"` : ''}>${expenses ? `<span style="color:var(--brand-green-dark); font-weight:600;">${extraPayMoney(expenses.total)}</span>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
@@ -11429,6 +11587,7 @@
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Review Bonus</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Commission</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this person worked (shared across the crew on the claim, weighted by commission rate) -- taken off Commission, up to all of it">Damage Claim</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Expenses approved in Manager Review this pay week -- reimbursements, not commission">Expenses</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
           </tr></thead>
@@ -11440,6 +11599,7 @@
               <td class="extraPay-totalReviewBonus" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalCommission" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalDamage" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line); color:#b3261e;"></td>
+              <td class="extraPay-totalExpenses" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalMisc" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalGrand" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
             </tr>
@@ -27439,6 +27599,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   async function loadManagerReviewData(){
     loadGoogleReviews();
+    loadExpenseClaims();
     window.loadDamageClaimsData();
     loadJobsAndCaptains();
     loadMgrReviewWeightTickets();
@@ -27504,7 +27665,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function updateManagerReviewTileBadge(){
     const openCount = managerReviewItems.filter(i => !i.reviewedAt).length
       + (window.getTipsNeedsAttentionCount ? window.getTipsNeedsAttentionCount() : 0)
-      + (window.damageClaimAlertCount || 0);
+      + (window.damageClaimAlertCount || 0)
+      + (window.expensePendingCount || 0);
     const badge = document.getElementById('managerReviewTileBadge');
     const tile = document.getElementById('tile-managerreview');
     if(openCount > 0){
@@ -27674,6 +27836,89 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
   window.reassignJobCaptain = reassignJobCaptain;
+
+  // ---- Expenses: approve or deny crew receipts ----
+  const EXPENSE_CLAIMS_KEY = 'expense-claims';
+  let expenseClaims = [];
+  const expMoneyFmt = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function expPayWeekStart(){
+    const d = new Date(); const dow = d.getDay();
+    d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+    return d.toLocaleDateString('en-CA');
+  }
+  async function loadExpenseClaims(){
+    try{ expenseClaims = await window.dashboardApi.get(EXPENSE_CLAIMS_KEY, []) || []; }catch(err){ expenseClaims = []; }
+    renderExpenseClaims();
+  }
+  window.loadExpenseClaims = loadExpenseClaims;
+  function renderExpenseClaims(){
+    const pending = expenseClaims.filter(c => c.status === 'pending').sort((a, b) => (a.submittedAt || '').localeCompare(b.submittedAt || ''));
+    window.expensePendingCount = pending.length;
+    const tabCount = document.getElementById('mgrreview_expensesTabCount');
+    if(tabCount) tabCount.textContent = pending.length ? `(${pending.length})` : '';
+    if(typeof updateManagerReviewTileBadge === 'function') updateManagerReviewTileBadge();
+    const cutoff = new Date(Date.now() - 30 * 864e5).toISOString();
+    const decided = expenseClaims.filter(c => c.status !== 'pending' && (c.decidedAt || '') >= cutoff).sort((a, b) => (b.decidedAt || '').localeCompare(a.decidedAt || ''));
+    const pendingEl = document.getElementById('exp_pendingList'), decidedEl = document.getElementById('exp_decidedList');
+    if(!pendingEl) return;
+    const when = x => x ? new Date(x).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    pendingEl.innerHTML = pending.length ? pending.map(c => {
+      const aiDiff = c.aiRead && c.aiRead.total && Math.abs(c.aiRead.total - c.total) > 0.005;
+      return `<div class="exp-card" data-id="${mgrReviewEsc(c.id)}" style="display:flex; gap:14px; border:1px solid #E3A008; border-left:5px solid #E3A008; background:#FFFBEA; border-radius:8px; padding:12px; margin-bottom:10px; flex-wrap:wrap;">
+        <img class="exp-photo" data-key="${mgrReviewEsc(c.photoKey)}" alt="Receipt" style="width:96px; height:128px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer;">
+        <div style="flex:1; min-width:220px;">
+          <div style="font-weight:800; font-size:15px;">${mgrReviewEsc(c.employeeName)} <span style="font-weight:400; font-size:12px; color:var(--muted);">\u00b7 ${c.role === 'wingman' ? 'Wingman' : 'Captain'} \u00b7 submitted ${when(c.submittedAt)}</span></div>
+          <div style="font-size:14px; margin-top:4px;"><strong>${mgrReviewEsc(c.merchant || 'Receipt')}</strong>${c.date ? ' \u00b7 ' + window.fmtDate(c.date) : ''} \u00b7 ${mgrReviewEsc(c.category)}</div>
+          ${c.description ? `<div style="font-size:13px; color:var(--charcoal);">${mgrReviewEsc(c.description)}</div>` : ''}
+          ${c.note ? `<div style="font-size:13px; margin-top:4px; background:#fff; border-radius:4px; padding:4px 8px;">\u201c${mgrReviewEsc(c.note)}\u201d</div>` : ''}
+          ${aiDiff ? `<div style="font-size:12px; color:#8a6d00; margin-top:4px;">AI read the total as ${expMoneyFmt(c.aiRead.total)}; the employee entered ${expMoneyFmt(c.total)}.</div>` : ''}
+          ${c.aiRead && !c.aiRead.confident ? '<div style="font-size:12px; color:#8a6d00; margin-top:2px;">AI flagged this receipt as hard to read \u2014 check the photo.</div>' : ''}
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px;">
+            <label style="margin:0; font-size:13px;">Amount $<input type="number" min="0" step="0.01" class="exp-amount" value="${Number(c.total).toFixed(2)}" style="width:100px; margin-left:4px;"></label>
+            <button type="button" class="exp-approve" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Approve</button>
+            <button type="button" class="exp-deny" style="background:#fff; color:#b3261e; border:1px solid #b3261e; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Deny</button>
+            <span class="status-msg exp-status" style="margin:0;"></span>
+          </div>
+        </div>
+      </div>`; }).join('') : '<p class="form-note" style="margin:0;">No expenses waiting for approval.</p>';
+    decidedEl.innerHTML = decided.length ? decided.map(c => `<div style="display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; flex-wrap:wrap;">
+      <div><strong>${mgrReviewEsc(c.employeeName)}</strong> \u00b7 ${mgrReviewEsc(c.merchant || 'Receipt')} \u00b7 ${mgrReviewEsc(c.category)}
+        <div style="font-size:12px; color:var(--muted);">${c.status === 'approved' ? `Approved ${when(c.decidedAt)} \u00b7 paid week of ${window.fmtDate(c.payWeek)}` : `Denied ${when(c.decidedAt)}${c.denyReason ? ' \u2014 ' + mgrReviewEsc(c.denyReason) : ''}`}${c.decidedBy ? ' by ' + mgrReviewEsc(c.decidedBy) : ''}</div></div>
+      <div style="font-weight:700; ${c.status === 'denied' ? 'color:var(--muted); text-decoration:line-through;' : 'color:var(--brand-green-dark);'}">${expMoneyFmt(c.status === 'approved' ? c.approvedAmount : c.total)}</div>
+    </div>`).join('') : '<p class="form-note" style="margin:0;">None yet.</p>';
+    // Receipt photos load on demand
+    pendingEl.querySelectorAll('.exp-photo').forEach(async img => {
+      try{ const uri = await window.dashboardApi.get(img.dataset.key, null); if(uri){ img.src = uri; img.addEventListener('click', () => window.showPhotoModal ? window.showPhotoModal(uri, { title: 'Receipt' }) : window.open(uri)); } }catch(err){}
+    });
+    pendingEl.querySelectorAll('.exp-approve').forEach(b => b.addEventListener('click', e => decideExpense(e.currentTarget.closest('.exp-card'), 'approved')));
+    pendingEl.querySelectorAll('.exp-deny').forEach(b => b.addEventListener('click', e => decideExpense(e.currentTarget.closest('.exp-card'), 'denied')));
+  }
+  async function decideExpense(card, status){
+    const id = card.dataset.id, st = card.querySelector('.exp-status');
+    let denyReason = '', amount = 0;
+    if(status === 'denied'){
+      denyReason = (prompt('Why is this expense denied? The employee will see this.') || '').trim();
+      if(!denyReason) return;
+    } else {
+      amount = Math.round((Number(card.querySelector('.exp-amount').value) || 0) * 100) / 100;
+      if(!(amount > 0)){ st.textContent = 'Enter the amount to approve.'; st.className = 'status-msg exp-status err'; return; }
+    }
+    card.querySelectorAll('button').forEach(b => b.disabled = true);
+    try{
+      // Re-read before writing so a receipt submitted meanwhile isn't lost.
+      const fresh = await window.dashboardApi.get(EXPENSE_CLAIMS_KEY, []) || [];
+      const c = fresh.find(x => x.id === id);
+      if(!c || c.status !== 'pending'){ await loadExpenseClaims(); return; }
+      Object.assign(c, { status, decidedAt: new Date().toISOString(), decidedBy: localStorage.getItem('henson_auth_email') || '' },
+        status === 'approved' ? { approvedAmount: amount, payWeek: expPayWeekStart() } : { denyReason: denyReason.slice(0, 300) });
+      if(!(await window.dashboardApi.set(EXPENSE_CLAIMS_KEY, fresh))) throw new Error('save');
+      expenseClaims = fresh;
+      renderExpenseClaims();
+    }catch(err){
+      card.querySelectorAll('button').forEach(b => b.disabled = false);
+      st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg exp-status err';
+    }
+  }
 
   // ---- Weight Tickets: open Long Distance Moves ----
   // Every Long Distance Move in the last 60 days whose work package isn't
@@ -27863,7 +28108,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','damageclaims','moving','greviews'].forEach(t => {
+    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','expenses','damageclaims','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -27876,6 +28121,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(tab === 'greviews') loadGoogleReviews();
     if(tab === 'jobs') loadJobsAndCaptains();
     if(tab === 'damageclaims') window.loadDamageClaimsData();
+    if(tab === 'expenses') loadExpenseClaims();
   }
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
