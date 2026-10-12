@@ -559,7 +559,7 @@
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
         <span style="display:block; font-size:18px; font-weight:800; color:var(--brand-green-dark);">My Money</span>
-        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips and expenses &middot; tap to open</span>
+        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips, expenses &amp; mileage &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
     </button>
@@ -671,7 +671,7 @@
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
         <span style="display:block; font-size:18px; font-weight:800; color:var(--brand-green-dark);">My Money</span>
-        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips and expenses &middot; tap to open</span>
+        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips, expenses &amp; mileage &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
     </button>
@@ -765,6 +765,20 @@
         </div>
       </div>
       <div id="expList" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="panel" id="moneyMileagePanel" style="border:2px solid #2f6db5;">
+      <div style="font-size:13px; font-weight:700; color:#1f4f87; letter-spacing:.03em;">&#128663; MILEAGE</div>
+      <div id="milRateNote" style="font-size:12px; color:var(--muted); margin-top:2px;">Drove your own vehicle for work? Log the miles to get reimbursed.</div>
+      <div style="display:flex; gap:10px; margin-top:12px;">
+        <label style="flex:1; font-size:13px;">Day you drove <input type="date" id="milDate" style="display:block; width:100%; margin-top:3px; padding:8px; font-size:15px;"></label>
+        <label style="flex:1; font-size:13px;">Miles <input type="text" inputmode="decimal" id="milMiles" autocomplete="off" placeholder="0" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:17px; font-weight:700;"></label>
+      </div>
+      <label style="display:block; margin-top:8px; font-size:13px;">What was the trip for? <input type="text" id="milPurpose" placeholder="e.g. Picked up boxes at U-Haul for the Smith move" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
+      <div id="milPreview" style="font-size:13px; color:#1f4f87; margin-top:6px; min-height:18px;"></div>
+      <button type="button" id="milSubmitBtn" style="width:100%; margin-top:8px; padding:14px; font-size:16px; font-weight:800; background:#2f6db5; color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit Mileage for Approval</button>
+      <p class="status-msg" id="milStatus" style="margin:8px 0 0;"></p>
+      <div id="milList" style="margin-top:10px;"></div>
     </div>
   </div>
 
@@ -1490,7 +1504,10 @@
       const pill = e => e.status === 'approved' ? `<span style="background:#EAF6EE; color:var(--brand-green-dark); padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Approved${e.payWeek ? ' \u00b7 paid wk of ' + short(e.payWeek) : ''}</span>`
         : e.status === 'denied' ? `<span style="background:#fdecea; color:#b3261e; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Denied</span>`
         : `<span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Pending</span>`;
-      document.getElementById('expList').innerHTML = (d.expenses || []).length ? d.expenses.map(e => `
+      window.__milRate = Number(d.mileageRate) || 0;
+      renderMyMileage((d.expenses || []).filter(e => e.type === 'mileage'), pill, short);
+      const receipts = (d.expenses || []).filter(e => e.type !== 'mileage');
+      document.getElementById('expList').innerHTML = receipts.length ? receipts.map(e => `
         <div style="display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:14px;">
           <div><strong>${driverEsc(e.merchant || 'Receipt')}</strong> \u00b7 ${short(e.date) || short(e.submittedAt.slice(0,10))}
             <div style="font-size:12px; color:var(--muted);">${driverEsc(e.category)}${e.description ? ' \u2014 ' + driverEsc(e.description) : ''}</div>
@@ -1501,6 +1518,48 @@
         </div>`).join('') : '<div style="font-size:13px; color:var(--muted); border-top:1px solid var(--line); padding-top:8px;">No expenses submitted yet.</div>';
     }catch(err){}
   }
+  function renderMyMileage(items, pill, short){
+    const rate = window.__milRate || 0;
+    document.getElementById('milRateNote').textContent = rate > 0
+      ? `Drove your own vehicle for work? Log the miles \u2014 reimbursed at ${expMoney(rate)} per mile.`
+      : 'Drove your own vehicle for work? Log the miles to get reimbursed.';
+    milUpdatePreview();
+    document.getElementById('milList').innerHTML = items.length ? items.map(e => {
+      const amt = e.status === 'approved' ? `${e.approvedMiles} mi \u00d7 ${expMoney(e.approvedRate)} = <strong>${expMoney(e.approvedAmount)}</strong>` : `${e.miles} mi`;
+      return `<div style="display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:14px;">
+        <div><strong>${short(e.date)}</strong> \u00b7 ${driverEsc(e.purpose || '')}
+          <div style="margin-top:3px;">${pill(e)}</div>
+          ${e.status === 'denied' && e.denyReason ? `<div style="font-size:12px; color:#b3261e; margin-top:3px;">${driverEsc(e.denyReason)}</div>` : ''}
+        </div>
+        <div style="white-space:nowrap; text-align:right; font-size:13px; ${e.status === 'denied' ? 'color:var(--muted); text-decoration:line-through;' : ''}">${amt}</div>
+      </div>`; }).join('') : '<div style="font-size:13px; color:var(--muted); border-top:1px solid var(--line); padding-top:8px;">No mileage submitted yet.</div>';
+  }
+  function milMiles(){ return Math.round((parseFloat(String(document.getElementById('milMiles').value).replace(/[^0-9.]/g, '')) || 0) * 10) / 10; }
+  function milUpdatePreview(){
+    const m = milMiles(), rate = window.__milRate || 0;
+    document.getElementById('milPreview').textContent = m > 0 && rate > 0 ? `${m} mi \u00d7 ${expMoney(rate)} = about ${expMoney(Math.round(m * rate * 100) / 100)} (once approved)` : '';
+  }
+  document.getElementById('milMiles').addEventListener('input', milUpdatePreview);
+  document.getElementById('milSubmitBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, statusEl = document.getElementById('milStatus');
+    const miles = milMiles(), date = document.getElementById('milDate').value, purpose = document.getElementById('milPurpose').value.trim();
+    if(!date){ statusEl.textContent = 'Pick the day you drove.'; statusEl.className = 'status-msg err'; return; }
+    if(!(miles > 0)){ statusEl.textContent = 'Enter the miles you drove.'; statusEl.className = 'status-msg err'; return; }
+    if(purpose.length < 3){ statusEl.textContent = 'Say what the trip was for.'; statusEl.className = 'status-msg err'; return; }
+    btn.disabled = true; statusEl.textContent = 'Submitting\u2026'; statusEl.className = 'status-msg';
+    try{
+      const res = await fetch(expBase() + '/mileage', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ date, miles, purpose }) });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || 'Could not submit.');
+      document.getElementById('milMiles').value = ''; document.getElementById('milPurpose').value = '';
+      statusEl.textContent = '\u2713 Sent to the office for approval.'; statusEl.className = 'status-msg ok';
+      await loadMyExpenses();
+    }catch(err){
+      statusEl.textContent = err.message || 'Couldn\u2019t submit \u2014 check your connection.'; statusEl.className = 'status-msg err';
+    }finally{ btn.disabled = false; }
+  });
+
   function expReset(){
     expPhoto = null; expAiRead = null;
     document.getElementById('expForm').style.display = 'none';
@@ -1576,6 +1635,9 @@
     showOnlyDriverGateView('driverMoneyView');
     loadMyTips();
     expReset();
+    document.getElementById('milDate').value = driverLocalDate();
+    document.getElementById('milDate').max = driverLocalDate();
+    document.getElementById('milStatus').textContent = '';
     loadMyExpenses();
   }
   document.querySelectorAll('.my-money-tile').forEach(t => t.addEventListener('click', showMyMoney));
@@ -6419,7 +6481,7 @@
     <input type="file" id="dc_addPhotosInput" accept="image/*" multiple style="display:none;">
     <div class="panel" id="mgrreview_panel_expenses" style="display:none;">
       <h3>Expenses</h3>
-      <p class="form-note" style="margin-top:0;">Receipts the crew submitted from the HUNK Portal (My Money &rarr; Expenses). AI read each receipt and the employee checked it. Correct the amount if needed, then <strong>Approve</strong> &mdash; approved expenses are paid in this week&rsquo;s Extra Pay (Expenses column) &mdash; or <strong>Deny</strong> with a reason the employee will see.</p>
+      <p class="form-note" style="margin-top:0;">Receipts and personal-vehicle mileage the crew submitted from the HUNK Portal (My Money). Mileage is paid at the rate in Configuration &rarr; Pay, locked in when you approve it, in Extra Pay&rsquo;s Mileage column. AI read each receipt and the employee checked it. Correct the amount if needed, then <strong>Approve</strong> &mdash; approved expenses are paid in this week&rsquo;s Extra Pay (Expenses column) &mdash; or <strong>Deny</strong> with a reason the employee will see.</p>
       <div id="exp_pendingList"></div>
       <h4 style="margin:18px 0 6px; font-size:13px; color:var(--muted);">Decided in the last 30 days</h4>
       <div id="exp_decidedList"></div>
@@ -7827,11 +7889,20 @@
             <div class="dashSectionTitleRow">
               <span class="dashSectionEmoji" aria-hidden="true">💰</span>
               <span>Pay</span>
-              <span class="dashSectionCount">(1)</span>
+              <span class="dashSectionCount">(2)</span>
             </div>
           </div>
         </button>
         <div class="dashSectionBody" id="setGroupBody-pay">
+        <div class="panel" id="set_extraPayMileagePanel" data-collapsible="true">
+          <h3>Extra Pay: Mileage Reimbursement</h3>
+          <p class="form-note" style="margin-top:0;">Paid for work miles a Captain or wingman drives in his own vehicle (submitted on the HUNK Portal &rarr; My Money &rarr; Mileage, approved in Manager Review &rarr; Expenses). Enter the federal (IRS) standard mileage rate. Each approval locks in the rate in effect that day, so changing it later doesn&rsquo;t change past payments.</p>
+          <label>Mileage Rate ($ per mile) <input type="number" min="0" max="5" step="0.005" id="appset_mileageRate" style="max-width:120px;"></label>
+          <div class="form-actions">
+            <button type="button" id="appset_mileageRateSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-family:inherit;">Save Rate</button>
+            <span class="status-msg" id="appset_mileageRateStatus"></span>
+          </div>
+        </div>
         <div class="panel" id="set_commissionPanel" data-collapsible="true">
           <h3>Commission Rates</h3>
           <p class="form-note" style="margin-top:0;">A commission rate for each role below. Driver applies to anyone currently checked as a driver on the Compliance tile's Driver List. Ops Manager applies to whoever is assigned that role here, independent of the Driver checkbox &mdash; someone can be both. Wingman isn't a fixed role like the other two &mdash; it applies to whoever was actually rated as a wingman that week, using their Wingman Score for that week; someone not rated at all that week simply earns no wingman commission.</p>
@@ -11141,6 +11212,7 @@
     return d.toISOString().slice(0,10);
   }
 
+  function extraPayFmtDateShort(d){ return d ? new Date(d + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
   async function loadExtraPayData(){
     try{
       extraPayExpandedWeeks = new Set(); // reset each time the tile is freshly opened
@@ -11226,14 +11298,17 @@
         // Damage claims whose Total Cost was entered this week come off the
         // job's Captain's commission -- the last step, never below $0.
         // Approved expenses are paid in the pay week they were approved.
-        const expensesByName = {};
+        const expensesByName = {}, mileageByName = {};
         (expenseClaimsForPay || []).forEach(c => {
           if(c.status !== 'approved' || c.payWeek !== weekStart) return;
           const match = names.find(n => nameCoreKey(n) === nameCoreKey(c.employeeName));
           if(!match) return;
-          const e = expensesByName[match] = expensesByName[match] || { total: 0, lines: [] };
+          const bucket = c.type === 'mileage' ? mileageByName : expensesByName;
+          const e = bucket[match] = bucket[match] || { total: 0, lines: [] };
           e.total += Number(c.approvedAmount) || 0;
-          e.lines.push(`${c.merchant || 'Receipt'} (${c.category}): ${extraPayMoney(c.approvedAmount)}`);
+          e.lines.push(c.type === 'mileage'
+            ? `${extraPayFmtDateShort(c.date)}: ${c.approvedMiles} mi \u00d7 ${extraPayMoney(c.approvedRate)} = ${extraPayMoney(c.approvedAmount)}`
+            : `${c.merchant || 'Receipt'} (${c.category}): ${extraPayMoney(c.approvedAmount)}`);
         });
         const damageByName = {};
         const weekAlreadyPaid = adpUploadedWeeks.has(weekStart);
@@ -11257,13 +11332,13 @@
           });
         });
         return {
-          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName, expensesByName,
+          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName, expensesByName, mileageByName,
           adpUploaded: adpUploadedWeeks.has(weekStart),
           hasManualData: !!extraPayManualData[weekStart],
           hasAnyTips: Object.keys(tipTotals).length > 0,
           hasAnyReviews: Object.keys(reviewCounts).length > 0,
           hasAnyDamage: Object.keys(damageByName).length > 0,
-          hasAnyExpenses: Object.keys(expensesByName).length > 0
+          hasAnyExpenses: Object.keys(expensesByName).length > 0 || Object.keys(mileageByName).length > 0
         };
       // Skip a purely-empty older week with nothing going on at all -- no
       // point showing a blank $0 table for a week no one ever touched,
@@ -11501,23 +11576,25 @@
       ? `\u2212${extraPayMoney(damage)}${damage < damageOwed ? `<div style="font-size:10.5px; font-weight:400;">of ${extraPayMoney(damageOwed)}</div>` : ''}${row.dataset.damagePaid ? '<div style="font-size:10.5px; font-weight:700;">\u26a0 payroll already ran</div>' : ''}`
       : '<span style="color:var(--muted); font-weight:400;">\u2014</span>';
     const expenses = Number(row.dataset.expenses) || 0;
-    const total = tips + reviewBonus + commission - damage + expenses + misc;
+    const mileage = Number(row.dataset.mileage) || 0;
+    const total = tips + reviewBonus + commission - damage + expenses + mileage + misc;
     row.querySelector('.extraPay-total').textContent = extraPayMoney(total);
-    return { tips, reviewBonus, commission, damage, expenses, misc, total };
+    return { tips, reviewBonus, commission, damage, expenses, mileage, misc, total };
   }
 
   function extraPayRecalcWeekTotals(weekPanel){
     const rows = weekPanel.querySelectorAll('.extraPay-employee-row');
-    const sums = { tips: 0, reviewBonus: 0, commission: 0, damage: 0, expenses: 0, misc: 0, total: 0 };
+    const sums = { tips: 0, reviewBonus: 0, commission: 0, damage: 0, expenses: 0, mileage: 0, misc: 0, total: 0 };
     rows.forEach(row => {
       const r = extraPayRecalcRow(row);
-      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.damage += r.damage; sums.expenses += r.expenses; sums.misc += r.misc; sums.total += r.total;
+      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.damage += r.damage; sums.expenses += r.expenses; sums.mileage += r.mileage; sums.misc += r.misc; sums.total += r.total;
     });
     weekPanel.querySelector('.extraPay-totalTips').textContent = extraPayMoney(sums.tips);
     weekPanel.querySelector('.extraPay-totalReviewBonus').textContent = extraPayMoney(sums.reviewBonus);
     weekPanel.querySelector('.extraPay-totalCommission').textContent = extraPayMoney(sums.commission);
     weekPanel.querySelector('.extraPay-totalDamage').textContent = sums.damage > 0 ? '\u2212' + extraPayMoney(sums.damage) : '';
     weekPanel.querySelector('.extraPay-totalExpenses').textContent = sums.expenses > 0 ? extraPayMoney(sums.expenses) : '';
+    weekPanel.querySelector('.extraPay-totalMileage').textContent = sums.mileage > 0 ? extraPayMoney(sums.mileage) : '';
     weekPanel.querySelector('.extraPay-totalMisc').textContent = extraPayMoney(sums.misc);
     weekPanel.querySelector('.extraPay-totalGrand').textContent = extraPayMoney(sums.total);
   }
@@ -11552,8 +11629,9 @@
       const reviewBonusTitle = reviewCount > 0 ? ` title="${reviewCount} Google review${reviewCount === 1 ? '' : 's'} credited${reviewIsAuto ? ' -- auto-filled; edit and save to override' : ''}"` : '';
       const damage = (w.damageByName && w.damageByName[name]) || null;
       const expenses = (w.expensesByName && w.expensesByName[name]) || null;
+      const mileage = (w.mileageByName && w.mileageByName[name]) || null;
       const isOm = w.opsManagerName === name;
-      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-expenses="${expenses ? expenses.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
+      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-expenses="${expenses ? expenses.total : 0}" data-mileage="${mileage ? mileage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}${isOm ? `<div style="margin-top:6px; padding:6px 8px; background:#FFF4E5; border:1px solid var(--brand-orange); border-radius:6px; font-size:12px;" title="Ops Manager commission = revenue from his estimate conversions x the Ops Manager rate">
           <div style="font-weight:700; color:var(--brand-orange-dark);">Ops Manager &mdash; Converted Revenue (${extraPayEsc(extraPayWeekLabel(w.commissionSourceWeek || extraPayGetWeekBounds(extraPayPriorWeekStart(w.weekStart))))})</div>
           <div style="display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">$<input type="number" min="0" step="0.01" class="extraPay-convRev" data-rate="${w.omRatePct}" data-score="${w.omScoreVal == null ? '' : w.omScoreVal}" data-hours="${w.omHoursVal || 0}" value="${w.omConvertedRevenue ? Number(w.omConvertedRevenue).toFixed(2) : ''}" placeholder="0.00" style="width:110px; text-align:right; padding:4px 6px;"> <span style="color:var(--muted);">&times; ${w.omRatePct}% &times; ${w.omScoreVal == null ? '<span style="color:#b3261e;">no score</span>' : w.omScoreVal + '% score'} &times; ${Math.round((w.omHoursVal || 0) * 10) / 10}/40 hrs${w.omSalaried ? ' (salaried)' : (w.omHoursActual > 40 ? ` (worked ${Math.round(w.omHoursActual * 10) / 10}, capped at 40)` : '')} = <span class="extraPay-convRevResult" style="color:var(--charcoal); font-weight:700;">${extraPayMoney((w.omConvertedRevenue || 0) * w.omRatePct / 100 * ((w.omScoreVal || 0) / 100) * ((w.omHoursVal || 0) / 40))}</span></span></div>
@@ -11563,6 +11641,7 @@
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" data-auto="${autoCommission.toFixed(2)}" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
         <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"${expenses ? ` title="Approved expenses:\n${extraPayEsc(expenses.lines.join('\n'))}"` : ''}>${expenses ? `<span style="color:var(--brand-green-dark); font-weight:600;">${extraPayMoney(expenses.total)}</span>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
+        <td class="extraPay-mileage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"${mileage ? ` title="Approved mileage:\n${extraPayEsc(mileage.lines.join('\n'))}"` : ''}>${mileage ? `<span style="color:#1f4f87; font-weight:600;">${extraPayMoney(mileage.total)}</span>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
@@ -11588,6 +11667,7 @@
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Commission</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this person worked (shared across the crew on the claim, weighted by commission rate) -- taken off Commission, up to all of it">Damage Claim</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Expenses approved in Manager Review this pay week -- reimbursements, not commission">Expenses</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Personal-vehicle mileage approved in Manager Review this pay week (miles x the rate locked in at approval)">Mileage</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
           </tr></thead>
@@ -11600,6 +11680,7 @@
               <td class="extraPay-totalCommission" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalDamage" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line); color:#b3261e;"></td>
               <td class="extraPay-totalExpenses" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+              <td class="extraPay-totalMileage" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalMisc" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalGrand" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
             </tr>
@@ -16941,6 +17022,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_commissionOpsManagerRate').value = commission.opsManagerRate || 0;
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
+    document.getElementById('appset_mileageRate').value = ((window.appSettings || {}).extraPay || {}).mileageRate || 0;
 
     const select = document.getElementById('appset_opsManagerAssignment');
     let roster = [];
@@ -16959,6 +17041,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       `<option value="${settingsEsc(name)}" ${name === currentValue ? 'selected' : ''}>${settingsEsc(name)}</option>`
     ).join('');
   }
+
+  document.getElementById('appset_mileageRateSaveBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('appset_mileageRateStatus');
+    const mileageRate = Math.max(0, Math.min(5, Math.round((Number(document.getElementById('appset_mileageRate').value) || 0) * 1000) / 1000));
+    statusEl.textContent = 'Saving...'; statusEl.className = 'status-msg';
+    try{
+      const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
+        method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ settings: { extraPay: { mileageRate } } })
+      });
+      if(handleAuthFailure(saveRes)) return;
+      const saveData = await saveRes.json();
+      if(!saveRes.ok){ statusEl.textContent = saveData.error || 'Could not save.'; statusEl.className = 'status-msg err'; return; }
+      window.appSettings.extraPay = Object.assign({}, window.appSettings.extraPay, { mileageRate });
+      statusEl.textContent = `Saved \u2014 $${mileageRate.toFixed(3).replace(/0$/, '')} per mile.`; statusEl.className = 'status-msg ok';
+    }catch(err){
+      statusEl.textContent = 'Could not reach the server \u2014 check your connection.'; statusEl.className = 'status-msg err';
+    }
+  });
 
   document.getElementById('appset_reviewBonusSaveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('appset_reviewBonusStatus');
@@ -27847,6 +27948,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return d.toLocaleDateString('en-CA');
   }
   async function loadExpenseClaims(){
+    try{ await ensureAppSettingsLoaded(); }catch(err){}
     try{ expenseClaims = await window.dashboardApi.get(EXPENSE_CLAIMS_KEY, []) || []; }catch(err){ expenseClaims = []; }
     renderExpenseClaims();
   }
@@ -27862,7 +27964,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const pendingEl = document.getElementById('exp_pendingList'), decidedEl = document.getElementById('exp_decidedList');
     if(!pendingEl) return;
     const when = x => x ? new Date(x).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    const milRate = Number(((window.appSettings || {}).extraPay || {}).mileageRate) || 0;
     pendingEl.innerHTML = pending.length ? pending.map(c => {
+      if(c.type === 'mileage') return `<div class="exp-card" data-id="${mgrReviewEsc(c.id)}" data-type="mileage" style="display:flex; gap:14px; border:1px solid #2f6db5; border-left:5px solid #2f6db5; background:#EEF4FB; border-radius:8px; padding:12px; margin-bottom:10px; flex-wrap:wrap;">
+        <div style="width:96px; text-align:center; font-size:44px; line-height:1.4;">🚗<div style="font-size:12px; font-weight:700; color:#1f4f87;">MILEAGE</div></div>
+        <div style="flex:1; min-width:220px;">
+          <div style="font-weight:800; font-size:15px;">${mgrReviewEsc(c.employeeName)} <span style="font-weight:400; font-size:12px; color:var(--muted);">· ${c.role === 'wingman' ? 'Wingman' : 'Captain'} · submitted ${when(c.submittedAt)}</span></div>
+          <div style="font-size:14px; margin-top:4px;"><strong>${c.miles} miles</strong> on ${window.fmtDate(c.date)} in a personal vehicle</div>
+          <div style="font-size:13px; margin-top:4px; background:#fff; border-radius:4px; padding:4px 8px;">“${mgrReviewEsc(c.purpose || '')}”</div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px;">
+            <label style="margin:0; font-size:13px;">Miles <input type="number" min="0" step="0.1" class="exp-miles" value="${c.miles}" style="width:80px; margin-left:4px;"></label>
+            <span class="exp-mil-calc" data-rate="${milRate}" style="font-size:13px; color:#1f4f87; font-weight:600;">${milRate > 0 ? `× ${expMoneyFmt(milRate)}/mi = ${expMoneyFmt(Math.round(c.miles * milRate * 100) / 100)}` : '<span style="color:#b3261e;">Set the mileage rate in Configuration → Pay first</span>'}</span>
+            <button type="button" class="exp-approve" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Approve</button>
+            <button type="button" class="exp-deny" style="background:#fff; color:#b3261e; border:1px solid #b3261e; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Deny</button>
+            <span class="status-msg exp-status" style="margin:0;"></span>
+          </div>
+        </div>
+      </div>`;
       const aiDiff = c.aiRead && c.aiRead.total && Math.abs(c.aiRead.total - c.total) > 0.005;
       return `<div class="exp-card" data-id="${mgrReviewEsc(c.id)}" style="display:flex; gap:14px; border:1px solid #E3A008; border-left:5px solid #E3A008; background:#FFFBEA; border-radius:8px; padding:12px; margin-bottom:10px; flex-wrap:wrap;">
         <img class="exp-photo" data-key="${mgrReviewEsc(c.photoKey)}" alt="Receipt" style="width:96px; height:128px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer;">
@@ -27882,7 +28000,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         </div>
       </div>`; }).join('') : '<p class="form-note" style="margin:0;">No expenses waiting for approval.</p>';
     decidedEl.innerHTML = decided.length ? decided.map(c => `<div style="display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; flex-wrap:wrap;">
-      <div><strong>${mgrReviewEsc(c.employeeName)}</strong> \u00b7 ${mgrReviewEsc(c.merchant || 'Receipt')} \u00b7 ${mgrReviewEsc(c.category)}
+      <div><strong>${mgrReviewEsc(c.employeeName)}</strong> \u00b7 ${c.type === 'mileage' ? `\u{1F697} ${c.status === 'approved' ? c.approvedMiles + ' mi \u00d7 ' + expMoneyFmt(c.approvedRate) : c.miles + ' mi'} \u00b7 ${mgrReviewEsc(c.purpose || '')}` : `${mgrReviewEsc(c.merchant || 'Receipt')} \u00b7 ${mgrReviewEsc(c.category)}`}
         <div style="font-size:12px; color:var(--muted);">${c.status === 'approved' ? `Approved ${when(c.decidedAt)} \u00b7 paid week of ${window.fmtDate(c.payWeek)}` : `Denied ${when(c.decidedAt)}${c.denyReason ? ' \u2014 ' + mgrReviewEsc(c.denyReason) : ''}`}${c.decidedBy ? ' by ' + mgrReviewEsc(c.decidedBy) : ''}</div></div>
       <div style="font-weight:700; ${c.status === 'denied' ? 'color:var(--muted); text-decoration:line-through;' : 'color:var(--brand-green-dark);'}">${expMoneyFmt(c.status === 'approved' ? c.approvedAmount : c.total)}</div>
     </div>`).join('') : '<p class="form-note" style="margin:0;">None yet.</p>';
@@ -27890,6 +28008,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     pendingEl.querySelectorAll('.exp-photo').forEach(async img => {
       try{ const uri = await window.dashboardApi.get(img.dataset.key, null); if(uri){ img.src = uri; img.addEventListener('click', () => window.showPhotoModal ? window.showPhotoModal(uri, { title: 'Receipt' }) : window.open(uri)); } }catch(err){}
     });
+    pendingEl.querySelectorAll('.exp-miles').forEach(inp => inp.addEventListener('input', () => {
+      const calc = inp.closest('.exp-card').querySelector('.exp-mil-calc'), rate = Number(calc.dataset.rate) || 0;
+      if(rate > 0) calc.textContent = `\u00d7 ${expMoneyFmt(rate)}/mi = ${expMoneyFmt(Math.round((Number(inp.value) || 0) * rate * 100) / 100)}`;
+    }));
     pendingEl.querySelectorAll('.exp-approve').forEach(b => b.addEventListener('click', e => decideExpense(e.currentTarget.closest('.exp-card'), 'approved')));
     pendingEl.querySelectorAll('.exp-deny').forEach(b => b.addEventListener('click', e => decideExpense(e.currentTarget.closest('.exp-card'), 'denied')));
   }
@@ -27899,6 +28021,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(status === 'denied'){
       denyReason = (prompt('Why is this expense denied? The employee will see this.') || '').trim();
       if(!denyReason) return;
+    } else if(card.dataset.type === 'mileage'){
+      // Paid at the rate set in Configuration -> Pay, locked in at approval.
+      var milesApproved = Math.round((Number(card.querySelector('.exp-miles').value) || 0) * 10) / 10;
+      var rateNow = Number(((window.appSettings || {}).extraPay || {}).mileageRate) || 0;
+      if(!(rateNow > 0)){ st.textContent = 'Set the Mileage Reimbursement Rate in Configuration \u2192 Pay first.'; st.className = 'status-msg exp-status err'; return; }
+      if(!(milesApproved > 0)){ st.textContent = 'Enter the miles to approve.'; st.className = 'status-msg exp-status err'; return; }
+      amount = Math.round(milesApproved * rateNow * 100) / 100;
     } else {
       amount = Math.round((Number(card.querySelector('.exp-amount').value) || 0) * 100) / 100;
       if(!(amount > 0)){ st.textContent = 'Enter the amount to approve.'; st.className = 'status-msg exp-status err'; return; }
@@ -27910,7 +28039,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const c = fresh.find(x => x.id === id);
       if(!c || c.status !== 'pending'){ await loadExpenseClaims(); return; }
       Object.assign(c, { status, decidedAt: new Date().toISOString(), decidedBy: localStorage.getItem('henson_auth_email') || '' },
-        status === 'approved' ? { approvedAmount: amount, payWeek: expPayWeekStart() } : { denyReason: denyReason.slice(0, 300) });
+        status === 'approved' ? Object.assign({ approvedAmount: amount, payWeek: expPayWeekStart() }, card.dataset.type === 'mileage' ? { approvedMiles: milesApproved, approvedRate: rateNow } : {}) : { denyReason: denyReason.slice(0, 300) });
       if(!(await window.dashboardApi.set(EXPENSE_CLAIMS_KEY, fresh))) throw new Error('save');
       expenseClaims = fresh;
       renderExpenseClaims();
