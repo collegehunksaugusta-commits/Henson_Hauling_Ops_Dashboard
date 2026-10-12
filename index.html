@@ -6754,13 +6754,19 @@
       <p class="form-note" id="mf_tableEmptyNote" style="display:none;">No months recorded yet &mdash; add one above to get started.</p>
     </div>
 
+    <div class="panel" id="mf_ownerTimePanel">
+      <h3>Owner Time in the App</h3>
+      <p class="form-note" style="margin-top:0;">Minutes you actively use this dashboard while signed in as an admin &mdash; only while it&rsquo;s the tab on screen and you&rsquo;ve clicked, typed or scrolled in the last 3 minutes. Building or changing the app (in Claude, GitHub, Render) never counts, and Configuration and the Truck Driver game are left out. Phone calls, site visits and meetings aren&rsquo;t captured, so this is a <strong>floor</strong> for your time in the business.</p>
+      <div id="ot_summary"><p class="form-note" style="margin:0;">Loading&hellip;</p></div>
+    </div>
+
     <div class="panel" id="mf_valuationPanel" style="border:2px solid var(--brand-green);">
       <h3>Business Valuation Estimate</h3>
       <p class="form-note" style="margin-top:0;">Estimates what the business could sell for, using the standard method for a business this size: <strong>Seller&rsquo;s Discretionary Earnings (SDE) &times; a market multiple</strong>. SDE is figured from your last 12 months above: EBIT + owner wages + depreciation &amp; amortization (from your saved months, unless you enter an override) + one-time expenses. Claude judges the multiple &mdash; weighing growth, history, the franchise term, seasonality, and how little the owner is needed day-to-day. Run it every few months to watch the trend.</p>
       <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); align-items:end;">
         <label>Business opened <input type="month" id="val_openedMonth"></label>
         <label>Franchise agreement expires (year) <input type="number" min="2025" max="2060" step="1" id="val_franchiseYear" placeholder="e.g. 2033"></label>
-        <label>Owner hours per week in the business <input type="number" min="0" max="100" step="1" id="val_ownerHours" placeholder="e.g. 5"></label>
+        <label>Owner hours per week in the business <input type="number" min="0" max="100" step="1" id="val_ownerHours" placeholder="e.g. 5"><span id="val_ownerHoursHint" style="display:block; font-size:11.5px; color:var(--muted); margin-top:3px;"></span></label>
         <label>Depreciation &amp; amortization, last 12 mo ($) <input type="number" min="0" step="1" id="val_da" placeholder="blank = from saved months"></label>
         <label>One-time / non-recurring expenses, last 12 mo ($) <input type="number" min="0" step="1" id="val_oneTime" placeholder="e.g. a major repair"></label>
       </div>
@@ -8460,6 +8466,7 @@
   const monthlyFinancialsDetail = document.getElementById('monthlyFinancialsDetail');
 
   function showView(view){
+    window.__ownerTimeView = view;
     // Monthly Financials is admin-only -- block direct navigation (a typed
     // or bookmarked #monthlyfinancials hash, browser back/forward, etc.)
     // the same way the tile itself is hidden from non-admins, rather than
@@ -23570,6 +23577,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderMonthlyFinancialsChart();
       renderMonthlyFinancialsTable();
       loadBusinessValuations();
+      if(window.__ownerTimeFlush) window.__ownerTimeFlush();
+      setTimeout(loadOwnerTime, 400);
     }catch(err){
       console.error('Monthly financials load failed:', err);
       const statusEl = document.getElementById('mf_saveStatus');
@@ -23680,6 +23689,83 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         daBackfillFound = {}; daBackfillYtds = [];
       }catch(err){ sst.textContent = 'Could not save \u2014 check your connection.'; sst.className = 'status-msg err'; }
     });
+  }
+
+  // ---- Owner Time in the App ----
+  // Counts each minute an admin is actively using the dashboard (tab
+  // visible + interaction in the last 3 minutes), by screen, and sends the
+  // minutes to the server every 5 minutes and when the page is hidden.
+  (function(){
+    if(location.hash.startsWith('#driver')) return;   // the HUNK Portal isn't owner time
+    const EXCLUDED = new Set(['settings', 'kidsdrive']);
+    let lastInteraction = Date.now(), buffer = {}, bufferDate = null;
+    const touch = () => { lastInteraction = Date.now(); };
+    ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => window.addEventListener(ev, touch, { passive: true, capture: true }));
+    let lastMove = 0;
+    window.addEventListener('mousemove', () => { const n = Date.now(); if(n - lastMove > 15000){ lastMove = n; touch(); } }, { passive: true });
+    const isAdmin = () => localStorage.getItem('henson_auth_role') === 'admin' && !!localStorage.getItem('henson_auth_token');
+    const localDate = () => new Date().toLocaleDateString('en-CA');
+    function flush(){
+      const total = Object.values(buffer).reduce((t, n) => t + n, 0);
+      if(!total || !bufferDate || !isAdmin()) return;
+      const body = JSON.stringify({ date: bufferDate, minutes: buffer });
+      buffer = {}; bufferDate = null;
+      try{ fetch(`${API_BASE}/api/admin/activity`, { method: 'POST', keepalive: true, headers: authHeaders({'Content-Type': 'application/json'}), body }); }catch(err){}
+    }
+    setInterval(() => {
+      if(!isAdmin() || document.visibilityState !== 'visible') return;
+      if(Date.now() - lastInteraction > 3 * 60 * 1000) return;
+      const view = window.__ownerTimeView || 'home';
+      if(EXCLUDED.has(view)) return;
+      const today = localDate();
+      if(bufferDate && bufferDate !== today) flush();
+      bufferDate = today;
+      buffer[view] = (buffer[view] || 0) + 1;
+      if(Object.values(buffer).reduce((t, n) => t + n, 0) >= 5) flush();
+    }, 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') flush(); });
+    window.addEventListener('pagehide', flush);
+    window.__ownerTimeFlush = flush;
+  })();
+
+  const OT_LABELS = { home: 'Dispatch (home)', managerreview: 'Manager Review', extrapay: 'Extra Pay', labor: 'Labor Cost', paperwork: 'Job Paperwork',
+    compliance: 'Regulatory Compliance', materials: 'Materials', monthlyfinancials: 'Monthly Financials', captain: 'Captain Metrics', opsmetrics: 'Ops Manager Metrics',
+    wingmanmetrics: 'Wingman Metrics', attendance: 'Attendance', roster: 'Employee Roster', hiring: 'Hiring', maillist: 'Marketing Lists', mailroute: 'Mail Route',
+    calc: 'Calculators', statetaxes: 'State Taxes', damageclaim: 'Damage Claims' };
+  async function loadOwnerTime(){
+    const el = document.getElementById('ot_summary');
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/activity-summary`, { headers: authHeaders() });
+      if(handleAuthFailure(res) || !res.ok) throw new Error();
+      const d = await res.json();
+      const hrs = m => (m / 60).toFixed(1);
+      const tracked = d.firstDay ? d.weeks.filter(w => w.weekStart >= (() => { const x = new Date(d.firstDay + 'T00:00:00'); const w = x.getDay(); x.setDate(x.getDate() + (w === 0 ? -6 : 1 - w)); return x.toLocaleDateString('en-CA'); })()) : [];
+      const full = tracked.filter(w => w.weekStart !== d.thisWeek);
+      const avg = full.length ? full.reduce((t, w) => t + w.minutes, 0) / full.length : null;
+      const cur = d.weeks.find(w => w.weekStart === d.thisWeek) || { minutes: 0 };
+      const max = Math.max(60, ...d.weeks.map(w => w.minutes));
+      const views = Object.entries(d.byView).sort((a, b) => b[1] - a[1]);
+      const viewTotal = views.reduce((t, [, m]) => t + m, 0);
+      const hint = document.getElementById('val_ownerHoursHint');
+      if(hint) hint.textContent = avg != null ? `In the app: about ${hrs(avg)} hrs/week (${full.length}-week average) \u2014 add time outside the app.` : '';
+      if(!d.firstDay){ el.innerHTML = '<p class="form-note" style="margin:0;">Tracking starts now \u2014 check back after you\u2019ve used the dashboard for a while.</p>'; return; }
+      el.innerHTML = `
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+          <div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">This week so far</div><div style="font-size:26px; font-weight:800;">${hrs(cur.minutes)} hrs</div></div>
+          <div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">Weekly average${full.length ? ` (${full.length} full week${full.length === 1 ? '' : 's'})` : ''}</div><div style="font-size:26px; font-weight:800;">${avg != null ? hrs(avg) + ' hrs' : '\u2014'}</div></div>
+        </div>
+        <div style="display:flex; align-items:flex-end; gap:6px; height:120px; padding:0 2px; border-bottom:1px solid var(--line);">
+          ${d.weeks.map(w => `<div title="Week of ${new Date(w.weekStart + 'T00:00:00').toLocaleDateString()}: ${hrs(w.minutes)} hrs" style="flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%;">
+            <div style="font-size:10px; color:var(--muted); margin-bottom:2px;">${w.minutes ? hrs(w.minutes) : ''}</div>
+            <div style="width:100%; height:${Math.round(w.minutes / max * 90)}px; background:${w.weekStart === d.thisWeek ? 'var(--brand-orange)' : 'var(--brand-green)'}; border-radius:4px 4px 0 0;"></div></div>`).join('')}
+        </div>
+        <div style="display:flex; gap:6px; padding:3px 2px 0;">${d.weeks.map(w => `<div style="flex:1; text-align:center; font-size:10px; color:var(--muted);">${new Date(w.weekStart + 'T00:00:00').toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</div>`).join('')}</div>
+        ${views.length ? `<div style="font-weight:700; margin:14px 0 6px;">Where the time went (last 4 weeks)</div>
+          ${views.map(([v, m]) => `<div style="display:flex; align-items:center; gap:10px; font-size:13px; margin-bottom:4px;">
+            <div style="width:170px;">${mfEsc(OT_LABELS[v] || v)}</div>
+            <div style="flex:1; background:#f1f1ec; border-radius:4px; height:10px;"><div style="width:${Math.round(m / viewTotal * 100)}%; height:10px; background:var(--brand-green); border-radius:4px;"></div></div>
+            <div style="width:70px; text-align:right;">${hrs(m)} hrs</div></div>`).join('')}` : ''}`;
+    }catch(err){ el.innerHTML = '<p class="form-note" style="margin:0;">Couldn\u2019t load owner time.</p>'; }
   }
 
   // ---- Business Valuation Estimate ----
