@@ -5987,9 +5987,13 @@
     <button class="backlink" id="kidsDriveBackBtn">&larr; Dispatch</button>
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin:6px 0 10px;">
       <h2 class="display" style="margin:0; font-size:28px;">🚚 Truck Driver</h2>
-      <div id="kd_score" style="font-size:26px; font-weight:800; color:var(--brand-green-dark);">⭐ 0</div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <button type="button" id="kd_soundBtn" title="Test the sound" style="background:#fff; border:2px solid var(--line); border-radius:999px; padding:6px 14px; font-size:16px; font-weight:700; cursor:pointer; font-family:inherit;">&#128264; Sound</button>
+        <div id="kd_score" style="font-size:26px; font-weight:800; color:var(--brand-green-dark);">⭐ 0</div>
+      </div>
     </div>
     <p id="kd_msg" style="font-size:22px; font-weight:700; margin:0 0 10px; color:var(--charcoal);">Tap anywhere on the map to drive!</p>
+    <p id="kd_soundNote" style="display:none; margin:-4px 0 10px; font-size:13.5px; background:#FFF8E1; border:1px solid #E3A008; border-radius:8px; padding:8px 12px; color:#6b4f00;"></p>
     <div style="position:relative;">
       <div id="kd_map" style="height:68vh; min-height:360px; border-radius:14px; border:4px solid var(--brand-green); background:var(--offwhite);"></div>
       <div id="kd_burst" style="position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center; font-size:90px; opacity:0; transition:opacity .25s;"></div>
@@ -8721,6 +8725,30 @@
         src.buffer = buf; src.connect(g); g.connect(a.destination); src.start();
       }catch(e){}
     }
+    // Sound check: shows whether the browser is letting the game make sound,
+    // and plays a test honk. If the browser keeps the sound engine
+    // suspended, the tab or site is muted -- say where to look.
+    async function soundCheck(){
+      const btn = document.getElementById('kd_soundBtn'), note = document.getElementById('kd_soundNote');
+      try{
+        const a = ctx();
+        if(a.state !== 'running'){ try{ await a.resume(); }catch(e){} }
+        await new Promise(r => setTimeout(r, 150));
+        if(a.state === 'running'){
+          btn.innerHTML = '&#128266; Sound on'; btn.style.borderColor = 'var(--brand-green)'; btn.style.color = 'var(--brand-green-dark)';
+          note.style.display = 'none';
+          await play('horn', 1);
+          note.style.display = 'block';
+          note.innerHTML = 'The game just played a honk. <strong>Didn\u2019t hear it?</strong> The tab or browser is muted: right-click this tab &rarr; <em>Unmute tab</em>; or click the lock icon by the address &rarr; <em>Permissions for this site</em> &rarr; <em>Sound: Allow</em>; or check Microsoft Edge in the Windows <em>Volume mixer</em>.';
+        } else {
+          btn.innerHTML = '&#128263; Sound blocked'; btn.style.borderColor = '#b3261e'; btn.style.color = '#b3261e';
+          note.style.display = 'block';
+          note.innerHTML = 'The browser is blocking sound for this page. Click the lock icon by the address &rarr; <em>Permissions for this site</em> &rarr; set <em>Sound</em> to <em>Allow</em>, then reload.';
+        }
+      }catch(e){
+        note.style.display = 'block'; note.textContent = 'This browser couldn\u2019t start sound.';
+      }
+    }
     const airHorn = () => play('horn', 1);
     const vroom = () => play('vroom', 0.9);
     // Applause: lots of quick, randomly timed claps (filtered noise bursts).
@@ -8834,6 +8862,7 @@
       truck = L.marker(pos, { icon: truckIcon(false), zIndexOffset: 1000 }).addTo(map);
       map.on('click', e => driveTo([e.latlng.lat, e.latlng.lng]));
       $('kd_honk').addEventListener('click', honk);
+      $('kd_soundBtn').addEventListener('click', soundCheck);
       $('kd_home').addEventListener('click', () => driveTo(home()));
       $('kd_more').addEventListener('click', async () => { say('Here comes more junk!'); await spawnJunk(5); say('Tap the map to drive to the junk!'); });
       await spawnJunk(5);
