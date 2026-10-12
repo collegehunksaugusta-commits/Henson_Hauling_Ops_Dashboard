@@ -3408,6 +3408,11 @@ const DEFAULT_APP_SETTINGS = {
   extraPay: {
     mileageRate: 0
   },
+  // Monthly Financials: metrics switched off in Configuration -> Financials
+  // (hidden from the chart and yearly tables; the data itself is kept).
+  financials: {
+    hiddenMetrics: []
+  },
   marketing: {
     redfinSouthCarolina: 'https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308',
     redfinEvansMartinez: 'https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924',
