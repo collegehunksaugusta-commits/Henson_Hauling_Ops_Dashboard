@@ -6706,6 +6706,15 @@
           <span class="status-msg" id="mfBatch_saveStatus"></span>
         </div>
       </div>
+
+      <div style="margin-top:18px; padding:14px; border:1px dashed var(--line); border-radius:8px; background:#fafaf6;">
+        <div style="font-weight:700;">Backfill Depreciation &amp; Amortization</div>
+        <p class="form-note" style="margin:4px 0 8px;">For months saved before D&amp;A was tracked. Upload one or more reports that show <strong>monthly detail</strong> (e.g. an ACUTE monthly report, which carries the last 12 months) &mdash; D&amp;A is read for every month shown, and saving updates <strong>only the D&amp;A</strong> of months already on file. Nothing else changes.</p>
+        <input type="file" id="daBackfill_files" accept="application/pdf,image/*" multiple style="display:none;">
+        <button type="button" id="daBackfill_chooseBtn" style="background:#fff; border:1px solid var(--line); padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:600;">Choose Reports&hellip;</button>
+        <span class="status-msg" id="daBackfill_status" style="margin-left:8px;"></span>
+        <div id="daBackfill_review" style="display:none; margin-top:12px;"></div>
+      </div>
     </div>
 
     <div class="panel">
@@ -6721,6 +6730,7 @@
         <label>Owner Wages ($) <input type="number" step="0.01" id="mf_ownerWages"></label>
         <label>Net Income ($) <input type="number" step="0.01" id="mf_netIncome"></label>
         <label>Total Equity ($) <input type="number" step="0.01" id="mf_totalEquity"></label>
+        <label>Depreciation &amp; Amortization ($) <input type="number" step="0.01" id="mf_da" placeholder="optional"></label>
       </div>
       <div class="form-actions">
         <button class="btn-primary" id="mf_saveBtn" type="button">Save Month</button>
@@ -6746,12 +6756,12 @@
 
     <div class="panel" id="mf_valuationPanel" style="border:2px solid var(--brand-green);">
       <h3>Business Valuation Estimate</h3>
-      <p class="form-note" style="margin-top:0;">Estimates what the business could sell for, using the standard method for a business this size: <strong>Seller&rsquo;s Discretionary Earnings (SDE) &times; a market multiple</strong>. SDE is figured from your last 12 months above (EBIT + owner wages + the add-backs below). Claude judges the multiple &mdash; weighing growth, history, the franchise term, seasonality, and how little the owner is needed day-to-day. Run it every few months to watch the trend.</p>
+      <p class="form-note" style="margin-top:0;">Estimates what the business could sell for, using the standard method for a business this size: <strong>Seller&rsquo;s Discretionary Earnings (SDE) &times; a market multiple</strong>. SDE is figured from your last 12 months above: EBIT + owner wages + depreciation &amp; amortization (from your saved months, unless you enter an override) + one-time expenses. Claude judges the multiple &mdash; weighing growth, history, the franchise term, seasonality, and how little the owner is needed day-to-day. Run it every few months to watch the trend.</p>
       <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); align-items:end;">
         <label>Business opened <input type="month" id="val_openedMonth"></label>
         <label>Franchise agreement expires (year) <input type="number" min="2025" max="2060" step="1" id="val_franchiseYear" placeholder="e.g. 2033"></label>
         <label>Owner hours per week in the business <input type="number" min="0" max="100" step="1" id="val_ownerHours" placeholder="e.g. 5"></label>
-        <label>Depreciation &amp; amortization, last 12 mo ($) <input type="number" min="0" step="1" id="val_da" placeholder="from the P&amp;L"></label>
+        <label>Depreciation &amp; amortization, last 12 mo ($) <input type="number" min="0" step="1" id="val_da" placeholder="blank = from saved months"></label>
         <label>One-time / non-recurring expenses, last 12 mo ($) <input type="number" min="0" step="1" id="val_oneTime" placeholder="e.g. a major repair"></label>
       </div>
       <label style="display:flex; align-items:center; gap:8px; margin:10px 0 0;"><input type="checkbox" id="val_managerRuns" style="width:18px; height:18px;"> An Operations Manager runs day-to-day (already paid in the expenses)</label>
@@ -23377,6 +23387,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ownerWages: data.ownerWages || 0,
           netIncome: data.netIncome || 0,
           totalEquity: data.totalEquity || 0,
+          depreciationAmortization: data.depreciationAmortization || 0,
           confident: !!data.confident,
           periodFound: !!data.periodFound
         });
@@ -23428,6 +23439,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             <label style="font-size:11px;">Owner Wages ($) <input type="number" step="0.01" class="mfrev-field" data-field="ownerWages" data-review-id="${r.reviewId}" value="${r.ownerWages}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Net Income ($) <input type="number" step="0.01" class="mfrev-field" data-field="netIncome" data-review-id="${r.reviewId}" value="${r.netIncome}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Total Equity ($) <input type="number" step="0.01" class="mfrev-field" data-field="totalEquity" data-review-id="${r.reviewId}" value="${r.totalEquity}" style="font-size:13px;"></label>
+            <label style="font-size:11px;">Depreciation &amp; Amortization ($) <input type="number" step="0.01" class="mfrev-field" data-field="depreciationAmortization" data-review-id="${r.reviewId}" value="${r.depreciationAmortization || 0}" style="font-size:13px;"></label>
           </div>
           <button type="button" class="mfrev-remove" data-review-id="${r.reviewId}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-top:8px;">Remove</button>
         </div>
@@ -23484,6 +23496,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         monthlyFinancialsRecords.push({
           month: r.month, revenue: r.revenue, labor: r.labor, grossProfit: r.grossProfit,
           operatingProfit: r.operatingProfit, ebit: r.ebit, ownerWages: r.ownerWages, netIncome: r.netIncome, totalEquity: r.totalEquity,
+          depreciationAmortization: r.depreciationAmortization != null ? r.depreciationAmortization : null,
           updatedAt: new Date().toISOString()
         });
       });
@@ -23533,7 +23546,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { key: 'ownerWagesNetIncome', label: 'Owner Wages + Net Income', where: 'Chart line & badge' },
     { key: 'ownerWages', label: 'Owner Wages', where: 'Tables' },
     { key: 'netIncome', label: 'Net Income', where: 'Tables' },
-    { key: 'totalEquity', label: 'Total Equity', where: 'Chart & tables' }
+    { key: 'totalEquity', label: 'Total Equity', where: 'Chart & tables' },
+    { key: 'depreciationAmortization', label: 'Depreciation & Amortization', where: 'Tables' }
   ];
   window.MF_METRICS = MF_METRICS;
   const mfShown = key => !((((window.appSettings || {}).financials || {}).hiddenMetrics) || []).includes(key);
@@ -23555,6 +23569,65 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   window.loadMonthlyFinancialsData = loadMonthlyFinancialsData;
 
   function mfEsc(x){ const d = document.createElement('div'); d.textContent = String(x == null ? '' : x); return d.innerHTML; }
+  // ---- D&A backfill: read every month's D&A from multi-month reports ----
+  let daBackfillFound = {};   // month -> { depreciation, amortization, total, lines, file }
+  document.getElementById('daBackfill_chooseBtn').addEventListener('click', () => document.getElementById('daBackfill_files').click());
+  document.getElementById('daBackfill_files').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []); e.target.value = '';
+    if(!files.length) return;
+    const st = document.getElementById('daBackfill_status');
+    for(let n = 0; n < files.length; n++){
+      const file = files[n];
+      st.textContent = `Reading ${n + 1} of ${files.length}\u2026`; st.className = 'status-msg';
+      try{
+        let images, pageTexts = [];
+        if(file.type === 'application/pdf'){ images = await window.getImagesForAssessment(file); pageTexts = await window.extractPdfPageTextsSafe(file); }
+        else images = [await window.compressImageForUpload(file, 2000, 0.92)];
+        const res = await fetch(`${API_BASE}/api/admin/extract-da-history`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ images, pageTexts }) });
+        if(handleAuthFailure(res)) return;
+        const d = await res.json();
+        if(!res.ok) throw new Error(d.error || 'Could not read it.');
+        (d.months || []).forEach(m => { daBackfillFound[m.month] = { depreciation: m.depreciation, amortization: m.amortization, total: Math.round((m.depreciation + m.amortization) * 100) / 100, lines: m.linesAsPrinted, file: file.name }; });
+      }catch(err){ st.textContent = `${file.name}: ${err.message}`; st.className = 'status-msg err'; }
+    }
+    renderDaBackfill();
+  });
+  function renderDaBackfill(){
+    const wrap = document.getElementById('daBackfill_review'), st = document.getElementById('daBackfill_status');
+    const months = Object.keys(daBackfillFound).sort();
+    if(!months.length){ wrap.style.display = 'none'; st.textContent = 'No monthly D&A found in that report.'; st.className = 'status-msg err'; return; }
+    const onFile = new Set(monthlyFinancialsRecords.map(r => r.month));
+    st.textContent = `Found D&A for ${months.length} month${months.length === 1 ? '' : 's'}.`; st.className = 'status-msg ok';
+    const td = 'padding:5px 8px; border-bottom:1px solid var(--line);';
+    wrap.style.display = 'block';
+    wrap.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead><tr><th style="padding:5px 8px;"></th><th style="text-align:left; padding:5px 8px;">Month</th><th style="text-align:right; padding:5px 8px;">Depreciation</th><th style="text-align:right; padding:5px 8px;">Amortization</th><th style="text-align:right; padding:5px 8px;">D&amp;A</th><th style="text-align:right; padding:5px 8px;">Saved now</th><th style="text-align:left; padding:5px 8px;">Lines read</th></tr></thead>
+      <tbody>${months.map(m => { const f = daBackfillFound[m], rec = monthlyFinancialsRecords.find(r => r.month === m), has = onFile.has(m);
+        return `<tr style="${has ? '' : 'color:var(--muted);'}">
+          <td style="${td}"><input type="checkbox" class="da-pick" data-month="${m}" ${has ? 'checked' : 'disabled'}></td>
+          <td style="${td}">${mfMonthLabel(m)}${has ? '' : ' <span style="font-size:11px;">(not on file)</span>'}</td>
+          <td style="${td} text-align:right;">${mfMoney(f.depreciation)}</td><td style="${td} text-align:right;">${mfMoney(f.amortization)}</td>
+          <td style="${td} text-align:right; font-weight:700;">${mfMoney(f.total)}</td>
+          <td style="${td} text-align:right;">${rec && rec.depreciationAmortization != null ? mfMoney(rec.depreciationAmortization) : '\u2014'}</td>
+          <td style="${td} font-size:11.5px; color:var(--muted); max-width:280px;">${mfEsc(f.lines)}</td></tr>`; }).join('')}</tbody></table></div>
+      <div class="form-actions"><button class="btn-primary" id="daBackfill_saveBtn" type="button">Save D&amp;A to Checked Months</button><span class="status-msg" id="daBackfill_saveStatus"></span></div>`;
+    document.getElementById('daBackfill_saveBtn').addEventListener('click', async () => {
+      const picks = [...document.querySelectorAll('.da-pick:checked')].map(c => c.dataset.month);
+      const sst = document.getElementById('daBackfill_saveStatus');
+      if(!picks.length){ sst.textContent = 'Check at least one month.'; sst.className = 'status-msg err'; return; }
+      try{
+        // Re-read, change only D&A, save.
+        const fresh = await window.dashboardApi.get(MONTHLY_FINANCIALS_KEY, []) || [];
+        picks.forEach(m => { const r = fresh.find(x => x.month === m); if(r) r.depreciationAmortization = daBackfillFound[m].total; });
+        if(!(await window.dashboardApi.set(MONTHLY_FINANCIALS_KEY, fresh))) throw new Error('save');
+        monthlyFinancialsRecords = fresh;
+        renderMonthlyFinancialsTable();
+        sst.textContent = `D&A saved for ${picks.length} month${picks.length === 1 ? '' : 's'}.`; sst.className = 'status-msg ok';
+        daBackfillFound = {};
+      }catch(err){ sst.textContent = 'Could not save \u2014 check your connection.'; sst.className = 'status-msg err'; }
+    });
+  }
+
   // ---- Business Valuation Estimate ----
   let businessValuations = [];
   const valMoney = n => '$' + Math.round(Number(n) || 0).toLocaleString();
@@ -23571,7 +23644,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('val_openedMonth').value = i.openedMonth || '';
       document.getElementById('val_franchiseYear').value = i.franchiseExpiresYear || '';
       document.getElementById('val_ownerHours').value = i.ownerHoursPerWeek != null ? i.ownerHoursPerWeek : '';
-      document.getElementById('val_da').value = i.depreciationAmortization || '';
+      document.getElementById('val_da').value = i.depreciationAmortization != null ? i.depreciationAmortization : '';
       document.getElementById('val_oneTime').value = i.oneTimeExpenses || '';
       document.getElementById('val_managerRuns').checked = !!i.managerRunsDayToDay;
       document.getElementById('val_notes').value = i.notes || '';
@@ -23614,7 +23687,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
               ${row('Revenue', valMoney(f.ttm.revenue))}
               ${row('EBIT', valMoney(f.ttm.ebit))}
               ${row('+ Owner wages', valMoney(f.addBacks.ownerWages))}
-              ${row('+ Depreciation &amp; amortization', valMoney(f.addBacks.depreciationAmortization))}
+              ${row(`+ Depreciation &amp; amortization${f.addBacks.daSource ? ` <span style="font-size:11px; color:var(--muted);">(${esc(f.addBacks.daSource)})</span>` : ''}`, valMoney(f.addBacks.depreciationAmortization))}
               ${row('+ One-time expenses', valMoney(f.addBacks.oneTimeExpenses))}
               ${row('SDE', valMoney(f.sde), true)}
             </table>
@@ -23837,6 +23910,7 @@ ${mfShown('ebit') ? `                <th style="text-align:right; padding:6px 8p
 ${mfShown('ownerWages') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Owner Wages</th>` : ''}
 ${mfShown('netIncome') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>` : ''}
 ${mfShown('totalEquity') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Equity</th>` : ''}
+                ${mfShown('depreciationAmortization') ? `<th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);" title="Depreciation + amortization -- added back in the business valuation">D&amp;A</th>` : ''}
                 <th style="border-bottom:2px solid var(--line);"></th>
               </tr>
             </thead>
@@ -23852,6 +23926,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
                 ${mfShown('ownerWages') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.ownerWages)}</td>` : ''}
                 ${mfShown('netIncome') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>` : ''}
                 ${mfShown('totalEquity') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.totalEquity)}</td>` : ''}
+                ${mfShown('depreciationAmortization') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${r.depreciationAmortization != null ? mfMoney(r.depreciationAmortization) : '<span style="color:var(--muted);">\u2014</span>'}</td>` : ''}
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;">
                   <button type="button" class="mf-edit" data-month="${r.month}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
                   <button type="button" class="mf-delete" data-month="${r.month}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
@@ -23867,6 +23942,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
                 ${mfShown('ownerWages') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.ownerWages)}</td>` : ''}
                 ${mfShown('netIncome') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>` : ''}
                 ${mfShown('totalEquity') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;" title="Year-end balance, not a sum -- Total Equity is a point-in-time figure">${mfMoney(latestEquity)}</td>` : ''}
+                ${mfShown('depreciationAmortization') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(rows.reduce((t, r) => t + (Number(r.depreciationAmortization) || 0), 0))}</td>` : ''}
                 <td style="border-top:2px solid var(--line);"></td>
               </tr>
             </tbody>
@@ -23887,6 +23963,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       document.getElementById('mf_operatingProfit').value = r.operatingProfit;
       document.getElementById('mf_ebit').value = r.ebit;
       document.getElementById('mf_ownerWages').value = r.ownerWages;
+      document.getElementById('mf_da').value = r.depreciationAmortization != null ? r.depreciationAmortization : '';
       document.getElementById('mf_netIncome').value = r.netIncome;
       document.getElementById('mf_totalEquity').value = r.totalEquity;
       document.getElementById('mf_formTitle').textContent = `Editing ${mfMonthLabel(month)}`;
@@ -23918,6 +23995,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     document.getElementById('mf_operatingProfit').value = '';
     document.getElementById('mf_ebit').value = '';
     document.getElementById('mf_ownerWages').value = '';
+    document.getElementById('mf_da').value = '';
     document.getElementById('mf_netIncome').value = '';
     document.getElementById('mf_totalEquity').value = '';
     document.getElementById('mf_formTitle').textContent = 'Add a Month';
@@ -23944,6 +24022,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       ownerWages: parseFloat(document.getElementById('mf_ownerWages').value) || 0,
       netIncome: parseFloat(document.getElementById('mf_netIncome').value) || 0,
       totalEquity: parseFloat(document.getElementById('mf_totalEquity').value) || 0,
+      depreciationAmortization: document.getElementById('mf_da').value === '' ? null : (parseFloat(document.getElementById('mf_da').value) || 0),
       updatedAt: new Date().toISOString()
     };
     // Editing one month but changing the month field to a different month
