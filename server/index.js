@@ -3539,6 +3539,122 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
   }
 });
 
+// ============ Business valuation estimate (Monthly Financials) ============
+// Trailing-12-month figures and Seller's Discretionary Earnings (SDE) are
+// computed here from the saved monthly P&Ls; Claude only judges the SDE
+// multiple (with reasons) from the numbers and the business's situation,
+// including how little the owner is needed day-to-day. Each estimate is
+// kept in 'business-valuations' so the trend can be followed over time.
+const BUSINESS_VALUATIONS_KEY = 'business-valuations';
+const VALUATION_TOOL = {
+  name: 'business_valuation',
+  description: 'An SDE-multiple valuation judgment for a small franchised service business.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      multipleLow: { type: 'number', description: 'Conservative SDE multiple.' },
+      multipleMid: { type: 'number', description: 'Most likely SDE multiple.' },
+      multipleHigh: { type: 'number', description: 'Optimistic SDE multiple.' },
+      summary: { type: 'string', description: '3-5 plain-English sentences: what the business is likely worth and why.' },
+      factors: { type: 'array', items: { type: 'object', properties: {
+        factor: { type: 'string' }, effect: { type: 'string', enum: ['raises', 'lowers', 'neutral'] }, explanation: { type: 'string' }
+      }, required: ['factor', 'effect', 'explanation'] }, description: 'The main things that moved the multiple up or down.' },
+      toRaiseValue: { type: 'array', items: { type: 'string' }, description: '3-6 concrete steps that would raise the value before a sale.' },
+      caveats: { type: 'array', items: { type: 'string' }, description: 'Limits of this estimate (data gaps, assumptions).' }
+    },
+    required: ['multipleLow', 'multipleMid', 'multipleHigh', 'summary', 'factors', 'toRaiseValue', 'caveats']
+  }
+};
+
+function valuationFigures(records, inputs) {
+  const months = records.filter(r => /^\d{4}-\d{2}$/.test(r.month || '')).sort((a, b) => a.month.localeCompare(b.month));
+  const last12 = months.slice(-12), prior12 = months.slice(-24, -12);
+  const sum = (rows, k) => rows.reduce((t, r) => t + (Number(r[k]) || 0), 0);
+  const scale = last12.length && last12.length < 12 ? 12 / last12.length : 1;   // annualize a short history
+  const ttm = {};
+  ['revenue', 'labor', 'grossProfit', 'operatingProfit', 'ebit', 'ownerWages', 'netIncome'].forEach(k => { ttm[k] = Math.round(sum(last12, k) * scale); });
+  const da = Math.max(0, Number(inputs.depreciationAmortization) || 0);
+  const oneTime = Math.max(0, Number(inputs.oneTimeExpenses) || 0);
+  const sde = ttm.ebit + ttm.ownerWages + da + oneTime;
+  const priorRevenue = prior12.length === 12 ? sum(prior12, 'revenue') : null;
+  const latest = months[months.length - 1] || null;
+  return {
+    monthsUsed: last12.length, firstMonth: last12[0] ? last12[0].month : null, lastMonth: latest ? latest.month : null, annualized: scale !== 1,
+    ttm, addBacks: { ownerWages: ttm.ownerWages, depreciationAmortization: da, oneTimeExpenses: oneTime },
+    sde: Math.round(sde),
+    revenueGrowthPct: priorRevenue ? Math.round((ttm.revenue - priorRevenue) / priorRevenue * 1000) / 10 : null,
+    totalEquity: latest ? Number(latest.totalEquity) || 0 : null,
+    monthsOnRecord: months.length,
+    firstOnFile: months[0] ? months[0].month : null
+  };
+}
+
+app.get('/api/admin/business-valuations', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ valuations: JSON.parse(await redis.get(BUSINESS_VALUATIONS_KEY) || '[]') }); }
+  catch (err) { res.status(500).json({ error: 'Could not load valuations.' }); }
+});
+
+app.post('/api/admin/business-valuation', requireAuth, requireAdmin, async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'AI is not configured on this server.' });
+  const b = req.body || {};
+  const inputs = {
+    ownerHoursPerWeek: Math.max(0, Math.min(100, Number(b.ownerHoursPerWeek) || 0)),
+    managerRunsDayToDay: !!b.managerRunsDayToDay,
+    franchiseExpiresYear: Number(b.franchiseExpiresYear) || null,
+    openedMonth: /^\d{4}-\d{2}$/.test(b.openedMonth || '') ? b.openedMonth : '',
+    depreciationAmortization: Math.max(0, Number(b.depreciationAmortization) || 0),
+    oneTimeExpenses: Math.max(0, Number(b.oneTimeExpenses) || 0),
+    notes: String(b.notes || '').slice(0, 1500)
+  };
+  try {
+    const records = JSON.parse(await redis.get('monthly-financials') || '[]');
+    const f = valuationFigures(records, inputs);
+    if (f.monthsUsed < 3) return res.status(400).json({ error: 'Add at least 3 months of P&L data in Monthly Financials first.' });
+    if (!(f.sde > 0)) return res.status(400).json({ error: 'Trailing earnings (SDE) aren\u2019t positive yet, so an earnings-based value can\u2019t be estimated.' });
+    const context = [
+      `Business: ${LOCATION.name} \u2014 a single-territory College HUNKS Hauling Junk & Moving franchise (residential moving and junk removal) with its own trucks and crews, using the franchisor\u2019s booking system.`,
+      `${inputs.openedMonth ? 'Opened ' + inputs.openedMonth + '; ' : ''}${f.monthsOnRecord} months of P&L on file (first ${f.firstOnFile}).`,
+      `Trailing ${f.monthsUsed} months (${f.firstMonth} to ${f.lastMonth})${f.annualized ? ', annualized to 12 months' : ''}: revenue $${f.ttm.revenue.toLocaleString()}, crew payroll $${f.ttm.labor.toLocaleString()}, gross profit $${f.ttm.grossProfit.toLocaleString()}, operating profit $${f.ttm.operatingProfit.toLocaleString()}, EBIT $${f.ttm.ebit.toLocaleString()}, owner wages $${f.ttm.ownerWages.toLocaleString()}, net income $${f.ttm.netIncome.toLocaleString()}.`,
+      `Revenue growth vs the prior 12 months: ${f.revenueGrowthPct === null ? 'not enough history' : f.revenueGrowthPct + '%'}.`,
+      `SDE (computed): $${f.sde.toLocaleString()} = EBIT + owner wages + depreciation/amortization ($${inputs.depreciationAmortization.toLocaleString()}) + one-time expenses ($${inputs.oneTimeExpenses.toLocaleString()}).`,
+      `Owner involvement: about ${inputs.ownerHoursPerWeek} hours/week. ${inputs.managerRunsDayToDay ? 'A paid Operations Manager (already in the expenses) runs day-to-day operations, so a buyer would not need to replace the owner\u2019s labor.' : 'The owner still runs day-to-day operations.'}`,
+      `Systems: a custom operations platform built for this business \u2014 a crew mobile app (pre-trip and end-of-day inspections, materials checkout, damage photos, weight tickets, tips/expenses/mileage), DOT/driver compliance tracking, automated weekly commission and extra-pay calculation tied to labor efficiency, damage-claim workflow with AI reimbursement recommendations, AI work-order paperwork generation, captain/wingman/ops-manager performance scorecards, materials inventory with shrinkage tracking, and monthly financial tracking. It documents the operation so a manager or new owner can run it with little owner involvement.`,
+      inputs.franchiseExpiresYear ? `Franchise agreement expires ${inputs.franchiseExpiresYear} (about ${inputs.franchiseExpiresYear - new Date().getFullYear()} years left); a buyer would need franchisor approval and likely a transfer fee.` : 'Franchise agreement term not provided.',
+      inputs.notes ? `Owner\u2019s notes: ${inputs.notes}` : ''
+    ].filter(Boolean).join('\n');
+    const prompt = `You are an experienced business broker who values small franchised home-service businesses (moving, junk removal) for sale. Using ONLY the facts below, choose a realistic SDE multiple range for this business as it would be priced to a typical buyer today (main street / lower middle market). Be candid: weigh the short operating history, seasonality, franchise term and transfer requirements, and how profitable it is, against strengths like growth and low owner dependence. Explain specifically how the manager-run operation and the documented systems affect the multiple versus a typical owner-operated franchise of this size. Do not invent figures not given.\n\n${context}`;
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2500, tools: [VALUATION_TOOL], tool_choice: { type: 'tool', name: 'business_valuation' }, messages: [{ role: 'user', content: prompt }] })
+    });
+    if (!r.ok) { console.error('Valuation AI failed:', r.status, (await r.text().catch(() => '')).slice(0, 300)); return res.status(502).json({ error: 'The valuation service didn\u2019t respond \u2014 try again in a moment.' }); }
+    const d = await r.json();
+    const block = (d.content || []).find(x => x.type === 'tool_use' && x.name === 'business_valuation');
+    if (!block) return res.status(502).json({ error: 'Could not produce an estimate \u2014 try again.' });
+    const v = block.input || {};
+    const clampM = n => Math.max(0.5, Math.min(8, Number(n) || 0));
+    const mLow = clampM(v.multipleLow), mMid = Math.max(mLow, clampM(v.multipleMid)), mHigh = Math.max(mMid, clampM(v.multipleHigh));
+    const valuation = {
+      id: 'val_' + Date.now(), createdAt: new Date().toISOString(), createdBy: req.userEmail || '', inputs, figures: f,
+      multiples: { low: mLow, mid: mMid, high: mHigh },
+      value: { low: Math.round(f.sde * mLow / 1000) * 1000, mid: Math.round(f.sde * mMid / 1000) * 1000, high: Math.round(f.sde * mHigh / 1000) * 1000 },
+      summary: String(v.summary || '').slice(0, 2000),
+      factors: (Array.isArray(v.factors) ? v.factors : []).slice(0, 12).map(x => ({ factor: String(x.factor || '').slice(0, 120), effect: ['raises', 'lowers', 'neutral'].includes(x.effect) ? x.effect : 'neutral', explanation: String(x.explanation || '').slice(0, 600) })),
+      toRaiseValue: (Array.isArray(v.toRaiseValue) ? v.toRaiseValue : []).slice(0, 8).map(x => String(x).slice(0, 400)),
+      caveats: (Array.isArray(v.caveats) ? v.caveats : []).slice(0, 8).map(x => String(x).slice(0, 400))
+    };
+    const list = JSON.parse(await redis.get(BUSINESS_VALUATIONS_KEY) || '[]');
+    list.unshift(valuation);
+    await redis.set(BUSINESS_VALUATIONS_KEY, JSON.stringify(list.slice(0, 36)));
+    console.log(`[valuation] SDE $${f.sde} x ${mMid} = $${valuation.value.mid}`);
+    res.json({ valuation });
+  } catch (err) {
+    console.error('Business valuation failed:', err.message);
+    res.status(500).json({ error: 'Could not estimate the value.' });
+  }
+});
+
 // ============ Damage claim: AI reimbursement recommendation ============
 // Looks at a claim's photos (the client's, the crew's crew-caused photos,
 // and the crew's pre-existing-damage photos for comparison), reads the
