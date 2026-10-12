@@ -3539,6 +3539,57 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
   }
 });
 
+// ============ Owner time in the app ============
+// The dashboard counts minutes an admin is actively using it (tab on
+// screen, interaction within the last 3 minutes; Configuration and the
+// Truck Driver game excluded) and sends them here in small batches.
+// Stored per person, per day, per screen in 'app-activity-log'.
+const APP_ACTIVITY_KEY = 'app-activity-log';
+app.post('/api/admin/activity', requireAuth, requireAdmin, async (req, res) => {
+  const { date, minutes } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !minutes || typeof minutes !== 'object') return res.status(400).json({ error: 'Bad activity.' });
+  try {
+    const clean = {}; let total = 0;
+    Object.entries(minutes).forEach(([view, n]) => {
+      const v = String(view).replace(/[^a-z0-9-]/gi, '').slice(0, 40) || 'other';
+      const m = Math.max(0, Math.min(60, Math.round(Number(n) || 0)));
+      if (m) { clean[v] = (clean[v] || 0) + m; total += m; }
+    });
+    if (total === 0) return res.json({ ok: true });
+    if (total > 90) return res.status(400).json({ error: 'Too many minutes in one batch.' });
+    const log = JSON.parse(await redis.get(APP_ACTIVITY_KEY) || '{}');
+    const me = String(req.userEmail || '').toLowerCase();
+    log[me] = log[me] || {};
+    const day = log[me][date] = log[me][date] || {};
+    Object.entries(clean).forEach(([v, m]) => { day[v] = (day[v] || 0) + m; });
+    // Keep about 13 months.
+    const cutoff = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
+    Object.keys(log[me]).forEach(d => { if (d < cutoff) delete log[me][d]; });
+    await redis.set(APP_ACTIVITY_KEY, JSON.stringify(log));
+    res.json({ ok: true });
+  } catch (err) { console.error('Activity save failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+app.get('/api/admin/activity-summary', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const log = JSON.parse(await redis.get(APP_ACTIVITY_KEY) || '{}');
+    const days = log[String(req.userEmail || '').toLowerCase()] || {};
+    const monday = d => { const x = new Date(d + 'T00:00:00Z'); const w = x.getUTCDay(); x.setUTCDate(x.getUTCDate() + (w === 0 ? -6 : 1 - w)); return x.toISOString().slice(0, 10); };
+    const thisWeek = monday(easternDateFromMs(Date.now()));
+    const weeks = [];
+    for (let i = 11; i >= 0; i--) { const x = new Date(thisWeek + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 7 * i); weeks.push({ weekStart: x.toISOString().slice(0, 10), minutes: 0 }); }
+    const byWeek = {}; weeks.forEach(w => byWeek[w.weekStart] = w);
+    const fourWeeksAgo = weeks[8].weekStart;
+    const byView = {};
+    Object.entries(days).forEach(([d, views]) => {
+      const total = Object.values(views).reduce((t, m) => t + m, 0);
+      const w = byWeek[monday(d)]; if (w) w.minutes += total;
+      if (d >= fourWeeksAgo) Object.entries(views).forEach(([v, m]) => { byView[v] = (byView[v] || 0) + m; });
+    });
+    const firstDay = Object.keys(days).sort()[0] || null;
+    res.json({ weeks, byView, thisWeek, firstDay });
+  } catch (err) { console.error('Activity summary failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+
 // ============ D&A backfill (Monthly Financials) ============
 // Reads depreciation and amortization for EVERY month a report shows (e.g.
 // an ACUTE report's 12-month monthly detail), so past months can get their
