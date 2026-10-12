@@ -91,13 +91,14 @@ const ALLOWED_KEYS = new Set([
   'google-review-allocations',
   'weight-tickets',
   'weight-ticket-trucks',
+  'expense-claims',
   'damage-claim-crew-acks',
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
   'ops-manager-metrics-monthly-locks'
 ]);
-const ALLOWED_KEY_PREFIXES = ['weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
+const ALLOWED_KEY_PREFIXES = ['expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -1634,6 +1635,113 @@ app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
     console.error('Office weight ticket upload failed:', err.message);
     res.status(500).json({ error: 'Could not save that weight ticket.' });
   }
+});
+
+// ============ Expenses (HUNK Portal -> Manager Review -> Extra Pay) ============
+// A Hunk photographs a receipt; Claude reads merchant, date, total and a
+// category; he confirms and submits. The office approves or denies it in
+// Manager Review, and approved expenses are paid in that pay week's Extra
+// Pay ("Expenses" column). Claims live in 'expense-claims'; each receipt
+// photo in its own 'expense-receipt-photo-<id>' key.
+const EXPENSE_CLAIMS_KEY = 'expense-claims';
+const EXPENSE_CATEGORIES = ['Fuel', 'Supplies', 'Tolls & Parking', 'Meals', 'Other'];
+const READ_RECEIPT_TOOL = {
+  name: 'read_receipt',
+  description: 'Details read from a purchase receipt.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      isReceipt: { type: 'boolean', description: 'False if the photo is not a receipt.' },
+      merchant: { type: 'string', description: 'Store or business name.' },
+      date: { type: 'string', description: 'Purchase date as YYYY-MM-DD, or empty if not printed.' },
+      total: { type: 'number', description: 'Final total paid, in dollars (after tax), or 0 if unreadable.' },
+      category: { type: 'string', enum: EXPENSE_CATEGORIES, description: 'Best fit for a moving & junk-removal crew expense.' },
+      description: { type: 'string', description: 'A few words on what was bought, e.g. "Diesel, 32.4 gal" or "Ratchet straps (4)".' },
+      confident: { type: 'boolean', description: 'False if the total or date was hard to read.' }
+    },
+    required: ['isReceipt', 'merchant', 'date', 'total', 'category', 'description', 'confident']
+  }
+};
+
+async function readReceiptPhoto(photoDataUri) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const match = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(photoDataUri || '');
+  if (!apiKey || !match) return { error: 'Could not read that photo.' };
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6', max_tokens: 1024,
+      tools: [READ_RECEIPT_TOOL], tool_choice: { type: 'tool', name: 'read_receipt' },
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+        { type: 'text', text: 'This is a photo of a receipt a moving-company crew member paid for out of pocket and wants reimbursed. Read the store name, purchase date, and the FINAL total paid (after tax), pick the best category, and describe what was bought in a few words.' }
+      ] }]
+    })
+  });
+  if (!r.ok) { console.error('Receipt read failed:', r.status, (await r.text().catch(() => '')).slice(0, 300)); return { error: 'Could not read the receipt right now \u2014 try again in a moment.' }; }
+  const d = await r.json();
+  const block = (d.content || []).find(b => b.type === 'tool_use' && b.name === 'read_receipt');
+  if (!block) return { error: 'Could not read the receipt \u2014 try again.' };
+  const x = block.input || {};
+  return {
+    isReceipt: x.isReceipt !== false, merchant: String(x.merchant || '').slice(0, 120),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') ? x.date : '',
+    total: Math.max(0, Math.round((Number(x.total) || 0) * 100) / 100),
+    category: EXPENSE_CATEGORIES.includes(x.category) ? x.category : 'Other',
+    description: String(x.description || '').slice(0, 200), confident: !!x.confident
+  };
+}
+
+async function submitExpense(personName, role, body) {
+  const photo = body && body.photo;
+  if (!/^data:image\/[a-zA-Z]+;base64,/.test(photo || '')) return { status: 400, body: { error: 'Take a photo of the receipt first.' } };
+  if (photo.length > 6 * 1024 * 1024) return { status: 400, body: { error: 'That photo is too large \u2014 try again.' } };
+  const total = Math.round((Number(body.total) || 0) * 100) / 100;
+  if (!(total > 0)) return { status: 400, body: { error: 'Enter the receipt total.' } };
+  const id = 'exp_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  const claim = {
+    id, employeeName: String(personName).slice(0, 100), role, submittedAt: new Date().toISOString(),
+    merchant: String(body.merchant || '').slice(0, 120), date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '',
+    total, category: EXPENSE_CATEGORIES.includes(body.category) ? body.category : 'Other',
+    description: String(body.description || '').slice(0, 200), note: String(body.note || '').slice(0, 500),
+    aiRead: body.aiRead && typeof body.aiRead === 'object' ? { merchant: String(body.aiRead.merchant || '').slice(0, 120), total: Number(body.aiRead.total) || 0, date: String(body.aiRead.date || '').slice(0, 10), confident: !!body.aiRead.confident } : null,
+    photoKey: 'expense-receipt-photo-' + id, status: 'pending'
+  };
+  await redis.set(claim.photoKey, JSON.stringify(photo));
+  const claims = JSON.parse(await redis.get(EXPENSE_CLAIMS_KEY) || '[]');
+  claims.push(claim);
+  await redis.set(EXPENSE_CLAIMS_KEY, JSON.stringify(claims));
+  console.log(`[expenses] ${personName} submitted $${total} (${claim.category})`);
+  return { status: 200, body: { ok: true, id } };
+}
+
+async function myExpenses(personName) {
+  const me = nameCoreKey(personName);
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  return JSON.parse(await redis.get(EXPENSE_CLAIMS_KEY) || '[]')
+    .filter(c => nameCoreKey(c.employeeName) === me && (c.submittedAt || '') >= cutoff)
+    .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''))
+    .map(c => ({ id: c.id, submittedAt: c.submittedAt, merchant: c.merchant, date: c.date, total: c.total, approvedAmount: c.approvedAmount, category: c.category, description: c.description, status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
+}
+
+[['/api/driver', requireDriverAuth, req => req.driverName, 'captain'],
+ ['/api/wingman', requireWingmanAuth, req => req.wingmanName, 'wingman']].forEach(([base, auth, who, role]) => {
+  app.post(base + '/expense/read', auth, async (req, res) => {
+    try {
+      const r = await readReceiptPhoto(req.body && req.body.photo);
+      if (r.error) return res.status(400).json(r);
+      res.json(r);
+    } catch (err) { console.error('Receipt read failed:', err.message); res.status(500).json({ error: 'Could not read the receipt.' }); }
+  });
+  app.post(base + '/expense', auth, async (req, res) => {
+    try { const r = await submitExpense(who(req), role, req.body || {}); res.status(r.status).json(r.body); }
+    catch (err) { console.error('Expense submit failed:', err.message); res.status(500).json({ error: 'Could not submit the expense.' }); }
+  });
+  app.get(base + '/expenses', auth, async (req, res) => {
+    try { res.json({ expenses: await myExpenses(who(req)), categories: EXPENSE_CATEGORIES }); }
+    catch (err) { console.error('My expenses failed:', err.message); res.status(500).json({ error: 'Could not load expenses.' }); }
+  });
 });
 
 // ============ My Tips (HUNK Portal) ============
