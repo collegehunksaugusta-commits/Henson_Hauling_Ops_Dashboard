@@ -3556,6 +3556,8 @@ const EXTRACT_DA_HISTORY_TOOL = {
         linesAsPrinted: { type: 'string', description: 'The labels of the lines used, exactly as printed.' }
       }, required: ['month', 'depreciation', 'amortization', 'linesAsPrinted'] },
       description: 'One entry per individual month column shown (not YTD or total columns).' },
+      ytdDepreciationAmortization: { type: 'number', description: 'Year-to-date depreciation plus amortization from a YTD column, if the report has one; 0 otherwise.' },
+      ytdThroughMonth: { type: 'string', description: 'YYYY-MM of the last month the YTD column covers (the report\u2019s month); empty if no YTD column.' },
       confident: { type: 'boolean' }
     },
     required: ['months', 'confident']
@@ -3575,7 +3577,7 @@ app.post('/api/admin/extract-da-history', requireAuth, requireAdmin, async (req,
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, tools: [EXTRACT_DA_HISTORY_TOOL], tool_choice: { type: 'tool', name: 'extract_da_history' },
-        messages: [{ role: 'user', content: [...content, { type: 'text', text: 'This is a monthly financial report for a small business. Find the income statement / P&L detail that shows individual month columns (management reports often include a trailing 12-month monthly detail). For EACH individual month column, add up every Depreciation line and every Amortization line (e.g. "Amortization - Franchise Fee", "Depreciation Expense"). Ignore YTD, quarter, total, budget, and prior-year comparison columns. If the report only shows a single month, return just that month.' }] }] })
+        messages: [{ role: 'user', content: [...content, { type: 'text', text: 'This is a monthly financial report for a small business. Find the income statement / P&L detail that shows individual month columns (management reports often include a trailing 12-month monthly detail). For EACH individual month column, add up every Depreciation line and every Amortization line (e.g. "Amortization - Franchise Fee", "Depreciation Expense"). Do not put YTD, quarter, total, budget, or prior-year comparison columns in the months list, but DO report the year-to-date depreciation + amortization (and the month it runs through) if a YTD column is shown. If the report only shows a single month, return just that month.' }] }] })
     });
     if (!r.ok) { console.error('D&A history read failed:', r.status, (await r.text().catch(() => '')).slice(0, 300)); return res.status(502).json({ error: 'Could not read the report right now \u2014 try again.' }); }
     const d = await r.json();
@@ -3584,7 +3586,9 @@ app.post('/api/admin/extract-da-history', requireAuth, requireAdmin, async (req,
       .filter(m => /^\d{4}-\d{2}$/.test(m.month || ''))
       .map(m => ({ month: m.month, depreciation: Math.round(Math.max(0, Number(m.depreciation) || 0) * 100) / 100, amortization: Math.round(Math.max(0, Number(m.amortization) || 0) * 100) / 100, linesAsPrinted: String(m.linesAsPrinted || '').slice(0, 400) }));
     console.log(`[da-history] read ${months.length} month(s)`);
-    res.json({ months, confident: !!(block && block.input && block.input.confident) });
+    const inp = (block && block.input) || {};
+    res.json({ months, confident: !!inp.confident,
+      ytd: /^\d{4}-\d{2}$/.test(inp.ytdThroughMonth || '') && Number(inp.ytdDepreciationAmortization) > 0 ? { total: Math.round(Number(inp.ytdDepreciationAmortization) * 100) / 100, through: inp.ytdThroughMonth } : null });
   } catch (err) {
     console.error('D&A history read failed:', err.message);
     res.status(500).json({ error: 'Could not read the report.' });
@@ -5173,6 +5177,9 @@ const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
       totalEquityLineAsPrinted: { type: 'string', description: 'The complete text of the line the total equity figure was read from, exactly as printed. Empty string if no such line exists; in that case totalEquity must be 0.' },
       depreciationAmortization: { type: 'number', description: 'Depreciation PLUS amortization expense for the reporting month, in dollars: add together every expense line for the reporting month labeled Depreciation, Amortization, "Depreciation & Amortization", or similar (e.g. "Amortization - Franchise Fee", "Depreciation Expense - Vehicles"). Reporting month\u2019s own column only. 0 if no such lines.' },
       depreciationAmortizationLinesAsPrinted: { type: 'string', description: 'The complete text of every line added into depreciationAmortization, exactly as printed. Empty string if none.' },
+      otherMonthsDA: { type: 'array', items: { type: 'object', properties: { month: { type: 'string', description: 'YYYY-MM' }, depreciationAmortization: { type: 'number' } }, required: ['month', 'depreciationAmortization'] },
+        description: 'Depreciation PLUS amortization for each OTHER individual month column the same P&L detail shows (e.g. the two prior months printed beside the reporting month). Same lines as above, that month\u2019s own column. Not YTD, budget or prior-year columns. Empty array if none.' },
+      ytdDepreciationAmortization: { type: 'number', description: 'Year-to-date depreciation PLUS amortization through the reporting month, from a YTD column on the same lines. 0 if no YTD column is shown.' },
       confident: { type: 'boolean', description: 'True only if periodFound is true, the month/period was clearly identifiable, AND at least Revenue and Net Income were both read clearly from explicitly labeled lines for the correct reporting month specifically (not a YTD or other-month figure mistaken for it). False otherwise, including whenever periodFound is false or the month couldn\u2019t be determined.' }
     },
     required: ['periodFound', 'month', 'revenue', 'labor', 'grossProfit', 'operatingProfit', 'ebit', 'ownerWages', 'netIncome', 'totalEquity', 'confident']
