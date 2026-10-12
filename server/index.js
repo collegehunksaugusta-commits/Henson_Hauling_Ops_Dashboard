@@ -613,9 +613,15 @@ const WINGMAN_TASK_TYPES = {
   'pretrip': 'Pre-Trip Inspection',
   'materials-checkout': 'Material Checkout',
   'eod': 'End of Day Inspection',
-  'materials-checkin': 'Material Checkin'
+  'materials-checkin': 'Material Checkin',
+  'moving-preexisting': 'Pre-Existing Damage Photos',
+  'moving-caused': 'Crew-Caused Damage Photos'
 };
-function todayIsoDate() { return new Date().toISOString().slice(0, 10); }
+// Today in Augusta (Eastern) -- the same day the phones stamp on checkouts
+// and inspections. (UTC was already "tomorrow" from 8 PM.)
+function todayIsoDate() { return easternDateFromMs(Date.now()); }
+// Moving photo tasks: which photo category each one covers.
+const MOVING_TASK_CATEGORY = { 'moving-preexisting': 'preexisting', 'moving-caused': 'caused' };
 
 async function loadWingmanTasks() {
   const raw = await redis.get(WINGMAN_TASKS_KEY);
@@ -2359,7 +2365,7 @@ function sanitizeMovingJobKey(jobNumber) {
 // already exists for each one. Photo blobs themselves are never included
 // here, only counts -- the list stays lightweight, and photos are fetched
 // per-job only when a driver actually opens that job's detail view.
-app.get('/api/driver/moving-jobs', requireDriverAuth, async (req, res) => {
+app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisting', 'moving-caused']), async (req, res) => {
   const driverName = req.driverName;
   try {
     const [archiveRaw, reportsRaw] = await Promise.all([
@@ -2403,10 +2409,13 @@ app.get('/api/driver/moving-jobs', requireDriverAuth, async (req, res) => {
 // Lets a driver pull up the photos already submitted for a category, so
 // they can add ones they forgot and re-submit -- same edit pattern as
 // Junk Removal's photo flow.
-app.get('/api/driver/moving/:jobNumber/photos', requireDriverAuth, async (req, res) => {
+app.get('/api/driver/moving/:jobNumber/photos', requireDriverOrTaskWingman(['moving-preexisting', 'moving-caused']), async (req, res) => {
   const category = req.query.category;
   if (category !== 'preexisting' && category !== 'caused') {
     return res.status(400).json({ error: 'Invalid category.' });
+  }
+  if (req.wingmanTask && MOVING_TASK_CATEGORY[req.wingmanTask.type] !== category) {
+    return res.status(403).json({ error: 'That task doesn\u2019t cover these photos.' });
   }
   try {
     const raw = await redis.get(MOVING_DAMAGE_REPORTS_KEY);
@@ -2427,12 +2436,24 @@ app.get('/api/driver/moving/:jobNumber/photos', requireDriverAuth, async (req, r
   }
 });
 
-app.post('/api/driver/moving/:jobNumber/photos', requireDriverAuth, async (req, res) => {
+app.post('/api/driver/moving/:jobNumber/photos', requireDriverOrTaskWingman(['moving-preexisting', 'moving-caused']), async (req, res) => {
   const driverName = req.driverName;
   const jobNumber = req.params.jobNumber;
   const { category, photos, notes } = req.body || {};
   if (category !== 'preexisting' && category !== 'caused') {
     return res.status(400).json({ error: 'Invalid category.' });
+  }
+  // A wingman on a Moving photo task can only add the kind of photos it
+  // covers; saving them completes the task.
+  if (req.wingmanTask) {
+    if (MOVING_TASK_CATEGORY[req.wingmanTask.type] !== category) {
+      return res.status(403).json({ error: 'That task doesn\u2019t cover these photos.' });
+    }
+    res.on('finish', () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        completeWingmanTask(req.wingmanTask.id, req.actingWingmanName).catch(err => console.error('Wingman task completion failed:', err.message));
+      }
+    });
   }
   if (!Array.isArray(photos) || photos.length === 0) {
     return res.status(400).json({ error: 'At least one photo is required.' });
