@@ -6743,6 +6743,28 @@
       <div id="mf_tableGroups"></div>
       <p class="form-note" id="mf_tableEmptyNote" style="display:none;">No months recorded yet &mdash; add one above to get started.</p>
     </div>
+
+    <div class="panel" id="mf_valuationPanel" style="border:2px solid var(--brand-green);">
+      <h3>Business Valuation Estimate</h3>
+      <p class="form-note" style="margin-top:0;">Estimates what the business could sell for, using the standard method for a business this size: <strong>Seller&rsquo;s Discretionary Earnings (SDE) &times; a market multiple</strong>. SDE is figured from your last 12 months above (EBIT + owner wages + the add-backs below). Claude judges the multiple &mdash; weighing growth, history, the franchise term, seasonality, and how little the owner is needed day-to-day. Run it every few months to watch the trend.</p>
+      <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); align-items:end;">
+        <label>Business opened <input type="month" id="val_openedMonth"></label>
+        <label>Franchise agreement expires (year) <input type="number" min="2025" max="2060" step="1" id="val_franchiseYear" placeholder="e.g. 2033"></label>
+        <label>Owner hours per week in the business <input type="number" min="0" max="100" step="1" id="val_ownerHours" placeholder="e.g. 5"></label>
+        <label>Depreciation &amp; amortization, last 12 mo ($) <input type="number" min="0" step="1" id="val_da" placeholder="from the P&amp;L"></label>
+        <label>One-time / non-recurring expenses, last 12 mo ($) <input type="number" min="0" step="1" id="val_oneTime" placeholder="e.g. a major repair"></label>
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; margin:10px 0 0;"><input type="checkbox" id="val_managerRuns" style="width:18px; height:18px;"> An Operations Manager runs day-to-day (already paid in the expenses)</label>
+      <label style="display:block; margin-top:10px;">Anything else a buyer should know (optional) <textarea id="val_notes" rows="2" style="width:100%;" placeholder="e.g. new truck added in March; Hurricane Helene boosted junk revenue in late 2024"></textarea></label>
+      <div class="form-actions">
+        <button class="btn-primary" id="val_runBtn" type="button">Estimate Business Value</button>
+        <span class="status-msg" id="val_status"></span>
+      </div>
+      <div id="val_result"></div>
+      <h4 style="margin:18px 0 6px; font-size:13px; color:var(--muted);">Past Estimates</h4>
+      <div id="val_history"><p class="form-note" style="margin:0;">None yet.</p></div>
+      <p class="form-note" style="margin-top:14px;">An informed estimate, not a formal appraisal. Before listing the business, have a business broker who knows franchise resales and your CPA confirm the figures &mdash; a sale also needs franchisor approval.</p>
+    </div>
   </div>
 
   <!-- ============ ATTENDANCE TRACKING DETAIL ============ -->
@@ -23522,6 +23544,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       monthlyFinancialsRecords = await window.dashboardApi.get(MONTHLY_FINANCIALS_KEY, []) || [];
       renderMonthlyFinancialsChart();
       renderMonthlyFinancialsTable();
+      loadBusinessValuations();
     }catch(err){
       console.error('Monthly financials load failed:', err);
       const statusEl = document.getElementById('mf_saveStatus');
@@ -23530,6 +23553,110 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
   }
   window.loadMonthlyFinancialsData = loadMonthlyFinancialsData;
+
+  function mfEsc(x){ const d = document.createElement('div'); d.textContent = String(x == null ? '' : x); return d.innerHTML; }
+  // ---- Business Valuation Estimate ----
+  let businessValuations = [];
+  const valMoney = n => '$' + Math.round(Number(n) || 0).toLocaleString();
+  async function loadBusinessValuations(){
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/business-valuations`, { headers: authHeaders() });
+      if(handleAuthFailure(res) || !res.ok) return;
+      businessValuations = (await res.json()).valuations || [];
+    }catch(err){ return; }
+    // Prefill the form from the most recent estimate.
+    const last = businessValuations[0];
+    if(last && last.inputs){
+      const i = last.inputs;
+      document.getElementById('val_openedMonth').value = i.openedMonth || '';
+      document.getElementById('val_franchiseYear').value = i.franchiseExpiresYear || '';
+      document.getElementById('val_ownerHours').value = i.ownerHoursPerWeek != null ? i.ownerHoursPerWeek : '';
+      document.getElementById('val_da').value = i.depreciationAmortization || '';
+      document.getElementById('val_oneTime').value = i.oneTimeExpenses || '';
+      document.getElementById('val_managerRuns').checked = !!i.managerRunsDayToDay;
+      document.getElementById('val_notes').value = i.notes || '';
+    }
+    renderValuationHistory();
+    if(last && !document.getElementById('val_result').innerHTML) renderValuation(last);
+  }
+  function renderValuationHistory(){
+    const el = document.getElementById('val_history');
+    if(!businessValuations.length){ el.innerHTML = '<p class="form-note" style="margin:0;">None yet.</p>'; return; }
+    const td = 'padding:6px 8px; border-bottom:1px solid var(--line);';
+    el.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead><tr><th style="text-align:left; padding:6px 8px;">Date</th><th style="text-align:right; padding:6px 8px;">Revenue (12 mo)</th><th style="text-align:right; padding:6px 8px;">SDE</th><th style="text-align:right; padding:6px 8px;">Multiple</th><th style="text-align:right; padding:6px 8px;">Likely Value</th><th style="padding:6px 8px;"></th></tr></thead>
+      <tbody>${businessValuations.map((v, i) => `<tr>
+        <td style="${td}">${new Date(v.createdAt).toLocaleDateString()}</td>
+        <td style="${td} text-align:right;">${valMoney(v.figures.ttm.revenue)}</td>
+        <td style="${td} text-align:right;">${valMoney(v.figures.sde)}</td>
+        <td style="${td} text-align:right;">${v.multiples.mid.toFixed(2)}&times;</td>
+        <td style="${td} text-align:right; font-weight:700; color:var(--brand-green-dark);">${valMoney(v.value.mid)}</td>
+        <td style="${td} text-align:right;"><button type="button" class="val-view" data-i="${i}" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:3px 9px; cursor:pointer; font-size:12px;">View</button></td>
+      </tr>`).join('')}</tbody></table></div>`;
+    el.querySelectorAll('.val-view').forEach(b => b.addEventListener('click', () => { renderValuation(businessValuations[Number(b.dataset.i)]); document.getElementById('val_result').scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
+  }
+  function renderValuation(v){
+    const f = v.figures, esc = x => mfEsc ? mfEsc(x) : String(x);
+    const row = (label, val, strong) => `<tr><td style="padding:4px 8px;">${label}</td><td style="padding:4px 8px; text-align:right; ${strong ? 'font-weight:800; border-top:2px solid var(--line);' : ''}">${val}</td></tr>`;
+    const icon = e => e === 'raises' ? '<span style="color:var(--brand-green-dark); font-weight:800;">&#9650;</span>' : e === 'lowers' ? '<span style="color:#b3261e; font-weight:800;">&#9660;</span>' : '<span style="color:var(--muted);">&#9679;</span>';
+    document.getElementById('val_result').innerHTML = `
+      <div style="margin-top:16px; border:1px solid var(--line); border-radius:10px; overflow:hidden;">
+        <div style="background:#0f3d24; color:#fff; padding:16px 18px;">
+          <div style="font-size:12px; letter-spacing:.06em; opacity:.85;">ESTIMATED VALUE \u00b7 ${new Date(v.createdAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+          <div style="font-size:34px; font-weight:800; margin-top:4px;">${valMoney(v.value.mid)}</div>
+          <div style="font-size:14px; opacity:.95;">Range ${valMoney(v.value.low)} \u2013 ${valMoney(v.value.high)} \u00b7 ${v.multiples.low.toFixed(2)}\u00d7 to ${v.multiples.high.toFixed(2)}\u00d7 SDE (likely ${v.multiples.mid.toFixed(2)}\u00d7)</div>
+        </div>
+        <div style="padding:14px 18px; display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px;">
+          <div>
+            <div style="font-weight:700; margin-bottom:6px;">Seller&rsquo;s Discretionary Earnings</div>
+            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${f.firstMonth} to ${f.lastMonth}${f.annualized ? ` (${f.monthsUsed} months, annualized)` : ''}${f.revenueGrowthPct != null ? ` \u00b7 revenue ${f.revenueGrowthPct >= 0 ? '+' : ''}${f.revenueGrowthPct}% vs prior year` : ''}</div>
+            <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
+              ${row('Revenue', valMoney(f.ttm.revenue))}
+              ${row('EBIT', valMoney(f.ttm.ebit))}
+              ${row('+ Owner wages', valMoney(f.addBacks.ownerWages))}
+              ${row('+ Depreciation &amp; amortization', valMoney(f.addBacks.depreciationAmortization))}
+              ${row('+ One-time expenses', valMoney(f.addBacks.oneTimeExpenses))}
+              ${row('SDE', valMoney(f.sde), true)}
+            </table>
+          </div>
+          <div>
+            <div style="font-weight:700; margin-bottom:6px;">Why this multiple</div>
+            <p style="margin:0 0 8px; font-size:13.5px; line-height:1.45;">${esc(v.summary)}</p>
+          </div>
+        </div>
+        <div style="padding:0 18px 14px;">
+          <div style="font-weight:700; margin-bottom:6px;">What moved the value</div>
+          ${v.factors.map(x => `<div style="display:flex; gap:8px; padding:6px 0; border-top:1px solid var(--line); font-size:13.5px;"><div style="width:16px; text-align:center;">${icon(x.effect)}</div><div><strong>${esc(x.factor)}</strong> \u2014 ${esc(x.explanation)}</div></div>`).join('')}
+        </div>
+        <div style="padding:0 18px 14px; display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px;">
+          <div><div style="font-weight:700; margin-bottom:6px;">To raise the value before a sale</div><ul style="margin:0; padding-left:18px; font-size:13.5px;">${v.toRaiseValue.map(x => `<li style="margin-bottom:4px;">${esc(x)}</li>`).join('')}</ul></div>
+          <div><div style="font-weight:700; margin-bottom:6px;">Keep in mind</div><ul style="margin:0; padding-left:18px; font-size:13px; color:var(--muted);">${v.caveats.map(x => `<li style="margin-bottom:4px;">${esc(x)}</li>`).join('')}</ul></div>
+        </div>
+      </div>`;
+  }
+  document.getElementById('val_runBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, st = document.getElementById('val_status');
+    btn.disabled = true; st.textContent = 'Estimating\u2026 (about 20\u201340 seconds)'; st.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/business-valuation`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({
+        openedMonth: document.getElementById('val_openedMonth').value,
+        franchiseExpiresYear: document.getElementById('val_franchiseYear').value,
+        ownerHoursPerWeek: document.getElementById('val_ownerHours').value,
+        depreciationAmortization: document.getElementById('val_da').value,
+        oneTimeExpenses: document.getElementById('val_oneTime').value,
+        managerRunsDayToDay: document.getElementById('val_managerRuns').checked,
+        notes: document.getElementById('val_notes').value.trim()
+      }) });
+      if(handleAuthFailure(res)) return;
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || 'Could not estimate.');
+      businessValuations.unshift(d.valuation);
+      renderValuation(d.valuation); renderValuationHistory();
+      st.textContent = 'Done \u2014 saved to Past Estimates.'; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+    finally{ btn.disabled = false; }
+  });
+
 
   const MF_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
