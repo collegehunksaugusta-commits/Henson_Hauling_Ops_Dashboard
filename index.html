@@ -94,6 +94,27 @@
   table thead th a, table thead th button{ color:#fff !important; }
   div[style*="overflow-x:auto"]:has(> table), div[style*="overflow-x: auto"]:has(> table), .mail-table-wrap{ max-height:75vh; overflow-y:auto; }
   thead th.mail-sticky-col, thead th.mail-sticky-col-2{ z-index:4; }
+  /* Driver Tools cards: icon tile, title, arrow; task tray with status chips */
+  .dt-card{ background:#fff; border:1px solid var(--line); border-radius:14px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .dt-head{ display:flex; align-items:center; gap:14px; width:100%; background:none; border:none; padding:16px; text-align:left; cursor:pointer; font-family:inherit; color:inherit; text-decoration:none; }
+  .dt-head:active{ background:#f7f7f4; }
+  .dt-icon{ width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:23px; flex-shrink:0; }
+  .dt-title{ font-weight:800; font-size:16.5px; color:var(--charcoal); line-height:1.2; }
+  .dt-sub{ font-size:12.5px; color:var(--muted); margin-top:3px; line-height:1.35; }
+  .dt-chev{ margin-left:auto; padding-left:6px; font-size:26px; line-height:1; color:#c4c4bd; flex-shrink:0; }
+  .dt-tray{ background:#f7f7f3; border-top:1px solid var(--line); padding:4px 14px 10px; }
+  .dt-tray-label{ font-size:10.5px; font-weight:800; letter-spacing:.09em; color:#9a9a92; padding:8px 0 2px; }
+  .dt-row{ padding:9px 0; }
+  .dt-row + .dt-row{ border-top:1px solid #ebebe5; }
+  .dt-row-main{ display:flex; align-items:center; gap:10px; }
+  .dt-row-name{ font-weight:700; font-size:14px; color:var(--charcoal); flex:1; min-width:0; }
+  .dt-chip{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:999px; white-space:nowrap; }
+  .dt-chip.todo{ background:#ececE6; color:#6b6b63; }
+  .dt-chip.waiting{ background:#FFF1D6; color:#8a5a00; }
+  .dt-chip.done{ background:#E3F4E8; color:var(--brand-green-dark); }
+  .dt-btn{ background:#fff; border:1.5px solid var(--brand-green); color:var(--brand-green-dark); font-weight:700; padding:6px 12px; border-radius:999px; cursor:pointer; font-size:12.5px; font-family:inherit; white-space:nowrap; flex-shrink:0; }
+  .dt-btn.quiet{ border-color:var(--line); color:var(--muted); font-weight:600; }
+  .dt-btn.solid{ background:var(--brand-green); color:#fff; }
   .topbar{
     background:var(--charcoal);
     color:#fff;
@@ -610,50 +631,75 @@
           <div style="font-size:13px; color:var(--muted); margin-top:4px;">Opens the College HUNKS Crew app</div>
         </div>
       </a>
-      <div style="background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden;">
-        <button type="button" id="driverGoToInspectionBtn" style="display:block; width:100%; background:none; border:none; padding:20px 20px 14px; text-align:left; cursor:pointer; font-family:inherit;">
-          <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Pre-Trip Inspection</div>
-          <div style="font-size:13px; color:var(--muted); margin-top:4px;">Complete your truck's daily checklist &mdash; includes Materials Checkout at the start</div>
+      <div class="dt-card">
+        <button type="button" id="driverGoToInspectionBtn" class="dt-head">
+          <span class="dt-icon" style="background:#E3F4E8;">&#128203;</span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Pre-Trip Inspection</span><span class="dt-sub" style="display:block;">Your truck&rsquo;s daily checklist &mdash; starts with Materials Checkout</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
         </button>
-        <div style="border-top:1px solid var(--line); padding:2px 20px 10px;">
+        <div class="dt-tray">
+          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
           <div class="driver-task-assign-rows" data-types="pretrip,materials-checkout"></div>
           <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
         </div>
       </div>
-      <button type="button" id="driverGoToMovingBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
-        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Moving</div>
-        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Document pre-existing damage before the move, and anything the crew caused afterward</div>
-      </button>
-      <button type="button" id="driverGoToJunkRemovalBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
-        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Junk Removal</div>
-        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Upload photos on-site for a Claude volume estimate and quote range</div>
-      </button>
-      <div style="background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden;">
-        <button type="button" id="driverGoToEodBtn" style="display:block; width:100%; background:none; border:none; padding:20px 20px 14px; text-align:left; cursor:pointer; font-family:inherit;">
-          <div style="font-weight:700; font-size:16px; color:var(--charcoal);">End of Day Inspection</div>
-          <div style="font-size:13px; color:var(--muted); margin-top:4px;">Photo of the truck and any unused supplies you're returning to the racks</div>
+      <div class="dt-card">
+        <button type="button" id="driverGoToMovingBtn" class="dt-head">
+          <span class="dt-icon" style="background:#FFF1E0;">&#128230;</span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Moving</span><span class="dt-sub" style="display:block;">Photo pre-existing damage before the move, and anything the crew caused after</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
         </button>
-        <div style="border-top:1px solid var(--line); padding:2px 20px 10px;">
-          <div class="driver-task-assign-rows" data-types="eod,materials-checkin"></div>
-          <div style="padding:10px 0 2px; border-top:1px dashed var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;">
-            <div style="font-weight:600; font-size:13px; color:var(--charcoal);">Wingman Review</div>
-            <button type="button" id="driverReviewWingmenBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-family:inherit; flex-shrink:0;">Review Wingmen</button>
-          </div>
+        <div class="dt-tray">
+          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
+          <div class="driver-task-assign-rows" data-types="moving-preexisting,moving-caused"></div>
           <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
         </div>
       </div>
-      <a href="https://fuelsites.corpay.com/fuelman" target="_blank" rel="noopener" id="driverFuelStationsLink" style="display:block; background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit; text-decoration:none;">
-        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Find Fuel Stations &#8599;</div>
-        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Opens Fuelman's official site locator to find nearby stations that accept our fuel card</div>
-      </a>
-      <button type="button" id="driverGoToTruckDocsBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
-        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Truck Documents</div>
-        <div style="font-size:13px; color:var(--muted); margin-top:4px;">View a truck's registration and insurance card</div>
-      </button>
-      <button type="button" id="driverGoToNbhdBtn" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; text-align:left; cursor:pointer; font-family:inherit;">
-        <div style="font-weight:700; font-size:16px; color:var(--charcoal);">Find a Neighborhood</div>
-        <div style="font-size:13px; color:var(--muted); margin-top:4px;">Find a nearby spot for door hangers on the way to your next job</div>
-      </button>
+      <div class="dt-card">
+        <button type="button" id="driverGoToJunkRemovalBtn" class="dt-head">
+          <span class="dt-icon" style="background:#FDEDEC;">&#128715;&#65039;</span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Junk Removal</span><span class="dt-sub" style="display:block;">On-site photos for a Claude volume estimate and quote range</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
+      <div class="dt-card">
+        <button type="button" id="driverGoToEodBtn" class="dt-head">
+          <span class="dt-icon" style="background:#EEEAFB;">&#127769;</span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">End of Day Inspection</span><span class="dt-sub" style="display:block;">Truck photo, plus any unused supplies going back to the racks</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+        <div class="dt-tray">
+          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
+          <div class="driver-task-assign-rows" data-types="eod,materials-checkin"></div>
+          <div class="dt-tray-label" style="padding-top:12px;">YOUR CREW</div>
+          <div class="dt-row"><div class="dt-row-main">
+            <span class="dt-row-name">&#11088; Wingman Review</span>
+            <button type="button" id="driverReviewWingmenBtn" class="dt-btn solid">Review Wingmen</button>
+          </div></div>
+          <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
+        </div>
+      </div>
+      <div class="dt-card">
+        <a href="https://fuelsites.corpay.com/fuelman" target="_blank" rel="noopener" id="driverFuelStationsLink" class="dt-head">
+          <span class="dt-icon" style="background:#E8F1FB;">&#9981;</span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Find Fuel Stations &#8599;</span><span class="dt-sub" style="display:block;">Fuelman&rsquo;s locator for nearby stations that take our fuel card</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
+        </a>
+      </div>
+      <div class="dt-card">
+        <button type="button" id="driverGoToTruckDocsBtn" class="dt-head">
+          <span class="dt-icon" style="background:#F1F1EC;">&#128196;</span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Truck Documents</span><span class="dt-sub" style="display:block;">A truck&rsquo;s registration and insurance card</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
+      <div class="dt-card">
+        <button type="button" id="driverGoToNbhdBtn" class="dt-head">
+          <span class="dt-icon" style="background:#E3F4E8;">&#127960;&#65039;</span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Find a Neighborhood</span><span class="dt-sub" style="display:block;">A nearby spot for door hangers on the way to your next job</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1908,8 +1954,9 @@
       const mvData = await mvRes.json();
       const jrJobs = jrData.jobs || [];
       const movingJobs = mvData.jobs || [];
-      document.getElementById('driverGoToJunkRemovalBtn').style.display = jrJobs.length > 0 ? '' : 'none';
-      document.getElementById('driverGoToMovingBtn').style.display = movingJobs.length > 0 ? '' : 'none';
+      // Show/hide the whole card, not just the button inside it.
+      document.getElementById('driverGoToJunkRemovalBtn').closest('.dt-card').style.display = jrJobs.length > 0 ? '' : 'none';
+      document.getElementById('driverGoToMovingBtn').closest('.dt-card').style.display = movingJobs.length > 0 ? '' : 'none';
     }catch(err){
       console.error('Driver tile visibility check failed:', err);
     }
@@ -2136,7 +2183,7 @@
   document.getElementById('driverJunkRemovalBackBtn').addEventListener('click', showDriverMenu);
   document.getElementById('driverJunkRemovalLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('driverGoToMovingBtn').addEventListener('click', showDriverMoving);
-  document.getElementById('driverMovingBackBtn').addEventListener('click', showDriverMenu);
+  document.getElementById('driverMovingBackBtn').addEventListener('click', () => driverRole === 'wingman' ? showWingmanMenu() : showDriverMenu());
   document.getElementById('driverMovingLogoutBtn').addEventListener('click', driverLogout);
   document.getElementById('driverInspectionBackBtn').addEventListener('click', leaveTaskAndGoHome);
   document.getElementById('driverNbhdBackBtn').addEventListener('click', showDriverMenu);
@@ -2912,6 +2959,7 @@
     else if(task.type === 'materials-checkout'){ ptiMode = 'checkout'; showDriverInspection(); }
     else if(task.type === 'eod'){ eodMode = 'full'; showDriverEod(); }
     else if(task.type === 'materials-checkin'){ eodMode = 'checkin'; showDriverEod(); }
+    else if(task.type === 'moving-preexisting' || task.type === 'moving-caused'){ showDriverMoving(); }
   }
 
   // Material Checkout on its own: submits each job logged (the same
@@ -3370,8 +3418,8 @@
   document.getElementById('weightTicketBackBtn').addEventListener('click', ()=> showDriverMenu());
 
   // ---------- Task Assignment (Captain) ----------
-  const CAPTAIN_TASK_ORDER = ['pretrip', 'materials-checkout', 'eod', 'materials-checkin'];
-  const CAPTAIN_TASK_LABELS = { 'pretrip': 'Pre-Trip Inspection', 'materials-checkout': 'Material Checkout', 'eod': 'End of Day Inspection', 'materials-checkin': 'Material Checkin' };
+  const CAPTAIN_TASK_ORDER = ['pretrip', 'materials-checkout', 'moving-preexisting', 'moving-caused', 'eod', 'materials-checkin'];
+  const CAPTAIN_TASK_LABELS = { 'pretrip': 'Pre-Trip Inspection', 'materials-checkout': 'Material Checkout', 'eod': 'End of Day Inspection', 'materials-checkin': 'Material Checkin', 'moving-preexisting': 'Pre-Existing Damage Photos', 'moving-caused': 'Crew-Caused Damage Photos' };
   let captainAssignTasks = [];
   let captainAssignRoster = [];
   let captainAssignPickerType = null;
@@ -3410,12 +3458,14 @@
         const task = captainAssignTasks.find(t => t.type === type);
         let action = '';
         let detail = '';
+        let chip = '<span class="dt-chip todo">To do</span>';
+        const firstName = n => { const t = String(n || '').split(','); return (t[1] || t[0]).trim().split(/\s+/)[0] || n; };
         if(task && task.status === 'open'){
-          detail = `<div style="font-size:12px; color:var(--muted); margin-top:2px;">Assigned to <strong style="color:var(--charcoal);">${driverEsc(task.wingmanName)}</strong> &middot; waiting</div>`;
-          action = `<button type="button" class="task-assign-unassign" data-id="${driverEsc(task.id)}" style="${btn}">Unassign</button>`;
+          chip = `<span class="dt-chip waiting">&#9203; With ${driverEsc(firstName(task.wingmanName))}</span>`;
+          action = `<button type="button" class="task-assign-unassign dt-btn quiet" data-id="${driverEsc(task.id)}">Unassign</button>`;
         } else if(task && task.status === 'completed'){
-          const doneBy = task.completedBy && task.completedBy !== task.captainName ? task.completedBy : 'you';
-          detail = `<div style="font-size:12px; color:var(--brand-green-dark); font-weight:600; margin-top:2px;">&#10003; Done by ${driverEsc(doneBy)}</div>`;
+          const doneBy = task.completedBy && task.completedBy !== task.captainName ? firstName(task.completedBy) : 'you';
+          chip = `<span class="dt-chip done">&#10003; Done${doneBy === 'you' ? '' : ' by ' + driverEsc(doneBy)}</span>`;
         } else if(captainAssignPickerType === type){
           detail = captainAssignRoster.length === 0
             ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">No wingmen on the roster right now.</div>`
@@ -3424,13 +3474,15 @@
                 ${captainAssignRoster.map(n => `<option value="${driverEsc(n)}">${driverEsc(n)}</option>`).join('')}
               </select>
               <button type="button" class="task-assign-confirm" data-type="${type}" style="${greenBtn} width:100%; margin-top:8px;">Assign</button>`;
-          action = `<button type="button" class="task-assign-cancel" style="${btn}">Cancel</button>`;
+          chip = '';
+          action = `<button type="button" class="task-assign-cancel dt-btn quiet">Cancel</button>`;
         } else {
-          action = `<button type="button" class="task-assign-open" data-type="${type}" style="${btn}">Assign to Wingman</button>`;
+          action = `<button type="button" class="task-assign-open dt-btn" data-type="${type}">&#128100; Assign</button>`;
         }
-        return `<div class="task-assign-row" style="padding:10px 0; ${i > 0 ? 'border-top:1px dashed var(--line);' : ''}">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-            <div style="font-weight:600; font-size:13px; color:var(--charcoal);">${CAPTAIN_TASK_LABELS[type]}</div>
+        return `<div class="task-assign-row dt-row">
+          <div class="dt-row-main">
+            <span class="dt-row-name">${CAPTAIN_TASK_LABELS[type]}</span>
+            ${chip}
             ${action}
           </div>
           ${detail}
@@ -3826,7 +3878,9 @@
     document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'block';
-    document.getElementById('mv_driverNameDisplay').textContent = currentDriverName || '';
+    document.getElementById('mv_driverNameDisplay').textContent = (driverRole === 'wingman' && driverActiveTask) ? `${driverActiveTask.captainName} (for your Captain)` : (currentDriverName || '');
+    const back = document.getElementById('driverMovingBackBtn');
+    back.innerHTML = driverRole === 'wingman' ? '&larr; Wingman Tools' : '&larr; Driver Tools';
     await loadDriverMovingJobs();
   }
 
@@ -3885,9 +3939,14 @@
         <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}</div>
         <span style="font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">${mvJobTypeLabel(job.jobType)}</span>
       </div>
-      ${mvSectionHtml(job, 'preexisting', 'Pre-Existing Damage', 'Before starting, photograph any damage already at the property so the crew isn\u2019t blamed for it later.')}
-      ${mvSectionHtml(job, 'caused', 'Damage We Caused', 'If anything got damaged during the move, document it here for transparency.')}
+      ${mvOnly() !== 'caused' ? mvSectionHtml(job, 'preexisting', 'Pre-Existing Damage', 'Before starting, photograph any damage already at the property so the crew isn\u2019t blamed for it later.') : ''}
+      ${mvOnly() !== 'preexisting' ? mvSectionHtml(job, 'caused', 'Damage We Caused', 'If anything got damaged during the move, document it here for transparency.') : ''}
     </div>`;
+  }
+  // A wingman on a Moving photo task sees only the photos that task covers.
+  function mvOnly(){
+    if(driverRole !== 'wingman' || !driverActiveTask) return null;
+    return driverActiveTask.type === 'moving-preexisting' ? 'preexisting' : driverActiveTask.type === 'moving-caused' ? 'caused' : null;
   }
 
   function mvRenderThumbs(jobNumber, category){
@@ -3996,6 +4055,11 @@
         delete mvStagedPhotos[key];
         delete mvStagedNotes[key];
         mvEditingSections.delete(key);
+        if(driverRole === 'wingman' && driverActiveTask && mvOnly() === category){
+          const label = category === 'preexisting' ? 'Pre-existing damage photos' : 'Crew-caused damage photos';
+          finishWingmanTask(`${label} submitted for ${driverActiveTask.captainName}.`);
+          return;
+        }
         await loadDriverMovingJobs();
       }catch(err){
         console.error('Moving photo submission failed:', err);
