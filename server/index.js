@@ -1716,13 +1716,37 @@ async function submitExpense(personName, role, body) {
   return { status: 200, body: { ok: true, id } };
 }
 
+// Mileage: work miles driven in a personal vehicle. Same claims list as
+// receipts (type 'mileage'); approved in Manager Review -> Expenses at the
+// rate in Configuration -> Pay, and paid in Extra Pay's Mileage column.
+async function submitMileage(personName, role, body) {
+  const miles = Math.round((Number(body && body.miles) || 0) * 10) / 10;
+  const date = String(body && body.date || '');
+  const purpose = String(body && body.purpose || '').trim();
+  const today = easternDateFromMs(Date.now());
+  const oldest = easternDateFromMs(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) return { status: 400, body: { error: 'Pick the day you drove (not a future date).' } };
+  if (date < oldest) return { status: 400, body: { error: 'Mileage has to be turned in within 60 days.' } };
+  if (!(miles > 0) || miles > 1000) return { status: 400, body: { error: 'Enter the miles you drove (up to 1,000).' } };
+  if (purpose.length < 3) return { status: 400, body: { error: 'Say what the trip was for.' } };
+  const claims = JSON.parse(await redis.get(EXPENSE_CLAIMS_KEY) || '[]');
+  const id = 'mil_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  claims.push({ id, type: 'mileage', employeeName: String(personName).slice(0, 100), role, submittedAt: new Date().toISOString(),
+    date, miles, purpose: purpose.slice(0, 300), status: 'pending' });
+  await redis.set(EXPENSE_CLAIMS_KEY, JSON.stringify(claims));
+  console.log(`[mileage] ${personName} submitted ${miles} mi for ${date}`);
+  return { status: 200, body: { ok: true, id } };
+}
+
 async function myExpenses(personName) {
   const me = nameCoreKey(personName);
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
   return JSON.parse(await redis.get(EXPENSE_CLAIMS_KEY) || '[]')
     .filter(c => nameCoreKey(c.employeeName) === me && (c.submittedAt || '') >= cutoff)
     .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''))
-    .map(c => ({ id: c.id, submittedAt: c.submittedAt, merchant: c.merchant, date: c.date, total: c.total, approvedAmount: c.approvedAmount, category: c.category, description: c.description, status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
+    .map(c => ({ id: c.id, type: c.type || 'receipt', submittedAt: c.submittedAt, merchant: c.merchant, date: c.date, total: c.total, approvedAmount: c.approvedAmount, category: c.category, description: c.description,
+      miles: c.miles, purpose: c.purpose, approvedMiles: c.approvedMiles, approvedRate: c.approvedRate,
+      status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
 }
 
 [['/api/driver', requireDriverAuth, req => req.driverName, 'captain'],
@@ -1738,8 +1762,15 @@ async function myExpenses(personName) {
     try { const r = await submitExpense(who(req), role, req.body || {}); res.status(r.status).json(r.body); }
     catch (err) { console.error('Expense submit failed:', err.message); res.status(500).json({ error: 'Could not submit the expense.' }); }
   });
+  app.post(base + '/mileage', auth, async (req, res) => {
+    try { const r = await submitMileage(who(req), role, req.body || {}); res.status(r.status).json(r.body); }
+    catch (err) { console.error('Mileage submit failed:', err.message); res.status(500).json({ error: 'Could not submit mileage.' }); }
+  });
   app.get(base + '/expenses', auth, async (req, res) => {
-    try { res.json({ expenses: await myExpenses(who(req)), categories: EXPENSE_CATEGORIES }); }
+    try {
+      const settings = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+      res.json({ expenses: await myExpenses(who(req)), categories: EXPENSE_CATEGORIES, mileageRate: Number(settings.extraPay.mileageRate) || 0 });
+    }
     catch (err) { console.error('My expenses failed:', err.message); res.status(500).json({ error: 'Could not load expenses.' }); }
   });
 });
@@ -3351,6 +3382,11 @@ app.get('/api/admin/storage-stats', requireAuth, requireAdmin, async (req, res) 
 // admins can change them.
 const APP_SETTINGS_KEY = 'settings-app-config';
 const DEFAULT_APP_SETTINGS = {
+  // Extra Pay: reimbursement rate for personal-vehicle work miles ($/mile,
+  // entered by the owner -- e.g. the IRS standard rate). 0 = not set yet.
+  extraPay: {
+    mileageRate: 0
+  },
   marketing: {
     redfinSouthCarolina: 'https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308',
     redfinEvansMartinez: 'https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924',
