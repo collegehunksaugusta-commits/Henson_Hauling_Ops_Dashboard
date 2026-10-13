@@ -3513,7 +3513,11 @@ const DEFAULT_APP_SETTINGS = {
   // Monthly Financials: metrics switched off in Configuration -> Financials
   // (hidden from the chart and yearly tables; the data itself is kept).
   financials: {
-    hiddenMetrics: []
+    hiddenMetrics: [],
+    // The Owner (a dashboard login). Only this person sees and uses the
+    // owner time tracker; set in Configuration -> Financials.
+    ownerEmail: '',
+    ownerTimeCategories: ['Operations Activities', 'Scheduled Calls', 'Client Calls', 'Estimates', 'Marketing Activities', 'Networking']
   },
   marketing: {
     redfinSouthCarolina: 'https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308',
@@ -3958,8 +3962,46 @@ app.post('/api/driver/esign/:id/application', requireDriverAuth, async (req, res
 // Truck Driver game excluded) and sends them here in small batches.
 // Stored per person, per day, per screen in 'app-activity-log'.
 const APP_ACTIVITY_KEY = 'app-activity-log';
+// ---- The Owner ----
+async function ownerEmailSetting() {
+  const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+  return String((st.financials || {}).ownerEmail || '').toLowerCase();
+}
+async function requireOwner(req, res, next) {
+  try {
+    const owner = await ownerEmailSetting();
+    if (!owner || owner !== String(req.userEmail || '').toLowerCase()) return res.status(403).json({ error: 'Only the Owner can see this.' });
+    next();
+  } catch (err) { res.status(500).json({ error: 'Could not check.' }); }
+}
+const isAdminUser = async email => { const u = (await getUsers())[email]; return !!(u && u.role === 'admin'); };
+app.get('/api/owner/me', requireAuth, async (req, res) => {
+  const owner = await ownerEmailSetting();
+  res.json({ isOwner: !!owner && owner === String(req.userEmail || '').toLowerCase(), ownerSet: !!owner, canClaim: !owner && await isAdminUser(req.userEmail) });
+});
+// Set the Owner: any admin while none is set; afterwards only the Owner
+// can hand it to someone else.
+app.post('/api/owner/set', requireAuth, async (req, res) => {
+  try {
+    const email = String((req.body || {}).email || '').trim().toLowerCase();
+    const me = String(req.userEmail || '').toLowerCase();
+    const owner = await ownerEmailSetting();
+    if (owner ? owner !== me : !(await isAdminUser(req.userEmail))) return res.status(403).json({ error: owner ? 'Only the current Owner can change this.' : 'Only an admin can set the Owner.' });
+    const users = await getUsers();
+    if (!email || !users[email]) return res.status(400).json({ error: 'That email isn\u2019t a dashboard login.' });
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    st.financials.ownerEmail = email;
+    await redis.set(APP_SETTINGS_KEY, JSON.stringify(st));
+    console.log(`[owner] Owner set to ${email} by ${me}`);
+    res.json({ ok: true, ownerEmail: email });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
 app.post('/api/admin/activity', requireAuth, requireAdmin, async (req, res) => {
   const { date, minutes } = req.body || {};
+  // Only the Owner's app time is tracked.
+  const ownerNow = await ownerEmailSetting().catch(() => '');
+  if (ownerNow && ownerNow !== String(req.userEmail || '').toLowerCase()) return res.json({ ok: true, ignored: true });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !minutes || typeof minutes !== 'object') return res.status(400).json({ error: 'Bad activity.' });
   try {
     const clean = {}; let total = 0;
@@ -3982,7 +4024,52 @@ app.post('/api/admin/activity', requireAuth, requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (err) { console.error('Activity save failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
 });
-app.get('/api/admin/activity-summary', requireAuth, requireAdmin, async (req, res) => {
+// ---- Owner time: manual daily log by category, plus app time ----
+const OWNER_TIME_KEY = 'owner-time-log';   // { email: { 'YYYY-MM-DD': { category: minutes } } }
+app.get('/api/owner/time', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const me = String(req.userEmail || '').toLowerCase();
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    const manual = (JSON.parse(await redis.get(OWNER_TIME_KEY) || '{}'))[me] || {};
+    const app = (JSON.parse(await redis.get(APP_ACTIVITY_KEY) || '{}'))[me] || {};
+    const appByDay = {}; Object.entries(app).forEach(([d, v]) => { appByDay[d] = Object.values(v).reduce((t, m) => t + m, 0); });
+    const appByView4 = {};
+    const cutoff = new Date(Date.now() - 28 * 864e5).toISOString().slice(0, 10);
+    Object.entries(app).forEach(([d, v]) => { if (d >= cutoff) Object.entries(v).forEach(([k, m]) => { appByView4[k] = (appByView4[k] || 0) + m; }); });
+    res.json({ categories: st.financials.ownerTimeCategories || [], manual, appByDay, appByView4, today: easternDateFromMs(Date.now()) });
+  } catch (err) { console.error('Owner time load failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+// Save the manual entries for a set of days (replaces those days).
+app.post('/api/owner/time', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const days = (req.body || {}).days || {};
+    const me = String(req.userEmail || '').toLowerCase();
+    const log = JSON.parse(await redis.get(OWNER_TIME_KEY) || '{}');
+    log[me] = log[me] || {};
+    let n = 0;
+    Object.entries(days).forEach(([d, cats]) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || n++ > 31) return;
+      const clean = {};
+      Object.entries(cats || {}).forEach(([c, m]) => { const v = Math.max(0, Math.min(24 * 60, Math.round(Number(m) || 0))); if (v) clean[String(c).slice(0, 60)] = v; });
+      if (Object.keys(clean).length) log[me][d] = clean; else delete log[me][d];
+    });
+    await redis.set(OWNER_TIME_KEY, JSON.stringify(log));
+    res.json({ ok: true });
+  } catch (err) { console.error('Owner time save failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+app.post('/api/owner/categories', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const list = Array.isArray((req.body || {}).categories) ? req.body.categories : [];
+    const clean = [...new Set(list.map(c => String(c || '').trim().slice(0, 60)).filter(Boolean))].slice(0, 30);
+    if (!clean.length) return res.status(400).json({ error: 'Keep at least one category.' });
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    st.financials.ownerTimeCategories = clean;
+    await redis.set(APP_SETTINGS_KEY, JSON.stringify(st));
+    res.json({ ok: true, categories: clean });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
+app.get('/api/admin/activity-summary', requireAuth, requireOwner, async (req, res) => {
   try {
     const log = JSON.parse(await redis.get(APP_ACTIVITY_KEY) || '{}');
     const days = log[String(req.userEmail || '').toLowerCase()] || {};
