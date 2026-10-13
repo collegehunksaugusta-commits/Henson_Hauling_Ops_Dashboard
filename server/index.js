@@ -3645,6 +3645,40 @@ app.get('/api/driver/my-license', requireDriverAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
 });
 
+// ---- Driver file completeness (Compliance "OK" + HUNK Portal nag) ----
+// A driver's file is complete when his license, DOT physical, DOT Driver
+// Application and Road Test Certification are all on file and the physical
+// hasn't expired.
+const DRIVER_FILE_DOCS = ['license', 'physical', 'application', 'roadtest'];
+async function driverFileStatus(name, rec) {
+  const has = await Promise.all(DRIVER_FILE_DOCS.map(k => redis.exists(driverDocStoreKey(name, k))));
+  const onFile = {}; DRIVER_FILE_DOCS.forEach((k, i) => { onFile[k] = !!has[i]; });
+  const exp = (rec && rec.physicalExpiration) || '';
+  const today = easternDateFromMs(Date.now());
+  const physicalExpired = !!exp && exp <= today;
+  const missing = DRIVER_FILE_DOCS.filter(k => !onFile[k]);
+  return { onFile, missing, physicalExpiration: exp || null, physicalExpired, complete: missing.length === 0 && !physicalExpired && !!exp };
+}
+app.get('/api/compliance/driver-files', requireAuth, async (req, res) => {
+  try {
+    const drivers = JSON.parse(await redis.get('compliance-drivers') || '[]').filter(d => d.active);
+    const out = {};
+    for (const d of drivers) out[d.employeeName] = await driverFileStatus(d.employeeName, d);
+    res.json({ files: out });
+  } catch (err) { console.error('Driver files failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+// The signed-in driver's own file, plus what he can do about it now.
+app.get('/api/driver/my-file', requireDriverAuth, async (req, res) => {
+  try {
+    const drivers = JSON.parse(await redis.get('compliance-drivers') || '[]');
+    const rec = drivers.find(d => d.active && nameCoreKey(d.employeeName) === nameCoreKey(req.driverName));
+    if (!rec) return res.json({ isDriver: false });
+    const st = await driverFileStatus(rec.employeeName, rec);
+    const reqs = JSON.parse(await redis.get(ESIGN_KEY) || '[]').filter(x => x.status === 'pending' && nameCoreKey(x.driverName) === nameCoreKey(req.driverName));
+    res.json({ isDriver: true, ...st, openSteps: reqs.map(x => x.type) });
+  } catch (err) { console.error('My file failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+
 // DOT physical help: the provider set in Configuration -> Regulatory
 // Compliance, for a driver with no current medical card.
 app.get('/api/driver/dot-provider', requireDriverAuth, async (req, res) => {
