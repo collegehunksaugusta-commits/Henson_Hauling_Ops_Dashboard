@@ -1679,6 +1679,62 @@ app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
   }
 });
 
+// ============ AI auto-crop for document photos ============
+// Finds the edges of the document/card/receipt in a photo so the phone or
+// computer can crop away the countertop around it. Only used for
+// document-type photos (licenses, medical cards, receipts, weight tickets,
+// driver-file uploads) -- never for damage, truck, or job-site photos.
+// Returns the box as fractions of the image (0-1); the device does the crop.
+const CROP_TOOL = {
+  name: 'document_bounds',
+  description: 'Where the main document is in the photo.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      found: { type: 'boolean', description: 'True if one main document, card, receipt or ticket is clearly visible.' },
+      left: { type: 'number', description: 'Left edge of the document, 0-1000 across the image width.' },
+      top: { type: 'number', description: 'Top edge, 0-1000 down the image height.' },
+      right: { type: 'number', description: 'Right edge, 0-1000.' },
+      bottom: { type: 'number', description: 'Bottom edge, 0-1000.' },
+      confident: { type: 'boolean', description: 'False if the edges are unclear (cut off, blurry, cluttered).' }
+    },
+    required: ['found', 'left', 'top', 'right', 'bottom', 'confident']
+  }
+};
+async function findDocumentBounds(image, kind) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const m = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(image || '');
+  if (!apiKey || !m) return { found: false };
+  const what = { license: "a driver's license card", medical: 'a DOT medical examiner\u2019s certificate (card or paper)', receipt: 'a receipt', ticket: 'a scale weight ticket', document: 'a document, card or form' }[kind] || 'a document';
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 300, tools: [CROP_TOOL], tool_choice: { type: 'tool', name: 'document_bounds' },
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+        { type: 'text', text: `This photo should show ${what}. Give the tight bounding box of that item's outer edges (include all of it, every corner and edge), on a 0-1000 scale of the image width and height, so the background around it can be cropped away. If no such item is clearly visible, set found to false.` }
+      ] }] })
+  });
+  if (!r.ok) return { found: false };
+  const d = await r.json();
+  const b = ((d.content || []).find(x => x.type === 'tool_use') || {}).input || {};
+  const clamp = v => Math.max(0, Math.min(1000, Number(v) || 0)) / 1000;
+  const box = { left: clamp(b.left), top: clamp(b.top), right: clamp(b.right), bottom: clamp(b.bottom) };
+  const area = Math.max(0, box.right - box.left) * Math.max(0, box.bottom - box.top);
+  // Not worth cropping (already fills the frame) or implausible.
+  if (!b.found || !b.confident || area < 0.06 || area > 0.9 || box.right <= box.left || box.bottom <= box.top) return { found: false };
+  return { found: true, box };
+}
+async function aiCropHandler(req, res) {
+  try {
+    const { image, kind } = req.body || {};
+    if (!/^data:image\//.test(image || '') || image.length > 3 * 1024 * 1024) return res.json({ found: false });
+    res.json(await findDocumentBounds(image, String(kind || 'document')));
+  } catch (err) { console.error('AI crop failed:', err.message); res.json({ found: false }); }
+}
+app.post('/api/ai-crop', requireAuth, aiCropHandler);
+app.post('/api/driver/ai-crop', requireDriverAuth, aiCropHandler);
+app.post('/api/wingman/ai-crop', requireWingmanAuth, aiCropHandler);
+
 // ============ Expenses (HUNK Portal -> Manager Review -> Extra Pay) ============
 // A Hunk photographs a receipt; Claude reads merchant, date, total and a
 // category; he confirms and submits. The office approves or denies it in
