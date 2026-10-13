@@ -3682,6 +3682,7 @@ app.post('/api/driver/esign/:id/license', requireDriverAuth, async (req, res) =>
     await redis.set(driverDocStoreKey(r.driverName, 'license'), JSON.stringify({ dataUri: image, fileName: 'Driver\u2019s License.jpg', uploadedAt: new Date().toISOString(), submittedByDriver: true }));
     await completeEsign(list, r, {});
     console.log(`[esign] ${req.driverName} uploaded his driver's license`);
+    readLicenseIntoProfile(r.driverName, image).catch(err => console.error('License read failed:', err.message));
     res.json({ ok: true });
   } catch (err) { console.error('E-sign license failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
 });
@@ -3699,6 +3700,96 @@ app.get('/api/driver/my-license', requireDriverAuth, async (req, res) => {
       physical: phys ? { dataUri: phys.dataUri, uploadedAt: phys.uploadedAt, fileName: phys.fileName || '', expiration: (match && match.physicalExpiration) || null } : null
     });
   } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+
+// ============ Person profiles: enter once, auto-fill everywhere ============
+// One record per person (keyed by name, ignoring middle initials) holding
+// details that several forms ask for. Filled from the license photo (AI),
+// the new hire's Hiring answers, the DOT Driver Application, the Road Test,
+// and the office's Driver Info box. Never holds an SSN or bank details.
+const PERSON_PROFILES_KEY = 'person-profiles';
+const PROFILE_FIELDS = ['licenseNumber', 'licenseState', 'licenseClass', 'licenseEndorsements', 'licenseExpiration', 'dob', 'phone', 'email', 'street', 'city', 'state', 'zip'];
+function cleanProfileValue(k, v) {
+  v = String(v == null ? '' : v).trim().slice(0, 120);
+  if (!v) return '';
+  if (k === 'licenseExpiration' || k === 'dob') return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+  if (k === 'licenseState' || k === 'state') return v.toUpperCase().slice(0, 2);
+  if (k === 'licenseNumber') return v.toUpperCase().replace(/\s+/g, '');
+  return v;
+}
+async function savePersonProfile(name, fields, source) {
+  if (!name || !fields) return null;
+  const all = JSON.parse(await redis.get(PERSON_PROFILES_KEY) || '{}');
+  const key = nameCoreKey(name);
+  const p = all[key] = all[key] || { name, fields: {}, sources: {} };
+  let changed = false;
+  PROFILE_FIELDS.forEach(k => {
+    const v = cleanProfileValue(k, fields[k]);
+    if (v && p.fields[k] !== v) { p.fields[k] = v; p.sources[k] = source; changed = true; }
+  });
+  if (changed) { p.name = name; p.updatedAt = new Date().toISOString(); await redis.set(PERSON_PROFILES_KEY, JSON.stringify(all)); }
+  return p;
+}
+// Saved profile first; anything missing comes from his Hiring answers.
+async function getPersonProfile(name) {
+  const all = JSON.parse(await redis.get(PERSON_PROFILES_KEY) || '{}');
+  const p = all[nameCoreKey(name)] || { fields: {}, sources: {} };
+  const out = { fields: { ...p.fields }, sources: { ...p.sources } };
+  try {
+    const cands = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const c = cands.filter(x => nameCoreKey(`${x.lastName}, ${x.firstName}`) === nameCoreKey(name)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+    if (c) {
+      const sv = c.sharedFieldValues || {};
+      const map = { phone: sv.employee_phone, email: sv.employee_email || c.email, dob: sv.employee_dob, street: sv.employee_address, city: sv.employee_city, state: sv.employee_state, zip: sv.employee_zip };
+      Object.entries(map).forEach(([k, v]) => { const cv = cleanProfileValue(k, v); if (cv && !out.fields[k]) { out.fields[k] = cv; out.sources[k] = 'hiring'; } });
+    }
+  } catch (err) {}
+  return out;
+}
+// AI reads the details printed on a driver's license photo.
+const READ_LICENSE_TOOL = {
+  name: 'read_license',
+  description: 'Details printed on a U.S. driver\u2019s license.',
+  input_schema: { type: 'object', properties: {
+    found: { type: 'boolean' }, licenseNumber: { type: 'string' }, licenseState: { type: 'string', description: '2-letter issuing state' },
+    licenseClass: { type: 'string' }, licenseEndorsements: { type: 'string', description: 'Endorsements, or empty' },
+    licenseExpiration: { type: 'string', description: 'YYYY-MM-DD' }, dob: { type: 'string', description: 'YYYY-MM-DD' },
+    street: { type: 'string' }, city: { type: 'string' }, state: { type: 'string' }, zip: { type: 'string' }, confident: { type: 'boolean' }
+  }, required: ['found', 'confident'] }
+};
+async function readLicenseIntoProfile(name, image) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const m = /^data:(image\/[a-zA-Z]+);base64,(.+)$/.exec(image || '');
+  if (!apiKey || !m) return null;
+  const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 600, tools: [READ_LICENSE_TOOL], tool_choice: { type: 'tool', name: 'read_license' },
+      messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } }, { type: 'text', text: 'Read this driver\u2019s license (front and possibly back). Copy each value exactly as printed; dates as YYYY-MM-DD. Leave a field empty if it isn\u2019t readable.' }] }] }) });
+  if (!r.ok) return null;
+  const d = await r.json();
+  const x = ((d.content || []).find(b => b.type === 'tool_use') || {}).input || {};
+  if (!x.found || !x.confident) return null;
+  return savePersonProfile(name, x, 'license photo');
+}
+app.get('/api/driver/my-profile', requireDriverAuth, async (req, res) => {
+  try { res.json(await getPersonProfile(req.driverName)); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.get('/api/person-profile', requireAuth, async (req, res) => {
+  try { res.json(await getPersonProfile(String(req.query.name || ''))); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/person-profile', requireAuth, async (req, res) => {
+  const { name, fields } = req.body || {};
+  if (!name || !fields) return res.status(400).json({ error: 'Name and details required.' });
+  try { await savePersonProfile(String(name), fields, 'office'); res.json(await getPersonProfile(String(name))); }
+  catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+// After the office uploads a license photo in Compliance.
+app.post('/api/person-profile/from-license', requireAuth, async (req, res) => {
+  try {
+    const name = String((req.body || {}).name || '');
+    const raw = await redis.get(driverDocStoreKey(name, 'license'));
+    if (raw) await readLicenseIntoProfile(name, JSON.parse(raw).dataUri);
+    res.json(await getPersonProfile(name));
+  } catch (err) { res.status(500).json({ error: 'Could not read.' }); }
 });
 
 // ---- Driver file completeness (Compliance "OK" + HUNK Portal nag) ----
@@ -3798,6 +3889,7 @@ app.post('/api/driver/esign/:id/application', requireDriverAuth, async (req, res
     const esign = { signedName: String(signedName).trim().slice(0, 120), signedAt: new Date().toISOString(), ip: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(), userAgent: String(req.headers['user-agent'] || '').slice(0, 300), portalLogin: req.driverName };
     await redis.set(driverDocStoreKey(r.driverName, 'application'), JSON.stringify({ dataUri: pdf, fileName: 'DOT Driver Application (e-signed).pdf', uploadedAt: esign.signedAt, esign }));
     await completeEsign(list, r, { esign: { signedName: esign.signedName, signedAt: esign.signedAt, ip: esign.ip } });
+    if (req.body.profile && typeof req.body.profile === 'object') { const { ssn, ...safe } = req.body.profile; await savePersonProfile(r.driverName, safe, 'application'); }
     console.log(`[esign] ${req.driverName} e-signed the DOT Driver Application`);
     res.json({ ok: true });
   } catch (err) { console.error('E-sign application failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
