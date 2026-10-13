@@ -3730,8 +3730,55 @@ async function savePersonProfile(name, fields, source) {
   if (changed) { p.name = name; p.updatedAt = new Date().toISOString(); await redis.set(PERSON_PROFILES_KEY, JSON.stringify(all)); }
   return p;
 }
-// Saved profile first; anything missing comes from his Hiring answers.
+// Reads the details back out of a signed DOT Driver Application PDF made by
+// the HUNK Portal (its text is stored plainly, one "(...) Tj" per line).
+function parseApplicationPdf(dataUri) {
+  try {
+    const buf = Buffer.from(String(dataUri || '').split(',')[1] || '', 'base64').toString('latin1');
+    const lines = [...buf.matchAll(/\(((?:[^()\\]|\\.)*)\)\s*Tj/g)].map(m => m[1].replace(/\\([()\\])/g, '$1').trim());
+    const after = label => { const l = lines.find(x => x.startsWith(label)); return l ? l.slice(label.length).trim() : ''; };
+    const out = { phone: after('Phone:'), email: after('Email:'), dob: after('Date of birth:'), ssn: after('Social Security #:').replace(/[^0-9]/g, '') };
+    const cur = after('Current:');
+    if (cur) {
+      const addr = cur.replace(/\s*\S?\s*[?\d.]*\s*yr\(s\)\s*$/, '').trim().split(/\s*,\s*/);
+      if (addr.length >= 4) Object.assign(out, { street: addr[0], city: addr[1], state: addr[2], zip: addr[3] });
+      else if (addr[0]) out.street = addr.join(', ');
+    }
+    const lic = lines.map(l => /^(\S+)\s+#(\S+)\s+\u00b7\s+Class\s*(.*?)\s+\u00b7\s+Endorsements\s*(.*?)\s+\u00b7\s+Expires\s*(.*)$/.exec(l)).find(Boolean);
+    if (lic) Object.assign(out, { licenseState: lic[1] === '?' ? '' : lic[1], licenseNumber: lic[2] === '?' ? '' : lic[2], licenseClass: lic[3] === '\u2014' ? '' : lic[3], licenseEndorsements: /^none$/i.test(lic[4]) ? '' : lic[4], licenseExpiration: lic[5] === '\u2014' ? '' : lic[5] });
+    // Empty answers print as a dash (or "?") -- treat those as blank.
+    Object.keys(out).forEach(k => { if (/^[\s\u0097\u2014\u2013?-]*$/.test(String(out[k] || ''))) out[k] = ''; });
+    return out;
+  } catch (err) { return {}; }
+}
+// Fills a profile's gaps from documents already in his driver file: the
+// signed application (no AI), then the license photo (AI, once).
+async function backfillProfileFromDocs(name) {
+  const all = JSON.parse(await redis.get(PERSON_PROFILES_KEY) || '{}');
+  const p = all[nameCoreKey(name)] || { fields: {}, sources: {} };
+  const missing = PROFILE_FIELDS.filter(k => !p.fields[k]);
+  if (!missing.length) return;
+  const appRaw = await redis.get(driverDocStoreKey(name, 'application'));
+  if (appRaw) {
+    const { ssn, ...fromApp } = parseApplicationPdf(JSON.parse(appRaw).dataUri);   // the SSN is never saved
+    const fill = {}; missing.forEach(k => { if (fromApp[k]) fill[k] = fromApp[k]; });
+    if (Object.keys(fill).length) await savePersonProfile(name, fill, 'application');
+  }
+  const again = JSON.parse(await redis.get(PERSON_PROFILES_KEY) || '{}')[nameCoreKey(name)] || { fields: {} };
+  if (!again.fields.licenseNumber && !again.licenseReadTried) {
+    const licRaw = await redis.get(driverDocStoreKey(name, 'license'));
+    if (licRaw) {
+      await readLicenseIntoProfile(name, JSON.parse(licRaw).dataUri).catch(() => {});
+      const all2 = JSON.parse(await redis.get(PERSON_PROFILES_KEY) || '{}');
+      const k = nameCoreKey(name); all2[k] = all2[k] || { name, fields: {}, sources: {} }; all2[k].licenseReadTried = true;
+      await redis.set(PERSON_PROFILES_KEY, JSON.stringify(all2));
+    }
+  }
+}
+// Saved profile first; anything missing comes from documents already on
+// file, then from his Hiring answers.
 async function getPersonProfile(name) {
+  try { await backfillProfileFromDocs(name); } catch (err) { console.error('Profile backfill failed:', err.message); }
   const all = JSON.parse(await redis.get(PERSON_PROFILES_KEY) || '{}');
   const p = all[nameCoreKey(name)] || { fields: {}, sources: {} };
   const out = { fields: { ...p.fields }, sources: { ...p.sources } };
@@ -3782,6 +3829,16 @@ app.post('/api/person-profile', requireAuth, async (req, res) => {
   try { await savePersonProfile(String(name), fields, 'office'); res.json(await getPersonProfile(String(name))); }
   catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
+// Road Test Certification: the driver's SSN, read live from his signed
+// application at the moment it's needed -- never saved anywhere new.
+app.get('/api/person-profile/ssn', requireAuth, async (req, res) => {
+  try {
+    const raw = await redis.get(driverDocStoreKey(String(req.query.name || ''), 'application'));
+    const ssn = raw ? parseApplicationPdf(JSON.parse(raw).dataUri).ssn : '';
+    res.json({ ssn: /^\d{9}$/.test(ssn || '') ? ssn : null });
+  } catch (err) { res.json({ ssn: null }); }
+});
+
 // After the office uploads a license photo in Compliance.
 app.post('/api/person-profile/from-license', requireAuth, async (req, res) => {
   try {
