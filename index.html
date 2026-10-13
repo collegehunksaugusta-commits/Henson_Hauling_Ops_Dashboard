@@ -1989,7 +1989,8 @@
     text(`Date: ${signedAt.toLocaleDateString()}`, { size: 9 });
     y += 6;
     text(`Electronic signature record: signed electronically by "${a.signName}" on ${signedAt.toLocaleString()} (${signedAt.toISOString()}) in the HUNK Portal while signed in as ${currentDriverName}. The applicant agreed to sign electronically and that the electronic signature is the legal equivalent of a handwritten signature.`, { size: 8 });
-    return doc.output('datauristring');
+    // Plain data-URI form (the library adds ";filename=generated.pdf").
+    return doc.output('datauristring').replace(/^data:application\/pdf(;[^;,]*?)*;base64,/, 'data:application/pdf;base64,');
   }
   document.getElementById('ea_submit').addEventListener('click', async (e) => {
     const btn = e.currentTarget, st = document.getElementById('ea_status');
@@ -29342,7 +29343,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       doc.setDrawColor(120); doc.line(M, y, M + 260, y); y += 14;
       line(`Signature of examiner \u2014 ${v('rt_examiner')}, ${v('rt_title')}`, { size: 10 }); line(`Organization: ${v('rt_org')}`, { size: 10 });
       y += 6; line(`Electronic signature record: signed electronically by "${v('rt_examiner')}" on ${signedAt.toLocaleString()} (${signedAt.toISOString()}) in the operations dashboard while signed in as ${localStorage.getItem('henson_auth_email') || 'a dashboard user'}. The examiner agreed to sign electronically and that the electronic signature is the legal equivalent of a handwritten signature.`, { size: 8 });
-      const pdf = doc.output('datauristring');
+      const pdf = doc.output('datauristring').replace(/^data:application\/pdf(;[^;,]*?)*;base64,/, 'data:application/pdf;base64,');
       const docKey = 'compliance-doc-driver-' + t.driverName.replace(/[^a-zA-Z0-9]/g, '_') + '-roadtest';
       const ok1 = await window.dashboardApi.set(docKey, { dataUri: pdf, fileName: 'Road Test Certification (e-signed).pdf', uploadedAt: signedAt.toISOString(), esign: { signedName: v('rt_examiner'), signedAt: signedAt.toISOString(), by: localStorage.getItem('henson_auth_email') || '' } });
       const fresh = await window.dashboardApi.get(RT_KEY, []) || [];
