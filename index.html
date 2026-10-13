@@ -288,6 +288,16 @@
   /* Not its own scroll area -- that trapped table headings so they couldn't
      freeze against the page. (html/body already clip sideways overflow.) */
   .mail-content{flex:1; min-width:0; width:100%;}
+  /* Below a roomy desktop width (or when the browser is zoomed in), the
+     side menu moves to a row of buttons on top so tables get the full width. */
+  @media (max-width:1280px){
+    .mail-layout{flex-direction:column;}
+    .mail-sidebar{flex-direction:row; flex-wrap:wrap; min-width:0; width:100%;}
+    .mail-sidebar .mail-section-btn{width:auto; text-align:center;}
+    .mail-sidebar .tips-section-btn{width:auto; text-align:center;}
+  }
+  /* A panel whose table doesn't fit scrolls sideways (marked by script). */
+  .panel.too-wide{overflow-x:auto;}
   @media (max-width:760px){
     .mail-layout{flex-direction:column;}
     .mail-sidebar{flex-direction:row; flex-wrap:wrap; min-width:0; width:100%;}
@@ -10861,6 +10871,28 @@
     });
   }
   window.compressImageForUpload = compressImageForUpload;
+
+  // Tables keep their headings pinned while scrolling, which needs panels
+  // that don't scroll sideways. But a table wider than its panel (narrow or
+  // zoomed-in window) would be cut off -- so only those panels get
+  // sideways scrolling, re-checked whenever the page changes or resizes.
+  (function(){
+    let pending = false;
+    const check = () => {
+      pending = false;
+      document.querySelectorAll('.panel').forEach(pnl => {
+        if(!pnl.offsetParent) return;
+        // Measured as-is (scrolling doesn't change scrollWidth), and only
+        // touched when the answer changes -- so this can't re-trigger itself.
+        const wide = pnl.scrollWidth > pnl.clientWidth + 2;
+        if(wide !== pnl.classList.contains('too-wide')) pnl.classList.toggle('too-wide', wide);
+      });
+    };
+    const schedule = () => { if(!pending){ pending = true; requestAnimationFrame(check); } };
+    window.addEventListener('resize', schedule);
+    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+    setInterval(schedule, 2000);
+  })();
 
   // ---- AI auto-crop (document-type photos only) ----
   // Asks the server where the document/card/receipt is, then crops to it
