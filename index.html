@@ -7409,7 +7409,7 @@
       <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); align-items:end;">
         <label>Business opened <input type="month" id="val_openedMonth"></label>
         <label>Franchise agreement expires (year) <input type="number" min="2025" max="2060" step="1" id="val_franchiseYear" placeholder="e.g. 2033"></label>
-        <label>Owner hours per week in the business <input type="number" min="0" max="100" step="1" id="val_ownerHours" placeholder="e.g. 5"><span id="val_ownerHoursHint" style="display:block; font-size:11.5px; color:var(--muted); margin-top:3px;"></span></label>
+        <label>Owner hours per week in the business <input type="number" min="0" max="100" step="0.1" id="val_ownerHours" placeholder="e.g. 5"><span id="val_ownerHoursHint" style="display:block; font-size:11.5px; color:var(--muted); margin-top:3px;"></span></label>
         <label>Depreciation &amp; amortization, last 12 mo ($) <input type="number" min="0" step="1" id="val_da" placeholder="blank = from saved months"></label>
         <label>One-time / non-recurring expenses, last 12 mo ($) <input type="number" min="0" step="1" id="val_oneTime" placeholder="e.g. a major repair"></label>
       </div>
@@ -9233,7 +9233,12 @@
       window.loadStateTaxData();
     }
     if(view === 'monthlyfinancials'){
-      window.loadMonthlyFinancialsData();
+      // Owner only: confirm who's signed in before showing anything.
+      (async () => {
+        if(!window.__ownerInfo && window.refreshOwnerStatus) await window.refreshOwnerStatus();
+        if(!(window.financialsAllowed && window.financialsAllowed())){ navigateTo('home'); return; }
+        window.loadMonthlyFinancialsData();
+      })();
     }
     if(view === 'paperwork'){
       window.loadPwBatchJunkRemovalPersistent();
@@ -9776,7 +9781,7 @@
   document.getElementById('managerReviewBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-statetaxes').addEventListener('click', ()=> navigateTo('statetaxes'));
   document.getElementById('tile-statetaxes').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('statetaxes'); }});
-  document.getElementById('tile-monthlyfinancials').addEventListener('click', ()=> navigateTo('monthlyfinancials'));
+  document.getElementById('tile-monthlyfinancials').addEventListener('click', ()=> { if(window.financialsAllowed && window.financialsAllowed()) navigateTo('monthlyfinancials'); });
   document.getElementById('tile-monthlyfinancials').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('monthlyfinancials'); }});
   document.getElementById('monthlyFinancialsBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('stateTaxesBackBtn').addEventListener('click', ()=> history.back());
@@ -14980,8 +14985,20 @@
   // distinction in this app already uses (e.g. applyLaborRolePermissions);
   // it is a UI-level restriction, not a server-enforced one, consistent
   // with how the rest of this app's role permissions work.
+  // Now Owner-only (Configuration -> Financials), and enforced by the server
+  // too. Until an Owner is set, admins keep it.
+  function financialsAllowed(){
+    const info = window.__ownerInfo;
+    if(!info) return false;   // hidden until we know
+    if(info.isOwner) return true;
+    return !info.ownerSet && localStorage.getItem('henson_auth_role') === 'admin';
+  }
+  window.financialsAllowed = financialsAllowed;
   function applyMonthlyFinancialsPermission(){
-    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
+    const isAdmin = financialsAllowed();
+    const finGroup = document.getElementById('setGroup-financials');
+    if(finGroup) finGroup.style.display = isAdmin ? '' : 'none';
+    if(!isAdmin && document.getElementById('monthlyFinancialsDetail') && document.getElementById('monthlyFinancialsDetail').style.display !== 'none' && window.navigateTo) window.navigateTo('home');
     const tile = document.getElementById('tile-monthlyfinancials');
     if(tile) tile.style.display = isAdmin ? '' : 'none';
     const countEl = document.querySelector('#dashSection-financial .dashSectionCount');
@@ -14990,6 +15007,7 @@
     if(listEl) listEl.textContent = isAdmin ? 'State Taxes, Monthly Financials' : 'State Taxes';
   }
   applyMonthlyFinancialsPermission();
+  window.applyMonthlyFinancialsPermission = applyMonthlyFinancialsPermission;
 
   // Extra Pay shows every employee's tips, bonuses and commission -- admins
   // only. (The Ops Manager sees his own commission on Ops Manager Metrics.)
@@ -24641,6 +24659,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       window.__ownerInfo = r.ok ? await r.json() : { isOwner: false };
     }catch(err){ window.__ownerInfo = { isOwner: false }; }
     window.__isOwner = !!window.__ownerInfo.isOwner;
+    if(window.applyMonthlyFinancialsPermission) window.applyMonthlyFinancialsPermission();
     return window.__ownerInfo;
   }
   window.refreshOwnerStatus = refreshOwnerStatus;
@@ -24691,7 +24710,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const thisW = weeks[weeks.length - 1];
     const max = Math.max(60, ...weeks.map(w => w.total));
     const hint = document.getElementById('val_ownerHoursHint');
-    if(hint) hint.textContent = avg != null ? `Your logged + app time: about ${otHrs(avg)} hrs/week (${full.length}-week average).` : '';
+    // Valuation: owner hours/week = average of the last 4 complete weeks
+    // (logged + app), filled in unless he's typed his own number this visit.
+    const recent = full.slice(-4);
+    const avg4 = recent.length ? recent.reduce((t, w) => t + w.total, 0) / recent.length : null;
+    const hrsBox = document.getElementById('val_ownerHours');
+    if(hrsBox && avg4 != null && !hrsBox.dataset.typed){
+      hrsBox.value = (Math.round(avg4 / 60 * 10) / 10).toString();
+      hrsBox.dataset.auto = '1';
+      if(!hrsBox.dataset.wired){ hrsBox.dataset.wired = '1'; hrsBox.addEventListener('input', () => { hrsBox.dataset.typed = '1'; const h = document.getElementById('val_ownerHoursHint'); if(h) h.textContent = 'Your own number (tracked average not used).'; }); }
+    }
+    if(hint) hint.textContent = avg4 != null
+      ? (hrsBox && hrsBox.dataset.typed ? 'Your own number (tracked average not used).' : `From your last ${recent.length} week${recent.length === 1 ? '' : 's'} of tracked time (logged + app).`)
+      : 'Track your time in Owner Time above to fill this in automatically.';
     const card = (label, val, sub) => `<div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">${label}</div><div style="font-size:26px; font-weight:800;">${val}</div>${sub ? `<div style="font-size:11.5px; color:var(--muted);">${sub}</div>` : ''}</div>`;
     document.getElementById('ot_summary').innerHTML = `
       <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
@@ -24846,7 +24877,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const i = last.inputs;
       document.getElementById('val_openedMonth').value = i.openedMonth || '';
       document.getElementById('val_franchiseYear').value = i.franchiseExpiresYear || '';
-      document.getElementById('val_ownerHours').value = i.ownerHoursPerWeek != null ? i.ownerHoursPerWeek : '';
+      // Tracked time (Owner Time) takes priority over the last estimate's number.
+      const oh = document.getElementById('val_ownerHours');
+      if(!oh.dataset.auto && !oh.dataset.typed) oh.value = i.ownerHoursPerWeek != null ? i.ownerHoursPerWeek : '';
       document.getElementById('val_da').value = i.depreciationAmortization != null ? i.depreciationAmortization : '';
       document.getElementById('val_oneTime').value = i.oneTimeExpenses || '';
       document.getElementById('val_managerRuns').checked = !!i.managerRunsDayToDay;
