@@ -4906,7 +4906,7 @@
             <span class="dashSectionCount">(7)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Materials, Manager Review</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Inventory Management, Manager Review</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -4931,11 +4931,11 @@
         <h3>Job Paperwork</h3>
         <p>Pre-filled job paperwork &mdash; Bill of Lading, Liability Waiver, Declaration of Value, and more.</p>
       </div>
-      <div class="tile" id="tile-materials" tabindex="0" role="button" aria-label="Open Materials">
+      <div class="tile" id="tile-materials" tabindex="0" role="button" aria-label="Open Inventory Management">
         <span class="badge" id="materialsTileBadge" style="display:none;">Low Stock</span>
         <span class="icon">📦</span>
-        <h3>Materials</h3>
-        <p>Moving supplies inventory, reordering alerts, and driver checkout tracking.</p>
+        <h3>Inventory Management</h3>
+        <p>Moving supplies inventory, pricing, reordering alerts, and driver checkout tracking.</p>
       </div>
       <!-- Damage Claim now lives in Manager Review -> Damage Claims; this tile is kept hidden so older links still work. -->
       <div class="tile" id="tile-damageclaim" tabindex="0" role="button" aria-label="Open Damage Claim" style="display:none;">
@@ -6146,7 +6146,7 @@
   <div id="materialsDetail" style="display:none;">
     <button class="backlink" id="materialsBackBtn">&larr; Dispatch</button>
     <div class="detail-head">
-      <h2 class="display">Materials</h2>
+      <h2 class="display">Inventory Management</h2>
       <p>Moving supplies inventory, reordering alerts, and reconciliation against what drivers checked out vs. what was billed.</p>
     </div>
 
@@ -6160,13 +6160,21 @@
     <div class="panel" id="matItemListPanel">
       <h3>Current Inventory</h3>
       <p class="form-note" id="mat_supplierContactNote" style="margin-top:0;"></p>
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 12px; margin:4px 0 12px; border:1px solid var(--line); border-radius:8px; background:#fafaf6;">
+        <div style="flex:1; min-width:220px; font-size:13px;"><strong>Target profit margin: <span id="mat_marginDisplay" style="color:var(--brand-green-dark);">&mdash;</span></strong>
+          <div style="font-size:12px; color:var(--muted);">Suggested Price = cost &divide; (1 &minus; margin) &mdash; e.g. at 40%, a $1.50 item &rarr; $2.50. HunkWare prices below the suggested price are highlighted.</div></div>
+        <button type="button" id="mat_marginChangeBtn" style="background:#fff; border:1px solid var(--line); padding:7px 14px; border-radius:6px; cursor:pointer; font-weight:600; font-family:inherit;">Change (Admin PIN)</button>
+        <span class="status-msg" id="mat_marginStatus"></span>
+      </div>
       <label>Search by Description or Item Number <input type="text" id="mat_itemSearch" placeholder="Start typing..."></label>
       <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
         <thead><tr>
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Supplier Item #</th>
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
-          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Price Each</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);" title="What it costs you from the supplier">Price Each</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);" title="What you charge the customer in HunkWare -- type it in">HunkWare Price</th>
+          <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);" title="Price Each at your target profit margin">Suggested Price</th>
           <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">On Hand</th>
           <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Min Qty</th>
           <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); background:#FFF8EC;" title="Enter how many to order next time -- feeds the Estimated Order Cost below">Order Qty</th>
@@ -6177,10 +6185,10 @@
           <tr>
             <td colspan="3" style="padding:8px 4px; border-top:2px solid var(--charcoal); font-weight:700;">Total Inventory Value</td>
             <td id="mat_itemTotalValue" style="padding:8px 4px; border-top:2px solid var(--charcoal); text-align:right; font-weight:700;"></td>
-            <td colspan="4" style="border-top:2px solid var(--charcoal);"></td>
+            <td colspan="6" style="border-top:2px solid var(--charcoal);"></td>
           </tr>
           <tr id="mat_orderCostRow" style="display:none;">
-            <td colspan="8" style="padding:10px 4px 4px;">
+            <td colspan="10" style="padding:10px 4px 4px;">
               <div style="background:var(--offwhite); border:1px solid var(--line); border-radius:6px; padding:12px 14px;">
                 <div style="font-weight:700; font-size:13px; margin-bottom:6px;">Estimated Order Cost</div>
                 <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:2px;"><span>Subtotal (Order Qty &times; Price Each)</span><span id="mat_orderSubtotal"></span></div>
@@ -7784,7 +7792,7 @@
           </div>
         </div>
         <div class="panel" id="set_materialsPanel" data-collapsible="true">
-          <h3>Materials</h3>
+          <h3>Inventory Management</h3>
           <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
             <label>Supplier Phone Number <input type="text" id="appset_supplierPhone" placeholder="e.g. (706) 555-0100"></label>
             <label>Supplier Account Number <input type="text" id="appset_supplierAccountNumber" placeholder="e.g. 12345-A"></label>
@@ -23768,7 +23776,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   })();
 
   const OT_LABELS = { home: 'Dispatch (home)', managerreview: 'Manager Review', extrapay: 'Extra Pay', labor: 'Labor Cost', paperwork: 'Job Paperwork',
-    compliance: 'Regulatory Compliance', materials: 'Materials', monthlyfinancials: 'Monthly Financials', captain: 'Captain Metrics', opsmetrics: 'Ops Manager Metrics',
+    compliance: 'Regulatory Compliance', materials: 'Inventory Management', monthlyfinancials: 'Monthly Financials', captain: 'Captain Metrics', opsmetrics: 'Ops Manager Metrics',
     wingmanmetrics: 'Wingman Metrics', attendance: 'Attendance', roster: 'Employee Roster', hiring: 'Hiring', maillist: 'Marketing Lists', mailroute: 'Mail Route',
     calc: 'Calculators', statetaxes: 'State Taxes', damageclaim: 'Damage Claims' };
   async function loadOwnerTime(){
@@ -25817,7 +25825,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(m.supplierEmail) parts.push(`Email: ${m.supplierEmail}`);
     noteEl.textContent = parts.length > 0
       ? `Supplier Contact \u2014 ${parts.join(' \u00b7 ')}`
-      : 'Supplier contact info not set yet \u2014 add it in Settings \u2192 App Settings \u2192 Materials.';
+      : 'Supplier contact info not set yet \u2014 add it in Configuration \u2192 Inventory Management.';
   }
   window.renderMaterialsSupplierContact = renderMaterialsSupplierContact;
 
@@ -25838,7 +25846,39 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     ).join('<br>');
   }
 
+  // Inventory Management pricing: Suggested Price = cost / (1 - margin).
+  function matMarginPct(){ return Number(((window.appSettings || {}).materials || {}).profitMarginPct) || 0; }
+  function matSuggestedPrice(cost){
+    const c = Number(cost) || 0, m = matMarginPct();
+    if(!(c > 0) || !(m > 0) || m >= 95) return null;
+    return Math.round(c / (1 - m / 100) * 100) / 100;
+  }
+  function renderMatMargin(){
+    const el = document.getElementById('mat_marginDisplay');
+    if(el) el.textContent = matMarginPct() > 0 ? `${matMarginPct()}%` : 'not set';
+  }
+  document.getElementById('mat_marginChangeBtn').addEventListener('click', async () => {
+    const st = document.getElementById('mat_marginStatus');
+    const input = prompt('Target profit margin (%) \u2014 profit as a share of the selling price. Example: 40 means a $1.50 item is suggested at $2.50.', matMarginPct() || '');
+    if(input === null) return;
+    const pct = Number(String(input).replace(/[^0-9.]/g, ''));
+    if(!(pct >= 0 && pct < 95)){ st.textContent = 'Enter a margin from 0 to 94%.'; st.className = 'status-msg err'; return; }
+    const pin = prompt('Enter the Administrator Override PIN to change the profit margin:');
+    if(pin === null) return;
+    st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/materials/profit-margin`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ pin, pct }) });
+      if(handleAuthFailure(res)) return;
+      const d = await res.json();
+      if(!res.ok){ st.textContent = d.error || 'Could not save.'; st.className = 'status-msg err'; return; }
+      window.appSettings.materials = Object.assign({}, window.appSettings.materials, { profitMarginPct: d.profitMarginPct });
+      st.textContent = `Saved \u2014 ${d.profitMarginPct}%.`; st.className = 'status-msg ok';
+      renderMatMargin(); renderMaterialsItemList();
+    }catch(err){ st.textContent = 'Could not reach the server \u2014 check your connection.'; st.className = 'status-msg err'; }
+  });
+
   function renderMaterialsItemList(){
+    renderMatMargin();
     const tbody = document.getElementById('mat_itemRows');
     const emptyNote = document.getElementById('mat_itemEmptyNote');
     const term = matItemSearchTerm.trim().toLowerCase();
@@ -25862,6 +25902,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${matEsc(i.description)}${i.neverBilled ? ' <span style="font-size:10px; font-weight:600; color:#00612C; background:#e8f5e9; padding:1px 6px; border-radius:8px;">Free</span>' : ''}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); color:var(--muted);">${matEsc(i.nickname)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${matMoney(i.priceEach)}</td>
+        ${(() => { const sug = matSuggestedPrice(i.priceEach), hw = i.hunkwarePrice;
+          const under = hw != null && hw !== '' && sug != null && Number(hw) + 0.005 < sug;
+          return `<td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; ${under ? 'background:#fdecea;' : ''}"${under ? ` title="Below the suggested price by ${matMoney(sug - Number(hw))}"` : ''}><span style="color:var(--muted);">$</span><input type="number" min="0" step="0.01" class="mat-hwprice-edit" data-id="${i.id}" value="${hw != null && hw !== '' ? Number(hw).toFixed(2) : ''}" placeholder="0.00" style="width:68px; text-align:right; ${under ? 'color:#b3261e; font-weight:700;' : ''}"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; font-weight:600; color:var(--brand-green-dark);">${sug != null ? matMoney(sug) : '<span style="color:var(--muted); font-weight:400;">\u2014</span>'}</td>`; })()}
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><input type="number" min="0" step="1" class="mat-onhand-edit" data-id="${i.id}" value="${Number(i.quantityOnHand||0)}" style="width:60px; text-align:right; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px; ${low ? 'color:#B3261E; font-weight:600;' : ''}"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${Number(i.minQuantity||0)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; background:#FFFBF3;"><input type="number" min="0" step="1" class="mat-orderqty-edit" data-id="${i.id}" value="${i.orderQty ? Number(i.orderQty) : ''}" placeholder="0" style="width:60px; text-align:right; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
@@ -25877,6 +25921,14 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     document.getElementById('mat_itemTotalValue').textContent = matMoney(totalValue);
     renderMaterialsOrderCost();
 
+    tbody.querySelectorAll('.mat-hwprice-edit').forEach(inp => inp.addEventListener('change', async (e)=>{
+      const item = materialsItems.find(i => i.id === e.target.dataset.id);
+      if(!item) return;
+      const v = e.target.value.trim();
+      item.hunkwarePrice = v === '' ? null : Math.max(0, Math.round((Number(v) || 0) * 100) / 100);
+      await saveMaterialsItems();
+      renderMaterialsItemList();
+    }));
     tbody.querySelectorAll('.mat-onhand-edit').forEach(inp => inp.addEventListener('change', async (e)=>{
       const item = materialsItems.find(i => i.id === e.target.dataset.id);
       if(!item) return;
