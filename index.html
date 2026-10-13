@@ -24483,7 +24483,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { key: 'ownerWages', label: 'Owner Wages', where: 'Tables' },
     { key: 'netIncome', label: 'Net Income', where: 'Tables' },
     { key: 'totalEquity', label: 'Total Equity', where: 'Chart & tables' },
-    { key: 'depreciationAmortization', label: 'Depreciation & Amortization', where: 'Tables' }
+    { key: 'depreciationAmortization', label: 'Depreciation & Amortization', where: 'Tables' },
+    { key: 'businessValue', label: 'Estimated Business Value', where: 'Chart line (from valuations)' }
   ];
   window.MF_METRICS = MF_METRICS;
   const mfShown = key => !((((window.appSettings || {}).financials || {}).hiddenMetrics) || []).includes(key);
@@ -24887,6 +24888,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     renderValuationHistory();
     if(last && !document.getElementById('val_result').innerHTML) renderValuation(last);
+    if(businessValuations.length) renderMonthlyFinancialsChart();   // adds the business value line
   }
   function renderValuationHistory(){
     const el = document.getElementById('val_history');
@@ -24960,7 +24962,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const d = await res.json();
       if(!res.ok) throw new Error(d.error || 'Could not estimate.');
       businessValuations.unshift(d.valuation);
-      renderValuation(d.valuation); renderValuationHistory();
+      renderValuation(d.valuation); renderValuationHistory(); renderMonthlyFinancialsChart();
       st.textContent = 'Done \u2014 saved to Past Estimates.'; st.className = 'status-msg ok';
     }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
     finally{ btn.disabled = false; }
@@ -25038,9 +25040,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // would be a meaningless number, unlike summing several months'
       // revenue. Dotted (not dashed) to visually mark it as a different
       // kind of figure again from the derived SDE line.
-      { key: 'totalEquity', label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] }
+      { key: 'totalEquity', label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] },
+      // Estimated business value from the AI valuations: a point-in-time
+      // figure (not a running total), plotted in the month each estimate was
+      // run -- the latest one if there were several.
+      (() => {
+        const byM = {};
+        (businessValuations || []).forEach(v => {
+          const d = new Date(v.createdAt); if(d.getFullYear() !== Number(mfSelectedYear)) return;
+          const k = d.getMonth(); if(!byM[k] || v.createdAt > byM[k].createdAt) byM[k] = v;
+        });
+        return { key: 'businessValue', label: 'Estimated Business Value', data: MF_MONTH_ABBR.map((_, i) => byM[i] ? byM[i].value.mid : null), valuations: byM,
+          borderColor: '#6B3FA0', backgroundColor: '#6B3FA0', borderDash: [6, 4], pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', spanGaps: true };
+      })()
     ].filter(ds => mfShown(ds.key))   // metrics switched off in Configuration -> Financials
-     .map(ds => ({ ...ds, fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false }));
+     .filter(ds => ds.key !== 'businessValue' || ds.data.some(v => v != null))
+     .map(ds => ({ fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false, ...ds }));
 
     // Shows the latest SDE figure in a plain HTML
     // badge above the chart, rather than drawing a callout box on the
@@ -25088,7 +25103,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           responsive: true,
           plugins: {
             legend: { labels: { boxWidth: 16, font: { size: 11 } } },
-            tooltip: { callbacks: { label: c => `${c.dataset.label}${c.dataset.label === 'Total Equity' ? ' (as of month-end)' : ' (YTD)'}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}` } }
+            tooltip: { callbacks: { label: c => {
+              if(c.dataset.key === 'businessValue'){ const v = (c.dataset.valuations || {})[c.dataIndex]; return v ? `Estimated Business Value: ${mfMoney(v.value.mid)} (range ${mfMoney(v.value.low)}\u2013${mfMoney(v.value.high)}, ${new Date(v.createdAt).toLocaleDateString()})` : ''; }
+              return `${c.dataset.label}${c.dataset.label === 'Total Equity' ? ' (as of month-end)' : ' (YTD)'}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}`;
+            } } }
           },
           scales: {
             y: { ticks: { callback: v => '$' + Number(v).toLocaleString() }, grid: { color: '#E4E0D6' } },
