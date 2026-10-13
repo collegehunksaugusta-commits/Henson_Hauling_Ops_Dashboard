@@ -4114,7 +4114,7 @@ const EXTRACT_DA_HISTORY_TOOL = {
     required: ['months', 'confident']
   }
 };
-app.post('/api/admin/extract-da-history', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/extract-da-history', requireAuth, requireFinancialsAccess, async (req, res) => {
   const { images, pageTexts } = req.body || {};
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'AI is not configured on this server.' });
@@ -4204,12 +4204,12 @@ function valuationFigures(records, inputs) {
   };
 }
 
-app.get('/api/admin/business-valuations', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/business-valuations', requireAuth, requireFinancialsAccess, async (req, res) => {
   try { res.json({ valuations: JSON.parse(await redis.get(BUSINESS_VALUATIONS_KEY) || '[]') }); }
   catch (err) { res.status(500).json({ error: 'Could not load valuations.' }); }
 });
 
-app.post('/api/admin/business-valuation', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/business-valuation', requireAuth, requireFinancialsAccess, async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'AI is not configured on this server.' });
   const b = req.body || {};
@@ -5760,7 +5760,7 @@ const EXTRACT_MONTHLY_FINANCIALS_TOOL = {
   }
 };
 
-app.post('/api/admin/extract-monthly-financials', requireAuth, async (req, res) => {
+app.post('/api/admin/extract-monthly-financials', requireAuth, requireFinancialsAccess, async (req, res) => {
   const { images, pageTexts } = req.body || {};
   if (!Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ error: 'At least one image is required.' });
@@ -6073,7 +6073,27 @@ async function isRequestingUserAdmin(req) {
   return !!(user && user.role === 'admin');
 }
 
+// Monthly Financials belongs to the Owner (Configuration -> Financials);
+// until an Owner is set, admins have it.
+const OWNER_ONLY_KEYS = new Set(['monthly-financials']);
+async function canSeeFinancials(req) {
+  const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+  const owner = String((st.financials || {}).ownerEmail || '').toLowerCase();
+  if (owner) return owner === String(req.userEmail || '').toLowerCase();
+  return isRequestingUserAdmin(req);
+}
+async function requireFinancialsAccess(req, res, next) {
+  try { if (await canSeeFinancials(req)) return next(); res.status(403).json({ error: 'Only the Owner can see Monthly Financials.' }); }
+  catch (err) { res.status(500).json({ error: 'Permission check failed.' }); }
+}
+
 async function checkAdminOnlyKey(req, res, key) {
+  if (OWNER_ONLY_KEYS.has(key)) {
+    try {
+      if (!(await canSeeFinancials(req))) { res.status(403).json({ error: 'Only the Owner can see Monthly Financials.' }); return false; }
+      return true;
+    } catch (err) { res.status(500).json({ error: 'Permission check failed.' }); return false; }
+  }
   if (!ADMIN_ONLY_KEYS.has(key)) return true;
   try {
     if (!(await isRequestingUserAdmin(req))) {
