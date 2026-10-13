@@ -3624,10 +3624,14 @@ app.get('/api/driver/my-license', requireDriverAuth, async (req, res) => {
   try {
     const drivers = JSON.parse(await redis.get('compliance-drivers') || '[]');
     const match = drivers.find(d => nameCoreKey(d.employeeName) === nameCoreKey(req.driverName));
-    const raw = await redis.get(driverDocStoreKey(match ? match.employeeName : req.driverName, 'license'));
-    if (!raw) return res.json({ license: null });
-    const rec = JSON.parse(raw);
-    res.json({ license: { dataUri: rec.dataUri, uploadedAt: rec.uploadedAt } });
+    const who = match ? match.employeeName : req.driverName;
+    const [licRaw, physRaw] = await Promise.all([redis.get(driverDocStoreKey(who, 'license')), redis.get(driverDocStoreKey(who, 'physical'))]);
+    const lic = licRaw ? JSON.parse(licRaw) : null, phys = physRaw ? JSON.parse(physRaw) : null;
+    // His own DOT medical card too, with the expiration date from Compliance.
+    res.json({
+      license: lic ? { dataUri: lic.dataUri, uploadedAt: lic.uploadedAt } : null,
+      physical: phys ? { dataUri: phys.dataUri, uploadedAt: phys.uploadedAt, fileName: phys.fileName || '', expiration: (match && match.physicalExpiration) || null } : null
+    });
   } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
 });
 
