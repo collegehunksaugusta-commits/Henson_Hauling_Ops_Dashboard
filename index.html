@@ -782,10 +782,10 @@
 
     <div id="esignLicense" class="panel" style="display:none;">
       <h3 style="margin-top:0;">Driver&rsquo;s License</h3>
-      <p class="form-note" style="margin-top:0;">Take a clear photo of the <strong>front</strong> and the <strong>back</strong> of your license, flat on a table with no glare. Once it&rsquo;s in, you&rsquo;ll always have it in <strong>Truck Documents</strong> on this app &mdash; handy if you&rsquo;re ever pulled over without your wallet.</p>
+      <p class="form-note" style="margin-top:0;">Add a clear photo or scan of the <strong>front</strong> and the <strong>back</strong> of your license &mdash; on a phone the buttons open the camera; on a computer, choose a photo or scan file. Once it&rsquo;s in, you&rsquo;ll always have it in <strong>Truck Documents</strong> on this app &mdash; handy if you&rsquo;re ever pulled over without your wallet.</p>
       <div style="display:flex; gap:10px;">
-        <button type="button" class="esLicPick" data-side="front" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Front</button>
-        <button type="button" class="esLicPick" data-side="back" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Back</button>
+        <button type="button" class="esLicPick" data-side="front" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Front of License</button>
+        <button type="button" class="esLicPick" data-side="back" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Back of License</button>
       </div>
       <div id="esLicPreview" style="display:flex; gap:10px; margin-top:10px;"></div>
       <button type="button" id="esLicSubmit" style="width:100%; margin-top:14px; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit License</button>
@@ -794,7 +794,7 @@
 
     <div id="esignPhysical" class="panel" style="display:none;">
       <h3 style="margin-top:0;">DOT Physical</h3>
-      <p class="form-note" style="margin-top:0;">Upload your <strong>Medical Examiner&rsquo;s Certificate</strong> (the card the doctor gave you after your DOT physical). Take a clear photo of the whole card, or upload the PDF.</p>
+      <p class="form-note" style="margin-top:0;">Upload your <strong>Medical Examiner&rsquo;s Certificate</strong> (the card the doctor gave you after your DOT physical). Take a clear photo of the whole card (on a phone), or choose a photo, scan or PDF file (on a computer).</p>
       <button type="button" id="esPhysPick" style="width:100%; padding:13px; font-size:15px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Take Photo or Choose File</button>
       <div id="esPhysPreview" style="margin-top:10px;"></div>
       <label style="display:block; margin-top:12px; font-size:13px;">Certificate expiration date <input type="date" id="esPhysExp" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
@@ -840,7 +840,7 @@
         <p style="font-size:13px; line-height:1.45; font-weight:700;">This certifies that this application was completed by me, and that all entries on it and information in it are true and complete to the best of my knowledge.</p>
         <label class="ea-none" style="align-items:flex-start;"><input type="checkbox" id="ea_consent" style="margin-top:3px;"> <span>I agree to sign this application electronically, and that my electronic signature is the legal equivalent of my handwritten signature.</span></label>
         <label>Type your full legal name <input id="ea_signName" autocomplete="off"></label>
-        <div style="font-size:13px; margin:8px 0 4px;">Sign with your finger:</div>
+        <div style="font-size:13px; margin:8px 0 4px;">Sign below with your finger (phone) or mouse (computer):</div>
         <canvas id="ea_sig" width="600" height="160" style="width:100%; height:130px; border:2px solid var(--line); border-radius:8px; background:#fff; touch-action:none;"></canvas>
         <button type="button" id="ea_sigClear" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:12.5px; padding:2px 0;">Clear signature</button>
         <button type="button" id="ea_submit" style="width:100%; margin-top:12px; padding:15px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Sign &amp; Submit Application</button>
@@ -1731,6 +1731,7 @@
   let esLic = {};
   document.querySelectorAll('.esLicPick').forEach(b => b.addEventListener('click', () => {
     const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
+    if(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) input.setAttribute('capture', 'environment');   // phones: straight to the camera
     input.addEventListener('change', async () => {
       const f = input.files && input.files[0]; if(!f) return;
       esLic[b.dataset.side] = await window.compressImageForUpload(f, 1400, 0.85);
@@ -13766,9 +13767,32 @@
     document.getElementById('comp_driverDocsPanel').scrollIntoView({behavior:'smooth', block:'start'});
   }
 
+  // A paper copy uploaded by the office completes the matching open step of
+  // the driver's Onboarding Bundle (or the Ops Manager's Road Test task).
+  async function completeOnboardingStepByPaper(name, key){
+    try{
+      const now = new Date().toISOString(), by = localStorage.getItem('henson_auth_email') || '';
+      if(key === 'roadtest'){
+        const tasks = await window.dashboardApi.get('compliance-roadtest-tasks', []) || [];
+        let changed = false;
+        tasks.forEach(t => { if(t.driverName === name && t.status === 'pending'){ Object.assign(t, { status: 'completed', completedAt: now, completedVia: 'paper', examiner: 'paper copy', completedBy: by }); changed = true; } });
+        if(changed){ await window.dashboardApi.set('compliance-roadtest-tasks', tasks); if(window.refreshRoadTestCount) window.refreshRoadTestCount(); }
+      } else {
+        const reqs = await window.dashboardApi.get('compliance-esign-requests', []) || [];
+        let changed = false;
+        reqs.forEach(r => { if(r.driverName === name && r.type === key && r.status === 'pending'){ Object.assign(r, { status: 'completed', completedAt: now, completedVia: 'paper', completedBy: by }); changed = true; } });
+        if(changed) await window.dashboardApi.set('compliance-esign-requests', reqs);
+      }
+    }catch(err){ console.error('Paper completion failed:', err); }
+  }
+  window.completeOnboardingStepByPaper = completeOnboardingStepByPaper;
+  window.printBlankRoadTestForm = () => printBlankForm(buildRoadTestCertForm(), 'Road Test Certification');
+
   async function renderDriverDocUploads(name){
     const container = document.getElementById('comp_driverDocUploads');
-    container.innerHTML = '<div id="driverBundleBox" style="border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px; background:#f6fbf7;"></div>' + DRIVER_DOC_TYPES.map(dt => `
+    container.innerHTML = '<div id="driverBundleBox" style="border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px; background:#f6fbf7;"></div>'
+      + '<div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--muted); margin:4px 0 2px;">PAPER BACKUP</div><p class="form-note" style="margin:0 0 10px;">Print a blank form, or upload a signed paper copy or scan. Uploading one also checks that step off the driver&rsquo;s Onboarding Bundle (and a paper Road Test clears the Ops Manager&rsquo;s task).</p>'
+      + DRIVER_DOC_TYPES.map(dt => `
       <div class="sig-pad-wrap" style="margin-bottom:12px;">
         <div class="sig-pad-label">${dt.label}${dt.printable ? ` <button type="button" class="driver-doc-print" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer; text-transform:none; letter-spacing:normal; font-family:'Inter',sans-serif; font-weight:600;">Print Blank Form</button>` : ''}</div>
         <div id="driverDocStatus_${dt.key}" style="font-size:13px; margin-bottom:6px;">Loading...</div>
@@ -13810,11 +13834,11 @@
       const label = { license: 'Driver\u2019s License photo', physical: 'DOT Physical', application: 'DOT Driver Application (e-signed)' };
       const line = (txt, done, who) => `<div style="font-size:13px; margin:3px 0;">${done ? '<span style="color:var(--brand-green-dark); font-weight:700;">\u2713</span>' : '<span style="color:#8a6d00;">\u23f3</span>'} ${txt}${who ? ` <span style="color:var(--muted);">\u2014 ${who}</span>` : ''}</div>`;
       box.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <div><strong>Onboarding Bundle</strong><div style="font-size:12px; color:var(--muted);">${bundleId ? 'Sent ' + new Date(steps[0] ? steps[0].sentAt : Date.now()).toLocaleDateString() : 'License photo, DOT Physical and DOT Driver Application on his HUNK Portal, plus a Road Test task for the Ops Manager.'}</div></div>
+          <div><div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--brand-green-dark);">DIGITAL (PREFERRED)</div><strong>Onboarding Bundle</strong><div style="font-size:12px; color:var(--muted);">${bundleId ? 'Sent ' + new Date(steps[0] ? steps[0].sentAt : Date.now()).toLocaleDateString() : 'License photo, DOT Physical and DOT Driver Application on his HUNK Portal, plus a Road Test task for the Ops Manager.'}</div></div>
           <button type="button" id="driverBundleSend" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:700;">&#128232; ${bundleId ? 'Send Again' : 'Send Onboarding Bundle'}</button>
         </div>
-        ${bundleId ? `<div style="margin-top:8px;">${['license', 'physical', 'application'].map(t => { const st = steps.find(x => x.type === t); return line(label[t], st && st.status === 'completed', st && st.status === 'completed' ? 'done by the driver ' + new Date(st.completedAt).toLocaleDateString() : 'waiting on the driver'); }).join('')}
-          ${line('Road Test Certification', rt && rt.status === 'completed', rt && rt.status === 'completed' ? 'certified by ' + fleetEsc(rt.examiner || 'the Ops Manager') + ' ' + new Date(rt.completedAt).toLocaleDateString() : 'waiting on the Ops Manager (Manager Review \u2192 Road Tests)')}</div>` : ''}`;
+        ${bundleId ? `<div style="margin-top:8px;">${['license', 'physical', 'application'].map(t => { const st = steps.find(x => x.type === t); return line(label[t], st && st.status === 'completed', st && st.status === 'completed' ? (st.completedVia === 'paper' ? 'paper copy uploaded ' : 'done by the driver ') + new Date(st.completedAt).toLocaleDateString() : 'waiting on the driver'); }).join('')}
+          ${line('Road Test Certification', rt && rt.status === 'completed', rt && rt.status === 'completed' ? (rt.completedVia === 'paper' ? 'paper copy uploaded ' : 'certified by ' + fleetEsc(rt.examiner || 'the Ops Manager') + ' ') + new Date(rt.completedAt).toLocaleDateString() : 'waiting on the Ops Manager (Manager Review \u2192 Road Tests)')}</div>` : ''}`;
       document.getElementById('driverBundleSend').addEventListener('click', async () => {
         if(bundleId && !confirm(`Send ${name} a new onboarding bundle? Any steps still open from the last one are replaced.`)) return;
         const nb = 'bundle_' + Date.now(), now = new Date().toISOString(), by = localStorage.getItem('henson_auth_email') || '';
@@ -13857,7 +13881,7 @@
       try{
         const compressed = await window.compressUploadedFile(file);
         const ok = await window.dashboardApi.set(driverDocKey(name, key), { dataUri: compressed.dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
-        if(ok){ renderDriverDocUploads(name); }
+        if(ok){ await completeOnboardingStepByPaper(name, key); renderDriverDocUploads(name); }
         else { alert('Save failed \u2014 check your connection.'); }
       }catch(err){ console.error('Driver doc upload failed:', err); alert('Upload failed \u2014 check your connection.'); }
     }));
@@ -28978,9 +29002,24 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           <div><div style="font-weight:800; font-size:15px;">\u{1F69A} Road Test \u2014 ${mgrReviewEsc(t.driverName)}</div><div style="font-size:12.5px; color:var(--muted);">Requested ${new Date(t.createdAt).toLocaleDateString()} with his onboarding paperwork</div></div>
           ${rtOpenId === t.id ? '' : '<button type="button" class="rt-open" style="background:#b3261e; color:#fff; border:none; padding:9px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Start Road Test Certification</button>'}
         </div>
+        <div style="font-size:12.5px; color:var(--muted); margin-top:8px;">Prefer paper? <button type="button" class="rt-print" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; padding:0; font-size:12.5px;">Print the blank form</button>, then <label style="display:inline; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer;">upload the signed copy<input type="file" class="rt-paper" accept=".pdf,.jpg,.jpeg,.png,image/*" style="display:none;"></label>.</div>
         ${rtOpenId === t.id ? rtFormHtml(t) : ''}
       </div>`).join('');
     list.querySelectorAll('.rt-open').forEach(b => b.addEventListener('click', () => { rtOpenId = b.closest('.rt-card').dataset.id; renderRoadTests(); rtWireForm(); }));
+    list.querySelectorAll('.rt-print').forEach(b => b.addEventListener('click', () => window.printBlankRoadTestForm && window.printBlankRoadTestForm()));
+    list.querySelectorAll('.rt-paper').forEach(inp => inp.addEventListener('change', async () => {
+      const f = inp.files && inp.files[0]; if(!f) return;
+      const t = roadTests.find(x => x.id === inp.closest('.rt-card').dataset.id); if(!t) return;
+      if(f.size > 10 * 1024 * 1024){ alert('That file is over 10MB.'); return; }
+      try{
+        const c = await window.compressUploadedFile(f);
+        const docKey = 'compliance-doc-driver-' + t.driverName.replace(/[^a-zA-Z0-9]/g, '_') + '-roadtest';
+        if(!(await window.dashboardApi.set(docKey, { dataUri: c.dataUri, fileName: f.name, uploadedAt: new Date().toISOString() }))) throw new Error('save');
+        await window.completeOnboardingStepByPaper(t.driverName, 'roadtest');
+        await loadRoadTests();
+        document.getElementById('rt_list').insertAdjacentHTML('afterbegin', `<p class="status-msg ok" style="margin:0 0 10px;">\u2713 Paper Road Test saved to ${mgrReviewEsc(t.driverName)}\u2019s file.</p>`);
+      }catch(err){ alert('Upload failed \u2014 check your connection.'); }
+    }));
     if(rtOpenId) rtWireForm();
   }
   function rtFormHtml(t){
