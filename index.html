@@ -800,6 +800,8 @@
       <label style="display:block; margin-top:12px; font-size:13px;">Certificate expiration date <input type="date" id="esPhysExp" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
       <button type="button" id="esPhysSubmit" style="width:100%; margin-top:14px; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit DOT Physical</button>
       <p class="status-msg" id="esPhysStatus" style="margin:8px 0 0;"></p>
+      <button type="button" id="esPhysNone" style="width:100%; margin-top:14px; padding:12px; font-size:14.5px; font-weight:700; background:#fff; color:#b3261e; border:2px solid #b3261e; border-radius:10px; cursor:pointer; font-family:inherit;">I don&rsquo;t have a current DOT physical</button>
+      <div id="esPhysHelp" style="display:none; margin-top:12px;"></div>
     </div>
 
     <div id="esignApp" style="display:none;">
@@ -1717,6 +1719,8 @@
       } else if(esignCurrent.type === 'physical'){
         esPhysFile = null; document.getElementById('esPhysPreview').innerHTML = ''; document.getElementById('esPhysExp').value = ''; document.getElementById('esPhysStatus').textContent = '';
         document.getElementById('esignPhysical').style.display = 'block';
+        const help = document.getElementById('esPhysHelp'); help.innerHTML = ''; help.style.display = 'none';
+        if(esignCurrent.physicalDueBy){ help.style.display = 'block'; renderPhysicalHelp(help, esignCurrent.physicalDueBy); }
       } else { esResetApp(); document.getElementById('esignApp').style.display = 'block'; }
       window.scrollTo(0, 0);
     }));
@@ -1768,6 +1772,83 @@
   document.getElementById('esignTile').addEventListener('click', showEsign);
   document.getElementById('esignBackBtn').addEventListener('click', () => {
     if(document.getElementById('esignList').style.display === 'none') renderEsignList(); else showDriverMenu();
+  });
+
+  // ---- No current DOT physical: where to go, by when, and the receipt ----
+  // Used on the onboarding step and in Truck Documents. The receipt goes in
+  // as a "DOT Physical" expense (approved in Manager Review -> Expenses,
+  // paid in Extra Pay), the same way My Money -> Expenses works.
+  async function renderPhysicalHelp(box, dueByOverride){
+    box.innerHTML = '<div class="form-note">Loading\u2026</div>';
+    let d;
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/dot-provider', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      d = await res.json(); if(!res.ok) throw new Error();
+    }catch(err){ box.innerHTML = '<div class="form-note">Couldn\u2019t load the details \u2014 call the office.</div>'; return; }
+    const p = d.provider || {}, due = dueByOverride || d.dueBy;
+    const dueTxt = new Date(due + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    const tel = String(p.phone || '').replace(/[^0-9+]/g, '');
+    const maps = p.address ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.address) : '';
+    const btn = 'display:block; text-align:center; padding:11px; border-radius:8px; font-weight:700; text-decoration:none; font-size:14.5px; margin-top:8px;';
+    box.innerHTML = `<div style="border:2px solid #b3261e; border-radius:10px; padding:14px; background:#fff8f7;">
+        <div style="font-weight:800; font-size:16px; color:#b3261e;">Get your DOT physical by ${dueTxt}</div>
+        <div style="font-size:13.5px; margin-top:6px;">You need a current DOT physical to drive for us. Go to ${p.name ? `<strong>${driverEsc(p.name)}</strong>` : 'our DOT physical provider (ask the office which one)'} within ${d.deadlineDays} day${d.deadlineDays === 1 ? '' : 's'}.</div>
+        ${p.address ? `<div style="font-size:13.5px; margin-top:6px;">&#128205; ${driverEsc(p.address)}</div>` : ''}
+        ${p.notes ? `<div style="font-size:13px; margin-top:6px; color:var(--muted);">${driverEsc(p.notes)}</div>` : ''}
+        ${tel ? `<a href="tel:${tel}" style="${btn} background:var(--brand-green); color:#fff;">&#128222; Call ${driverEsc(p.phone)}</a>` : ''}
+        ${maps ? `<a href="${maps}" target="_blank" rel="noopener" style="${btn} background:#fff; color:var(--charcoal); border:1px solid var(--line);">&#128506; Directions</a>` : ''}
+        ${p.link ? `<a href="${driverEsc(p.link)}" target="_blank" rel="noopener" style="${btn} background:#fff; color:var(--charcoal); border:1px solid var(--line);">&#128197; Book online</a>` : ''}
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid #f0c9c5; font-size:13.5px;"><strong>You&rsquo;ll be reimbursed.</strong> Pay for the exam, keep the receipt, and upload it here &mdash; once the office approves it, it&rsquo;s added to your Extra Pay.</div>
+        <button type="button" class="ph-rcpt" style="width:100%; margin-top:8px; padding:12px; font-size:15px; font-weight:800; background:var(--brand-orange); color:#fff; border:none; border-radius:8px; cursor:pointer; font-family:inherit;">&#128247; Upload Receipt for Reimbursement</button>
+        <div class="ph-rcpt-form" style="display:none; margin-top:10px;"></div>
+        <div style="font-size:12.5px; color:var(--muted); margin-top:10px;">After your exam, upload your new medical certificate${box.id === 'esPhysHelp' ? ' with the button above' : ' when the office sends it to you'}.</div>
+      </div>`;
+    box.querySelector('.ph-rcpt').addEventListener('click', () => physicalReceipt(box, p.name));
+  }
+  function physicalReceipt(box, providerName){
+    const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
+    if(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) input.setAttribute('capture', 'environment');
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0]; if(!f) return;
+      const form = box.querySelector('.ph-rcpt-form'); form.style.display = 'block';
+      form.innerHTML = '<div class="form-note">Reading the receipt\u2026</div>';
+      const base = API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman' : '/api/driver');
+      let photo, read = null;
+      try{
+        photo = await window.compressImageForUpload(f, 1600, 0.82);
+        const res = await fetch(base + '/expense/read', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ photo }) });
+        if(res.ok) read = await res.json();
+      }catch(err){}
+      form.innerHTML = `<div style="display:flex; gap:10px; align-items:flex-start;"><img src="${photo}" style="width:70px; height:94px; object-fit:cover; border-radius:6px; border:1px solid var(--line);">
+          <label style="flex:1; font-size:13px;">Amount you paid ($)<input type="text" inputmode="decimal" class="ph-amt" value="${read && read.total ? Number(read.total).toFixed(2) : ''}" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:17px; font-weight:700;"></label></div>
+        <button type="button" class="ph-send" style="width:100%; margin-top:8px; padding:12px; font-size:15px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:8px; cursor:pointer; font-family:inherit;">Submit for Reimbursement</button>
+        <p class="status-msg ph-st" style="margin:6px 0 0;"></p>`;
+      form.querySelector('.ph-send').addEventListener('click', async (e) => {
+        const btn = e.currentTarget, st = form.querySelector('.ph-st');
+        const total = Math.round((parseFloat(String(form.querySelector('.ph-amt').value).replace(/[^0-9.]/g, '')) || 0) * 100) / 100;
+        if(!(total > 0)){ st.textContent = 'Enter the amount you paid.'; st.className = 'status-msg ph-st err'; return; }
+        btn.disabled = true; st.textContent = 'Submitting\u2026'; st.className = 'status-msg ph-st';
+        try{
+          const res = await fetch(base + '/expense', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
+            body: JSON.stringify({ photo, merchant: (read && read.merchant) || providerName || 'DOT physical provider', date: (read && read.date) || driverLocalDate(), total, category: 'DOT Physical', description: 'DOT physical exam', note: 'DOT physical reimbursement', aiRead: read }) });
+          if(res.status === 401){ driverSessionExpired(); return; }
+          const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not submit.');
+          form.innerHTML = '<p class="status-msg ok" style="margin:0;">\u2713 Receipt sent to the office. Once approved, it\u2019s added to your Extra Pay \u2014 you can follow it in My Money \u2192 Expenses.</p>';
+        }catch(err){ btn.disabled = false; st.textContent = err.message || 'Couldn\u2019t submit \u2014 try again.'; st.className = 'status-msg ph-st err'; }
+      });
+    });
+    input.click();
+  }
+  document.getElementById('esPhysNone').addEventListener('click', async () => {
+    const box = document.getElementById('esPhysHelp'); box.style.display = 'block';
+    let due = null;
+    try{
+      const res = await fetch(`${API_BASE_AUTH}/api/driver/esign/${encodeURIComponent(esignCurrent.id)}/physical-needed`, { method: 'POST', headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.ok) due = (await res.json()).dueBy;
+    }catch(err){}
+    await renderPhysicalHelp(box, due);
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   // DOT Physical
@@ -2412,7 +2493,10 @@
                    : `<img id="tdocs_medImg" src="${p.dataUri}" alt="DOT medical card" style="width:100%; border-radius:8px; border:1px solid var(--line); cursor:pointer;">`)
           + expNote + `<div class="form-note" style="margin:4px 0 0;">Uploaded ${new Date(p.uploadedAt).toLocaleDateString()}${isPdf ? '' : ' \u00b7 tap to enlarge'}</div>`;
       }
-      el.innerHTML = lic + '<div style="height:16px;"></div>' + med;
+      // No medical card, or an expired one: where to go + reimbursement.
+      const needsPhysical = !d.physical || (d.physical.expiration && d.physical.expiration < new Date().toLocaleDateString('en-CA'));
+      el.innerHTML = lic + '<div style="height:16px;"></div>' + med + (needsPhysical ? '<div id="tdocs_physHelp" style="margin-top:10px;"></div>' : '');
+      if(needsPhysical) renderPhysicalHelp(document.getElementById('tdocs_physHelp'));
       const li = document.getElementById('tdocs_licImg');
       if(li) li.addEventListener('click', () => window.showPhotoModal ? window.showPhotoModal(d.license.dataUri, { title: 'Driver\u2019s License' }) : window.open(d.license.dataUri));
       const mi = document.getElementById('tdocs_medImg');
@@ -8511,6 +8595,37 @@
         </div>
       </div>
 
+      <div class="setGroup" id="setGroup-compliance" data-setgroup="compliance">
+        <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-compliance" aria-expanded="false" aria-controls="setGroupBody-compliance">
+          <span class="dashSectionChevron">&#9656;</span>
+          <div class="dashSectionHeaderText">
+            <div class="dashSectionTitleRow">
+              <span class="dashSectionEmoji" aria-hidden="true">🚦</span>
+              <span>Regulatory Compliance</span>
+              <span class="dashSectionCount">(1)</span>
+            </div>
+          </div>
+        </button>
+        <div class="dashSectionBody" id="setGroupBody-compliance">
+        <div class="panel" id="set_dotProviderPanel" data-collapsible="true">
+          <h3>DOT Physical Provider</h3>
+          <p class="form-note" style="margin-top:0;">Where a driver goes when he doesn&rsquo;t have a current DOT physical. Shown in his Onboarding Paperwork and in Truck Documents (when his medical card is missing or expired), with a deadline and a <strong>receipt upload</strong> &mdash; the receipt becomes a &ldquo;DOT Physical&rdquo; expense you approve in Manager Review &rarr; Expenses, paid in Extra Pay.</p>
+          <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));">
+            <label>Provider name <input type="text" id="appset_dotProvName" placeholder="e.g. Concentra Urgent Care"></label>
+            <label>Phone <input type="text" id="appset_dotProvPhone" placeholder="(706) 555-0100"></label>
+            <label>Address <input type="text" id="appset_dotProvAddress" placeholder="Street, City, State"></label>
+            <label>Booking or website link (optional) <input type="text" id="appset_dotProvLink" placeholder="https://"></label>
+            <label>Days to get it done <input type="number" min="1" max="30" id="appset_dotProvDays"></label>
+          </div>
+          <label style="display:block; margin-top:8px;">Notes for the driver (optional) <input type="text" id="appset_dotProvNotes" placeholder="e.g. Walk-ins Mon&ndash;Fri 8&ndash;4. Ask for a DOT physical and bring your license." style="width:100%;"></label>
+          <div class="form-actions">
+            <button type="button" id="appset_dotProvSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-family:inherit;">Save</button>
+            <span class="status-msg" id="appset_dotProvStatus"></span>
+          </div>
+        </div>
+        </div>
+      </div>
+
       <div class="setGroup" id="setGroup-general" data-setgroup="general">
         <button type="button" class="dashSectionHeader setGroupHeader" id="setGroupHeader-general" aria-expanded="false" aria-controls="setGroupBody-general">
           <span class="dashSectionChevron">&#9656;</span>
@@ -13866,7 +13981,8 @@
           <div><div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--brand-green-dark);">DIGITAL (PREFERRED)</div><strong>Onboarding Bundle</strong><div style="font-size:12px; color:var(--muted);">${bundleId ? 'Sent ' + new Date(steps[0] ? steps[0].sentAt : Date.now()).toLocaleDateString() : 'License photo, DOT Physical and DOT Driver Application on his HUNK Portal, plus a Road Test task for the Ops Manager.'}</div></div>
           <button type="button" id="driverBundleSend" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:700;">&#128232; ${bundleId ? 'Send Again' : 'Send Onboarding Bundle'}</button>
         </div>
-        ${bundleId ? `<div style="margin-top:8px;">${['license', 'physical', 'application'].map(t => { const st = steps.find(x => x.type === t); return line(label[t], st && st.status === 'completed', st && st.status === 'completed' ? (st.completedVia === 'paper' ? 'paper copy uploaded ' : 'done by the driver ') + new Date(st.completedAt).toLocaleDateString() : 'waiting on the driver'); }).join('')}
+        ${bundleId ? `<div style="margin-top:8px;">${['license', 'physical', 'application'].map(t => { const st = steps.find(x => x.type === t); return line(label[t], st && st.status === 'completed', st && st.status === 'completed' ? (st.completedVia === 'paper' ? 'paper copy uploaded ' : 'done by the driver ') + new Date(st.completedAt).toLocaleDateString()
+              : (st && st.physicalDueBy ? (st.physicalDueBy < new Date().toLocaleDateString('en-CA') ? '<span style="color:#b3261e; font-weight:700;">needs a new physical \u2014 OVERDUE (was due ' + window.fmtDate(st.physicalDueBy) + ')</span>' : 'getting a new physical \u2014 due by ' + window.fmtDate(st.physicalDueBy)) : 'waiting on the driver')); }).join('')}
           ${line('Road Test Certification', rt && rt.status === 'completed', rt && rt.status === 'completed' ? (rt.completedVia === 'paper' ? 'paper copy uploaded ' : 'certified by ' + fleetEsc(rt.examiner || 'the Ops Manager') + ' ') + new Date(rt.completedAt).toLocaleDateString() : 'waiting on the Ops Manager (Manager Review \u2192 Road Tests)')}</div>` : ''}`;
       document.getElementById('driverBundleSend').addEventListener('click', async () => {
         if(bundleId && !confirm(`Send ${name} a new onboarding bundle? Any steps still open from the last one are replaced.`)) return;
@@ -17670,6 +17786,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
     document.getElementById('appset_mileageRate').value = ((window.appSettings || {}).extraPay || {}).mileageRate || 0;
     renderFinancialMetricsSettings();
+    const dp = (window.appSettings || {}).dotPhysical || {};
+    document.getElementById('appset_dotProvName').value = dp.providerName || '';
+    document.getElementById('appset_dotProvPhone').value = dp.phone || '';
+    document.getElementById('appset_dotProvAddress').value = dp.address || '';
+    document.getElementById('appset_dotProvLink').value = dp.link || '';
+    document.getElementById('appset_dotProvNotes').value = dp.notes || '';
+    document.getElementById('appset_dotProvDays').value = dp.deadlineDays || 3;
 
     const select = document.getElementById('appset_opsManagerAssignment');
     let roster = [];
@@ -17720,6 +17843,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.textContent = hiddenMetrics.length ? `Saved \u2014 ${hiddenMetrics.length} metric${hiddenMetrics.length === 1 ? '' : 's'} hidden.` : 'Saved \u2014 all metrics shown.';
       statusEl.className = 'status-msg ok';
     }catch(err){ statusEl.textContent = 'Could not reach the server \u2014 check your connection.'; statusEl.className = 'status-msg err'; }
+  });
+
+  document.getElementById('appset_dotProvSaveBtn').addEventListener('click', async ()=>{
+    const st = document.getElementById('appset_dotProvStatus');
+    const v = id => document.getElementById(id).value.trim();
+    const dotPhysical = { providerName: v('appset_dotProvName'), phone: v('appset_dotProvPhone'), address: v('appset_dotProvAddress'), link: v('appset_dotProvLink'), notes: v('appset_dotProvNotes'), deadlineDays: Math.max(1, Math.min(30, Math.round(Number(v('appset_dotProvDays')) || 3))) };
+    st.textContent = 'Saving...'; st.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { dotPhysical } }) });
+      if(handleAuthFailure(res)) return;
+      const d = await res.json();
+      if(!res.ok){ st.textContent = d.error || 'Could not save.'; st.className = 'status-msg err'; return; }
+      window.appSettings.dotPhysical = Object.assign({}, window.appSettings.dotPhysical, dotPhysical);
+      st.textContent = 'Saved.'; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = 'Could not reach the server \u2014 check your connection.'; st.className = 'status-msg err'; }
   });
 
   document.getElementById('appset_mileageRateSaveBtn').addEventListener('click', async ()=>{
