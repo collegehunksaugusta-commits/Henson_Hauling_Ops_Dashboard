@@ -7397,7 +7397,7 @@
 
     <div class="panel" id="mf_ownerTimePanel" style="display:none; border:2px solid #2f6db5;">
       <h3>Owner Time</h3>
-      <p class="form-note" style="margin-top:0;">Only you (the Owner) see this. <strong>App time</strong> is counted automatically while you actively use the dashboard (not Configuration). Log everything else by day below &mdash; type hours and minutes like <strong>1:30</strong>, <strong>45m</strong> or <strong>2h</strong>. Categories are set in Configuration &rarr; Financials.</p>
+      <p class="form-note" style="margin-top:0;">Only you (the Owner) see this. <strong>App time</strong> is counted automatically while you actively use the dashboard (not Configuration). Log everything else by day below in <strong>decimal hours</strong> &mdash; <strong>2.5</strong> is 2 hours 30 minutes, <strong>.25</strong> is 15 minutes (1:30 or 45m also work). Categories are set in Configuration &rarr; Financials.</p>
       <div id="ot_summary"></div>
       <div id="ot_week" style="margin-top:16px;"></div>
       <div id="ot_breakdown" style="margin-top:16px;"></div>
@@ -24644,7 +24644,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return window.__ownerInfo;
   }
   window.refreshOwnerStatus = refreshOwnerStatus;
-  const otFmt = m => { m = Math.round(m || 0); return m ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}` : ''; };
+  // Shown as decimal hours: 150 min -> "2.5", 15 min -> "0.25", 20 min -> "0.33".
+  const otFmt = m => { m = Math.round(m || 0); return m ? String(Math.round(m / 60 * 100) / 100) : ''; };
   const otHrs = m => (Math.round(m || 0) / 60).toFixed(1);
   // "1:30", "1.5", "90m", "45m", "2h", "2h 15m", "1h30" -> minutes
   function otParse(t){
@@ -24653,7 +24654,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if((m = /^(\d+):(\d{1,2})$/.exec(t))) return Number(m[1]) * 60 + Number(m[2]);
     if((m = /^(\d+(?:\.\d+)?)\s*h(?:rs?|ours?)?\s*(\d+)?\s*m?(?:in(?:s|utes?)?)?$/.exec(t))) return Math.round(Number(m[1]) * 60) + Number(m[2] || 0);
     if((m = /^(\d+)\s*m(?:in(?:s|utes?)?)?$/.exec(t))) return Number(m[1]);
-    if((m = /^\d+(?:\.\d+)?$/.exec(t))) return Math.round(Number(t) * 60);   // plain number = hours
+    if((m = /^(?:\d+(?:\.\d*)?|\.\d+)$/.exec(t))) return Math.round(Number(t) * 60);   // decimal hours: 2.5, .25, 1.
     return NaN;
   }
   const otMonday = d => { const x = new Date(d + 'T12:00:00'); const w = x.getDay(); x.setDate(x.getDate() + (w === 0 ? -6 : 1 - w)); return x.toLocaleDateString('en-CA'); };
@@ -24757,7 +24758,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       let bad = false;
       days.forEach(d => payload[d] = {});
       document.querySelectorAll('#ot_week .ot-cell').forEach(inp => { if(inp.disabled) return; const v = otParse(inp.value); if(isNaN(v)){ bad = true; inp.style.background = '#fdecea'; } else if(v) payload[inp.dataset.d][inp.dataset.c] = v; });
-      if(bad){ st.textContent = 'Fix the boxes in red \u2014 use 1:30, 45m or 2h.'; st.className = 'status-msg err'; return; }
+      if(bad){ st.textContent = 'Fix the boxes in red \u2014 use decimal hours like 2.5 or .25.'; st.className = 'status-msg err'; return; }
       days.forEach(d => { if(d > otData.today) delete payload[d]; });
       st.textContent = 'Saving\u2026'; st.className = 'status-msg';
       try{
