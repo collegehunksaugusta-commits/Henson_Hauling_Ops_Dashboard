@@ -55,6 +55,8 @@ const ALLOWED_KEYS = new Set([
   'compliance-truck-safety-incidents',
   'compliance-truck-violations',
   'compliance-drivers',
+  'compliance-esign-requests',
+  'compliance-roadtest-tasks',
   'compliance-pretrip-inspections',
   'compliance-coi-list',
   'settings-config-files',
@@ -3574,6 +3576,93 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
     console.error('Save app settings failed:', err.message);
     res.status(500).json({ error: 'Could not save settings.' });
   }
+});
+
+// ============ Compliance e-sign (HUNK Portal) ============
+// The office sends a driver his DOT Physical and/or DOT Driver Application
+// to complete on his phone. Requests live in 'compliance-esign-requests';
+// completing one saves the document into the same driver-file slot the
+// Compliance page uses (compliance-doc-driver-<name>-physical/application)
+// -- the physical also updates his expiration date.
+const ESIGN_KEY = 'compliance-esign-requests';
+const driverDocStoreKey = (name, docKey) => 'compliance-doc-driver-' + String(name).replace(/[^a-zA-Z0-9]/g, '_') + '-' + docKey;
+async function myEsignRequest(driverName, id) {
+  const list = JSON.parse(await redis.get(ESIGN_KEY) || '[]');
+  const r = list.find(x => x.id === id && x.status === 'pending' && nameCoreKey(x.driverName) === nameCoreKey(driverName));
+  return { list, r };
+}
+async function completeEsign(list, r, extra) {
+  Object.assign(r, { status: 'completed', completedAt: new Date().toISOString() }, extra);
+  await redis.set(ESIGN_KEY, JSON.stringify(list));
+}
+app.get('/api/driver/esign', requireDriverAuth, async (req, res) => {
+  try {
+    const list = JSON.parse(await redis.get(ESIGN_KEY) || '[]');
+    const mine = list.filter(x => nameCoreKey(x.driverName) === nameCoreKey(req.driverName));
+    const openBundles = new Set(mine.filter(x => x.status === 'pending').map(x => x.bundleId || x.id));
+    res.json({ requests: mine.filter(x => x.status === 'pending' || openBundles.has(x.bundleId))
+      .map(x => ({ id: x.id, type: x.type, status: x.status, sentAt: x.sentAt, bundleId: x.bundleId || null })) });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+// Driver's license photo (front + back, combined into one image on the
+// phone). Saved to his driver file and shown to him in Truck Documents.
+app.post('/api/driver/esign/:id/license', requireDriverAuth, async (req, res) => {
+  const { image } = req.body || {};
+  if (!/^data:image\/[a-zA-Z]+;base64,/.test(image || '')) return res.status(400).json({ error: 'Add a photo of your license first.' });
+  if (image.length > 8 * 1024 * 1024) return res.status(400).json({ error: 'That photo is too large \u2014 try again.' });
+  try {
+    const { list, r } = await myEsignRequest(req.driverName, req.params.id);
+    if (!r || r.type !== 'license') return res.status(404).json({ error: 'That request isn\u2019t open anymore.' });
+    await redis.set(driverDocStoreKey(r.driverName, 'license'), JSON.stringify({ dataUri: image, fileName: 'Driver\u2019s License.jpg', uploadedAt: new Date().toISOString(), submittedByDriver: true }));
+    await completeEsign(list, r, {});
+    console.log(`[esign] ${req.driverName} uploaded his driver's license`);
+    res.json({ ok: true });
+  } catch (err) { console.error('E-sign license failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+// Truck Documents: the signed-in driver's own license, nobody else's.
+app.get('/api/driver/my-license', requireDriverAuth, async (req, res) => {
+  try {
+    const drivers = JSON.parse(await redis.get('compliance-drivers') || '[]');
+    const match = drivers.find(d => nameCoreKey(d.employeeName) === nameCoreKey(req.driverName));
+    const raw = await redis.get(driverDocStoreKey(match ? match.employeeName : req.driverName, 'license'));
+    if (!raw) return res.json({ license: null });
+    const rec = JSON.parse(raw);
+    res.json({ license: { dataUri: rec.dataUri, uploadedAt: rec.uploadedAt } });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+
+app.post('/api/driver/esign/:id/physical', requireDriverAuth, async (req, res) => {
+  const { file, fileName, expiration } = req.body || {};
+  if (!/^data:(image\/[a-zA-Z]+|application\/pdf);base64,/.test(file || '')) return res.status(400).json({ error: 'Add a photo or PDF of your medical certificate.' });
+  if (file.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'That file is too large \u2014 try a photo instead.' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiration || '') || expiration <= easternDateFromMs(Date.now())) return res.status(400).json({ error: 'Enter the certificate\u2019s expiration date (a future date).' });
+  try {
+    const { list, r } = await myEsignRequest(req.driverName, req.params.id);
+    if (!r || r.type !== 'physical') return res.status(404).json({ error: 'That request isn\u2019t open anymore.' });
+    const docName = r.driverName;
+    await redis.set(driverDocStoreKey(docName, 'physical'), JSON.stringify({ dataUri: file, fileName: String(fileName || 'Medical Examiner Certificate').slice(0, 120), uploadedAt: new Date().toISOString(), submittedByDriver: true }));
+    const drivers = JSON.parse(await redis.get('compliance-drivers') || '[]');
+    const d = drivers.find(x => nameCoreKey(x.employeeName) === nameCoreKey(docName));
+    if (d) { d.physicalExpiration = expiration; await redis.set('compliance-drivers', JSON.stringify(drivers)); }
+    await completeEsign(list, r, { expiration });
+    console.log(`[esign] ${req.driverName} uploaded DOT physical (expires ${expiration})`);
+    res.json({ ok: true });
+  } catch (err) { console.error('E-sign physical failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+app.post('/api/driver/esign/:id/application', requireDriverAuth, async (req, res) => {
+  const { pdf, signedName, consent } = req.body || {};
+  if (!consent) return res.status(400).json({ error: 'Agree to sign electronically first.' });
+  if (!String(signedName || '').trim()) return res.status(400).json({ error: 'Type your full name to sign.' });
+  if (!/^data:application\/pdf;base64,/.test(pdf || '') || pdf.length > 8 * 1024 * 1024) return res.status(400).json({ error: 'The signed application didn\u2019t come through \u2014 try again.' });
+  try {
+    const { list, r } = await myEsignRequest(req.driverName, req.params.id);
+    if (!r || r.type !== 'application') return res.status(404).json({ error: 'That request isn\u2019t open anymore.' });
+    const esign = { signedName: String(signedName).trim().slice(0, 120), signedAt: new Date().toISOString(), ip: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(), userAgent: String(req.headers['user-agent'] || '').slice(0, 300), portalLogin: req.driverName };
+    await redis.set(driverDocStoreKey(r.driverName, 'application'), JSON.stringify({ dataUri: pdf, fileName: 'DOT Driver Application (e-signed).pdf', uploadedAt: esign.signedAt, esign }));
+    await completeEsign(list, r, { esign: { signedName: esign.signedName, signedAt: esign.signedAt, ip: esign.ip } });
+    console.log(`[esign] ${req.driverName} e-signed the DOT Driver Application`);
+    res.json({ ok: true });
+  } catch (err) { console.error('E-sign application failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
 });
 
 // ============ Owner time in the app ============
