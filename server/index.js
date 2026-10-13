@@ -3462,7 +3462,10 @@ const DEFAULT_APP_SETTINGS = {
     supplierEmail: '',
     shipDays: [],
     orderDeadlineDay: '',
-    orderDeadlineTime: ''
+    orderDeadlineTime: '',
+    // Inventory Management: target profit margin for Suggested Price
+    // (price = cost / (1 - margin)). Changed only with the override PIN.
+    profitMarginPct: 0
   },
   damageClaims: {
     emailBodyTemplate: 'Hi there,\n\nWe\u2019re sorry to hear about the damage during your recent move. To help us process your claim quickly, please upload photos of the damage using the secure link below within the next 7 days:\n\n{{link}}\n\nOnce we receive your photos, our team will review your claim and follow up with next steps.\n\nThank you for your patience.\n\n- The College Hunks Team',
@@ -4401,6 +4404,29 @@ app.post('/api/verify-override-pin', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Verify override PIN failed:', err.message);
     res.status(500).json({ error: 'Could not verify PIN.' });
+  }
+});
+
+// Inventory Management: set the target profit margin. Any signed-in user
+// can do this, but only with the Administrator Override PIN (checked here,
+// on the server).
+app.post('/api/materials/profit-margin', requireAuth, async (req, res) => {
+  const { pin, pct } = req.body || {};
+  const margin = Number(pct);
+  if (typeof pin !== 'string' || !pin) return res.status(400).json({ error: 'PIN is required.' });
+  if (!(margin >= 0 && margin < 95)) return res.status(400).json({ error: 'Enter a profit margin from 0 to 94%.' });
+  try {
+    const savedPin = await redis.get(MATERIALS_OVERRIDE_PIN_KEY);
+    if (!savedPin) return res.status(400).json({ error: 'No override PIN has been set up yet.' });
+    if (pin !== savedPin) return res.status(403).json({ error: 'Incorrect PIN.' });
+    const current = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    current.materials.profitMarginPct = Math.round(margin * 10) / 10;
+    await redis.set(APP_SETTINGS_KEY, JSON.stringify(current));
+    console.log(`[inventory] profit margin set to ${current.materials.profitMarginPct}% by ${req.userEmail || 'unknown'}`);
+    res.json({ ok: true, profitMarginPct: current.materials.profitMarginPct });
+  } catch (err) {
+    console.error('Profit margin save failed:', err.message);
+    res.status(500).json({ error: 'Could not save.' });
   }
 });
 
