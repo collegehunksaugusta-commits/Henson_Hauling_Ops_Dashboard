@@ -7395,10 +7395,12 @@
       <p class="form-note" id="mf_tableEmptyNote" style="display:none;">No months recorded yet &mdash; add one above to get started.</p>
     </div>
 
-    <div class="panel" id="mf_ownerTimePanel">
-      <h3>Owner Time in the App</h3>
-      <p class="form-note" style="margin-top:0;">Minutes you actively use this dashboard while signed in as an admin &mdash; only while it&rsquo;s the tab on screen and you&rsquo;ve clicked, typed or scrolled in the last 3 minutes. Building or changing the app (in Claude, GitHub, Render) never counts, and Configuration and the Truck Driver game are left out. Phone calls, site visits and meetings aren&rsquo;t captured, so this is a <strong>floor</strong> for your time in the business.</p>
-      <div id="ot_summary"><p class="form-note" style="margin:0;">Loading&hellip;</p></div>
+    <div class="panel" id="mf_ownerTimePanel" style="display:none; border:2px solid #2f6db5;">
+      <h3>Owner Time</h3>
+      <p class="form-note" style="margin-top:0;">Only you (the Owner) see this. <strong>App time</strong> is counted automatically while you actively use the dashboard (not Configuration). Log everything else by day below &mdash; type hours and minutes like <strong>1:30</strong>, <strong>45m</strong> or <strong>2h</strong>. Categories are set in Configuration &rarr; Financials.</p>
+      <div id="ot_summary"></div>
+      <div id="ot_week" style="margin-top:16px;"></div>
+      <div id="ot_breakdown" style="margin-top:16px;"></div>
     </div>
 
     <div class="panel" id="mf_valuationPanel" style="border:2px solid var(--brand-green);">
@@ -8700,11 +8702,15 @@
             <div class="dashSectionTitleRow">
               <span class="dashSectionEmoji" aria-hidden="true">📊</span>
               <span>Financials</span>
-              <span class="dashSectionCount">(1)</span>
+              <span class="dashSectionCount">(2)</span>
             </div>
           </div>
         </button>
         <div class="dashSectionBody" id="setGroupBody-financials">
+        <div class="panel" id="set_ownerTimePanel" data-collapsible="true" style="display:none;">
+          <h3>Owner &amp; Time Tracking</h3>
+          <div id="appset_ownerBox"></div>
+        </div>
         <div class="panel" id="set_financialMetricsPanel" data-collapsible="true">
           <h3>Monthly Financials: Metrics Shown</h3>
           <p class="form-note" style="margin-top:0;">Uncheck a metric to hide it from the Monthly Financials chart and yearly tables. Nothing is deleted &mdash; its numbers stay saved and are still captured from each P&amp;L, so checking it again brings its full history back.</p>
@@ -10871,6 +10877,8 @@
     });
   }
   window.compressImageForUpload = compressImageForUpload;
+  // Learn early whether the signed-in person is the Owner (owner-time counting).
+  setTimeout(() => { if(localStorage.getItem('henson_auth_token') && !location.hash.startsWith('#driver') && window.refreshOwnerStatus) window.refreshOwnerStatus(); }, 1500);
 
   // Tables keep their headings pinned while scrolling, which needs panels
   // that don't scroll sideways. But a table wider than its panel (narrow or
@@ -24595,7 +24603,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => window.addEventListener(ev, touch, { passive: true, capture: true }));
     let lastMove = 0;
     window.addEventListener('mousemove', () => { const n = Date.now(); if(n - lastMove > 15000){ lastMove = n; touch(); } }, { passive: true });
-    const isAdmin = () => localStorage.getItem('henson_auth_role') === 'admin' && !!localStorage.getItem('henson_auth_token');
+    // Only the Owner's time is counted (set in Configuration -> Financials).
+    const isAdmin = () => window.__isOwner === true && !!localStorage.getItem('henson_auth_token');
     const localDate = () => new Date().toLocaleDateString('en-CA');
     function flush(){
       const total = Object.values(buffer).reduce((t, n) => t + n, 0);
@@ -24624,41 +24633,202 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     compliance: 'Regulatory Compliance', materials: 'Inventory Management', monthlyfinancials: 'Monthly Financials', captain: 'Captain Metrics', opsmetrics: 'Ops Manager Metrics',
     wingmanmetrics: 'Wingman Metrics', attendance: 'Attendance', roster: 'Employee Roster', hiring: 'Hiring', maillist: 'Marketing Lists', mailroute: 'Mail Route',
     calc: 'Calculators', statetaxes: 'State Taxes', damageclaim: 'Damage Claims' };
-  async function loadOwnerTime(){
-    const el = document.getElementById('ot_summary');
+  // ---- Owner Time: app time + a manual daily log by category ----
+  window.__isOwner = false;
+  async function refreshOwnerStatus(){
     try{
-      const res = await fetch(`${API_BASE}/api/admin/activity-summary`, { headers: authHeaders() });
-      if(handleAuthFailure(res) || !res.ok) throw new Error();
-      const d = await res.json();
-      const hrs = m => (m / 60).toFixed(1);
-      const tracked = d.firstDay ? d.weeks.filter(w => w.weekStart >= (() => { const x = new Date(d.firstDay + 'T00:00:00'); const w = x.getDay(); x.setDate(x.getDate() + (w === 0 ? -6 : 1 - w)); return x.toLocaleDateString('en-CA'); })()) : [];
-      const full = tracked.filter(w => w.weekStart !== d.thisWeek);
-      const avg = full.length ? full.reduce((t, w) => t + w.minutes, 0) / full.length : null;
-      const cur = d.weeks.find(w => w.weekStart === d.thisWeek) || { minutes: 0 };
-      const max = Math.max(60, ...d.weeks.map(w => w.minutes));
-      const views = Object.entries(d.byView).sort((a, b) => b[1] - a[1]);
-      const viewTotal = views.reduce((t, [, m]) => t + m, 0);
-      const hint = document.getElementById('val_ownerHoursHint');
-      if(hint) hint.textContent = avg != null ? `In the app: about ${hrs(avg)} hrs/week (${full.length}-week average) \u2014 add time outside the app.` : '';
-      if(!d.firstDay){ el.innerHTML = '<p class="form-note" style="margin:0;">Tracking starts now \u2014 check back after you\u2019ve used the dashboard for a while.</p>'; return; }
-      el.innerHTML = `
-        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
-          <div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">This week so far</div><div style="font-size:26px; font-weight:800;">${hrs(cur.minutes)} hrs</div></div>
-          <div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">Weekly average${full.length ? ` (${full.length} full week${full.length === 1 ? '' : 's'})` : ''}</div><div style="font-size:26px; font-weight:800;">${avg != null ? hrs(avg) + ' hrs' : '\u2014'}</div></div>
-        </div>
-        <div style="display:flex; align-items:flex-end; gap:6px; height:120px; padding:0 2px; border-bottom:1px solid var(--line);">
-          ${d.weeks.map(w => `<div title="Week of ${new Date(w.weekStart + 'T00:00:00').toLocaleDateString()}: ${hrs(w.minutes)} hrs" style="flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%;">
-            <div style="font-size:10px; color:var(--muted); margin-bottom:2px;">${w.minutes ? hrs(w.minutes) : ''}</div>
-            <div style="width:100%; height:${Math.round(w.minutes / max * 90)}px; background:${w.weekStart === d.thisWeek ? 'var(--brand-orange)' : 'var(--brand-green)'}; border-radius:4px 4px 0 0;"></div></div>`).join('')}
-        </div>
-        <div style="display:flex; gap:6px; padding:3px 2px 0;">${d.weeks.map(w => `<div style="flex:1; text-align:center; font-size:10px; color:var(--muted);">${new Date(w.weekStart + 'T00:00:00').toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</div>`).join('')}</div>
-        ${views.length ? `<div style="font-weight:700; margin:14px 0 6px;">Where the time went (last 4 weeks)</div>
-          ${views.map(([v, m]) => `<div style="display:flex; align-items:center; gap:10px; font-size:13px; margin-bottom:4px;">
-            <div style="width:170px;">${mfEsc(OT_LABELS[v] || v)}</div>
-            <div style="flex:1; background:#f1f1ec; border-radius:4px; height:10px;"><div style="width:${Math.round(m / viewTotal * 100)}%; height:10px; background:var(--brand-green); border-radius:4px;"></div></div>
-            <div style="width:70px; text-align:right;">${hrs(m)} hrs</div></div>`).join('')}` : ''}`;
-    }catch(err){ el.innerHTML = '<p class="form-note" style="margin:0;">Couldn\u2019t load owner time.</p>'; }
+      const r = await fetch(`${API_BASE}/api/owner/me`, { headers: authHeaders() });
+      window.__ownerInfo = r.ok ? await r.json() : { isOwner: false };
+    }catch(err){ window.__ownerInfo = { isOwner: false }; }
+    window.__isOwner = !!window.__ownerInfo.isOwner;
+    return window.__ownerInfo;
   }
+  window.refreshOwnerStatus = refreshOwnerStatus;
+  const otFmt = m => { m = Math.round(m || 0); return m ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}` : ''; };
+  const otHrs = m => (Math.round(m || 0) / 60).toFixed(1);
+  // "1:30", "1.5", "90m", "45m", "2h", "2h 15m", "1h30" -> minutes
+  function otParse(t){
+    t = String(t || '').trim().toLowerCase(); if(!t) return 0;
+    let m;
+    if((m = /^(\d+):(\d{1,2})$/.exec(t))) return Number(m[1]) * 60 + Number(m[2]);
+    if((m = /^(\d+(?:\.\d+)?)\s*h(?:rs?|ours?)?\s*(\d+)?\s*m?(?:in(?:s|utes?)?)?$/.exec(t))) return Math.round(Number(m[1]) * 60) + Number(m[2] || 0);
+    if((m = /^(\d+)\s*m(?:in(?:s|utes?)?)?$/.exec(t))) return Number(m[1]);
+    if((m = /^\d+(?:\.\d+)?$/.exec(t))) return Math.round(Number(t) * 60);   // plain number = hours
+    return NaN;
+  }
+  const otMonday = d => { const x = new Date(d + 'T12:00:00'); const w = x.getDay(); x.setDate(x.getDate() + (w === 0 ? -6 : 1 - w)); return x.toLocaleDateString('en-CA'); };
+  const otAdd = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('en-CA'); };
+  let otData = null, otWeek = null;
+  async function loadOwnerTime(){
+    const panel = document.getElementById('mf_ownerTimePanel');
+    const info = await refreshOwnerStatus();
+    const hint = document.getElementById('val_ownerHoursHint');
+    if(!info.isOwner){ panel.style.display = 'none'; if(hint) hint.textContent = ''; return; }
+    panel.style.display = 'block';
+    try{
+      const r = await fetch(`${API_BASE}/api/owner/time`, { headers: authHeaders() });
+      if(!r.ok) throw new Error();
+      otData = await r.json();
+    }catch(err){ document.getElementById('ot_summary').innerHTML = '<p class="form-note">Couldn\u2019t load owner time.</p>'; return; }
+    if(!otWeek) otWeek = otMonday(otData.today);
+    renderOwnerTime();
+  }
+  window.loadOwnerTime = loadOwnerTime;
+  function otWeekTotals(ws){
+    let app = 0, manual = 0;
+    for(let k = 0; k < 7; k++){ const d = otAdd(ws, k); app += otData.appByDay[d] || 0; manual += Object.values(otData.manual[d] || {}).reduce((t, m) => t + m, 0); }
+    return { app, manual, total: app + manual };
+  }
+  function renderOwnerTime(){
+    const cur = otMonday(otData.today);
+    // Summary + 12-week chart
+    const weeks = []; for(let k = 11; k >= 0; k--){ const ws = otAdd(cur, -7 * k); weeks.push({ ws, ...otWeekTotals(ws) }); }
+    const allDays = [...Object.keys(otData.manual), ...Object.keys(otData.appByDay)].sort();
+    const first = allDays.length ? otMonday(allDays[0]) : cur;
+    const full = weeks.filter(w => w.ws < cur && w.ws >= first);
+    const avg = full.length ? full.reduce((t, w) => t + w.total, 0) / full.length : null;
+    const thisW = weeks[weeks.length - 1];
+    const max = Math.max(60, ...weeks.map(w => w.total));
+    const hint = document.getElementById('val_ownerHoursHint');
+    if(hint) hint.textContent = avg != null ? `Your logged + app time: about ${otHrs(avg)} hrs/week (${full.length}-week average).` : '';
+    const card = (label, val, sub) => `<div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">${label}</div><div style="font-size:26px; font-weight:800;">${val}</div>${sub ? `<div style="font-size:11.5px; color:var(--muted);">${sub}</div>` : ''}</div>`;
+    document.getElementById('ot_summary').innerHTML = `
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+        ${card('This week so far', otHrs(thisW.total) + ' hrs', `${otHrs(thisW.manual)} logged \u00b7 ${otHrs(thisW.app)} in the app`)}
+        ${card('Weekly average', avg != null ? otHrs(avg) + ' hrs' : '\u2014', full.length ? `${full.length} full week${full.length === 1 ? '' : 's'}` : 'after your first full week')}
+      </div>
+      <div style="display:flex; align-items:flex-end; gap:6px; height:120px; border-bottom:1px solid var(--line);">
+        ${weeks.map(w => `<div title="Week of ${new Date(w.ws + 'T12:00:00').toLocaleDateString()}: ${otHrs(w.manual)} logged + ${otHrs(w.app)} app = ${otHrs(w.total)} hrs" style="flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; cursor:pointer;" data-ws="${w.ws}" class="ot-bar">
+          <div style="font-size:10px; color:var(--muted); margin-bottom:2px;">${w.total ? otHrs(w.total) : ''}</div>
+          <div style="width:100%; height:${Math.round(w.manual / max * 90)}px; background:#2f6db5;"></div>
+          <div style="width:100%; height:${Math.round(w.app / max * 90)}px; background:#9fbbe0; border-radius:${w.manual ? 0 : '4px 4px'} 0 0;"></div></div>`).join('')}
+      </div>
+      <div style="display:flex; gap:6px; padding-top:3px;">${weeks.map(w => `<div style="flex:1; text-align:center; font-size:10px; color:var(--muted);">${new Date(w.ws + 'T12:00:00').toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</div>`).join('')}</div>
+      <div style="font-size:11.5px; color:var(--muted); margin-top:4px;"><span style="display:inline-block; width:10px; height:10px; background:#2f6db5; vertical-align:middle;"></span> Logged &nbsp; <span style="display:inline-block; width:10px; height:10px; background:#9fbbe0; vertical-align:middle;"></span> In the app &nbsp;\u00b7 click a week to open it</div>`;
+    document.querySelectorAll('#ot_summary .ot-bar').forEach(b => b.addEventListener('click', () => { otWeek = b.dataset.ws; renderOtWeek(); document.getElementById('ot_week').scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
+    renderOtWeek();
+    // Breakdown, last 4 weeks
+    const from = otAdd(otData.today, -27), cats = {};
+    Object.entries(otData.manual).forEach(([d, v]) => { if(d >= from) Object.entries(v).forEach(([c, m]) => cats[c] = (cats[c] || 0) + m); });
+    let app4 = 0; Object.entries(otData.appByDay).forEach(([d, m]) => { if(d >= from) app4 += m; });
+    if(app4) cats['In the app (automatic)'] = app4;
+    const rows = Object.entries(cats).sort((a, b) => b[1] - a[1]), tot = rows.reduce((t, [, m]) => t + m, 0);
+    document.getElementById('ot_breakdown').innerHTML = rows.length ? `<div style="font-weight:700; margin-bottom:6px;">Where the time went (last 4 weeks) \u2014 ${otHrs(tot)} hrs</div>` + rows.map(([c, m]) => `
+      <div style="display:flex; align-items:center; gap:10px; font-size:13px; margin-bottom:4px;"><div style="width:200px;">${mfEsc(c)}</div>
+        <div style="flex:1; background:#f1f1ec; border-radius:4px; height:10px;"><div style="width:${Math.round(m / tot * 100)}%; height:10px; background:${c.startsWith('In the app') ? '#9fbbe0' : '#2f6db5'}; border-radius:4px;"></div></div>
+        <div style="width:70px; text-align:right;">${otHrs(m)} hrs</div></div>`).join('') : '';
+  }
+  function renderOtWeek(){
+    const ws = otWeek, days = [...Array(7)].map((_, k) => otAdd(ws, k)), cur = otMonday(otData.today);
+    const cats = [...otData.categories];
+    days.forEach(d => Object.keys(otData.manual[d] || {}).forEach(c => { if(!cats.includes(c)) cats.push(c); }));   // keep removed categories that have hours
+    const cell = 'padding:4px; border-bottom:1px solid var(--line); text-align:center;';
+    const dayTot = d => (otData.appByDay[d] || 0) + Object.values(otData.manual[d] || {}).reduce((t, m) => t + m, 0);
+    const catTot = c => days.reduce((t, d) => t + ((otData.manual[d] || {})[c] || 0), 0);
+    const appTot = days.reduce((t, d) => t + (otData.appByDay[d] || 0), 0);
+    document.getElementById('ot_week').innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+        <button type="button" id="ot_prev" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 11px; cursor:pointer;">&lsaquo;</button>
+        <strong>Week of ${new Date(ws + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</strong>
+        <button type="button" id="ot_next" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 11px; cursor:pointer;" ${ws >= cur ? 'disabled' : ''}>&rsaquo;</button>
+        ${ws !== cur ? '<button type="button" id="ot_this" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer;">This week</button>' : ''}
+      </div>
+      <table style="width:100%; border-collapse:collapse; font-size:13px; min-width:640px;">
+        <thead><tr><th style="text-align:left; padding:6px;">Category</th>${days.map(d => `<th style="padding:6px; text-align:center;">${new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })}<div style="font-weight:400; font-size:11px;">${new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</div></th>`).join('')}<th style="padding:6px; text-align:right;">Total</th></tr></thead>
+        <tbody>
+          ${cats.map(c => `<tr><td style="padding:4px 6px; border-bottom:1px solid var(--line);">${mfEsc(c)}${otData.categories.includes(c) ? '' : ' <span style="font-size:11px; color:var(--muted);">(removed)</span>'}</td>
+            ${days.map(d => `<td style="${cell}"><input class="ot-cell" data-d="${d}" data-c="${mfEsc(c)}" value="${otFmt((otData.manual[d] || {})[c])}" placeholder="\u2013" ${d > otData.today ? 'disabled' : ''} style="width:58px; text-align:center; padding:5px; font-size:13px;"></td>`).join('')}
+            <td style="padding:4px 6px; border-bottom:1px solid var(--line); text-align:right; font-weight:600;" class="ot-rowtot">${otFmt(catTot(c)) || '\u2013'}</td></tr>`).join('')}
+          <tr style="background:#f4f7fb;"><td style="padding:6px; border-bottom:1px solid var(--line); color:#1f4f87;">In the app <span style="font-size:11px;">(automatic)</span></td>${days.map(d => `<td style="${cell} color:#1f4f87;">${otFmt(otData.appByDay[d]) || '\u2013'}</td>`).join('')}<td style="padding:6px; border-bottom:1px solid var(--line); text-align:right; color:#1f4f87; font-weight:600;">${otFmt(appTot) || '\u2013'}</td></tr>
+          <tr><td style="padding:6px; font-weight:800;">Total</td>${days.map(d => `<td style="padding:6px; text-align:center; font-weight:800;" class="ot-daytot" data-d="${d}">${otFmt(dayTot(d)) || '\u2013'}</td>`).join('')}<td style="padding:6px; text-align:right; font-weight:800;" id="ot_weektot">${otHrs(days.reduce((t, d) => t + dayTot(d), 0))} hrs</td></tr>
+        </tbody>
+      </table>
+      <div class="form-actions"><button class="btn-primary" type="button" id="ot_save">Save Week</button><span class="status-msg" id="ot_status"></span></div>`;
+    document.getElementById('ot_prev').onclick = () => { otWeek = otAdd(ws, -7); renderOtWeek(); };
+    document.getElementById('ot_next').onclick = () => { if(ws < cur){ otWeek = otAdd(ws, 7); renderOtWeek(); } };
+    const th = document.getElementById('ot_this'); if(th) th.onclick = () => { otWeek = cur; renderOtWeek(); };
+    document.querySelectorAll('#ot_week .ot-cell').forEach(inp => inp.addEventListener('change', () => {
+      const v = otParse(inp.value);
+      inp.style.background = isNaN(v) ? '#fdecea' : '';
+      if(!isNaN(v)) inp.value = otFmt(v);
+    }));
+    document.getElementById('ot_save').onclick = async () => {
+      const st = document.getElementById('ot_status'), payload = {};
+      let bad = false;
+      days.forEach(d => payload[d] = {});
+      document.querySelectorAll('#ot_week .ot-cell').forEach(inp => { if(inp.disabled) return; const v = otParse(inp.value); if(isNaN(v)){ bad = true; inp.style.background = '#fdecea'; } else if(v) payload[inp.dataset.d][inp.dataset.c] = v; });
+      if(bad){ st.textContent = 'Fix the boxes in red \u2014 use 1:30, 45m or 2h.'; st.className = 'status-msg err'; return; }
+      days.forEach(d => { if(d > otData.today) delete payload[d]; });
+      st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+      try{
+        const r = await fetch(`${API_BASE}/api/owner/time`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ days: payload }) });
+        if(!r.ok) throw new Error();
+        Object.entries(payload).forEach(([d, v]) => { if(Object.keys(v).length) otData.manual[d] = v; else delete otData.manual[d]; });
+        renderOwnerTime();
+        const st2 = document.getElementById('ot_status'); st2.textContent = 'Saved.'; st2.className = 'status-msg ok';
+      }catch(err){ st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; }
+    };
+  }
+
+  // Configuration -> Financials: the Owner, and the time categories (Owner only).
+  async function renderOwnerSettings(){
+    const panel = document.getElementById('set_ownerTimePanel'), box = document.getElementById('appset_ownerBox');
+    if(!panel) return;
+    const info = await refreshOwnerStatus();
+    if(!info.isOwner && !info.canClaim){ panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    const me = localStorage.getItem('henson_auth_email') || '';
+    if(!info.isOwner){
+      box.innerHTML = `<p class="form-note" style="margin-top:0;">No Owner is set yet. The Owner is the only person who sees the Owner Time tracker on Monthly Financials and its settings here.</p>
+        <button type="button" id="own_claim" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:6px; font-weight:700; cursor:pointer;">Make me the Owner${me ? ' (' + mfEsc(me) + ')' : ''}</button> <span class="status-msg" id="own_status"></span>`;
+      document.getElementById('own_claim').onclick = async () => {
+        const st = document.getElementById('own_status');
+        const r = await fetch(`${API_BASE}/api/owner/set`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ email: me }) });
+        const d = await r.json().catch(() => ({}));
+        if(!r.ok){ st.textContent = d.error || 'Could not save.'; st.className = 'status-msg err'; return; }
+        renderOwnerSettings(); if(window.loadOwnerTime) window.loadOwnerTime();
+      };
+      return;
+    }
+    let cats = [];
+    try{ const r = await fetch(`${API_BASE}/api/owner/time`, { headers: authHeaders() }); if(r.ok) cats = (await r.json()).categories || []; }catch(err){}
+    const draw = () => {
+      box.innerHTML = `<p class="form-note" style="margin-top:0;"><strong>You are the Owner</strong> (${mfEsc(me)}). Only you see the Owner Time tracker and these settings.</p>
+        <div style="font-weight:700; margin:10px 0 6px;">Time categories</div>
+        <div id="own_cats">${cats.map((c, k) => `<div style="display:flex; gap:6px; align-items:center; margin-bottom:5px;">
+            <input class="own-cat" value="${mfEsc(c)}" style="flex:1; max-width:340px; padding:6px;">
+            <button type="button" class="own-up" data-k="${k}" title="Move up" style="background:#fff; border:1px solid var(--line); border-radius:4px; cursor:pointer;" ${k === 0 ? 'disabled' : ''}>&uarr;</button>
+            <button type="button" class="own-del" data-k="${k}" title="Remove" style="background:#fff; border:1px solid var(--line); color:#b3261e; border-radius:4px; cursor:pointer;">&times;</button></div>`).join('')}</div>
+        <div style="display:flex; gap:6px; margin-top:4px;"><input id="own_new" placeholder="New category, e.g. Recruiting" style="flex:1; max-width:340px; padding:6px;"><button type="button" id="own_add" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:6px; padding:6px 12px; cursor:pointer; font-weight:600;">+ Add</button></div>
+        <p class="form-note">Removing a category keeps its past hours in your history.</p>
+        <div class="form-actions"><button type="button" id="own_saveCats" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer;">Save Categories</button><span class="status-msg" id="own_catStatus"></span></div>
+        <details style="margin-top:14px;"><summary style="cursor:pointer; font-size:13px;">Hand the Owner role to someone else</summary>
+          <div style="display:flex; gap:6px; margin-top:8px;"><input id="own_xfer" placeholder="their dashboard login email" style="flex:1; max-width:300px; padding:6px;"><button type="button" id="own_xferBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; border-radius:6px; padding:6px 12px; cursor:pointer;">Transfer</button></div>
+          <span class="status-msg" id="own_xferStatus"></span></details>`;
+      const read = () => { cats = [...box.querySelectorAll('.own-cat')].map(i => i.value.trim()).filter(Boolean); };
+      box.querySelectorAll('.own-up').forEach(b => b.onclick = () => { read(); const k = +b.dataset.k; [cats[k - 1], cats[k]] = [cats[k], cats[k - 1]]; draw(); });
+      box.querySelectorAll('.own-del').forEach(b => b.onclick = () => { read(); cats.splice(+b.dataset.k, 1); draw(); });
+      document.getElementById('own_add').onclick = () => { read(); const v = document.getElementById('own_new').value.trim(); if(v && !cats.includes(v)) cats.push(v); draw(); };
+      document.getElementById('own_saveCats').onclick = async () => {
+        read(); const st = document.getElementById('own_catStatus');
+        const r = await fetch(`${API_BASE}/api/owner/categories`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ categories: cats }) });
+        const d = await r.json().catch(() => ({}));
+        if(!r.ok){ st.textContent = d.error || 'Could not save.'; st.className = 'status-msg err'; return; }
+        cats = d.categories; st.textContent = 'Saved.'; st.className = 'status-msg ok';
+      };
+      document.getElementById('own_xferBtn').onclick = async () => {
+        const email = document.getElementById('own_xfer').value.trim(), st = document.getElementById('own_xferStatus');
+        if(!email || !confirm(`Make ${email} the Owner? You'll lose access to the Owner Time tracker.`)) return;
+        const r = await fetch(`${API_BASE}/api/owner/set`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ email }) });
+        const d = await r.json().catch(() => ({}));
+        if(!r.ok){ st.textContent = d.error || 'Could not transfer.'; st.className = 'status-msg err'; return; }
+        renderOwnerSettings(); if(window.loadOwnerTime) window.loadOwnerTime();
+      };
+    };
+    draw();
+  }
+  window.renderOwnerSettings = renderOwnerSettings;
+  document.getElementById('setGroupHeader-financials').addEventListener('click', () => renderOwnerSettings());
 
   // ---- Business Valuation Estimate ----
   let businessValuations = [];
