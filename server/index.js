@@ -1686,7 +1686,7 @@ app.post('/api/admin/weight-ticket', requireAuth, async (req, res) => {
 // Pay ("Expenses" column). Claims live in 'expense-claims'; each receipt
 // photo in its own 'expense-receipt-photo-<id>' key.
 const EXPENSE_CLAIMS_KEY = 'expense-claims';
-const EXPENSE_CATEGORIES = ['Fuel', 'Supplies', 'Tolls & Parking', 'Meals', 'Other'];
+const EXPENSE_CATEGORIES = ['Fuel', 'Supplies', 'Tolls & Parking', 'Meals', 'DOT Physical', 'Other'];
 const READ_RECEIPT_TOOL = {
   name: 'read_receipt',
   description: 'Details read from a purchase receipt.',
@@ -3439,6 +3439,16 @@ app.get('/api/admin/storage-stats', requireAuth, requireAdmin, async (req, res) 
 // admins can change them.
 const APP_SETTINGS_KEY = 'settings-app-config';
 const DEFAULT_APP_SETTINGS = {
+  // Regulatory Compliance: where drivers go for a DOT physical when they
+  // don't have a current one, and how many days they have to go.
+  dotPhysical: {
+    providerName: '',
+    address: '',
+    phone: '',
+    link: '',
+    notes: '',
+    deadlineDays: 3
+  },
   // Extra Pay: reimbursement rate for personal-vehicle work miles ($/mile,
   // entered by the owner -- e.g. the IRS standard rate). 0 = not set yet.
   extraPay: {
@@ -3601,7 +3611,7 @@ app.get('/api/driver/esign', requireDriverAuth, async (req, res) => {
     const mine = list.filter(x => nameCoreKey(x.driverName) === nameCoreKey(req.driverName));
     const openBundles = new Set(mine.filter(x => x.status === 'pending').map(x => x.bundleId || x.id));
     res.json({ requests: mine.filter(x => x.status === 'pending' || openBundles.has(x.bundleId))
-      .map(x => ({ id: x.id, type: x.type, status: x.status, sentAt: x.sentAt, bundleId: x.bundleId || null })) });
+      .map(x => ({ id: x.id, type: x.type, status: x.status, sentAt: x.sentAt, bundleId: x.bundleId || null, physicalDueBy: x.physicalDueBy || null })) });
   } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
 });
 // Driver's license photo (front + back, combined into one image on the
@@ -3633,6 +3643,36 @@ app.get('/api/driver/my-license', requireDriverAuth, async (req, res) => {
       physical: phys ? { dataUri: phys.dataUri, uploadedAt: phys.uploadedAt, fileName: phys.fileName || '', expiration: (match && match.physicalExpiration) || null } : null
     });
   } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+
+// DOT physical help: the provider set in Configuration -> Regulatory
+// Compliance, for a driver with no current medical card.
+app.get('/api/driver/dot-provider', requireDriverAuth, async (req, res) => {
+  try {
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    const p = st.dotPhysical || {};
+    const days = Math.max(1, Math.min(30, Number(p.deadlineDays) || 3));
+    const due = new Date(easternDateFromMs(Date.now()) + 'T12:00:00Z'); due.setUTCDate(due.getUTCDate() + days);
+    res.json({ provider: { name: p.providerName || '', address: p.address || '', phone: p.phone || '', link: p.link || '', notes: p.notes || '' }, deadlineDays: days, dueBy: due.toISOString().slice(0, 10) });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+// "I don't have a current DOT physical": recorded on his bundle step so the
+// office sees he's going, and by when. The step stays open until he
+// uploads the new certificate.
+app.post('/api/driver/esign/:id/physical-needed', requireDriverAuth, async (req, res) => {
+  try {
+    const { list, r } = await myEsignRequest(req.driverName, req.params.id);
+    if (!r || r.type !== 'physical') return res.status(404).json({ error: 'That request isn\u2019t open anymore.' });
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    const days = Math.max(1, Math.min(30, Number((st.dotPhysical || {}).deadlineDays) || 3));
+    if (!r.physicalDueBy) {
+      const due = new Date(easternDateFromMs(Date.now()) + 'T12:00:00Z'); due.setUTCDate(due.getUTCDate() + days);
+      r.needsNewPhysical = true; r.physicalDueBy = due.toISOString().slice(0, 10); r.needsNewPhysicalAt = new Date().toISOString();
+      await redis.set(ESIGN_KEY, JSON.stringify(list));
+      console.log(`[esign] ${req.driverName} needs a new DOT physical (due ${r.physicalDueBy})`);
+    }
+    res.json({ ok: true, dueBy: r.physicalDueBy });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
 
 app.post('/api/driver/esign/:id/physical', requireDriverAuth, async (req, res) => {
