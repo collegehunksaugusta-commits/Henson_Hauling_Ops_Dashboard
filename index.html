@@ -2387,14 +2387,43 @@
   // Truck Documents: the signed-in driver's own license.
   async function loadMyLicense(){
     const el = document.getElementById('tdocs_myLicense');
-    el.innerHTML = '<div class="form-note" style="margin:0;">Loading your license\u2026</div>';
+    el.innerHTML = '<div class="form-note" style="margin:0;">Loading your documents\u2026</div>';
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/my-license', { headers: {'Authorization': 'Bearer ' + driverToken} });
       if(res.status === 401){ driverSessionExpired(); return; }
       const d = await res.json();
-      if(!d.license){ el.innerHTML = '<div style="font-weight:700;">&#129706; My Driver&rsquo;s License</div><div class="form-note" style="margin:4px 0 0;">Not on file yet \u2014 the office will send it to you to upload.</div>'; return; }
-      el.innerHTML = `<div style="font-weight:700; margin-bottom:6px;">&#129706; My Driver&rsquo;s License</div><img id="tdocs_licImg" src="${d.license.dataUri}" alt="Driver's license" style="width:100%; border-radius:8px; border:1px solid var(--line); cursor:pointer;"><div class="form-note" style="margin:4px 0 0;">Uploaded ${new Date(d.license.uploadedAt).toLocaleDateString()} \u00b7 tap to enlarge</div>`;
-      document.getElementById('tdocs_licImg').addEventListener('click', () => window.showPhotoModal ? window.showPhotoModal(d.license.dataUri, { title: 'Driver\u2019s License' }) : window.open(d.license.dataUri));
+      const lic = d.license
+        ? `<div style="font-weight:700; margin-bottom:6px;">&#129706; My Driver&rsquo;s License</div><img id="tdocs_licImg" src="${d.license.dataUri}" alt="Driver's license" style="width:100%; border-radius:8px; border:1px solid var(--line); cursor:pointer;"><div class="form-note" style="margin:4px 0 0;">Uploaded ${new Date(d.license.uploadedAt).toLocaleDateString()} \u00b7 tap to enlarge</div>`
+        : '<div style="font-weight:700;">&#129706; My Driver&rsquo;s License</div><div class="form-note" style="margin:4px 0 0;">Not on file yet \u2014 the office will send it to you to upload.</div>';
+      // DOT medical card, with a heads-up when it's close to (or past) expiring.
+      let med = '<div style="font-weight:700;">&#129658; My DOT Medical Card</div><div class="form-note" style="margin:4px 0 0;">Not on file yet \u2014 the office will send it to you to upload.</div>';
+      if(d.physical){
+        const p = d.physical, isPdf = /^data:application\/pdf/.test(p.dataUri || '');
+        let expNote = '';
+        if(p.expiration){
+          const days = Math.round((new Date(p.expiration + 'T00:00:00') - new Date(new Date().toDateString())) / 864e5);
+          const when = new Date(p.expiration + 'T00:00:00').toLocaleDateString();
+          expNote = days < 0 ? `<div style="margin:6px 0 0; padding:6px 10px; border-radius:6px; background:#fdecea; color:#b3261e; font-weight:700; font-size:13px;">Expired ${when} \u2014 you need a new DOT physical before driving.</div>`
+            : days <= 30 ? `<div style="margin:6px 0 0; padding:6px 10px; border-radius:6px; background:#FFF8E1; color:#8a6d00; font-weight:700; font-size:13px;">Expires ${when} (${days} day${days === 1 ? '' : 's'}) \u2014 schedule your renewal physical.</div>`
+            : `<div class="form-note" style="margin:4px 0 0;">Expires ${when}</div>`;
+        }
+        med = `<div style="font-weight:700; margin-bottom:6px;">&#129658; My DOT Medical Card</div>`
+          + (isPdf ? `<button type="button" id="tdocs_medOpen" style="width:100%; padding:12px; font-size:15px; font-weight:700; background:#fff; border:1px solid var(--line); border-radius:8px; cursor:pointer; font-family:inherit;">&#128196; Open Medical Card (PDF)</button>`
+                   : `<img id="tdocs_medImg" src="${p.dataUri}" alt="DOT medical card" style="width:100%; border-radius:8px; border:1px solid var(--line); cursor:pointer;">`)
+          + expNote + `<div class="form-note" style="margin:4px 0 0;">Uploaded ${new Date(p.uploadedAt).toLocaleDateString()}${isPdf ? '' : ' \u00b7 tap to enlarge'}</div>`;
+      }
+      el.innerHTML = lic + '<div style="height:16px;"></div>' + med;
+      const li = document.getElementById('tdocs_licImg');
+      if(li) li.addEventListener('click', () => window.showPhotoModal ? window.showPhotoModal(d.license.dataUri, { title: 'Driver\u2019s License' }) : window.open(d.license.dataUri));
+      const mi = document.getElementById('tdocs_medImg');
+      if(mi) mi.addEventListener('click', () => window.showPhotoModal ? window.showPhotoModal(d.physical.dataUri, { title: 'DOT Medical Card' }) : window.open(d.physical.dataUri));
+      const mo = document.getElementById('tdocs_medOpen');
+      if(mo) mo.addEventListener('click', () => {
+        // PDFs open from a blob link (phones won't open a long data: link).
+        const b64 = d.physical.dataUri.split(',')[1], bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        if(window.showPhotoModal) window.showPhotoModal(url, { isPdf: true, title: 'DOT Medical Card' }); else window.open(url);
+      });
     }catch(err){ el.innerHTML = '<div class="form-note" style="margin:0;">Couldn\u2019t load your license \u2014 check your connection.</div>'; }
   }
 
