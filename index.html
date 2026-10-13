@@ -576,6 +576,7 @@
       <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
       <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Captain. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
     </div>
+    <div id="dqNag" style="display:none; background:#fff; border:2px solid #b3261e; border-radius:10px; padding:14px 16px; margin-bottom:16px;"></div>
     <button type="button" id="esignTile" style="display:none; width:100%; text-align:left; background:#fff; border:2px solid #b3261e; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; align-items:center; gap:14px;">
       <span style="font-size:32px; line-height:1;">&#128221;</span>
       <span style="flex:1;"><span style="display:block; font-size:18px; font-weight:800; color:#b3261e;">Driver Onboarding Paperwork</span>
@@ -859,6 +860,17 @@
         #esignApp .ea-none{ display:flex !important; align-items:center; gap:8px; font-size:14px !important; font-weight:600; }
         #esignApp .ea-rm{ position:absolute; top:6px; right:8px; background:none; border:none; color:#b3261e; cursor:pointer; font-size:12px; }
       </style>
+    </div>
+  </div>
+
+  <div id="dqNagModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.55); align-items:center; justify-content:center; padding:20px;">
+    <div style="background:#fff; max-width:420px; width:100%; border-radius:14px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.35); font-family:inherit;">
+      <div style="background:#b3261e; color:#fff; padding:14px 18px; font-size:19px; font-weight:800;">&#9888;&#65039; Your driver file isn&rsquo;t complete</div>
+      <div id="dqNagModalBody" style="padding:16px 18px 6px; font-size:14.5px;"></div>
+      <div style="padding:6px 18px 18px;">
+        <button type="button" id="dqNagFinish" style="width:100%; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Finish Now</button>
+        <button type="button" id="dqNagLater" style="width:100%; margin-top:8px; padding:11px; font-size:14px; background:#fff; color:var(--muted); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Remind me later</button>
+      </div>
     </div>
   </div>
 
@@ -1680,6 +1692,51 @@
 
   const ES_STEPS = [['license', 'Driver\u2019s License', 'Photo of the front and back', '&#129706;'], ['physical', 'DOT Physical', 'Upload your medical examiner\u2019s certificate', '&#129658;'], ['application', 'DOT Driver Application', 'Fill out and sign electronically', '&#128221;']];
   const esPending = () => esignRequests.filter(r => (r.status || 'pending') === 'pending');
+  // ---- Nag until the driver file is complete ----
+  // A red banner on Driver Tools every time, and a pop-up once each time the
+  // app is opened, until his license, physical, application and road test
+  // are all on file and the physical is current.
+  let dqNagShownThisOpen = false;
+  async function loadDriverFileNag(){
+    const banner = document.getElementById('dqNag');
+    if(driverRole === 'wingman'){ banner.style.display = 'none'; return; }
+    let f;
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/my-file', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(!res.ok) return;
+      f = await res.json();
+    }catch(err){ return; }
+    if(!f.isDriver || f.complete){ banner.style.display = 'none'; return; }
+    const label = { license: 'Driver\u2019s license photo', physical: 'DOT physical (medical card)', application: 'DOT Driver Application' };
+    const open = new Set(f.openSteps || []);
+    const yours = [], others = [];
+    ['license', 'physical', 'application'].forEach(k => {
+      if(k === 'physical' && f.physicalExpired) yours.push('Your DOT physical has <strong>expired</strong> \u2014 you need a new one before driving');
+      else if(!f.onFile[k]) (open.has(k) ? yours : others).push(open.has(k) ? label[k] : label[k] + ' \u2014 the office will send it to you');
+    });
+    if(!f.onFile.roadtest) others.push('Road test with the Ops Manager');
+    const canFinish = open.size > 0 || f.physicalExpired;
+    const li = arr => arr.map(t => `<li style="margin:3px 0;">${t}</li>`).join('');
+    const body = `${yours.length ? `<div style="font-weight:700;">Still needed from you:</div><ul style="margin:4px 0 8px; padding-left:20px;">${li(yours)}</ul>` : ''}
+      ${others.length ? `<div style="font-weight:700; color:var(--muted);">Also pending:</div><ul style="margin:4px 0 8px; padding-left:20px; color:var(--muted);">${li(others)}</ul>` : ''}`;
+    banner.style.display = 'block';
+    banner.innerHTML = `<div style="font-size:17px; font-weight:800; color:#b3261e;">&#9888;&#65039; Your driver file isn&rsquo;t complete</div>
+      <div style="font-size:13.5px; margin-top:6px;">${body}</div>
+      ${canFinish ? '<button type="button" id="dqNagGo" style="width:100%; padding:13px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Finish Now</button>' : ''}`;
+    // The banner's Finish Now replaces the separate paperwork card.
+    if(canFinish) document.getElementById('esignTile').style.display = 'none';
+    const go = () => { document.getElementById('dqNagModal').style.display = 'none'; if(open.size) showEsign(); else showDriverTruckDocs(); };
+    const goBtn = document.getElementById('dqNagGo'); if(goBtn) goBtn.addEventListener('click', go);
+    // Pop-up: once per app open, only when there's something he can do.
+    if(canFinish && yours.length && !dqNagShownThisOpen){
+      dqNagShownThisOpen = true;
+      document.getElementById('dqNagModalBody').innerHTML = body;
+      const m = document.getElementById('dqNagModal'); m.style.display = 'flex';
+      document.getElementById('dqNagFinish').onclick = go;
+      document.getElementById('dqNagLater').onclick = () => { m.style.display = 'none'; };
+    }
+  }
+
   async function loadEsignRequests(){
     if(driverRole === 'wingman') return;
     try{
@@ -1688,7 +1745,7 @@
       esignRequests = (await res.json()).requests || [];
     }catch(err){ return; }
     const tile = document.getElementById('esignTile'), open = esPending().length;
-    tile.style.display = open ? 'flex' : 'none';
+    tile.style.display = open && !(document.getElementById('dqNagGo')) ? 'flex' : 'none';
     const total = esignRequests.length;
     document.getElementById('esignTileSub').textContent = `${total - open} of ${total} done \u2014 tap to finish`;
     if(document.getElementById('driverEsignView').style.display !== 'none' && document.getElementById('esignList').style.display !== 'none') renderEsignList();
@@ -2258,6 +2315,7 @@
     loadDamageNotices();
     loadMyTips();
     loadEsignRequests();
+    loadDriverFileNag();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -3358,6 +3416,7 @@
     loadDamageNotices();
     loadMyTips();
     loadEsignRequests();
+    loadDriverFileNag();
     const flash = document.getElementById('wingmanTasksFlash');
     flash.textContent = flashMsg || '';
     flash.className = flashMsg ? 'status-msg ok' : 'status-msg';
@@ -13038,7 +13097,8 @@
     const warn = new Date(); warn.setDate(warn.getDate()+30);
     const warnStr = warn.toISOString().slice(0,10);
     const authDue = compAuthorizations.some(a => a.applies && a.dueDate && a.dueDate <= warnStr);
-    const driverDue = compDrivers.some(d => d.active && d.physicalExpiration && d.physicalExpiration <= warnStr);
+    const driverDue = compDrivers.some(d => d.active && d.physicalExpiration && d.physicalExpiration <= warnStr)
+      || Object.values(compDriverFiles || {}).some(f => !f.complete);   // incomplete driver files too
     const ptiDefects = compPretripInspections.some(r => r.overallStatus === 'defects' && !r.resolved);
     // Trucks moved here from the old standalone Fleet Maintenance tile --
     // overdue or due-soon maintenance now shows on this tile's badge too.
@@ -13656,6 +13716,16 @@
   });
 
   // ---- Drivers ----
+  // Which documents each active driver has on file (server checks).
+  let compDriverFiles = {};
+  async function loadCompDriverFiles(){
+    try{
+      const res = await fetch(`${API_BASE}/api/compliance/driver-files`, { headers: authHeaders() });
+      if(res.ok) compDriverFiles = (await res.json()).files || {};
+    }catch(err){}
+    updateComplianceTileBadge();
+  }
+
   async function renderCompDriverList(){
     const roster = await getCurrentEmployeeRoster();
     const tbody = document.getElementById('comp_driverRows');
@@ -13667,15 +13737,22 @@
     }
     noEmpNote.style.display = 'none';
     const today = todayStr();
+    await loadCompDriverFiles();
+    const docName = { license: 'License', physical: 'DOT Physical', application: 'Driver Application', roadtest: 'Road Test' };
     tbody.innerHTML = roster.map(name => {
       const rec = compDrivers.find(d => d.employeeName === name);
       const isDriver = !!(rec && rec.active);
       let statusHtml = '';
       if(isDriver){
-        const exp = rec.physicalExpiration;
-        if(exp && exp <= today) statusHtml = '<span style="color:#B3261E; font-weight:700; margin-left:8px;">DOT PHYSICAL EXPIRED</span>';
-        else if(exp && oneMonthBefore(exp) <= today) statusHtml = '<span style="color:#8a6100; font-weight:700; margin-left:8px;">PHYSICAL DUE SOON</span>';
-        else if(exp) statusHtml = '<span style="color:#00612C; margin-left:8px;">OK</span>';
+        // OK only when every document is on file and the physical is current.
+        const exp = rec.physicalExpiration, f = compDriverFiles[name];
+        const missing = f ? f.missing.map(k => docName[k]) : [];
+        const red = t => `<span style="color:#B3261E; font-weight:700; margin-left:8px;">${t}</span>`;
+        if(exp && exp <= today) statusHtml = red('DOT PHYSICAL EXPIRED') + (missing.length ? red('\u00b7 MISSING: ' + missing.join(', ')) : '');
+        else if(missing.length) statusHtml = red('INCOMPLETE \u2014 missing: ' + missing.join(', '));
+        else if(!exp) statusHtml = red('INCOMPLETE \u2014 physical expiration date not entered');
+        else if(oneMonthBefore(exp) <= today) statusHtml = '<span style="color:#8a6100; font-weight:700; margin-left:8px;">PHYSICAL DUE SOON</span>';
+        else if(f) statusHtml = '<span style="color:#00612C; font-weight:700; margin-left:8px;">OK</span>';
       }
       return `<tr>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${fleetEsc(name)}</td>
@@ -14026,7 +14103,7 @@
       try{
         const compressed = await window.compressUploadedFile(file);
         const ok = await window.dashboardApi.set(driverDocKey(name, key), { dataUri: compressed.dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
-        if(ok){ await completeOnboardingStepByPaper(name, key); renderDriverDocUploads(name); }
+        if(ok){ await completeOnboardingStepByPaper(name, key); renderDriverDocUploads(name); renderCompDriverList(); }
         else { alert('Save failed \u2014 check your connection.'); }
       }catch(err){ console.error('Driver doc upload failed:', err); alert('Upload failed \u2014 check your connection.'); }
     }));
