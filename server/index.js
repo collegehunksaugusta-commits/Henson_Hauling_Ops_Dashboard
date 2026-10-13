@@ -119,6 +119,39 @@ const CONFIG_SNAPSHOT_TARGETS = [
   { path: 'server/index.js', fileType: 'server', mimeType: 'text/javascript' }
 ];
 
+// GitHub already keeps every version of these files, so the in-app archive
+// only needs the latest few: older snapshots are deleted after each new one
+// (and once at startup). Each index.html copy is ~3 MB in the data store --
+// keeping every push filled most of the database.
+const CONFIG_SNAPSHOTS_KEEP_PER_TYPE = 3;
+async function pruneConfigSnapshots() {
+  const files = JSON.parse(await redis.get('settings-config-files') || '[]');
+  const byType = {};
+  // Only the source-code copies (Dashboard / Backend) are trimmed; anything
+  // saved under "Other" is left alone.
+  const keep = new Set(files.filter(f => f.fileType !== 'html' && f.fileType !== 'server').map(f => f.id)), drop = [];
+  files.forEach(f => { if (f.fileType === 'html' || f.fileType === 'server') (byType[f.fileType] = byType[f.fileType] || []).push(f); });
+  Object.values(byType).forEach(list => {
+    list.sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')));
+    list.forEach((f, i) => (i < CONFIG_SNAPSHOTS_KEEP_PER_TYPE ? keep.add(f.id) : drop.push(f)));
+  });
+  // Also catch snapshot blobs no longer listed at all (orphans).
+  const listed = new Set(files.map(f => f.id));
+  const orphans = [];
+  let cursor = '0';
+  do {
+    const [next, keys] = await redis.scan(cursor, 'MATCH', 'settings-config-doc-*', 'COUNT', 500);
+    cursor = next;
+    keys.forEach(k => { const id = k.slice('settings-config-doc-'.length); if (!listed.has(id)) orphans.push(k); });
+  } while (cursor !== '0');
+  const toDelete = [...drop.map(f => 'settings-config-doc-' + f.id), ...orphans];
+  for (let i = 0; i < toDelete.length; i += 100) await redis.del(...toDelete.slice(i, i + 100));
+  if (drop.length) await redis.set('settings-config-files', JSON.stringify(files.filter(f => keep.has(f.id))));
+  if (toDelete.length) console.log(`[config-snapshots] removed ${toDelete.length} old source snapshot(s); kept ${keep.size} file(s)`);
+  return toDelete.length;
+}
+setTimeout(() => { pruneConfigSnapshots().catch(err => console.error('Snapshot cleanup failed:', err.message)); }, 15000);
+
 function verifyGithubSignature(req) {
   if (!GITHUB_WEBHOOK_SECRET || !req.rawBody) return false;
   const signature = req.headers['x-hub-signature-256'];
@@ -180,6 +213,7 @@ app.post('/api/github-webhook', async (req, res) => {
       });
       await redis.set('settings-config-files', JSON.stringify(files));
       console.log(`GitHub webhook: saved ${target.path} snapshot from commit ${shortSha}`);
+      await pruneConfigSnapshots();
     } catch (err) {
       console.error(`GitHub webhook: failed to snapshot ${target.path}:`, err.message);
     }
