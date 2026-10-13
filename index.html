@@ -1771,7 +1771,7 @@
       esignCurrent = esignRequests.find(r => r.id === b.dataset.id); if(!esignCurrent) return;
       list.style.display = 'none';
       if(esignCurrent.type === 'license'){
-        esLic = {}; document.getElementById('esLicPreview').innerHTML = ''; document.getElementById('esLicStatus').textContent = '';
+        esLic = {}; esLicCrop = {}; document.getElementById('esLicPreview').innerHTML = ''; document.getElementById('esLicStatus').textContent = '';
         document.getElementById('esignLicense').style.display = 'block';
       } else if(esignCurrent.type === 'physical'){
         esPhysFile = null; document.getElementById('esPhysPreview').innerHTML = ''; document.getElementById('esPhysExp').value = ''; document.getElementById('esPhysStatus').textContent = '';
@@ -1789,14 +1789,23 @@
   }
 
   // Driver's license: front + back, combined into one image.
-  let esLic = {};
+  let esLic = {}, esLicCrop = {};
+  function esRenderLicPreview(){
+    const wrap = document.getElementById('esLicPreview');
+    wrap.innerHTML = ['front', 'back'].map(sd => esLic[sd] ? `<div style="flex:1;" data-side="${sd}"><img src="${esLic[sd]}" style="width:100%; border-radius:6px; border:1px solid var(--line);"><div style="font-size:11px; color:var(--muted); text-align:center;">${sd === 'front' ? 'Front' : 'Back'}</div>${esLicCrop[sd] && esLicCrop[sd].cropped ? `<div style="font-size:11px; text-align:center;"><a href="#" class="crop-toggle" style="color:var(--brand-green-dark);">${esLic[sd] === esLicCrop[sd].original ? 'Use cropped' : 'Use original'}</a></div>` : ''}</div>` : '').join('');
+    wrap.querySelectorAll('.crop-toggle').forEach(a => a.addEventListener('click', e => { e.preventDefault(); const sd = a.closest('[data-side]').dataset.side, c = esLicCrop[sd]; esLic[sd] = esLic[sd] === c.original ? c.dataUri : c.original; esRenderLicPreview(); }));
+  }
   document.querySelectorAll('.esLicPick').forEach(b => b.addEventListener('click', () => {
     const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
     if(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) input.setAttribute('capture', 'environment');   // phones: straight to the camera
     input.addEventListener('change', async () => {
       const f = input.files && input.files[0]; if(!f) return;
-      esLic[b.dataset.side] = await window.compressImageForUpload(f, 1400, 0.85);
-      document.getElementById('esLicPreview').innerHTML = ['front', 'back'].map(sd => esLic[sd] ? `<div style="flex:1;"><img src="${esLic[sd]}" style="width:100%; border-radius:6px; border:1px solid var(--line);"><div style="font-size:11px; color:var(--muted); text-align:center;">${sd === 'front' ? 'Front' : 'Back'}</div></div>` : '').join('');
+      const side = b.dataset.side;
+      document.getElementById('esLicStatus').textContent = 'Cropping\u2026'; document.getElementById('esLicStatus').className = 'status-msg';
+      const c = await window.aiCropDocument(await window.compressImageForUpload(f, 1400, 0.85), 'license');
+      esLic[side] = c.dataUri; esLicCrop[side] = c;
+      document.getElementById('esLicStatus').textContent = '';
+      esRenderLicPreview();
     });
     input.click();
   }));
@@ -1856,7 +1865,7 @@
         ${tel ? `<a href="tel:${tel}" style="${btn} background:var(--brand-green); color:#fff;">&#128222; Call ${driverEsc(p.phone)}</a>` : ''}
         ${maps ? `<a href="${maps}" target="_blank" rel="noopener" style="${btn} background:#fff; color:var(--charcoal); border:1px solid var(--line);">&#128506; Directions</a>` : ''}
         ${p.link ? `<a href="${driverEsc(p.link)}" target="_blank" rel="noopener" style="${btn} background:#fff; color:var(--charcoal); border:1px solid var(--line);">&#128197; Book online</a>` : ''}
-        <div style="margin-top:12px; padding-top:10px; border-top:1px solid #f0c9c5; font-size:13.5px;"><strong>You&rsquo;ll be reimbursed.</strong> Pay for the exam, keep the receipt, and upload it here &mdash; once the office approves it, it&rsquo;s added to your Extra Pay.</div>
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid #f0c9c5; font-size:13.5px;"><strong>You&rsquo;ll be reimbursed.</strong> Pay for the exam, keep the receipt, and upload it here &mdash; once the office approves it, it&rsquo;s added to your Extra Pay and reimbursed on your next paycheck.</div>
         <button type="button" class="ph-rcpt" style="width:100%; margin-top:8px; padding:12px; font-size:15px; font-weight:800; background:var(--brand-orange); color:#fff; border:none; border-radius:8px; cursor:pointer; font-family:inherit;">&#128247; Upload Receipt for Reimbursement</button>
         <div class="ph-rcpt-form" style="display:none; margin-top:10px;"></div>
         <div style="font-size:12.5px; color:var(--muted); margin-top:10px;">After your exam, upload your new medical certificate${box.id === 'esPhysHelp' ? ' with the button above' : ' when the office sends it to you'}.</div>
@@ -1873,7 +1882,7 @@
       const base = API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman' : '/api/driver');
       let photo, read = null;
       try{
-        photo = await window.compressImageForUpload(f, 1600, 0.82);
+        photo = (await window.aiCropDocument(await window.compressImageForUpload(f, 1600, 0.82), 'receipt')).dataUri;
         const res = await fetch(base + '/expense/read', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ photo }) });
         if(res.ok) read = await res.json();
       }catch(err){}
@@ -1920,8 +1929,15 @@
           esPhysFile = { dataUri: await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); }), name: f.name };
           document.getElementById('esPhysPreview').innerHTML = `<div style="font-size:13px;">&#128196; ${driverEsc(f.name)}</div>`;
         } else {
-          esPhysFile = { dataUri: await window.compressImageForUpload(f, 1800, 0.85), name: f.name || 'Medical certificate.jpg' };
-          document.getElementById('esPhysPreview').innerHTML = `<img src="${esPhysFile.dataUri}" style="max-width:100%; max-height:240px; border-radius:8px; border:1px solid var(--line);">`;
+          st.textContent = 'Cropping\u2026'; st.className = 'status-msg';
+          const c = await window.aiCropDocument(await window.compressImageForUpload(f, 1800, 0.85), 'medical');
+          esPhysFile = { dataUri: c.dataUri, name: f.name || 'Medical certificate.jpg', crop: c };
+          const draw = () => {
+            const pv = document.getElementById('esPhysPreview');
+            pv.innerHTML = `<img src="${esPhysFile.dataUri}" style="max-width:100%; max-height:240px; border-radius:8px; border:1px solid var(--line);">` + (c.cropped ? `<div style="font-size:11.5px; color:var(--muted); margin-top:3px;">&#9986;&#65039; ${esPhysFile.dataUri === c.original ? 'Original photo' : 'Cropped automatically'} \u00b7 <a href="#" class="crop-toggle" style="color:var(--brand-green-dark);">${esPhysFile.dataUri === c.original ? 'Use cropped' : 'Use original photo'}</a></div>` : '');
+            const t = pv.querySelector('.crop-toggle'); if(t) t.addEventListener('click', e => { e.preventDefault(); esPhysFile.dataUri = esPhysFile.dataUri === c.original ? c.dataUri : c.original; draw(); });
+          };
+          draw();
         }
         st.textContent = '';
       }catch(err){ st.textContent = 'Couldn\u2019t read that file \u2014 try again.'; st.className = 'status-msg err'; }
@@ -2116,8 +2132,17 @@
       document.getElementById('expFields').style.display = 'none';
       statusEl.textContent = 'Reading the receipt\u2026'; statusEl.className = 'status-msg';
       try{
-        expPhoto = await window.compressImageForUpload(file, 1600, 0.82);
-        document.getElementById('expPhotoPreview').src = expPhoto;
+        statusEl.textContent = 'Cropping and reading the receipt\u2026';
+        const crop = await window.aiCropDocument(await window.compressImageForUpload(file, 1600, 0.82), 'receipt');
+        expPhoto = crop.dataUri;
+        const drawExp = () => {
+          document.getElementById('expPhotoPreview').src = expPhoto;
+          let t = document.getElementById('expCropToggle');
+          if(!t){ t = document.createElement('div'); t.id = 'expCropToggle'; t.style.cssText = 'font-size:11px; margin-top:3px;'; document.getElementById('expPhotoPreview').insertAdjacentElement('afterend', t); }
+          t.innerHTML = crop.cropped ? `<a href="#" style="color:var(--brand-green-dark);">${expPhoto === crop.original ? 'Use cropped' : 'Use original'}</a>` : '';
+          const a = t.querySelector('a'); if(a) a.onclick = e => { e.preventDefault(); expPhoto = expPhoto === crop.original ? crop.dataUri : crop.original; drawExp(); };
+        };
+        drawExp();
         const res = await fetch(expBase() + '/expense/read', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ photo: expPhoto }) });
         if(res.status === 401){ driverSessionExpired(); return; }
         const r = await res.json();
@@ -3920,7 +3945,8 @@
     setStatus('Reading the ticket...');
     try{
       // Kept sharper than other photos -- the digits are what matter.
-      const photo = await compressImageForUpload(file, 1800, 0.85);
+      // Cropped to the ticket itself (AI; left as-is when unsure).
+      const photo = (await window.aiCropDocument(await compressImageForUpload(file, 1800, 0.85), 'ticket')).dataUri;
       const res = await fetch(API_BASE_AUTH + '/api/driver/weight-ticket', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
@@ -10810,6 +10836,45 @@
   }
   window.compressImageForUpload = compressImageForUpload;
 
+  // ---- AI auto-crop (document-type photos only) ----
+  // Asks the server where the document/card/receipt is, then crops to it
+  // here with a small safety margin so no edge is clipped. If the AI isn't
+  // sure, or the document already fills the photo, the photo is unchanged.
+  // Returns { dataUri, original, cropped }.
+  window.aiCropDocument = async function(dataUri, kind){
+    const out = { dataUri, original: dataUri, cropped: false };
+    try{
+      if(!/^data:image\//.test(dataUri || '')) return out;
+      const img = await new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = dataUri; });
+      // Small copy for the AI to look at.
+      const sc = Math.min(1, 1024 / Math.max(img.width, img.height));
+      const c1 = document.createElement('canvas'); c1.width = Math.round(img.width * sc); c1.height = Math.round(img.height * sc);
+      c1.getContext('2d').drawImage(img, 0, 0, c1.width, c1.height);
+      const small = c1.toDataURL('image/jpeg', 0.8);
+      const inPortal = location.hash.startsWith('#driver') || (document.getElementById('driverGate') && document.getElementById('driverGate').style.display === 'block');
+      const base = window.LOCATION_PROFILE.backendUrl;
+      const url = inPortal ? base + (localStorage.getItem('henson_driver_role') === 'wingman' ? '/api/wingman/ai-crop' : '/api/driver/ai-crop') : base + '/api/ai-crop';
+      const token = inPortal ? localStorage.getItem('henson_driver_token') : localStorage.getItem('henson_auth_token');
+      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 20000);
+      const res = await fetch(url, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ image: small, kind }) });
+      clearTimeout(timer);
+      if(!res.ok) return out;
+      const d = await res.json();
+      if(!d.found || !d.box) return out;
+      // 4% margin on every side so nothing gets clipped.
+      const m = 0.04, b = d.box;
+      const L = Math.max(0, b.left - m), T = Math.max(0, b.top - m), R = Math.min(1, b.right + m), B = Math.min(1, b.bottom + m);
+      const sx = Math.round(L * img.width), sy = Math.round(T * img.height), sw = Math.round((R - L) * img.width), sh = Math.round((B - T) * img.height);
+      if(sw < 80 || sh < 80) return out;
+      const c2 = document.createElement('canvas'); c2.width = sw; c2.height = sh;
+      c2.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      out.dataUri = c2.toDataURL('image/jpeg', 0.88); out.cropped = true;
+    }catch(err){ /* keep the original */ }
+    return out;
+  };
+  // "Cropped automatically · Use original photo" toggle under a preview.
+  window.cropToggleHtml = (cls, cropped) => cropped ? `<div class="${cls}" style="font-size:11.5px; color:var(--muted); margin-top:3px;">&#9986;&#65039; Cropped automatically \u00b7 <a href="#" class="crop-toggle" style="color:var(--brand-green-dark);">Use original photo</a></div>` : '';
+
   // Decoded byte size of a base64 data URI -- data URIs run ~33% larger than
   // the bytes they represent, so a raw string-length comparison against
   // file.size would be misleading.
@@ -14103,6 +14168,8 @@
       if(file.size > 10*1024*1024){ alert('That file is over 10MB.'); e.target.value = ''; return; }
       try{
         const compressed = await window.compressUploadedFile(file);
+        // Photos of a card or paper form get cropped to the document (AI).
+        if(/^data:image\//.test(compressed.dataUri)) compressed.dataUri = (await window.aiCropDocument(compressed.dataUri, key === 'license' ? 'license' : key === 'physical' ? 'medical' : 'document')).dataUri;
         const ok = await window.dashboardApi.set(driverDocKey(name, key), { dataUri: compressed.dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
         if(ok){ await completeOnboardingStepByPaper(name, key); renderDriverDocUploads(name); renderCompDriverList(); }
         else { alert('Save failed \u2014 check your connection.'); }
@@ -22731,7 +22798,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         statusEl.className = 'status-msg wtc-status';
         overlay.querySelectorAll('.wtc-pick').forEach(b => b.disabled = true);
         try{
-          const photo = await compressImageForUpload(file, 1800, 0.85);
+          const photo = (await window.aiCropDocument(await compressImageForUpload(file, 1800, 0.85), 'ticket')).dataUri;
           const res = await fetch(`${API_BASE}/api/admin/weight-ticket`, {
             method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),
             body: JSON.stringify({ jobNumber: upload.jobNumber, kind, truck, photo })
