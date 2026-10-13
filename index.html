@@ -576,6 +576,12 @@
       <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
       <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Captain. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
     </div>
+    <button type="button" id="esignTile" style="display:none; width:100%; text-align:left; background:#fff; border:2px solid #b3261e; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; align-items:center; gap:14px;">
+      <span style="font-size:32px; line-height:1;">&#128221;</span>
+      <span style="flex:1;"><span style="display:block; font-size:18px; font-weight:800; color:#b3261e;">Driver Onboarding Paperwork</span>
+        <span id="esignTileSub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;"></span></span>
+      <span style="font-size:22px; color:#b3261e;">&rsaquo;</span>
+    </button>
     <button type="button" class="my-money-tile" style="width:100%; text-align:left; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:14px;">
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
@@ -763,6 +769,94 @@
       <div id="wingmanAdpClockSlot"></div>
       <div id="wingmanCrewAppSlot"></div>
       <div id="wingmanFuelSlot"></div>
+    </div>
+  </div>
+
+  <div id="driverEsignView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="esignBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
+      <h2 class="display" style="margin:0; font-size:19px;">&#128221; Onboarding Paperwork</h2>
+      <span style="width:60px;"></span>
+    </div>
+    <div id="esignList"></div>
+
+    <div id="esignLicense" class="panel" style="display:none;">
+      <h3 style="margin-top:0;">Driver&rsquo;s License</h3>
+      <p class="form-note" style="margin-top:0;">Take a clear photo of the <strong>front</strong> and the <strong>back</strong> of your license, flat on a table with no glare. Once it&rsquo;s in, you&rsquo;ll always have it in <strong>Truck Documents</strong> on this app &mdash; handy if you&rsquo;re ever pulled over without your wallet.</p>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="esLicPick" data-side="front" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Front</button>
+        <button type="button" class="esLicPick" data-side="back" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Back</button>
+      </div>
+      <div id="esLicPreview" style="display:flex; gap:10px; margin-top:10px;"></div>
+      <button type="button" id="esLicSubmit" style="width:100%; margin-top:14px; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit License</button>
+      <p class="status-msg" id="esLicStatus" style="margin:8px 0 0;"></p>
+    </div>
+
+    <div id="esignPhysical" class="panel" style="display:none;">
+      <h3 style="margin-top:0;">DOT Physical</h3>
+      <p class="form-note" style="margin-top:0;">Upload your <strong>Medical Examiner&rsquo;s Certificate</strong> (the card the doctor gave you after your DOT physical). Take a clear photo of the whole card, or upload the PDF.</p>
+      <button type="button" id="esPhysPick" style="width:100%; padding:13px; font-size:15px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Take Photo or Choose File</button>
+      <div id="esPhysPreview" style="margin-top:10px;"></div>
+      <label style="display:block; margin-top:12px; font-size:13px;">Certificate expiration date <input type="date" id="esPhysExp" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
+      <button type="button" id="esPhysSubmit" style="width:100%; margin-top:14px; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit DOT Physical</button>
+      <p class="status-msg" id="esPhysStatus" style="margin:8px 0 0;"></p>
+    </div>
+
+    <div id="esignApp" style="display:none;">
+      <div class="panel">
+        <h3 style="margin-top:0;">DOT Driver Application</h3>
+        <p class="form-note" style="margin-top:0;">Required by federal rules (49 CFR &sect;391.21). Fill in every section completely, then sign at the bottom. Your answers are saved into a signed PDF in your driver file.</p>
+      </div>
+      <div class="panel ea-sec"><h4>Applicant Information</h4>
+        <div class="ea-grid">
+          <label>First name <input id="ea_first"></label><label>Middle name <input id="ea_middle"></label><label>Last name <input id="ea_last"></label>
+          <label>Phone <input id="ea_phone" inputmode="tel"></label><label>Email <input id="ea_email" inputmode="email"></label>
+          <label>Date of birth <input type="date" id="ea_dob"></label>
+          <label>Social Security # <input id="ea_ssn" inputmode="numeric" autocomplete="off" placeholder="9 digits"></label>
+          <label>Position applied for <input id="ea_position" value="Driver / Captain"></label>
+          <label>Date available for work <input type="date" id="ea_available"></label>
+          <label>Legal right to work in the U.S.? <select id="ea_rightToWork"><option value="">&mdash;</option><option>Yes</option><option>No</option></select></label>
+        </div>
+      </div>
+      <div class="panel ea-sec"><h4>Addresses &mdash; Past 3 Years</h4><p class="form-note" style="margin-top:0;">Start with your current address. Add previous addresses until you&rsquo;ve covered 3 years.</p>
+        <div id="ea_res"></div><button type="button" class="ea-add" data-group="res">+ Add previous address</button></div>
+      <div class="panel ea-sec"><h4>Driver&rsquo;s Licenses &mdash; Past 3 Years</h4><p class="form-note" style="margin-top:0;">No one may hold more than one license at a time (49 CFR &sect;383.21). List every license held in the past 3 years.</p>
+        <div id="ea_lic"></div><button type="button" class="ea-add" data-group="lic">+ Add another license</button></div>
+      <div class="panel ea-sec"><h4>Driving Experience</h4><div id="ea_exp"></div><button type="button" class="ea-add" data-group="exp">+ Add equipment</button></div>
+      <div class="panel ea-sec"><h4>Accidents &mdash; Past 3 Years</h4>
+        <label class="ea-none"><input type="checkbox" id="ea_noAcc"> None</label><div id="ea_acc"></div><button type="button" class="ea-add" data-group="acc">+ Add accident</button></div>
+      <div class="panel ea-sec"><h4>Traffic Convictions &amp; Forfeitures &mdash; Past 3 Years</h4><p class="form-note" style="margin-top:0;">Other than parking violations.</p>
+        <label class="ea-none"><input type="checkbox" id="ea_noViol"> None</label><div id="ea_viol"></div><button type="button" class="ea-add" data-group="viol">+ Add conviction</button></div>
+      <div class="panel ea-sec"><h4>License Denials &amp; Suspensions</h4>
+        <label>Ever been denied a license, permit, or privilege to operate a motor vehicle? <select id="ea_denied"><option value="">&mdash;</option><option>No</option><option>Yes</option></select></label>
+        <label>If yes, explain <input id="ea_deniedWhy"></label>
+        <label>Has any license, permit, or privilege ever been suspended or revoked? <select id="ea_susp"><option value="">&mdash;</option><option>No</option><option>Yes</option></select></label>
+        <label>If yes, explain <input id="ea_suspWhy"></label></div>
+      <div class="panel ea-sec"><h4>Employment History</h4><p class="form-note" style="margin-top:0;">Every employer for the last 3 years, most recent first. If you&rsquo;ve driven a commercial vehicle before, include 7 more years (10 total).</p>
+        <div id="ea_emp"></div><button type="button" class="ea-add" data-group="emp">+ Add employer</button>
+        <label style="margin-top:8px;">Explain any gap in employment over 1 month <input id="ea_gaps" placeholder="month/year and reason, or None"></label></div>
+      <div class="panel ea-sec" style="border:2px solid var(--brand-green);"><h4>Certification &amp; Signature</h4>
+        <p style="font-size:13px; line-height:1.45;">I authorize you to make investigations, including contacting current and prior employers, into my employment, driving, and safety history as may be necessary to reach an employment decision, as required by 49 CFR &sect;391.23. I understand that false or misleading information in this application may result in my not being hired or, if hired, my discharge.</p>
+        <p style="font-size:13px; line-height:1.45; font-weight:700;">This certifies that this application was completed by me, and that all entries on it and information in it are true and complete to the best of my knowledge.</p>
+        <label class="ea-none" style="align-items:flex-start;"><input type="checkbox" id="ea_consent" style="margin-top:3px;"> <span>I agree to sign this application electronically, and that my electronic signature is the legal equivalent of my handwritten signature.</span></label>
+        <label>Type your full legal name <input id="ea_signName" autocomplete="off"></label>
+        <div style="font-size:13px; margin:8px 0 4px;">Sign with your finger:</div>
+        <canvas id="ea_sig" width="600" height="160" style="width:100%; height:130px; border:2px solid var(--line); border-radius:8px; background:#fff; touch-action:none;"></canvas>
+        <button type="button" id="ea_sigClear" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:12.5px; padding:2px 0;">Clear signature</button>
+        <button type="button" id="ea_submit" style="width:100%; margin-top:12px; padding:15px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Sign &amp; Submit Application</button>
+        <p class="status-msg" id="ea_status" style="margin:8px 0 0;"></p>
+      </div>
+      <style>
+        #esignApp h4{ margin:0 0 8px; }
+        #esignApp label{ display:block; font-size:12.5px; margin-bottom:8px; }
+        #esignApp input:not([type=checkbox]), #esignApp select{ display:block; width:100%; margin-top:3px; padding:8px; font-size:15px; box-sizing:border-box; }
+        #esignApp .ea-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:0 10px; }
+        #esignApp .ea-row{ border:1px solid var(--line); border-radius:8px; padding:10px 10px 2px; margin-bottom:10px; background:#fafaf6; position:relative; }
+        #esignApp .ea-row-title{ font-weight:700; font-size:12.5px; margin-bottom:6px; }
+        #esignApp .ea-add{ background:#fff; border:1px dashed var(--brand-green); color:var(--brand-green-dark); padding:7px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:13px; }
+        #esignApp .ea-none{ display:flex !important; align-items:center; gap:8px; font-size:14px !important; font-weight:600; }
+        #esignApp .ea-rm{ position:absolute; top:6px; right:8px; background:none; border:none; color:#b3261e; cursor:pointer; font-size:12px; }
+      </style>
     </div>
   </div>
 
@@ -1001,6 +1095,7 @@
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px;">
+      <div id="tdocs_myLicense" style="margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--line);"></div>
       <label>Truck <select id="tdocs_truck"></select></label>
       <p class="form-note" id="tdocs_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Regulatory Compliance tile, under Trucks.</p>
       <div id="tdocs_docList" style="margin-top:14px;"></div>
@@ -1531,6 +1626,261 @@
       </div>`).join('') : '<div style="font-size:13px; color:var(--muted); padding:4px 0;">No tips allocated to you yet this week.</div>')
       + '<div style="font-size:11.5px; color:var(--muted); margin-top:8px;">Tips show up here once the office allocates them to the crew. Paid with this week\u2019s Extra Pay.</div>';
   }
+  // ---- Compliance Paperwork (e-sign) ----
+  // The office sends a Captain his DOT Physical and/or DOT Driver Application
+  // to complete here. The physical is a photo/PDF + expiration date; the
+  // application is filled in, signed electronically, and saved as a PDF.
+  let esignRequests = [], esignCurrent = null, esPhysFile = null;
+  const ES_GROUPS = {
+    res: { title: i => i === 0 ? 'Current address' : 'Previous address', max: 5, min: 1, fields: [['street','Street'],['city','City'],['state','State'],['zip','Zip'],['years','# of years there']] },
+    lic: { title: i => 'License ' + (i + 1), max: 4, min: 1, fields: [['state','State'],['number','License #'],['class','Type / Class'],['endorse','Endorsements'],['exp','Expiration','date']] },
+    exp: { title: i => 'Equipment ' + (i + 1), max: 6, min: 0, fields: [['cls','Class of equipment (e.g. Straight Truck)'],['type','Type (Van, Box, etc.)'],['from','From (mo/yr)'],['to','To (mo/yr)'],['miles','Approx. miles']] },
+    acc: { title: i => 'Accident ' + (i + 1), max: 6, min: 0, fields: [['date','Date','date'],['nature','Nature of accident'],['fat','# Fatalities'],['inj','# Injuries'],['spill','Chemical spill? (Y/N)']] },
+    viol: { title: i => 'Conviction ' + (i + 1), max: 8, min: 0, fields: [['date','Date (mo/yr)'],['violation','Violation'],['state','State'],['penalty','Penalty']] },
+    emp: { title: i => i === 0 ? 'Current / most recent employer' : 'Employer ' + (i + 1), max: 10, min: 1, fields: [['name','Employer name'],['phone','Phone'],['address','Address'],['position','Position held'],['from','From (mo/yr)'],['to','To (mo/yr)'],['reason','Reason for leaving'],['fmcsr','Subject to FMCSRs there? (Y/N)'],['dot','DOT drug/alcohol tested job? (Y/N)']] }
+  };
+  function esAddRow(group){
+    const g = ES_GROUPS[group], wrap = document.getElementById('ea_' + group);
+    const i = wrap.querySelectorAll('.ea-row').length;
+    if(i >= g.max) return;
+    const row = document.createElement('div'); row.className = 'ea-row';
+    row.innerHTML = `<div class="ea-row-title">${g.title(i)}</div>${i >= Math.max(1, g.min) ? '<button type="button" class="ea-rm">Remove</button>' : ''}<div class="ea-grid">${g.fields.map(([k, l, t]) => `<label>${l}<input data-f="${k}" ${t === 'date' ? 'type="date"' : ''}></label>`).join('')}</div>`;
+    const rm = row.querySelector('.ea-rm'); if(rm) rm.addEventListener('click', () => row.remove());
+    wrap.appendChild(row);
+  }
+  function esRows(group){
+    return [...document.querySelectorAll('#ea_' + group + ' .ea-row')].map(r => { const o = {}; r.querySelectorAll('input').forEach(inp => o[inp.dataset.f] = inp.value.trim()); return o; })
+      .filter(o => Object.values(o).some(v => v));
+  }
+  function esResetApp(){
+    Object.keys(ES_GROUPS).forEach(g => { const w = document.getElementById('ea_' + g); w.innerHTML = ''; for(let n = 0; n < Math.max(ES_GROUPS[g].min, g === 'exp' ? 1 : 0); n++) esAddRow(g); });
+    document.querySelectorAll('#esignApp input:not([type=checkbox])').forEach(i => { if(i.id !== 'ea_position') i.value = ''; });
+    document.querySelectorAll('#esignApp input[type=checkbox]').forEach(i => i.checked = false);
+    document.querySelectorAll('#esignApp select').forEach(sel => sel.value = '');
+    const nm = String(currentDriverName || '').split(','); 
+    document.getElementById('ea_last').value = (nm[0] || '').trim();
+    const firstParts = (nm[1] || '').trim().split(/\s+/);
+    document.getElementById('ea_first').value = firstParts[0] || '';
+    document.getElementById('ea_middle').value = firstParts.slice(1).join(' ');
+    esSigClear(); document.getElementById('ea_status').textContent = '';
+  }
+  document.querySelectorAll('#esignApp .ea-add').forEach(b => b.addEventListener('click', () => esAddRow(b.dataset.group)));
+
+  // Finger signature
+  const esSig = document.getElementById('ea_sig'); let esSigDrawn = false, esDrawing = false;
+  const esSigCtx = esSig.getContext('2d');
+  function esSigClear(){ esSigCtx.clearRect(0, 0, esSig.width, esSig.height); esSigDrawn = false; }
+  function esPt(e){ const r = esSig.getBoundingClientRect(); return [(e.clientX - r.left) * esSig.width / r.width, (e.clientY - r.top) * esSig.height / r.height]; }
+  esSig.addEventListener('pointerdown', e => { esDrawing = true; esSig.setPointerCapture(e.pointerId); const [x, y] = esPt(e); esSigCtx.beginPath(); esSigCtx.moveTo(x, y); });
+  esSig.addEventListener('pointermove', e => { if(!esDrawing) return; const [x, y] = esPt(e); esSigCtx.lineWidth = 3; esSigCtx.lineCap = 'round'; esSigCtx.strokeStyle = '#11233f'; esSigCtx.lineTo(x, y); esSigCtx.stroke(); esSigDrawn = true; });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => esSig.addEventListener(ev, () => { esDrawing = false; }));
+  document.getElementById('ea_sigClear').addEventListener('click', esSigClear);
+
+  const ES_STEPS = [['license', 'Driver\u2019s License', 'Photo of the front and back', '&#129706;'], ['physical', 'DOT Physical', 'Upload your medical examiner\u2019s certificate', '&#129658;'], ['application', 'DOT Driver Application', 'Fill out and sign electronically', '&#128221;']];
+  const esPending = () => esignRequests.filter(r => (r.status || 'pending') === 'pending');
+  async function loadEsignRequests(){
+    if(driverRole === 'wingman') return;
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/esign', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(!res.ok) return;
+      esignRequests = (await res.json()).requests || [];
+    }catch(err){ return; }
+    const tile = document.getElementById('esignTile'), open = esPending().length;
+    tile.style.display = open ? 'flex' : 'none';
+    const total = esignRequests.length;
+    document.getElementById('esignTileSub').textContent = `${total - open} of ${total} done \u2014 tap to finish`;
+    if(document.getElementById('driverEsignView').style.display !== 'none' && document.getElementById('esignList').style.display !== 'none') renderEsignList();
+  }
+  function renderEsignList(){
+    ['esignPhysical', 'esignApp', 'esignLicense'].forEach(id => document.getElementById(id).style.display = 'none');
+    const list = document.getElementById('esignList');
+    list.style.display = 'block';
+    const open = esPending().length;
+    if(!esignRequests.length || !open){ list.innerHTML = '<div class="panel"><strong>&#10003; All done.</strong> Nothing waiting for you right now. Thank you!</div>'; return; }
+    list.innerHTML = `<div class="panel" style="border:2px solid #b3261e;">
+        <div style="font-weight:800; font-size:16px;">Driver Onboarding Paperwork</div>
+        <div style="font-size:12.5px; color:var(--muted); margin:2px 0 10px;">Required to drive for us. ${esignRequests.length - open} of ${esignRequests.length} done.</div>
+        ${ES_STEPS.map(([type, title, sub, icon]) => { const r = esignRequests.find(x => x.type === type); if(!r) return '';
+          const done = r.status === 'completed';
+          return `<div style="display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--line);">
+            <span style="font-size:26px;">${icon}</span>
+            <div style="flex:1;"><strong>${title}</strong><div style="font-size:12.5px; color:var(--muted);">${done ? '\u2713 Done' : sub}</div></div>
+            ${done ? '<span style="color:var(--brand-green-dark); font-weight:800; font-size:20px;">\u2713</span>' : `<button type="button" class="es-start" data-id="${driverEsc(r.id)}" style="background:var(--brand-green); color:#fff; border:none; padding:10px 16px; border-radius:8px; font-weight:700; cursor:pointer; font-family:inherit;">Start</button>`}
+          </div>`; }).join('')}
+      </div>`;
+    list.querySelectorAll('.es-start').forEach(b => b.addEventListener('click', () => {
+      esignCurrent = esignRequests.find(r => r.id === b.dataset.id); if(!esignCurrent) return;
+      list.style.display = 'none';
+      if(esignCurrent.type === 'license'){
+        esLic = {}; document.getElementById('esLicPreview').innerHTML = ''; document.getElementById('esLicStatus').textContent = '';
+        document.getElementById('esignLicense').style.display = 'block';
+      } else if(esignCurrent.type === 'physical'){
+        esPhysFile = null; document.getElementById('esPhysPreview').innerHTML = ''; document.getElementById('esPhysExp').value = ''; document.getElementById('esPhysStatus').textContent = '';
+        document.getElementById('esignPhysical').style.display = 'block';
+      } else { esResetApp(); document.getElementById('esignApp').style.display = 'block'; }
+      window.scrollTo(0, 0);
+    }));
+  }
+  function esStepDone(id, msg){
+    const r = esignRequests.find(x => x.id === id); if(r) r.status = 'completed';
+    renderEsignList(); loadEsignRequests(); window.scrollTo(0, 0);
+    document.getElementById('esignList').insertAdjacentHTML('afterbegin', `<p class="status-msg ok" style="margin:0 0 10px;">\u2713 ${msg}</p>`);
+  }
+
+  // Driver's license: front + back, combined into one image.
+  let esLic = {};
+  document.querySelectorAll('.esLicPick').forEach(b => b.addEventListener('click', () => {
+    const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0]; if(!f) return;
+      esLic[b.dataset.side] = await window.compressImageForUpload(f, 1400, 0.85);
+      document.getElementById('esLicPreview').innerHTML = ['front', 'back'].map(sd => esLic[sd] ? `<div style="flex:1;"><img src="${esLic[sd]}" style="width:100%; border-radius:6px; border:1px solid var(--line);"><div style="font-size:11px; color:var(--muted); text-align:center;">${sd === 'front' ? 'Front' : 'Back'}</div></div>` : '').join('');
+    });
+    input.click();
+  }));
+  async function esCombineLicense(front, back){
+    const load = src => new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = src; });
+    const ims = [await load(front)].concat(back ? [await load(back)] : []);
+    const w = Math.min(1400, Math.max(...ims.map(i => i.width)));
+    const hs = ims.map(i => Math.round(i.height * w / i.width)), gap = 24;
+    const c = document.createElement('canvas'); c.width = w; c.height = hs.reduce((t, h) => t + h, 0) + gap * (ims.length - 1);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    let y = 0; ims.forEach((im, k) => { g.drawImage(im, 0, y, w, hs[k]); y += hs[k] + gap; });
+    return c.toDataURL('image/jpeg', 0.85);
+  }
+  document.getElementById('esLicSubmit').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, st = document.getElementById('esLicStatus');
+    if(!esLic.front){ st.textContent = 'Take a photo of the front of your license first.'; st.className = 'status-msg err'; return; }
+    if(!esLic.back && !confirm('No photo of the back yet. Submit with just the front?')) return;
+    btn.disabled = true; st.textContent = 'Submitting\u2026'; st.className = 'status-msg';
+    try{
+      const image = await esCombineLicense(esLic.front, esLic.back);
+      const res = await fetch(`${API_BASE_AUTH}/api/driver/esign/${encodeURIComponent(esignCurrent.id)}/license`, { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ image }) });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not submit.');
+      esStepDone(esignCurrent.id, 'License uploaded \u2014 it\u2019s now in Truck Documents.');
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+    finally{ btn.disabled = false; }
+  });
+
+  function showEsign(){ showOnlyDriverGateView('driverEsignView'); renderEsignList(); loadEsignRequests(); }
+  document.getElementById('esignTile').addEventListener('click', showEsign);
+  document.getElementById('esignBackBtn').addEventListener('click', () => {
+    if(document.getElementById('esignList').style.display === 'none') renderEsignList(); else showDriverMenu();
+  });
+
+  // DOT Physical
+  document.getElementById('esPhysPick').addEventListener('click', () => {
+    const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*,application/pdf';
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0]; if(!f) return;
+      const st = document.getElementById('esPhysStatus');
+      try{
+        if(f.type === 'application/pdf'){
+          if(f.size > 7 * 1024 * 1024){ st.textContent = 'That PDF is too large \u2014 take a photo instead.'; st.className = 'status-msg err'; return; }
+          esPhysFile = { dataUri: await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); }), name: f.name };
+          document.getElementById('esPhysPreview').innerHTML = `<div style="font-size:13px;">&#128196; ${driverEsc(f.name)}</div>`;
+        } else {
+          esPhysFile = { dataUri: await window.compressImageForUpload(f, 1800, 0.85), name: f.name || 'Medical certificate.jpg' };
+          document.getElementById('esPhysPreview').innerHTML = `<img src="${esPhysFile.dataUri}" style="max-width:100%; max-height:240px; border-radius:8px; border:1px solid var(--line);">`;
+        }
+        st.textContent = '';
+      }catch(err){ st.textContent = 'Couldn\u2019t read that file \u2014 try again.'; st.className = 'status-msg err'; }
+    });
+    input.click();
+  });
+  document.getElementById('esPhysSubmit').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, st = document.getElementById('esPhysStatus'), exp = document.getElementById('esPhysExp').value;
+    if(!esPhysFile){ st.textContent = 'Add a photo or PDF of your certificate first.'; st.className = 'status-msg err'; return; }
+    if(!exp){ st.textContent = 'Enter the expiration date printed on the certificate.'; st.className = 'status-msg err'; return; }
+    btn.disabled = true; st.textContent = 'Submitting\u2026'; st.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE_AUTH}/api/driver/esign/${encodeURIComponent(esignCurrent.id)}/physical`, { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ file: esPhysFile.dataUri, fileName: esPhysFile.name, expiration: exp }) });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not submit.');
+      esStepDone(esignCurrent.id, 'DOT Physical submitted.');
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+    finally{ btn.disabled = false; }
+  });
+
+  // DOT Driver Application -> signed PDF
+  function esBuildPdf(a, sigDataUri, signedAt){
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const P = window.LOCATION_PROFILE || {}, W = 612, M = 48; let y = M;
+    const need = h => { if(y + h > 792 - M){ doc.addPage(); y = M; } };
+    const text = (t, opts = {}) => { doc.setFont('helvetica', opts.bold ? 'bold' : 'normal'); doc.setFontSize(opts.size || 10); const lines = doc.splitTextToSize(String(t), W - 2 * M - (opts.indent || 0)); lines.forEach(l => { need(13); doc.text(l, M + (opts.indent || 0), y); y += (opts.size || 10) + 3; }); };
+    const head = t => { y += 6; need(24); doc.setFillColor(0, 97, 44); doc.rect(M, y - 11, W - 2 * M, 16, 'F'); doc.setTextColor(255); text(t, { bold: true, size: 10.5 }); doc.setTextColor(0); y += 3; };
+    const kv = (k, v) => text(`${k}: ${v || '\u2014'}`);
+    text(P.legalName || P.displayName || 'College HUNKS Hauling Junk & Moving', { bold: true, size: 13 });
+    if(P.officeAddress) text(P.officeAddress, { size: 9 });
+    y += 4; text('Driver Employment Application', { bold: true, size: 16 });
+    text('Per 49 CFR \u00a7391.21 \u2014 completed and signed electronically by the applicant in the HUNK Portal.', { size: 9 });
+    head('Applicant Information');
+    kv('Name', [a.first, a.middle, a.last].filter(Boolean).join(' ')); kv('Phone', a.phone); kv('Email', a.email);
+    kv('Date of birth', a.dob); kv('Social Security #', a.ssn); kv('Date of application', signedAt.toLocaleDateString());
+    kv('Position applied for', a.position); kv('Date available for work', a.available); kv('Legal right to work in the U.S.', a.rightToWork);
+    head('Addresses \u2014 Past 3 Years');
+    a.res.forEach((r, i) => text(`${i === 0 ? 'Current' : 'Previous'}: ${[r.street, r.city, r.state, r.zip].filter(Boolean).join(', ')} \u2014 ${r.years || '?'} yr(s)`));
+    head('Driver\u2019s Licenses \u2014 Past 3 Years');
+    a.lic.forEach(r => text(`${r.state || '?'} #${r.number || '?'} \u00b7 Class ${r.class || '\u2014'} \u00b7 Endorsements ${r.endorse || 'none'} \u00b7 Expires ${r.exp || '\u2014'}`));
+    head('Driving Experience');
+    if(a.exp.length) a.exp.forEach(r => text(`${r.cls || 'Equipment'} (${r.type || '\u2014'}) \u00b7 ${r.from || '?'} to ${r.to || '?'} \u00b7 approx. ${r.miles || '?'} miles`)); else text('None listed.');
+    head('Accidents \u2014 Past 3 Years');
+    if(a.noAcc || !a.acc.length) text('None.'); else a.acc.forEach(r => text(`${r.date || '?'} \u00b7 ${r.nature || '\u2014'} \u00b7 fatalities ${r.fat || 0} \u00b7 injuries ${r.inj || 0} \u00b7 chemical spill ${r.spill || 'N'}`));
+    head('Traffic Convictions & Forfeitures \u2014 Past 3 Years (excluding parking)');
+    if(a.noViol || !a.viol.length) text('None.'); else a.viol.forEach(r => text(`${r.date || '?'} \u00b7 ${r.violation || '\u2014'} \u00b7 ${r.state || ''} \u00b7 penalty: ${r.penalty || '\u2014'}`));
+    head('License Denials & Suspensions');
+    kv('Ever denied a license, permit, or privilege to operate a motor vehicle', a.denied + (a.deniedWhy ? ' \u2014 ' + a.deniedWhy : ''));
+    kv('Any license, permit, or privilege ever suspended or revoked', a.susp + (a.suspWhy ? ' \u2014 ' + a.suspWhy : ''));
+    head('Employment History');
+    a.emp.forEach((r, i) => { text(`${i === 0 ? 'Current / most recent' : 'Employer ' + (i + 1)}: ${r.name || '\u2014'}`, { bold: true });
+      text(`${r.address || ''}${r.phone ? ' \u00b7 ' + r.phone : ''}`, { indent: 12 });
+      text(`Position: ${r.position || '\u2014'} \u00b7 ${r.from || '?'} to ${r.to || '?'} \u00b7 Reason for leaving: ${r.reason || '\u2014'}`, { indent: 12 });
+      text(`Subject to FMCSRs: ${r.fmcsr || '\u2014'} \u00b7 DOT drug/alcohol tested position: ${r.dot || '\u2014'}`, { indent: 12 }); });
+    kv('Employment gaps over 1 month', a.gaps || 'None');
+    need(250);   // keep the certification and the signature on the same page
+    head('Certification & Authorization');
+    text('I authorize the employer to make investigations, including contacting current and prior employers, into my employment, driving, and safety history as may be necessary to reach an employment decision, as required by 49 CFR \u00a7391.23. I understand that false or misleading information in this application may result in my not being hired or, if hired, my discharge.', { size: 9.5 });
+    text('This certifies that this application was completed by me, and that all entries on it and information in it are true and complete to the best of my knowledge.', { bold: true, size: 9.5 });
+    y += 6; need(110);
+    doc.addImage(sigDataUri, 'PNG', M, y, 220, 59); y += 64;
+    doc.setDrawColor(120); doc.line(M, y, M + 260, y); y += 12;
+    text(`Applicant signature \u2014 ${a.signName}`, { size: 9 });
+    text(`Date: ${signedAt.toLocaleDateString()}`, { size: 9 });
+    y += 6;
+    text(`Electronic signature record: signed electronically by "${a.signName}" on ${signedAt.toLocaleString()} (${signedAt.toISOString()}) in the HUNK Portal while signed in as ${currentDriverName}. The applicant agreed to sign electronically and that the electronic signature is the legal equivalent of a handwritten signature.`, { size: 8 });
+    return doc.output('datauristring');
+  }
+  document.getElementById('ea_submit').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, st = document.getElementById('ea_status');
+    const v = id => document.getElementById(id).value.trim();
+    const a = { first: v('ea_first'), middle: v('ea_middle'), last: v('ea_last'), phone: v('ea_phone'), email: v('ea_email'), dob: v('ea_dob'),
+      ssn: v('ea_ssn').replace(/[^0-9]/g, ''), position: v('ea_position'), available: v('ea_available'), rightToWork: v('ea_rightToWork'),
+      res: esRows('res'), lic: esRows('lic'), exp: esRows('exp'), acc: esRows('acc'), viol: esRows('viol'), emp: esRows('emp'),
+      noAcc: document.getElementById('ea_noAcc').checked, noViol: document.getElementById('ea_noViol').checked,
+      denied: v('ea_denied'), deniedWhy: v('ea_deniedWhy'), susp: v('ea_susp'), suspWhy: v('ea_suspWhy'), gaps: v('ea_gaps'), signName: v('ea_signName') };
+    const missing = [];
+    if(!a.first || !a.last) missing.push('your name'); if(!a.phone) missing.push('phone'); if(!a.dob) missing.push('date of birth');
+    if(a.ssn.length !== 9) missing.push('Social Security # (9 digits)'); if(!a.rightToWork) missing.push('right to work');
+    if(!a.res.length) missing.push('current address'); if(!a.lic.length) missing.push('at least one license');
+    if(!a.noAcc && !a.acc.length) missing.push('accidents (or check None)'); if(!a.noViol && !a.viol.length) missing.push('convictions (or check None)');
+    if(!a.denied || !a.susp) missing.push('license denial/suspension questions'); if(!a.emp.length) missing.push('employment history');
+    if(!document.getElementById('ea_consent').checked) missing.push('agreement to sign electronically');
+    if(!a.signName) missing.push('typed full name'); if(!esSigDrawn) missing.push('your signature');
+    if(missing.length){ st.textContent = 'Still needed: ' + missing.join(', ') + '.'; st.className = 'status-msg err'; return; }
+    btn.disabled = true; st.textContent = 'Creating your signed application\u2026'; st.className = 'status-msg';
+    try{
+      const signedAt = new Date();
+      const pdf = esBuildPdf(a, esSig.toDataURL('image/png'), signedAt);
+      const res = await fetch(`${API_BASE_AUTH}/api/driver/esign/${encodeURIComponent(esignCurrent.id)}/application`, { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ pdf, signedName: a.signName, consent: true }) });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not submit.');
+      esStepDone(esignCurrent.id, 'Application signed and submitted.');
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+    finally{ btn.disabled = false; }
+  });
+
   // ---- My Money -> Expenses ----
   // Snap a receipt; the server reads it with AI; he checks the fields and
   // submits; the office approves in Manager Review; approved expenses are
@@ -1816,6 +2166,7 @@
   }
 
   function showDriverMenu(){
+    hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
@@ -1824,6 +2175,7 @@
     fillPortalWelcome();
     loadDamageNotices();
     loadMyTips();
+    loadEsignRequests();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -2015,6 +2367,7 @@
   }
 
   function showDriverTruckDocs(){
+    hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
     document.getElementById('driverCodeForm').style.display = 'none';
@@ -2028,6 +2381,20 @@
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'none';
     loadDriverTruckDocsTrucks();
+    loadMyLicense();
+  }
+  // Truck Documents: the signed-in driver's own license.
+  async function loadMyLicense(){
+    const el = document.getElementById('tdocs_myLicense');
+    el.innerHTML = '<div class="form-note" style="margin:0;">Loading your license\u2026</div>';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/my-license', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json();
+      if(!d.license){ el.innerHTML = '<div style="font-weight:700;">&#129706; My Driver&rsquo;s License</div><div class="form-note" style="margin:4px 0 0;">Not on file yet \u2014 the office will send it to you to upload.</div>'; return; }
+      el.innerHTML = `<div style="font-weight:700; margin-bottom:6px;">&#129706; My Driver&rsquo;s License</div><img id="tdocs_licImg" src="${d.license.dataUri}" alt="Driver's license" style="width:100%; border-radius:8px; border:1px solid var(--line); cursor:pointer;"><div class="form-note" style="margin:4px 0 0;">Uploaded ${new Date(d.license.uploadedAt).toLocaleDateString()} \u00b7 tap to enlarge</div>`;
+      document.getElementById('tdocs_licImg').addEventListener('click', () => window.showPhotoModal ? window.showPhotoModal(d.license.dataUri, { title: 'Driver\u2019s License' }) : window.open(d.license.dataUri));
+    }catch(err){ el.innerHTML = '<div class="form-note" style="margin:0;">Couldn\u2019t load your license \u2014 check your connection.</div>'; }
   }
 
   async function showDriverJunkRemoval(){
@@ -2833,7 +3200,12 @@
   });
 
   // ---------- Wingman Portal ----------
-  const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverMoneyView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView', 'driverWeightTicketView'];
+  const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverMoneyView', 'driverEsignView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView', 'driverWeightTicketView'];
+  // Hides every HUNK Portal screen. Finds them on the page rather than via
+  // DRIVER_GATE_VIEW_IDS, which isn't defined yet when the menu first shows.
+  function hideAllDriverGateViews(){
+    document.querySelectorAll('#driverGate [id^="driver"][id$="View"], #driverGate [id^="wingman"][id$="View"]').forEach(el => { el.style.display = 'none'; });
+  }
   function showOnlyDriverGateView(viewId){
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
@@ -2862,6 +3234,7 @@
   }
 
   function showWingmanMenu(flashMsg){
+    hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     driverActiveTask = null;
     ptiMode = 'full';
     eodMode = 'full';
@@ -2870,6 +3243,7 @@
     fillPortalWelcome();
     loadDamageNotices();
     loadMyTips();
+    loadEsignRequests();
     const flash = document.getElementById('wingmanTasksFlash');
     flash.textContent = flashMsg || '';
     flash.className = flashMsg ? 'status-msg ok' : 'status-msg';
@@ -6337,6 +6711,7 @@
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="roadtests" id="mgrreview_tab_roadtests" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Road Tests <span id="mgrreview_roadtestsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="expenses" id="mgrreview_tab_expenses" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Expenses <span id="mgrreview_expensesTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="damageclaims" id="mgrreview_tab_damageclaims" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Damage Claims <span id="mgrreview_damageClaimsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving <span id="mgrreview_movingTabCount" style="color:#b3261e; font-weight:800;"></span></button>
@@ -6565,6 +6940,14 @@
       .dc-btn.danger{ border:none; background:none; color:#b3261e; font-weight:500; text-decoration:underline; margin-left:auto; }
     </style>
     <input type="file" id="dc_addPhotosInput" accept="image/*" multiple style="display:none;">
+    <div class="panel" id="mgrreview_panel_roadtests" style="display:none;">
+      <h3>Road Tests</h3>
+      <p class="form-note" style="margin-top:0;">New drivers need a road test before driving for us (49 CFR &sect;391.31). Ride along, check each item, then certify and sign here &mdash; the signed Road Test Certification is saved to the driver&rsquo;s file in Regulatory Compliance.</p>
+      <div id="rt_list"></div>
+      <h4 style="margin:18px 0 6px; font-size:13px; color:var(--muted);">Completed in the last 60 days</h4>
+      <div id="rt_done"></div>
+    </div>
+
     <div class="panel" id="mgrreview_panel_expenses" style="display:none;">
       <h3>Expenses</h3>
       <p class="form-note" style="margin-top:0;">Receipts and personal-vehicle mileage the crew submitted from the HUNK Portal (My Money). Mileage is paid at the rate in Configuration &rarr; Pay, locked in when you approve it, in Extra Pay&rsquo;s Mileage column. AI read each receipt and the employee checked it. Correct the amount if needed, then <strong>Approve</strong> &mdash; approved expenses are paid in this week&rsquo;s Extra Pay (Expenses column) &mdash; or <strong>Deny</strong> with a reason the employee will see.</p>
@@ -13176,6 +13559,7 @@
   }
 
   const DRIVER_DOC_TYPES = [
+    { key: 'license', label: 'Driver\u2019s License' },
     { key: 'physical', label: 'DOT Physical' },
     { key: 'roadtest', label: 'Road Test Certification', printable: true },
     { key: 'application', label: 'DOT Driver Application', printable: true }
@@ -13384,10 +13768,11 @@
 
   async function renderDriverDocUploads(name){
     const container = document.getElementById('comp_driverDocUploads');
-    container.innerHTML = DRIVER_DOC_TYPES.map(dt => `
+    container.innerHTML = '<div id="driverBundleBox" style="border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px; background:#f6fbf7;"></div>' + DRIVER_DOC_TYPES.map(dt => `
       <div class="sig-pad-wrap" style="margin-bottom:12px;">
         <div class="sig-pad-label">${dt.label}${dt.printable ? ` <button type="button" class="driver-doc-print" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer; text-transform:none; letter-spacing:normal; font-family:'Inter',sans-serif; font-weight:600;">Print Blank Form</button>` : ''}</div>
         <div id="driverDocStatus_${dt.key}" style="font-size:13px; margin-bottom:6px;">Loading...</div>
+
         <input type="file" class="driver-doc-input" data-key="${dt.key}" accept=".pdf,.jpg,.jpeg,.png">
       </div>`).join('');
 
@@ -13408,6 +13793,40 @@
         }
       }catch(err){ console.error('Driver doc status load failed:', err); }
     }
+
+    // Onboarding bundle: one click sends the driver his license photo, DOT
+    // physical and DOT Driver Application (HUNK Portal), and gives the Ops
+    // Manager a Road Test Certification task in Manager Review.
+    try{
+      const [reqs, tasks] = await Promise.all([
+        window.dashboardApi.get('compliance-esign-requests', []).then(v => v || []),
+        window.dashboardApi.get('compliance-roadtest-tasks', []).then(v => v || [])
+      ]);
+      const mine = reqs.filter(x => x.driverName === name && x.bundleId).sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+      const bundleId = mine.length ? mine[0].bundleId : null;
+      const steps = bundleId ? mine.filter(x => x.bundleId === bundleId) : [];
+      const rt = bundleId ? tasks.find(t => t.bundleId === bundleId) : null;
+      const box = document.getElementById('driverBundleBox');
+      const label = { license: 'Driver\u2019s License photo', physical: 'DOT Physical', application: 'DOT Driver Application (e-signed)' };
+      const line = (txt, done, who) => `<div style="font-size:13px; margin:3px 0;">${done ? '<span style="color:var(--brand-green-dark); font-weight:700;">\u2713</span>' : '<span style="color:#8a6d00;">\u23f3</span>'} ${txt}${who ? ` <span style="color:var(--muted);">\u2014 ${who}</span>` : ''}</div>`;
+      box.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+          <div><strong>Onboarding Bundle</strong><div style="font-size:12px; color:var(--muted);">${bundleId ? 'Sent ' + new Date(steps[0] ? steps[0].sentAt : Date.now()).toLocaleDateString() : 'License photo, DOT Physical and DOT Driver Application on his HUNK Portal, plus a Road Test task for the Ops Manager.'}</div></div>
+          <button type="button" id="driverBundleSend" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:700;">&#128232; ${bundleId ? 'Send Again' : 'Send Onboarding Bundle'}</button>
+        </div>
+        ${bundleId ? `<div style="margin-top:8px;">${['license', 'physical', 'application'].map(t => { const st = steps.find(x => x.type === t); return line(label[t], st && st.status === 'completed', st && st.status === 'completed' ? 'done by the driver ' + new Date(st.completedAt).toLocaleDateString() : 'waiting on the driver'); }).join('')}
+          ${line('Road Test Certification', rt && rt.status === 'completed', rt && rt.status === 'completed' ? 'certified by ' + fleetEsc(rt.examiner || 'the Ops Manager') + ' ' + new Date(rt.completedAt).toLocaleDateString() : 'waiting on the Ops Manager (Manager Review \u2192 Road Tests)')}</div>` : ''}`;
+      document.getElementById('driverBundleSend').addEventListener('click', async () => {
+        if(bundleId && !confirm(`Send ${name} a new onboarding bundle? Any steps still open from the last one are replaced.`)) return;
+        const nb = 'bundle_' + Date.now(), now = new Date().toISOString(), by = localStorage.getItem('henson_auth_email') || '';
+        const freshReqs = (await window.dashboardApi.get('compliance-esign-requests', []) || []).filter(x => !(x.driverName === name && x.status === 'pending'));
+        ['license', 'physical', 'application'].forEach((t, k) => freshReqs.push({ id: `esign_${Date.now()}_${k}`, bundleId: nb, driverName: name, type: t, status: 'pending', sentAt: now, sentBy: by }));
+        const freshTasks = (await window.dashboardApi.get('compliance-roadtest-tasks', []) || []).filter(x => !(x.driverName === name && x.status === 'pending'));
+        freshTasks.push({ id: 'roadtest_' + Date.now(), bundleId: nb, driverName: name, status: 'pending', createdAt: now, createdBy: by });
+        const ok = await window.dashboardApi.set('compliance-esign-requests', freshReqs) && await window.dashboardApi.set('compliance-roadtest-tasks', freshTasks);
+        if(ok){ renderDriverDocUploads(name); if(window.refreshRoadTestCount) window.refreshRoadTestCount(); }
+        else alert('Could not send \u2014 check your connection.');
+      });
+    }catch(err){ console.error('Onboarding bundle status failed:', err); }
 
     container.querySelectorAll('.driver-doc-view').forEach(btn => btn.addEventListener('click', async (e)=>{
       const key = e.target.dataset.key;
@@ -28292,6 +28711,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   async function loadManagerReviewData(){
     loadGoogleReviews();
     loadExpenseClaims();
+    loadRoadTests();
     window.loadDamageClaimsData();
     loadJobsAndCaptains();
     loadMgrReviewWeightTickets();
@@ -28358,7 +28778,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const openCount = managerReviewItems.filter(i => !i.reviewedAt).length
       + (window.getTipsNeedsAttentionCount ? window.getTipsNeedsAttentionCount() : 0)
       + (window.damageClaimAlertCount || 0)
-      + (window.expensePendingCount || 0);
+      + (window.expensePendingCount || 0)
+      + (window.roadTestPendingCount || 0);
     const badge = document.getElementById('managerReviewTileBadge');
     const tile = document.getElementById('tile-managerreview');
     if(openCount > 0){
@@ -28528,6 +28949,128 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }
   }
   window.reassignJobCaptain = reassignJobCaptain;
+
+  // ---- Road Tests: electronic Road Test Certification (49 CFR 391.31) ----
+  // Created by "Send Onboarding Bundle" on a driver in Regulatory Compliance.
+  // The Ops Manager checks each road-test item, certifies, and signs; the
+  // signed PDF goes into the driver's file (compliance-doc-driver-*-roadtest).
+  const RT_KEY = 'compliance-roadtest-tasks';
+  const RT_ITEMS = ['Pre-trip inspection', 'Coupling and uncoupling of combination units (if applicable)', 'Placing the vehicle in operation', 'Use of the vehicle\u2019s controls and emergency equipment', 'Operating the vehicle in traffic and while passing other vehicles', 'Turning the vehicle', 'Braking, and slowing by means other than braking', 'Backing and parking the vehicle'];
+  let roadTests = [], rtOpenId = null;
+  async function loadRoadTests(){
+    try{ roadTests = await window.dashboardApi.get(RT_KEY, []) || []; }catch(err){ roadTests = []; }
+    renderRoadTests();
+  }
+  window.refreshRoadTestCount = loadRoadTests;
+  function renderRoadTests(){
+    const pending = roadTests.filter(t => t.status === 'pending').sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    window.roadTestPendingCount = pending.length;
+    const tc = document.getElementById('mgrreview_roadtestsTabCount'); if(tc) tc.textContent = pending.length ? `(${pending.length})` : '';
+    if(typeof updateManagerReviewTileBadge === 'function') updateManagerReviewTileBadge();
+    const list = document.getElementById('rt_list'), done = document.getElementById('rt_done');
+    if(!list) return;
+    const cutoff = new Date(Date.now() - 60 * 864e5).toISOString();
+    const finished = roadTests.filter(t => t.status === 'completed' && (t.completedAt || '') >= cutoff).sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+    done.innerHTML = finished.length ? finished.map(t => `<div style="font-size:13px; padding:6px 0; border-bottom:1px solid var(--line);">\u2713 <strong>${mgrReviewEsc(t.driverName)}</strong> \u2014 certified ${new Date(t.completedAt).toLocaleDateString()} by ${mgrReviewEsc(t.examiner || '')}</div>`).join('') : '<p class="form-note" style="margin:0;">None yet.</p>';
+    if(!pending.length){ list.innerHTML = '<p class="form-note" style="margin:0;">No road tests waiting.</p>'; return; }
+    list.innerHTML = pending.map(t => `<div class="rt-card" data-id="${mgrReviewEsc(t.id)}" style="border:2px solid #b3261e; border-radius:10px; padding:12px 14px; margin-bottom:12px; background:#fff8f7;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+          <div><div style="font-weight:800; font-size:15px;">\u{1F69A} Road Test \u2014 ${mgrReviewEsc(t.driverName)}</div><div style="font-size:12.5px; color:var(--muted);">Requested ${new Date(t.createdAt).toLocaleDateString()} with his onboarding paperwork</div></div>
+          ${rtOpenId === t.id ? '' : '<button type="button" class="rt-open" style="background:#b3261e; color:#fff; border:none; padding:9px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Start Road Test Certification</button>'}
+        </div>
+        ${rtOpenId === t.id ? rtFormHtml(t) : ''}
+      </div>`).join('');
+    list.querySelectorAll('.rt-open').forEach(b => b.addEventListener('click', () => { rtOpenId = b.closest('.rt-card').dataset.id; renderRoadTests(); rtWireForm(); }));
+    if(rtOpenId) rtWireForm();
+  }
+  function rtFormHtml(t){
+    const P = window.LOCATION_PROFILE || {}, today = new Date().toLocaleDateString('en-CA');
+    const inp = 'display:block; width:100%; margin-top:3px; padding:7px; font-size:14px; box-sizing:border-box;';
+    return `<div class="rt-form" style="margin-top:12px; border-top:1px solid var(--line); padding-top:12px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:4px 12px;">
+        <label style="font-size:12.5px;">Driver <input id="rt_driver" value="${mgrReviewEsc(t.driverName)}" readonly style="${inp} background:#f4f4f0;"></label>
+        <label style="font-size:12.5px;">Social Security # <input id="rt_ssn" inputmode="numeric" autocomplete="off" placeholder="from his application" style="${inp}"></label>
+        <label style="font-size:12.5px;">License # <input id="rt_licNum" style="${inp}"></label>
+        <label style="font-size:12.5px;">License state <input id="rt_licState" value="GA" style="${inp}"></label>
+        <label style="font-size:12.5px;">Type of power unit <input id="rt_unit" value="Straight truck (box truck)" style="${inp}"></label>
+        <label style="font-size:12.5px;">Type of trailer(s) <input id="rt_trailer" value="None" style="${inp}"></label>
+        <label style="font-size:12.5px;">Date of road test <input type="date" id="rt_date" value="${today}" style="${inp}"></label>
+        <label style="font-size:12.5px;">Approx. miles driven <input id="rt_miles" inputmode="numeric" placeholder="e.g. 15" style="${inp}"></label>
+      </div>
+      <div style="font-weight:700; margin:12px 0 4px;">Road test items &mdash; check each one the driver performed satisfactorily</div>
+      ${RT_ITEMS.map((it, k) => `<label style="display:flex; gap:8px; align-items:center; font-size:13.5px; margin:4px 0;"><input type="checkbox" class="rt-item" data-k="${k}" style="width:18px; height:18px;"> ${it}</label>`).join('')}
+      <label style="display:block; font-size:12.5px; margin-top:8px;">Remarks (optional) <input id="rt_remarks" style="${inp}"></label>
+      <div style="font-weight:700; margin:14px 0 4px;">Examiner certification</div>
+      <p style="font-size:13px; margin:0 0 8px; line-height:1.45;">This is to certify that the above-named driver was given a road test under my supervision on the date shown, consisting of approximately the miles of driving shown. It is my considered opinion that this driver possesses sufficient driving skill to operate safely the type of commercial motor vehicle listed above.</p>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:4px 12px;">
+        <label style="font-size:12.5px;">Examiner&rsquo;s full name <input id="rt_examiner" style="${inp}"></label>
+        <label style="font-size:12.5px;">Title <input id="rt_title" value="Operations Manager" style="${inp}"></label>
+        <label style="font-size:12.5px;">Organization <input id="rt_org" value="${mgrReviewEsc(P.legalName || P.displayName || '')}" style="${inp}"></label>
+      </div>
+      <label style="display:flex; gap:8px; align-items:flex-start; font-size:13px; margin:8px 0;"><input type="checkbox" id="rt_consent" style="width:18px; height:18px; margin-top:1px;"> <span>I agree to sign this certification electronically, and that my electronic signature is the legal equivalent of my handwritten signature.</span></label>
+      <div style="font-size:12.5px; margin-bottom:4px;">Examiner signature (draw with your mouse or finger):</div>
+      <canvas id="rt_sig" width="600" height="150" style="width:100%; max-width:520px; height:125px; border:2px solid var(--line); border-radius:8px; background:#fff; touch-action:none; display:block;"></canvas>
+      <button type="button" id="rt_sigClear" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:12px; padding:2px 0;">Clear signature</button>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px;">
+        <button type="button" id="rt_submit" style="background:var(--brand-green); color:#fff; border:none; padding:10px 18px; border-radius:6px; font-weight:800; cursor:pointer;">Certify &amp; Sign</button>
+        <button type="button" id="rt_cancel" style="background:#fff; border:1px solid var(--line); padding:9px 14px; border-radius:6px; cursor:pointer;">Close</button>
+        <span class="status-msg" id="rt_status"></span>
+      </div>
+    </div>`;
+  }
+  function rtWireForm(){
+    const sig = document.getElementById('rt_sig'); if(!sig) return;
+    const g = sig.getContext('2d'); let drawing = false; sig.dataset.drawn = '';
+    const pt = e => { const r = sig.getBoundingClientRect(); return [(e.clientX - r.left) * sig.width / r.width, (e.clientY - r.top) * sig.height / r.height]; };
+    sig.addEventListener('pointerdown', e => { drawing = true; sig.setPointerCapture(e.pointerId); const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); });
+    sig.addEventListener('pointermove', e => { if(!drawing) return; const [x, y] = pt(e); g.lineWidth = 3; g.lineCap = 'round'; g.strokeStyle = '#11233f'; g.lineTo(x, y); g.stroke(); sig.dataset.drawn = '1'; });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => sig.addEventListener(ev, () => { drawing = false; }));
+    document.getElementById('rt_sigClear').addEventListener('click', () => { g.clearRect(0, 0, sig.width, sig.height); sig.dataset.drawn = ''; });
+    document.getElementById('rt_cancel').addEventListener('click', () => { rtOpenId = null; renderRoadTests(); });
+    document.getElementById('rt_submit').addEventListener('click', rtSubmit);
+  }
+  async function rtSubmit(e){
+    const btn = e.currentTarget, st = document.getElementById('rt_status');
+    const v = id => document.getElementById(id).value.trim();
+    const t = roadTests.find(x => x.id === rtOpenId); if(!t) return;
+    const unchecked = [...document.querySelectorAll('.rt-item')].filter(c => !c.checked).length;
+    const sig = document.getElementById('rt_sig');
+    const missing = [];
+    if(!v('rt_licNum')) missing.push('license #'); if(!v('rt_date')) missing.push('date'); if(!v('rt_miles')) missing.push('miles driven');
+    if(unchecked) missing.push(`${unchecked} road test item${unchecked === 1 ? '' : 's'} (only certify a driver who passed every item)`);
+    if(!v('rt_examiner')) missing.push('examiner name'); if(!document.getElementById('rt_consent').checked) missing.push('agreement to sign electronically');
+    if(!sig.dataset.drawn) missing.push('signature');
+    if(missing.length){ st.textContent = 'Still needed: ' + missing.join(', ') + '.'; st.className = 'status-msg err'; return; }
+    btn.disabled = true; st.textContent = 'Creating the certificate\u2026'; st.className = 'status-msg';
+    try{
+      const signedAt = new Date();
+      const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+      const P = window.LOCATION_PROFILE || {}, M = 54; let y = M;
+      const line = (txt, o = {}) => { doc.setFont('helvetica', o.bold ? 'bold' : 'normal'); doc.setFontSize(o.size || 11); doc.splitTextToSize(String(txt), 612 - 2 * M).forEach(l => { doc.text(l, M, y); y += (o.size || 11) + 4; }); };
+      line(v('rt_org') || 'College HUNKS Hauling Junk & Moving', { bold: true, size: 13 }); if(P.officeAddress) line(P.officeAddress, { size: 9 });
+      y += 8; line('Certification of Road Test', { bold: true, size: 17 }); line('49 CFR \u00a7391.31 \u2014 completed and signed electronically.', { size: 9 }); y += 6;
+      [['Driver\u2019s name', t.driverName], ['Social Security #', v('rt_ssn') || '________________'], ['Operator\u2019s license #', v('rt_licNum')], ['State', v('rt_licState')],
+       ['Type of power unit', v('rt_unit')], ['Type of trailer(s)', v('rt_trailer')], ['Date of road test', v('rt_date')], ['Approximate miles driven', v('rt_miles')]].forEach(([k, val]) => line(`${k}: ${val}`));
+      y += 6; line('Road test items performed satisfactorily:', { bold: true });
+      RT_ITEMS.forEach(it => line('[X]  ' + it, { size: 10.5 }));   // the PDF's built-in font has no check mark
+      if(v('rt_remarks')) { y += 4; line('Remarks: ' + v('rt_remarks'), { size: 10.5 }); }
+      y += 8; line(`This is to certify that the above-named driver was given a road test under my supervision on ${v('rt_date')}, consisting of approximately ${v('rt_miles')} miles of driving. It is my considered opinion that this driver possesses sufficient driving skill to operate safely the type of commercial motor vehicle listed above.`, { size: 10.5 });
+      y += 8; doc.addImage(sig.toDataURL('image/png'), 'PNG', M, y, 200, 50); y += 56;
+      doc.setDrawColor(120); doc.line(M, y, M + 260, y); y += 14;
+      line(`Signature of examiner \u2014 ${v('rt_examiner')}, ${v('rt_title')}`, { size: 10 }); line(`Organization: ${v('rt_org')}`, { size: 10 });
+      y += 6; line(`Electronic signature record: signed electronically by "${v('rt_examiner')}" on ${signedAt.toLocaleString()} (${signedAt.toISOString()}) in the operations dashboard while signed in as ${localStorage.getItem('henson_auth_email') || 'a dashboard user'}. The examiner agreed to sign electronically and that the electronic signature is the legal equivalent of a handwritten signature.`, { size: 8 });
+      const pdf = doc.output('datauristring');
+      const docKey = 'compliance-doc-driver-' + t.driverName.replace(/[^a-zA-Z0-9]/g, '_') + '-roadtest';
+      const ok1 = await window.dashboardApi.set(docKey, { dataUri: pdf, fileName: 'Road Test Certification (e-signed).pdf', uploadedAt: signedAt.toISOString(), esign: { signedName: v('rt_examiner'), signedAt: signedAt.toISOString(), by: localStorage.getItem('henson_auth_email') || '' } });
+      const fresh = await window.dashboardApi.get(RT_KEY, []) || [];
+      const ft = fresh.find(x => x.id === t.id);
+      if(ft) Object.assign(ft, { status: 'completed', completedAt: signedAt.toISOString(), examiner: v('rt_examiner') });
+      const ok2 = await window.dashboardApi.set(RT_KEY, fresh);
+      if(!ok1 || !ok2) throw new Error('save');
+      roadTests = fresh; rtOpenId = null; renderRoadTests();
+      document.getElementById('rt_list').insertAdjacentHTML('afterbegin', `<p class="status-msg ok" style="margin:0 0 10px;">\u2713 Road Test Certification signed and saved to ${mgrReviewEsc(t.driverName)}\u2019s file.</p>`);
+    }catch(err){ btn.disabled = false; st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; }
+  }
 
   // ---- Expenses: approve or deny crew receipts ----
   const EXPENSE_CLAIMS_KEY = 'expense-claims';
@@ -28828,7 +29371,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','expenses','damageclaims','moving','greviews'].forEach(t => {
+    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','roadtests','expenses','damageclaims','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -28842,6 +29385,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(tab === 'jobs') loadJobsAndCaptains();
     if(tab === 'damageclaims') window.loadDamageClaimsData();
     if(tab === 'expenses') loadExpenseClaims();
+    if(tab === 'roadtests') loadRoadTests();
   }
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
