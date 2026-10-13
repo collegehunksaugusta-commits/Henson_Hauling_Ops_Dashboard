@@ -1677,6 +1677,28 @@
     document.getElementById('ea_first').value = firstParts[0] || '';
     document.getElementById('ea_middle').value = firstParts.slice(1).join(' ');
     esSigClear(); document.getElementById('ea_status').textContent = '';
+    esPrefillFromProfile();
+  }
+  // Fill empty boxes from what the app already knows about him (license
+  // photo, Hiring answers, earlier forms). He can change anything.
+  async function esPrefillFromProfile(){
+    let pr;
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/my-profile', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(!res.ok) return; pr = (await res.json()).fields || {};
+    }catch(err){ return; }
+    let n = 0;
+    const fill = (el, v) => { if(el && v && !el.value){ el.value = v; el.style.background = '#f1f8f3'; n++; } };
+    fill(document.getElementById('ea_phone'), pr.phone); fill(document.getElementById('ea_email'), pr.email); fill(document.getElementById('ea_dob'), pr.dob);
+    const res0 = document.querySelector('#ea_res .ea-row'), lic0 = document.querySelector('#ea_lic .ea-row');
+    if(res0){ [['street', pr.street], ['city', pr.city], ['state', pr.state], ['zip', pr.zip]].forEach(([f, v]) => fill(res0.querySelector(`input[data-f=${f}]`), v)); }
+    if(lic0){ [['state', pr.licenseState], ['number', pr.licenseNumber], ['class', pr.licenseClass], ['endorse', pr.licenseEndorsements], ['exp', pr.licenseExpiration]].forEach(([f, v]) => fill(lic0.querySelector(`input[data-f=${f}]`), v)); }
+    if(n){
+      const note = document.getElementById('ea_prefillNote') || Object.assign(document.createElement('div'), { id: 'ea_prefillNote' });
+      note.style.cssText = 'font-size:12.5px; background:#f1f8f3; border:1px solid #cfe6d6; border-radius:8px; padding:8px 10px; margin-top:8px;';
+      note.innerHTML = `&#10024; ${n} answer${n === 1 ? ' was' : 's were'} filled in from what we already have on file (shaded green). Please check ${n === 1 ? 'it' : 'them'} and fix anything that&rsquo;s out of date.`;
+      document.querySelector('#esignApp .panel').appendChild(note);
+    }
   }
   document.querySelectorAll('#esignApp .ea-add').forEach(b => b.addEventListener('click', () => esAddRow(b.dataset.group)));
 
@@ -2029,7 +2051,11 @@
     try{
       const signedAt = new Date();
       const pdf = esBuildPdf(a, esSig.toDataURL('image/png'), signedAt);
-      const res = await fetch(`${API_BASE_AUTH}/api/driver/esign/${encodeURIComponent(esignCurrent.id)}/application`, { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ pdf, signedName: a.signName, consent: true }) });
+      // Non-sensitive answers are saved back to his profile for other forms (never the SSN).
+      const r0 = a.res[0] || {}, l0 = a.lic[0] || {};
+      const profile = { phone: a.phone, email: a.email, dob: a.dob, street: r0.street, city: r0.city, state: r0.state, zip: r0.zip,
+        licenseNumber: l0.number, licenseState: l0.state, licenseClass: l0.class, licenseEndorsements: l0.endorse, licenseExpiration: l0.exp };
+      const res = await fetch(`${API_BASE_AUTH}/api/driver/esign/${encodeURIComponent(esignCurrent.id)}/application`, { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ pdf, signedName: a.signName, consent: true, profile }) });
       if(res.status === 401){ driverSessionExpired(); return; }
       const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not submit.');
       esStepDone(esignCurrent.id, 'Application signed and submitted.');
@@ -14075,9 +14101,34 @@
   window.completeOnboardingStepByPaper = completeOnboardingStepByPaper;
   window.printBlankRoadTestForm = () => printBlankForm(buildRoadTestCertForm(), 'Road Test Certification');
 
+  const DRIVER_INFO_FIELDS = [['licenseNumber', 'License #'], ['licenseState', 'License state'], ['licenseClass', 'Class'], ['licenseEndorsements', 'Endorsements'], ['licenseExpiration', 'License expires', 'date'],
+    ['dob', 'Date of birth', 'date'], ['phone', 'Phone'], ['email', 'Email'], ['street', 'Street'], ['city', 'City'], ['state', 'State'], ['zip', 'ZIP']];
+  const DRIVER_INFO_SOURCE = { 'license photo': 'read from his license photo', hiring: 'from his Hiring paperwork', application: 'from his DOT application', office: 'entered by the office' };
+  async function renderDriverInfoBox(name){
+    const box = document.getElementById('driverInfoBox'); if(!box) return;
+    let d = { fields: {}, sources: {} };
+    try{ const r = await fetch(`${API_BASE}/api/person-profile?name=${encodeURIComponent(name)}`, { headers: authHeaders() }); if(r.ok) d = await r.json(); }catch(err){}
+    box.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;"><div><strong>Driver Info</strong> <span style="font-size:12px; color:var(--muted);">\u2014 entered once, auto-filled on his DOT application and Road Test. Hover a box to see where it came from.</span></div></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:4px 10px; margin-top:8px;">
+        ${DRIVER_INFO_FIELDS.map(([k, l, t]) => `<label style="font-size:11.5px; margin:0;">${l}<input class="dinfo" data-k="${k}" ${t === 'date' ? 'type="date"' : ''} value="${fleetEsc(d.fields[k] || '')}" title="${d.sources[k] ? fleetEsc(DRIVER_INFO_SOURCE[d.sources[k]] || d.sources[k]) : 'Not on file yet'}" style="width:100%; margin-top:2px; padding:5px 6px; font-size:13px;"></label>`).join('')}
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-top:8px;"><button type="button" id="dinfoSave" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:6px 14px; border-radius:6px; cursor:pointer; font-weight:700;">Save Driver Info</button><span class="status-msg" id="dinfoStatus"></span></div>`;
+    document.getElementById('dinfoSave').addEventListener('click', async () => {
+      const st = document.getElementById('dinfoStatus'), fields = {};
+      box.querySelectorAll('.dinfo').forEach(i => fields[i.dataset.k] = i.value.trim());
+      st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+      try{
+        const r = await fetch(`${API_BASE}/api/person-profile`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name, fields }) });
+        if(!r.ok) throw new Error();
+        st.textContent = 'Saved.'; st.className = 'status-msg ok';
+      }catch(err){ st.textContent = 'Could not save.'; st.className = 'status-msg err'; }
+    });
+  }
+
   async function renderDriverDocUploads(name){
     const container = document.getElementById('comp_driverDocUploads');
     container.innerHTML = '<div id="driverBundleBox" style="border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px; background:#f6fbf7;"></div>'
+      + '<div id="driverInfoBox" style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:16px;"></div>'
       + '<div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--muted); margin:4px 0 2px;">PAPER BACKUP</div><p class="form-note" style="margin:0 0 10px;">Print a blank form, or upload a signed paper copy or scan. Uploading one also checks that step off the driver&rsquo;s Onboarding Bundle (and a paper Road Test clears the Ops Manager&rsquo;s task).</p>'
       + DRIVER_DOC_TYPES.map(dt => `
       <div class="sig-pad-wrap" style="margin-bottom:12px;">
@@ -14104,6 +14155,9 @@
         }
       }catch(err){ console.error('Driver doc status load failed:', err); }
     }
+
+    // Driver Info: the shared details other forms auto-fill from.
+    renderDriverInfoBox(name);
 
     // Onboarding bundle: one click sends the driver his license photo, DOT
     // physical and DOT Driver Application (HUNK Portal), and gives the Ops
@@ -14171,7 +14225,11 @@
         // Photos of a card or paper form get cropped to the document (AI).
         if(/^data:image\//.test(compressed.dataUri)) compressed.dataUri = (await window.aiCropDocument(compressed.dataUri, key === 'license' ? 'license' : key === 'physical' ? 'medical' : 'document')).dataUri;
         const ok = await window.dashboardApi.set(driverDocKey(name, key), { dataUri: compressed.dataUri, fileName: file.name, uploadedAt: new Date().toISOString() });
-        if(ok){ await completeOnboardingStepByPaper(name, key); renderDriverDocUploads(name); renderCompDriverList(); }
+        if(ok){
+          await completeOnboardingStepByPaper(name, key);
+          if(key === 'license') await fetch(`${API_BASE}/api/person-profile/from-license`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name }) }).catch(() => {});
+          renderDriverDocUploads(name); renderCompDriverList();
+        }
         else { alert('Save failed \u2014 check your connection.'); }
       }catch(err){ console.error('Driver doc upload failed:', err); alert('Upload failed \u2014 check your connection.'); }
     }));
@@ -29371,6 +29429,14 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   }
   function rtWireForm(){
     const sig = document.getElementById('rt_sig'); if(!sig) return;
+    // License # and state from the driver's profile (license photo, application...).
+    const rtTask = roadTests.find(x => x.id === rtOpenId);
+    if(rtTask) fetch(`${API_BASE}/api/person-profile?name=${encodeURIComponent(rtTask.driverName)}`, { headers: authHeaders() }).then(r => r.ok ? r.json() : null).then(d => {
+      const f = (d && d.fields) || {};
+      const num = document.getElementById('rt_licNum'), st = document.getElementById('rt_licState');
+      if(num && f.licenseNumber && !num.value){ num.value = f.licenseNumber; num.style.background = '#f1f8f3'; }
+      if(st && f.licenseState && (st.value === 'GA' || !st.value)){ st.value = f.licenseState; st.style.background = '#f1f8f3'; }
+    }).catch(() => {});
     const g = sig.getContext('2d'); let drawing = false; sig.dataset.drawn = '';
     const pt = e => { const r = sig.getBoundingClientRect(); return [(e.clientX - r.left) * sig.width / r.width, (e.clientY - r.top) * sig.height / r.height]; };
     sig.addEventListener('pointerdown', e => { drawing = true; sig.setPointerCapture(e.pointerId); const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); });
@@ -29413,6 +29479,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const pdf = doc.output('datauristring').replace(/^data:application\/pdf(;[^;,]*?)*;base64,/, 'data:application/pdf;base64,');
       const docKey = 'compliance-doc-driver-' + t.driverName.replace(/[^a-zA-Z0-9]/g, '_') + '-roadtest';
       const ok1 = await window.dashboardApi.set(docKey, { dataUri: pdf, fileName: 'Road Test Certification (e-signed).pdf', uploadedAt: signedAt.toISOString(), esign: { signedName: v('rt_examiner'), signedAt: signedAt.toISOString(), by: localStorage.getItem('henson_auth_email') || '' } });
+      fetch(`${API_BASE}/api/person-profile`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name: t.driverName, fields: { licenseNumber: v('rt_licNum'), licenseState: v('rt_licState') } }) }).catch(() => {});
       const fresh = await window.dashboardApi.get(RT_KEY, []) || [];
       const ft = fresh.find(x => x.id === t.id);
       if(ft) Object.assign(ft, { status: 'completed', completedAt: signedAt.toISOString(), examiner: v('rt_examiner') });
