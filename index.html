@@ -6096,8 +6096,18 @@
 
     <div class="panel" id="omOverallScorePanel">
       <h3>Overall Score</h3>
-      <div id="om_overallScoreDisplay" style="font-size:36px; font-weight:800; line-height:1.1;"></div>
+      <div style="display:flex; gap:28px; align-items:flex-end; flex-wrap:wrap;">
+        <div>
+          <div id="om_overallPeriodLabel" style="font-size:12px; font-weight:700; letter-spacing:.05em; color:var(--muted); text-transform:uppercase;">This month so far</div>
+          <div id="om_overallScoreDisplay" style="font-size:36px; font-weight:800; line-height:1.1;"></div>
+        </div>
+        <div id="om_thisWeekBox" style="display:none; padding-left:24px; border-left:2px solid var(--line);" title="This week only -- the last point on the Score Trend chart below">
+          <div style="font-size:12px; font-weight:700; letter-spacing:.05em; color:var(--muted); text-transform:uppercase;">This week</div>
+          <div id="om_thisWeekScore" style="font-size:28px; font-weight:800; line-height:1.1;"></div>
+        </div>
+      </div>
       <div id="om_overallScoreBreakdown" style="font-size:13px; color:var(--muted); margin-top:6px;"></div>
+      <p class="form-note" style="margin:6px 0 0;">The month score covers everything since the 1st (it&rsquo;s the one used for commission); the trend chart below shows each week on its own.</p>
     </div>
 
     <div class="panel" id="omTrendPanel">
@@ -25110,6 +25120,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       });
 
       const monthLabel = new Date(activeMonth + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      document.getElementById('om_overallPeriodLabel').textContent = new Date(activeMonth + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long' }) + ' so far';
       document.getElementById('om_activeMonthNote').textContent = `Showing ${monthLabel} so far \u2014 live. Held at month-end until next month's first payroll upload.`;
 
       const monthStart = activeMonth + '-01';
@@ -25260,7 +25271,17 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     canvas.style.display = 'block';
     emptyNote.style.display = 'none';
 
-    const labels = omTrendWeeksCache.map(w => window.trendWeekLabel(w.weekStart));
+    // The current week is labeled "This week", and its score is shown next
+    // to the month-to-date number at the top so the two aren't confused.
+    const thisMonday = (() => { const d = new Date(); const w = d.getDay(); d.setDate(d.getDate() + (w === 0 ? -6 : 1 - w)); return d.toLocaleDateString('en-CA'); })();
+    const labels = omTrendWeeksCache.map(w => w.weekStart === thisMonday ? 'This week' : window.trendWeekLabel(w.weekStart));
+    const cur = omTrendWeeksCache.find(w => w.weekStart === thisMonday);
+    const box = document.getElementById('om_thisWeekBox'), wk = document.getElementById('om_thisWeekScore');
+    if(box && cur && cur.overall != null){
+      box.style.display = 'block';
+      wk.textContent = `${Math.round(cur.overall)}%`;
+      wk.style.color = cur.overall >= 90 ? '#00612C' : (cur.overall >= 70 ? '#8a6d00' : '#b3261e');
+    } else if(box){ box.style.display = 'none'; }
     const dataset = {
       label: 'Overall Score',
       data: omTrendWeeksCache.map(w => w.overall),
