@@ -3710,8 +3710,9 @@ app.post('/api/driver/esign/:id/physical-needed', requireDriverAuth, async (req,
 });
 
 app.post('/api/driver/esign/:id/physical', requireDriverAuth, async (req, res) => {
-  const { file, fileName, expiration } = req.body || {};
-  if (!/^data:(image\/[a-zA-Z]+|application\/pdf);base64,/.test(file || '')) return res.status(400).json({ error: 'Add a photo or PDF of your medical certificate.' });
+  let { file, fileName, expiration } = req.body || {};
+  file = String(file || '').replace(/^data:application\/pdf(;[^;,]*?)*;base64,/, 'data:application/pdf;base64,');
+  if (!/^data:(image\/[a-zA-Z]+|application\/pdf);base64,/.test(file)) return res.status(400).json({ error: 'Add a photo or PDF of your medical certificate.' });
   if (file.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'That file is too large \u2014 try a photo instead.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(expiration || '') || expiration <= easternDateFromMs(Date.now())) return res.status(400).json({ error: 'Enter the certificate\u2019s expiration date (a future date).' });
   try {
@@ -3728,7 +3729,10 @@ app.post('/api/driver/esign/:id/physical', requireDriverAuth, async (req, res) =
   } catch (err) { console.error('E-sign physical failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
 });
 app.post('/api/driver/esign/:id/application', requireDriverAuth, async (req, res) => {
-  const { pdf, signedName, consent } = req.body || {};
+  let { pdf, signedName, consent } = req.body || {};
+  // The PDF library labels its output "data:application/pdf;filename=...;base64,";
+  // normalize to the plain form before checking it.
+  pdf = String(pdf || '').replace(/^data:application\/pdf(;[^;,]*?)*;base64,/, 'data:application/pdf;base64,');
   if (!consent) return res.status(400).json({ error: 'Agree to sign electronically first.' });
   if (!String(signedName || '').trim()) return res.status(400).json({ error: 'Type your full name to sign.' });
   if (!/^data:application\/pdf;base64,/.test(pdf || '') || pdf.length > 8 * 1024 * 1024) return res.status(400).json({ error: 'The signed application didn\u2019t come through \u2014 try again.' });
