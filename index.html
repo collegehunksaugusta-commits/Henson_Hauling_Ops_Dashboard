@@ -29398,7 +29398,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     return `<div class="rt-form" style="margin-top:12px; border-top:1px solid var(--line); padding-top:12px;">
       <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:4px 12px;">
         <label style="font-size:12.5px;">Driver <input id="rt_driver" value="${mgrReviewEsc(t.driverName)}" readonly style="${inp} background:#f4f4f0;"></label>
-        <label style="font-size:12.5px;">Social Security # <input id="rt_ssn" inputmode="numeric" autocomplete="off" placeholder="from his application" style="${inp}"></label>
+        <label style="font-size:12.5px;">Social Security # <input id="rt_ssn" inputmode="numeric" autocomplete="off" placeholder="not on file \u2014 type it" style="${inp}"></label>
         <label style="font-size:12.5px;">License # <input id="rt_licNum" style="${inp}"></label>
         <label style="font-size:12.5px;">License state <input id="rt_licState" value="GA" style="${inp}"></label>
         <label style="font-size:12.5px;">Type of power unit <input id="rt_unit" value="Straight truck (box truck)" style="${inp}"></label>
@@ -29437,6 +29437,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(num && f.licenseNumber && !num.value){ num.value = f.licenseNumber; num.style.background = '#f1f8f3'; }
       if(st && f.licenseState && (st.value === 'GA' || !st.value)){ st.value = f.licenseState; st.style.background = '#f1f8f3'; }
     }).catch(() => {});
+    // SSN from his signed application, shown masked; the full number only
+    // goes into the certificate PDF.
+    if(rtTask) fetch(`${API_BASE}/api/person-profile/ssn?name=${encodeURIComponent(rtTask.driverName)}`, { headers: authHeaders() }).then(r => r.ok ? r.json() : null).then(d => {
+      const el = document.getElementById('rt_ssn');
+      if(!el || !d || !d.ssn || el.value) return;
+      el.dataset.full = d.ssn; el.dataset.masked = '\u2022\u2022\u2022-\u2022\u2022-' + d.ssn.slice(-4);
+      el.value = el.dataset.masked; el.style.background = '#f1f8f3'; el.title = 'From his signed DOT Driver Application';
+      el.addEventListener('focus', () => { if(el.value === el.dataset.masked){ el.select(); } });
+    }).catch(() => {});
     const g = sig.getContext('2d'); let drawing = false; sig.dataset.drawn = '';
     const pt = e => { const r = sig.getBoundingClientRect(); return [(e.clientX - r.left) * sig.width / r.width, (e.clientY - r.top) * sig.height / r.height]; };
     sig.addEventListener('pointerdown', e => { drawing = true; sig.setPointerCapture(e.pointerId); const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); });
@@ -29466,7 +29475,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const line = (txt, o = {}) => { doc.setFont('helvetica', o.bold ? 'bold' : 'normal'); doc.setFontSize(o.size || 11); doc.splitTextToSize(String(txt), 612 - 2 * M).forEach(l => { doc.text(l, M, y); y += (o.size || 11) + 4; }); };
       line(v('rt_org') || 'College HUNKS Hauling Junk & Moving', { bold: true, size: 13 }); if(P.officeAddress) line(P.officeAddress, { size: 9 });
       y += 8; line('Certification of Road Test', { bold: true, size: 17 }); line('49 CFR \u00a7391.31 \u2014 completed and signed electronically.', { size: 9 }); y += 6;
-      [['Driver\u2019s name', t.driverName], ['Social Security #', v('rt_ssn') || '________________'], ['Operator\u2019s license #', v('rt_licNum')], ['State', v('rt_licState')],
+      [['Driver\u2019s name', t.driverName], ['Social Security #', (() => { const el = document.getElementById('rt_ssn'); return (el.dataset.full && el.value === el.dataset.masked) ? el.dataset.full : (v('rt_ssn') || '________________'); })()], ['Operator\u2019s license #', v('rt_licNum')], ['State', v('rt_licState')],
        ['Type of power unit', v('rt_unit')], ['Type of trailer(s)', v('rt_trailer')], ['Date of road test', v('rt_date')], ['Approximate miles driven', v('rt_miles')]].forEach(([k, val]) => line(`${k}: ${val}`));
       y += 6; line('Road test items performed satisfactorily:', { bold: true });
       RT_ITEMS.forEach(it => line('[X]  ' + it, { size: 10.5 }));   // the PDF's built-in font has no check mark
