@@ -24795,7 +24795,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const hint = document.getElementById('val_ownerHoursHint');
     // Valuation: owner hours/week = average of the last 4 complete weeks
     // (logged + app), filled in unless he's typed his own number this visit.
-    const recent = full.slice(-4);
+    // Prior 4 complete weeks; weeks with no time at all are left out.
+    const prior4 = weeks.filter(w => w.ws < cur).slice(-4);
+    const recent = prior4.filter(w => w.total > 0);
     const avg4 = recent.length ? recent.reduce((t, w) => t + w.total, 0) / recent.length : null;
     const hrsBox = document.getElementById('val_ownerHours');
     if(hrsBox && avg4 != null && !hrsBox.dataset.typed){
@@ -24804,7 +24806,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!hrsBox.dataset.wired){ hrsBox.dataset.wired = '1'; hrsBox.addEventListener('input', () => { hrsBox.dataset.typed = '1'; const h = document.getElementById('val_ownerHoursHint'); if(h) h.textContent = 'Your own number (tracked average not used).'; }); }
     }
     if(hint) hint.textContent = avg4 != null
-      ? (hrsBox && hrsBox.dataset.typed ? 'Your own number (tracked average not used).' : `From your last ${recent.length} week${recent.length === 1 ? '' : 's'} of tracked time (logged + app).`)
+      ? (hrsBox && hrsBox.dataset.typed ? 'Your own number (tracked average not used).' : `From ${recent.length === 4 ? 'the last 4 weeks' : recent.length + ' of the last 4 weeks'} of tracked time (logged + app)${recent.length < 4 ? '; empty weeks left out' : ''}.`)
       : 'Track your time in Owner Time above to fill this in automatically.';
     const card = (label, val, sub) => `<div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">${label}</div><div style="font-size:26px; font-weight:800;">${val}</div>${sub ? `<div style="font-size:11.5px; color:var(--muted);">${sub}</div>` : ''}</div>`;
     document.getElementById('ot_summary').innerHTML = `
