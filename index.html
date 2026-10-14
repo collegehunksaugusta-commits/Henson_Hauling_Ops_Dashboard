@@ -2166,7 +2166,7 @@
       const cat = document.getElementById('expCategory');
       if(!cat.options.length) cat.innerHTML = (d.categories || []).map(c => `<option>${driverEsc(c)}</option>`).join('');
       const short = x => x ? new Date(x + (x.length === 10 ? 'T00:00:00' : '')).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
-      const pill = e => e.status === 'approved' ? `<span style="background:#EAF6EE; color:var(--brand-green-dark); padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Approved${e.payWeek ? ' \u00b7 paid wk of ' + short(e.payWeek) : ''}</span>`
+      const pill = e => e.status === 'approved' ? `<span style="background:#EAF6EE; color:var(--brand-green-dark); padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Approved${e.reimbursedVia ? ' \u00b7 reimbursed via ' + driverEsc(e.reimbursedVia) : (e.payWeek ? ' \u00b7 paid wk of ' + short(e.payWeek) : '')}</span>`
         : e.status === 'denied' ? `<span style="background:#fdecea; color:#b3261e; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Denied</span>`
         : `<span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Pending</span>`;
       window.__milRate = Number(d.mileageRate) || 0;
@@ -12193,6 +12193,69 @@
   }
 
   function extraPayFmtDateShort(d){ return d ? new Date(d + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
+  // ---- Expenses / Mileage in Extra Pay: mark as already reimbursed ----
+  // Clicking an Expenses or Mileage amount lists that person's items for the
+  // week. "Mark already reimbursed" (method + Admin Override PIN) takes one
+  // out of Extra Pay; "Undo" puts it back.
+  async function epVerifyPin(what){
+    const pin = prompt(`Enter the Administrator Override PIN to ${what}:`);
+    if(pin === null) return false;
+    try{
+      const res = await fetch(`${API_BASE}/api/verify-override-pin`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ pin }) });
+      const d = await res.json();
+      if(!res.ok || !d.valid){ alert(d.error || 'Incorrect PIN \u2014 nothing was changed.'); return false; }
+      return true;
+    }catch(err){ alert('Could not reach the server to check the PIN.'); return false; }
+  }
+  function openEpClaims(kind, name, week){
+    const data = ((window.__epClaims || {})[week] || {})[kind] || {}, entry = data[name];
+    if(!entry) return;
+    let ov = document.getElementById('epClaimsModal');
+    if(!ov){ ov = document.createElement('div'); ov.id = 'epClaimsModal'; ov.style.cssText = 'position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding:40px 12px; overflow-y:auto;'; document.body.appendChild(ov); }
+    const paidWeek = !!document.querySelector(`.extraPay-week-panel[data-week="${week}"][data-paid="1"]`);
+    const row = c => {
+      const label = c.type === 'mileage' ? `${c.approvedMiles} mi \u00d7 ${extraPayMoney(c.approvedRate)} \u00b7 ${extraPayEsc(c.purpose || '')}` : `${extraPayEsc(c.merchant || 'Receipt')} \u00b7 ${extraPayEsc(c.category || '')}`;
+      const r = c.reimbursedOutside;
+      return `<div style="display:flex; gap:10px; align-items:center; padding:10px 0; border-top:1px solid var(--line); flex-wrap:wrap;">
+        <div style="flex:1; min-width:200px;"><div style="font-weight:600;">${label}</div>
+          <div style="font-size:12px; color:${r ? '#8a6d00' : 'var(--muted)'};">${r ? `Already reimbursed via ${extraPayEsc(r.method)} \u2014 not paid in Extra Pay` : 'Paid in this week\u2019s Extra Pay'}</div></div>
+        <div style="font-weight:700; ${r ? 'text-decoration:line-through; color:var(--muted);' : ''}">${extraPayMoney(c.approvedAmount)}</div>
+        ${r ? `<button type="button" class="ep-undo" data-id="${extraPayEsc(c.id)}" style="background:#fff; border:1px solid var(--line); padding:6px 10px; border-radius:6px; cursor:pointer;">Undo</button>`
+            : `<select class="ep-method" data-id="${extraPayEsc(c.id)}" style="padding:6px;">${['Cash', 'Zelle', 'Venmo', 'CashApp'].map(m => `<option>${m}</option>`).join('')}</select>
+               <button type="button" class="ep-zero" data-id="${extraPayEsc(c.id)}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Mark already reimbursed</button>`}
+      </div>`;
+    };
+    ov.innerHTML = `<div style="background:#fff; max-width:620px; width:100%; border-radius:12px; padding:16px 18px; box-shadow:0 12px 40px rgba(0,0,0,.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:16px;">${kind === 'mileage' ? 'Mileage' : 'Expenses'} — ${extraPayEsc(name)}</strong><button type="button" id="epClaimsClose" style="background:none; border:none; font-size:22px; cursor:pointer;">&times;</button></div>
+      <div style="font-size:12.5px; color:var(--muted); margin:2px 0 8px;">Week of ${window.fmtDate(week)}. If an item was already paid back another way, mark it here (Admin Override PIN) so it isn&rsquo;t paid twice.${paidWeek ? ' <strong style="color:#b3261e;">This week is already marked paid — changing it won’t change what payroll already paid.</strong>' : ''}</div>
+      ${entry.claims.map(row).join('')}
+      <p class="status-msg" id="epClaimsStatus" style="margin:8px 0 0;"></p></div>`;
+    ov.style.display = 'flex';
+    const close = () => { ov.style.display = 'none'; };
+    document.getElementById('epClaimsClose').onclick = close;
+    ov.onclick = e => { if(e.target === ov) close(); };
+    const save = async (id, change) => {
+      const st = document.getElementById('epClaimsStatus');
+      try{
+        const fresh = await window.dashboardApi.get('expense-claims', []) || [];
+        const c = fresh.find(x => x.id === id); if(!c) throw new Error();
+        change(c);
+        if(!(await window.dashboardApi.set('expense-claims', fresh))) throw new Error();
+        close(); loadExtraPayData();
+      }catch(err){ st.textContent = 'Could not save — check your connection.'; st.className = 'status-msg err'; }
+    };
+    ov.querySelectorAll('.ep-zero').forEach(b => b.onclick = async () => {
+      const method = ov.querySelector(`.ep-method[data-id="${b.dataset.id}"]`).value;
+      if(!(await epVerifyPin(`mark this as already reimbursed via ${method}`))) return;
+      save(b.dataset.id, c => { c.reimbursedOutside = { method, at: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || '', when: 'from Extra Pay' }; });
+    });
+    ov.querySelectorAll('.ep-undo').forEach(b => b.onclick = async () => {
+      if(!(await epVerifyPin('put this back into Extra Pay'))) return;
+      save(b.dataset.id, c => { delete c.reimbursedOutside; });
+    });
+  }
+  document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.ep-claims'); if(b) openEpClaims(b.dataset.kind, b.dataset.name, b.dataset.week); });
+
   async function loadExtraPayData(){
     try{
       extraPayExpandedWeeks = new Set(); // reset each time the tile is freshly opened
@@ -12284,12 +12347,15 @@
           const match = names.find(n => nameCoreKey(n) === nameCoreKey(c.employeeName));
           if(!match) return;
           const bucket = c.type === 'mileage' ? mileageByName : expensesByName;
-          const e = bucket[match] = bucket[match] || { total: 0, lines: [] };
+          const e = bucket[match] = bucket[match] || { total: 0, lines: [], claims: [] };
+          e.claims.push(c);
+          if(c.reimbursedOutside) return;   // already reimbursed (Cash, Zelle...) -- not paid here
           e.total += Number(c.approvedAmount) || 0;
           e.lines.push(c.type === 'mileage'
             ? `${extraPayFmtDateShort(c.date)}: ${c.approvedMiles} mi \u00d7 ${extraPayMoney(c.approvedRate)} = ${extraPayMoney(c.approvedAmount)}`
             : `${c.merchant || 'Receipt'} (${c.category}): ${extraPayMoney(c.approvedAmount)}`);
         });
+        (window.__epClaims = window.__epClaims || {})[weekStart] = { expenses: expensesByName, mileage: mileageByName };
         const damageByName = {};
         const weekAlreadyPaid = adpUploadedWeeks.has(weekStart);
         (damageClaimsForPay || []).forEach(c => {
@@ -12620,8 +12686,8 @@
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" data-auto="${autoCommission.toFixed(2)}" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
-        <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"${expenses ? ` title="Approved expenses:\n${extraPayEsc(expenses.lines.join('\n'))}"` : ''}>${expenses ? `<span style="color:var(--brand-green-dark); font-weight:600;">${extraPayMoney(expenses.total)}</span>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
-        <td class="extraPay-mileage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"${mileage ? ` title="Approved mileage:\n${extraPayEsc(mileage.lines.join('\n'))}"` : ''}>${mileage ? `<span style="color:#1f4f87; font-weight:600;">${extraPayMoney(mileage.total)}</span>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
+        <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${expenses ? `<button type="button" class="ep-claims" data-kind="expenses" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change these expenses" style="background:none; border:none; padding:0; cursor:pointer; color:var(--brand-green-dark); font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${extraPayMoney(expenses.total)}${expenses.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
+        <td class="extraPay-mileage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${mileage ? `<button type="button" class="ep-claims" data-kind="mileage" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change this mileage" style="background:none; border:none; padding:0; cursor:pointer; color:#1f4f87; font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${extraPayMoney(mileage.total)}${mileage.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
       </tr>`;
@@ -29909,7 +29975,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       </div>`; }).join('') : '<p class="form-note" style="margin:0;">No expenses waiting for approval.</p>';
     decidedEl.innerHTML = decided.length ? decided.map(c => `<div style="display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; flex-wrap:wrap;">
       <div><strong>${mgrReviewEsc(c.employeeName)}</strong> \u00b7 ${c.type === 'mileage' ? `\u{1F697} ${c.status === 'approved' ? c.approvedMiles + ' mi \u00d7 ' + expMoneyFmt(c.approvedRate) : c.miles + ' mi'} \u00b7 ${mgrReviewEsc(c.purpose || '')}` : `${mgrReviewEsc(c.merchant || 'Receipt')} \u00b7 ${mgrReviewEsc(c.category)}`}
-        <div style="font-size:12px; color:var(--muted);">${c.status === 'approved' ? `Approved ${when(c.decidedAt)} \u00b7 paid week of ${window.fmtDate(c.payWeek)}` : `Denied ${when(c.decidedAt)}${c.denyReason ? ' \u2014 ' + mgrReviewEsc(c.denyReason) : ''}`}${c.decidedBy ? ' by ' + mgrReviewEsc(c.decidedBy) : ''}</div></div>
+        <div style="font-size:12px; color:var(--muted);">${c.status === 'approved' ? `Approved ${when(c.decidedAt)} \u00b7 ${c.reimbursedOutside ? 'already reimbursed via ' + mgrReviewEsc(c.reimbursedOutside.method) : 'paid week of ' + window.fmtDate(c.payWeek)}` : `Denied ${when(c.decidedAt)}${c.denyReason ? ' \u2014 ' + mgrReviewEsc(c.denyReason) : ''}`}${c.decidedBy ? ' by ' + mgrReviewEsc(c.decidedBy) : ''}</div></div>
       <div style="font-weight:700; ${c.status === 'denied' ? 'color:var(--muted); text-decoration:line-through;' : 'color:var(--brand-green-dark);'}">${expMoneyFmt(c.status === 'approved' ? c.approvedAmount : c.total)}</div>
     </div>`).join('') : '<p class="form-note" style="margin:0;">None yet.</p>';
     // Receipt photos load on demand
@@ -29920,10 +29986,28 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const calc = inp.closest('.exp-card').querySelector('.exp-mil-calc'), rate = Number(calc.dataset.rate) || 0;
       if(rate > 0) calc.textContent = `\u00d7 ${expMoneyFmt(rate)}/mi = ${expMoneyFmt(Math.round((Number(inp.value) || 0) * rate * 100) / 100)}`;
     }));
-    pendingEl.querySelectorAll('.exp-approve').forEach(b => b.addEventListener('click', e => decideExpense(e.currentTarget.closest('.exp-card'), 'approved')));
+    // Approve -> "Has this already been reimbursed?" (No = Extra Pay; Yes = how).
+    pendingEl.querySelectorAll('.exp-approve').forEach(b => b.addEventListener('click', e => {
+      const card = e.currentTarget.closest('.exp-card');
+      let box = card.querySelector('.exp-approve-choice');
+      if(box){ box.remove(); return; }
+      box = document.createElement('div'); box.className = 'exp-approve-choice';
+      box.style.cssText = 'margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#fff;';
+      box.innerHTML = `<div style="font-weight:700; font-size:13.5px; margin-bottom:8px;">Has this already been reimbursed?</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <button type="button" class="exp-ok-pay" style="background:var(--brand-green); color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:700; cursor:pointer;">No \u2014 add to Extra Pay</button>
+          <span style="font-size:13px; color:var(--muted);">or</span>
+          <select class="exp-method" style="padding:7px;">${['Cash', 'Zelle', 'Venmo', 'CashApp'].map(m => `<option>${m}</option>`).join('')}</select>
+          <button type="button" class="exp-ok-outside" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:8px 12px; border-radius:6px; font-weight:700; cursor:pointer;">Yes \u2014 already paid this way</button>
+        </div>`;
+      card.querySelector('.exp-status').insertAdjacentElement('beforebegin', box);
+      box.querySelector('.exp-ok-pay').onclick = () => decideExpense(card, 'approved');
+      box.querySelector('.exp-ok-outside').onclick = () => decideExpense(card, 'approved', { method: box.querySelector('.exp-method').value });
+    }));
     pendingEl.querySelectorAll('.exp-deny').forEach(b => b.addEventListener('click', e => decideExpense(e.currentTarget.closest('.exp-card'), 'denied')));
   }
-  async function decideExpense(card, status){
+  async function decideExpense(card, status, opts){
+    opts = opts || {};
     const id = card.dataset.id, st = card.querySelector('.exp-status');
     let denyReason = '', amount = 0;
     if(status === 'denied'){
@@ -29947,7 +30031,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const c = fresh.find(x => x.id === id);
       if(!c || c.status !== 'pending'){ await loadExpenseClaims(); return; }
       Object.assign(c, { status, decidedAt: new Date().toISOString(), decidedBy: localStorage.getItem('henson_auth_email') || '' },
-        status === 'approved' ? Object.assign({ approvedAmount: amount, payWeek: expPayWeekStart() }, card.dataset.type === 'mileage' ? { approvedMiles: milesApproved, approvedRate: rateNow } : {}) : { denyReason: denyReason.slice(0, 300) });
+        status === 'approved' ? Object.assign({ approvedAmount: amount, payWeek: expPayWeekStart() }, card.dataset.type === 'mileage' ? { approvedMiles: milesApproved, approvedRate: rateNow } : {},
+          // Paid outside payroll: approved, but kept out of Extra Pay.
+          opts.method ? { reimbursedOutside: { method: opts.method, at: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || '', when: 'at approval' } } : {}) : { denyReason: denyReason.slice(0, 300) });
       if(!(await window.dashboardApi.set(EXPENSE_CLAIMS_KEY, fresh))) throw new Error('save');
       expenseClaims = fresh;
       renderExpenseClaims();
