@@ -1904,6 +1904,7 @@ async function myExpenses(personName) {
     .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''))
     .map(c => ({ id: c.id, type: c.type || 'receipt', submittedAt: c.submittedAt, merchant: c.merchant, date: c.date, total: c.total, approvedAmount: c.approvedAmount, category: c.category, description: c.description,
       miles: c.miles, purpose: c.purpose, approvedMiles: c.approvedMiles, approvedRate: c.approvedRate,
+      reimbursedVia: c.reimbursedOutside ? c.reimbursedOutside.method : null,
       status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
 }
 
