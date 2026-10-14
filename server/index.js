@@ -683,7 +683,8 @@ async function completeWingmanTask(taskId, completedBy) {
 // which task types may use the endpoint (null = any open task, for the
 // read-only lookups the forms need). completesType, when the task is of
 // that type, marks it complete once the endpoint responds successfully.
-function requireDriverOrTaskWingman(allowedTypes, completesType) {
+function requireDriverOrTaskWingman(allowedTypes, completesType, opts) {
+  opts = opts || {};
   return async (req, res, next) => {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -697,7 +698,10 @@ function requireDriverOrTaskWingman(allowedTypes, completesType) {
       if (!taskId) return res.status(403).json({ error: 'This needs a task assigned to you by a Captain.' });
       const tasks = await loadWingmanTasks();
       const task = tasks.find(t => t.id === taskId);
-      if (!task || task.status !== 'open' || nameDedupKey(task.wingmanName) !== nameDedupKey(wingmanName)) {
+      // Same-day changes: a wingman may come back to a task he finished
+      // today (e.g. to add TV boxes he forgot to check out).
+      const sameDayDone = opts.allowDoneToday && task && task.status === 'completed' && task.date === todayIsoDate();
+      if (!task || (task.status !== 'open' && !sameDayDone) || nameDedupKey(task.wingmanName) !== nameDedupKey(wingmanName)) {
         return res.status(403).json({ error: 'That task is no longer assigned to you.' });
       }
       if (allowedTypes && !allowedTypes.includes(task.type)) {
@@ -1098,6 +1102,62 @@ app.post('/api/driver/materials-checkout', requireDriverOrTaskWingman(['pretrip'
     console.error('Materials checkout submission failed:', err.message);
     res.status(500).json({ error: 'Could not submit checkout.' });
   }
+});
+
+// ============ Same-day changes to Material Checkout / Checkin ============
+// Today's records for this Captain can be changed (add items, raise or lower
+// quantities). Inventory moves by the difference, and every change is logged
+// on the record. Same day only, so history and billing don't shift later.
+const MAT_EDIT_KINDS = {
+  checkout: { key: 'materials-checkouts', field: 'items', sign: -1, task: ['pretrip', 'materials-checkout'] },
+  checkin: { key: 'materials-checkins', field: 'returnedItems', sign: 1, task: ['materials-checkin'] }
+};
+app.get('/api/driver/materials-today/:kind', (req, res, next) => {
+  const k = MAT_EDIT_KINDS[req.params.kind]; if (!k) return res.status(400).json({ error: 'Unknown type.' });
+  return requireDriverOrTaskWingman(k.task, null, { allowDoneToday: true })(req, res, next);
+}, async (req, res) => {
+  try {
+    const k = MAT_EDIT_KINDS[req.params.kind], today = todayIsoDate();
+    const [itemsRaw, recsRaw] = await Promise.all([redis.get('materials-items'), redis.get(k.key)]);
+    const recs = JSON.parse(recsRaw || '[]').filter(r => r.date === today && nameCoreKey(r.driverName) === nameCoreKey(req.driverName));
+    const items = JSON.parse(itemsRaw || '[]').map(i => ({ id: i.id, description: i.description, nickname: i.nickname || '', supplierItemNumber: i.supplierItemNumber || '' }));
+    res.json({ today, records: recs.map(r => ({ id: r.id, jobNumbers: r.jobNumbers || [], items: (r[k.field] || []).map(i => ({ itemId: i.itemId, quantity: i.quantity })), edits: r.edits || [], at: r.checkedOutAt || r.checkedInAt || r.submittedAt || null })), items });
+  } catch (err) { console.error('Materials today failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/driver/materials-today/:kind/:id', (req, res, next) => {
+  const k = MAT_EDIT_KINDS[req.params.kind]; if (!k) return res.status(400).json({ error: 'Unknown type.' });
+  return requireDriverOrTaskWingman(k.task, null, { allowDoneToday: true })(req, res, next);
+}, async (req, res) => {
+  try {
+    const k = MAT_EDIT_KINDS[req.params.kind], today = todayIsoDate();
+    const wanted = {};
+    (Array.isArray((req.body || {}).items) ? req.body.items : []).forEach(i => { if (i && i.itemId) wanted[String(i.itemId)] = Math.max(0, Math.min(9999, Math.floor(Number(i.quantity) || 0))); });
+    const [itemsRaw, recsRaw] = await Promise.all([redis.get('materials-items'), redis.get(k.key)]);
+    const stock = JSON.parse(itemsRaw || '[]'), recs = JSON.parse(recsRaw || '[]');
+    const rec = recs.find(r => r.id === req.params.id);
+    if (!rec || rec.date !== today || nameCoreKey(rec.driverName) !== nameCoreKey(req.driverName)) return res.status(404).json({ error: 'Only today\u2019s records can be changed.' });
+    const byId = new Map(stock.map(i => [i.id, i]));
+    const before = {}; (rec[k.field] || []).forEach(i => { before[i.itemId] = (before[i.itemId] || 0) + (Number(i.quantity) || 0); });
+    const ids = new Set([...Object.keys(before), ...Object.keys(wanted)]);
+    const changes = [];
+    ids.forEach(id => {
+      const was = before[id] || 0, now = id in wanted ? wanted[id] : was;
+      if (now === was) return;
+      const item = byId.get(id);
+      // Checkout takes from stock (sign -1); checkin puts back (sign +1).
+      if (item) item.quantityOnHand = Math.max(0, (Number(item.quantityOnHand) || 0) + k.sign * (now - was));
+      changes.push({ itemId: id, description: item ? item.description : '(item no longer on file)', from: was, to: now });
+    });
+    if (!changes.length) return res.json({ ok: true, changes: [] });
+    rec[k.field] = [...ids].map(id => ({ id, q: id in wanted ? wanted[id] : (before[id] || 0) })).filter(x => x.q > 0).map(x => {
+      const item = byId.get(x.id), old = (rec[k.field] || []).find(i => i.itemId === x.id) || {};
+      return { itemId: x.id, supplierItemNumber: item ? item.supplierItemNumber : (old.supplierItemNumber || ''), description: item ? item.description : (old.description || '(item no longer on file)'), quantity: x.q };
+    });
+    rec.edits = (rec.edits || []).concat([{ at: new Date().toISOString(), by: req.actingWingmanName || req.driverName, changes }]).slice(-20);
+    await Promise.all([redis.set('materials-items', JSON.stringify(stock)), redis.set(k.key, JSON.stringify(recs))]);
+    console.log(`[materials] ${req.actingWingmanName || req.driverName} changed today's ${req.params.kind}: ${changes.map(c => `${c.description} ${c.from}->${c.to}`).join(', ')}`);
+    res.json({ ok: true, changes });
+  } catch (err) { console.error('Materials change failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
 });
 
 // ============ Driver: End of Day Inspection ============
