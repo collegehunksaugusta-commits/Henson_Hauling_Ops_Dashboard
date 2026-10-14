@@ -657,6 +657,7 @@
         <div class="dt-tray">
           <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
           <div class="driver-task-assign-rows" data-types="pretrip,materials-checkout"></div>
+          <button type="button" class="mat-change-btn dt-btn" data-kind="checkout" style="display:none; margin-top:6px;">&#9999;&#65039; Change today&rsquo;s Material Checkout</button>
           <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
         </div>
       </div>
@@ -688,6 +689,7 @@
         <div class="dt-tray">
           <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
           <div class="driver-task-assign-rows" data-types="eod,materials-checkin"></div>
+          <button type="button" class="mat-change-btn dt-btn" data-kind="checkin" style="display:none; margin-top:6px;">&#9999;&#65039; Change today&rsquo;s Material Checkin</button>
           <div class="dt-tray-label" style="padding-top:12px;">YOUR CREW</div>
           <div class="dt-row"><div class="dt-row-main">
             <span class="dt-row-name">&#11088; Wingman Review</span>
@@ -870,6 +872,16 @@
         #esignApp .ea-none{ display:flex !important; align-items:center; gap:8px; font-size:14px !important; font-weight:600; }
         #esignApp .ea-rm{ position:absolute; top:6px; right:8px; background:none; border:none; color:#b3261e; cursor:pointer; font-size:12px; }
       </style>
+    </div>
+  </div>
+
+  <div id="matEditModal" style="display:none; position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.5); align-items:flex-start; justify-content:center; padding:20px 12px; overflow-y:auto;">
+    <div style="background:#fff; max-width:560px; width:100%; border-radius:14px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.35); font-family:inherit;">
+      <div style="background:var(--brand-green); color:#fff; padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+        <div id="matEditTitle" style="font-size:18px; font-weight:800;">Change Today&rsquo;s Material Checkout</div>
+        <button type="button" id="matEditClose" style="background:none; border:none; color:#fff; font-size:22px; cursor:pointer;">&times;</button>
+      </div>
+      <div id="matEditBody" style="padding:14px 18px;"></div>
     </div>
   </div>
 
@@ -1724,6 +1736,71 @@
 
   const ES_STEPS = [['license', 'Driver\u2019s License', 'Photo of the front and back', '&#129706;'], ['physical', 'DOT Physical', 'Upload your medical examiner\u2019s certificate', '&#129658;'], ['application', 'DOT Driver Application', 'Fill out and sign electronically', '&#128221;']];
   const esPending = () => esignRequests.filter(r => (r.status || 'pending') === 'pending');
+  // ---- Same-day changes to Material Checkout / Checkin ----
+  // Today's record(s) with every item and its quantity; save sets the new
+  // quantities and the server moves inventory by the difference.
+  async function openMaterialsChange(kind, wingmanTaskId){
+    const modal = document.getElementById('matEditModal'), body = document.getElementById('matEditBody');
+    const what = kind === 'checkout' ? 'Material Checkout' : 'Material Checkin';
+    document.getElementById('matEditTitle').innerHTML = `Change Today&rsquo;s ${what}`;
+    modal.style.display = 'flex'; body.innerHTML = '<p class="form-note">Loading\u2026</p>';
+    const headers = { 'Authorization': 'Bearer ' + driverToken, ...(wingmanTaskId ? { 'X-Wingman-Task-Id': wingmanTaskId } : {}) };
+    let d;
+    try{
+      const r = await fetch(`${API_BASE_AUTH}/api/driver/materials-today/${kind}`, { headers });
+      d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not load.');
+    }catch(err){ body.innerHTML = `<p class="status-msg err">${driverEsc(err.message)}</p>`; return; }
+    if(!d.records.length){ body.innerHTML = `<p class="form-note">No ${what.toLowerCase()} saved today yet.</p>`; return; }
+    let recIdx = d.records.length - 1;
+    const draw = () => {
+      const rec = d.records[recIdx], q = {}; rec.items.forEach(i => q[i.itemId] = i.quantity);
+      const items = d.items.slice().sort((a, b) => (q[b.id] ? 1 : 0) - (q[a.id] ? 1 : 0) || String(a.description).localeCompare(String(b.description)));
+      body.innerHTML = `
+        ${d.records.length > 1 ? `<label style="display:block; font-size:13px; margin-bottom:8px;">Which one? <select id="matEditWhich" style="display:block; width:100%; padding:8px; margin-top:3px;">${d.records.map((r, k) => `<option value="${k}" ${k === recIdx ? 'selected' : ''}>${r.jobNumbers.length ? 'Job ' + driverEsc(r.jobNumbers.join(', ')) : 'No job'} \u00b7 ${r.at ? new Date(r.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}</option>`).join('')}</select></label>` : ''}
+        <p class="form-note" style="margin-top:0;">${rec.jobNumbers.length ? `Job ${driverEsc(rec.jobNumbers.join(', '))}. ` : ''}Change any quantity &mdash; add what was missed, or lower what wasn&rsquo;t ${kind === 'checkout' ? 'taken' : 'returned'}. Inventory updates by the difference.</p>
+        <div style="max-height:52vh; overflow-y:auto; border:1px solid var(--line); border-radius:8px;">
+          ${items.map(i => `<div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--line); ${q[i.id] ? 'background:#f6fbf7;' : ''}">
+              <div style="flex:1; font-size:14px;">${driverEsc(i.nickname || i.description)}${i.nickname ? `<div style="font-size:11.5px; color:var(--muted);">${driverEsc(i.description)}</div>` : ''}</div>
+              <button type="button" class="me-step" data-id="${i.id}" data-d="-1" style="width:34px; height:34px; border:1px solid var(--line); background:#fff; border-radius:6px; font-size:18px; cursor:pointer;">\u2212</button>
+              <input class="me-qty driver-qty" data-id="${i.id}" data-was="${q[i.id] || 0}" value="${q[i.id] || 0}" inputmode="numeric" style="width:52px; text-align:center; padding:7px; font-size:15px;">
+              <button type="button" class="me-step" data-id="${i.id}" data-d="1" style="width:34px; height:34px; border:1px solid var(--line); background:#fff; border-radius:6px; font-size:18px; cursor:pointer;">+</button>
+            </div>`).join('')}
+        </div>
+        ${rec.edits.length ? `<div style="font-size:11.5px; color:var(--muted); margin-top:6px;">Changed ${rec.edits.length} time${rec.edits.length === 1 ? '' : 's'} today, last by ${driverEsc(rec.edits[rec.edits.length - 1].by)}.</div>` : ''}
+        <button type="button" id="matEditSave" style="width:100%; margin-top:12px; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Save Changes</button>
+        <p class="status-msg" id="matEditStatus" style="margin:8px 0 0;"></p>`;
+      const which = document.getElementById('matEditWhich'); if(which) which.onchange = () => { recIdx = +which.value; draw(); };
+      body.querySelectorAll('.me-step').forEach(b => b.onclick = () => { const inp = body.querySelector(`.me-qty[data-id="${b.dataset.id}"]`); inp.value = Math.max(0, (parseInt(inp.value, 10) || 0) + Number(b.dataset.d)); });
+      document.getElementById('matEditSave').onclick = async (e) => {
+        const btn = e.currentTarget, st = document.getElementById('matEditStatus');
+        const items = [...body.querySelectorAll('.me-qty')].map(inp => ({ itemId: inp.dataset.id, quantity: parseInt(String(inp.value).replace(/[^0-9]/g, ''), 10) || 0 }));
+        if(!items.some((it, k) => it.quantity !== Number(body.querySelectorAll('.me-qty')[k].dataset.was))){ st.textContent = 'Nothing changed.'; st.className = 'status-msg'; return; }
+        btn.disabled = true; st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+        try{
+          const r = await fetch(`${API_BASE_AUTH}/api/driver/materials-today/${kind}/${encodeURIComponent(rec.id)}`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+          const res = await r.json(); if(!r.ok) throw new Error(res.error || 'Could not save.');
+          body.innerHTML = `<p class="status-msg ok" style="margin:0 0 8px;">\u2713 Saved. Inventory updated.</p>` + (res.changes || []).map(c => `<div style="font-size:13.5px; padding:3px 0;">${driverEsc(c.description)}: ${c.from} \u2192 <strong>${c.to}</strong></div>`).join('')
+            + '<button type="button" id="matEditDone" style="width:100%; margin-top:12px; padding:12px; font-size:15px; font-weight:700; background:#fff; border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Done</button>';
+          document.getElementById('matEditDone').onclick = () => { modal.style.display = 'none'; };
+        }catch(err){ btn.disabled = false; st.textContent = err.message; st.className = 'status-msg err'; }
+      };
+    };
+    draw();
+  }
+  document.getElementById('matEditClose').addEventListener('click', () => { document.getElementById('matEditModal').style.display = 'none'; });
+  document.querySelectorAll('.mat-change-btn').forEach(b => b.addEventListener('click', () => openMaterialsChange(b.dataset.kind)));
+  // Captain: show the Change buttons once today's record exists.
+  async function refreshMaterialsChangeButtons(){
+    if(driverRole === 'wingman') return;
+    for(const kind of ['checkout', 'checkin']){
+      try{
+        const r = await fetch(`${API_BASE_AUTH}/api/driver/materials-today/${kind}`, { headers: { 'Authorization': 'Bearer ' + driverToken } });
+        const d = r.ok ? await r.json() : { records: [] };
+        document.querySelectorAll(`.mat-change-btn[data-kind="${kind}"]`).forEach(b => b.style.display = d.records && d.records.length ? 'inline-block' : 'none');
+      }catch(err){}
+    }
+  }
+
   // ---- Nag until the driver file is complete ----
   // A red banner on Driver Tools every time, and a pop-up once each time the
   // app is opened, until his license, physical, application and road test
@@ -2378,6 +2455,7 @@
     loadMyTips();
     loadEsignRequests();
     loadDriverFileNag();
+    refreshMaterialsChangeButtons();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -3479,6 +3557,7 @@
     loadMyTips();
     loadEsignRequests();
     loadDriverFileNag();
+    refreshMaterialsChangeButtons();
     const flash = document.getElementById('wingmanTasksFlash');
     flash.textContent = flashMsg || '';
     flash.className = flashMsg ? 'status-msg ok' : 'status-msg';
@@ -3551,11 +3630,14 @@
         </button>`;
       }
       const byCaptain = t.completedBy && t.completedBy === t.captainName;
-      return `<div style="background:var(--offwhite); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:8px;">
-        <div style="font-weight:600; font-size:14px; color:var(--brand-green-dark);">&#10003; ${label}</div>
-        <div style="font-size:12.5px; color:var(--muted); margin-top:3px;">For Captain ${driverEsc(t.captainName)} &middot; ${byCaptain ? 'done by the Captain' : 'done'}</div>
+      const kind = (t.type === 'materials-checkout' || t.type === 'pretrip') ? 'checkout' : t.type === 'materials-checkin' ? 'checkin' : null;
+      return `<div style="background:var(--offwhite); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div><div style="font-weight:600; font-size:14px; color:var(--brand-green-dark);">&#10003; ${label}</div>
+        <div style="font-size:12.5px; color:var(--muted); margin-top:3px;">For Captain ${driverEsc(t.captainName)} &middot; ${byCaptain ? 'done by the Captain' : 'done'}</div></div>
+        ${kind && !byCaptain ? `<button type="button" class="mat-change-task dt-btn" data-kind="${kind}" data-id="${driverEsc(t.id)}">&#9999;&#65039; Change</button>` : ''}
       </div>`;
     }).join('');
+    listEl.querySelectorAll('.mat-change-task').forEach(b => b.addEventListener('click', () => openMaterialsChange(b.dataset.kind, b.dataset.id)));
     listEl.querySelectorAll('.wingman-task-btn').forEach(btn => btn.addEventListener('click', (e)=>{
       const task = wingmanTasks.find(t => t.id === e.currentTarget.dataset.id);
       if(task) openWingmanTask(task);
@@ -24744,12 +24826,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const from = otAdd(otData.today, -27), cats = {};
     Object.entries(otData.manual).forEach(([d, v]) => { if(d >= from) Object.entries(v).forEach(([c, m]) => cats[c] = (cats[c] || 0) + m); });
     let app4 = 0; Object.entries(otData.appByDay).forEach(([d, m]) => { if(d >= from) app4 += m; });
-    if(app4) cats['In the app (automatic)'] = app4;
+    const APP = 'In the app (automatic)';
+    if(app4) cats[APP] = app4;
     const rows = Object.entries(cats).sort((a, b) => b[1] - a[1]), tot = rows.reduce((t, [, m]) => t + m, 0);
-    document.getElementById('ot_breakdown').innerHTML = rows.length ? `<div style="font-weight:700; margin-bottom:6px;">Where the time went (last 4 weeks) \u2014 ${otHrs(tot)} hrs</div>` + rows.map(([c, m]) => `
-      <div style="display:flex; align-items:center; gap:10px; font-size:13px; margin-bottom:4px;"><div style="width:200px;">${mfEsc(c)}</div>
-        <div style="flex:1; background:#f1f1ec; border-radius:4px; height:10px;"><div style="width:${Math.round(m / tot * 100)}%; height:10px; background:${c.startsWith('In the app') ? '#9fbbe0' : '#2f6db5'}; border-radius:4px;"></div></div>
-        <div style="width:70px; text-align:right;">${otHrs(m)} hrs</div></div>`).join('') : '';
+    // App time split by the part of the app it was spent in.
+    // (Scaled so the parts add up exactly to the "In the app" total above.)
+    const rawParts = Object.entries(otData.appByView4 || {}).filter(([, m]) => m > 0);
+    const rawSum = rawParts.reduce((t, [, m]) => t + m, 0);
+    const appParts = rawSum ? rawParts.map(([v, m]) => [v, m / rawSum * app4]).sort((a, b) => b[1] - a[1]) : [];
+    const bar = (label, m, color, indent) => `
+      <div style="display:flex; align-items:center; gap:10px; font-size:${indent ? 12 : 13}px; margin-bottom:${indent ? 3 : 4}px; ${indent ? 'color:#41608a;' : ''}"><div style="width:200px; ${indent ? 'padding-left:18px; box-sizing:border-box;' : ''}">${indent ? '\u21b3 ' : ''}${mfEsc(label)}</div>
+        <div style="flex:1; background:#f1f1ec; border-radius:4px; height:${indent ? 7 : 10}px;"><div style="width:${Math.round(m / tot * 100)}%; height:${indent ? 7 : 10}px; background:${color}; border-radius:4px;"></div></div>
+        <div style="width:70px; text-align:right;">${otHrs(m)} hrs</div></div>`;
+    document.getElementById('ot_breakdown').innerHTML = rows.length ? `<div style="font-weight:700; margin-bottom:6px;">Where the time went (last 4 weeks) \u2014 ${otHrs(tot)} hrs</div>` + rows.map(([c, m]) =>
+      c === APP ? bar(c, m, '#9fbbe0', false) + appParts.map(([v, vm]) => bar(OT_LABELS[v] || v, vm, '#c5d6ee', true)).join('') : bar(c, m, '#2f6db5', false)
+    ).join('') : '';
   }
   function renderOtWeek(){
     const ws = otWeek, days = [...Array(7)].map((_, k) => otAdd(ws, k)), cur = otMonday(otData.today);
