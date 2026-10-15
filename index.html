@@ -9227,6 +9227,7 @@
 
   function showView(view){
     window.__ownerTimeView = view;
+    if(view === 'home' && window.collapseAlwaysCollapsedSections) window.collapseAlwaysCollapsedSections();
     // Monthly Financials is admin-only -- block direct navigation (a typed
     // or bookmarked #monthlyfinancials hash, browser back/forward, etc.)
     // the same way the tile itself is hidden from non-admins, rather than
@@ -15101,7 +15102,11 @@
     catch(err){ /* ignore -- purely a UI convenience, never load-bearing */ }
   }
 
+  // "Just for Fun" (the Truck Driver game) never remembers being opened:
+  // it starts collapsed every time and closes again on returning home.
+  const ALWAYS_COLLAPSED_SECTIONS = new Set(['fun']);
   function setDashSectionExpanded(sectionEl, expanded, persist){
+    if(ALWAYS_COLLAPSED_SECTIONS.has(sectionEl.dataset.category)) persist = false;
     sectionEl.classList.toggle('expanded', expanded);
     const header = sectionEl.querySelector('.dashSectionHeader');
     if(header) header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
@@ -15116,7 +15121,7 @@
     const state = loadDashSectionState();
     document.querySelectorAll('.dashSection').forEach(section => {
       const cat = section.dataset.category;
-      const expanded = Object.prototype.hasOwnProperty.call(state, cat) ? !!state[cat] : false; // collapsed by default
+      const expanded = ALWAYS_COLLAPSED_SECTIONS.has(cat) ? false : (Object.prototype.hasOwnProperty.call(state, cat) ? !!state[cat] : false); // collapsed by default
       setDashSectionExpanded(section, expanded, false);
       section.querySelector('.dashSectionHeader').addEventListener('click', ()=>{
         setDashSectionExpanded(section, !section.classList.contains('expanded'), true);
@@ -15124,6 +15129,7 @@
     });
   }
   initDashSections();
+  window.collapseAlwaysCollapsedSections = () => document.querySelectorAll('.dashSection').forEach(sec => { if(ALWAYS_COLLAPSED_SECTIONS.has(sec.dataset.category)) setDashSectionExpanded(sec, false, false); });
 
   // Monthly Financials is sensitive enough (meant for a future buyer's
   // review) to restrict to administrators only -- hidden from the
