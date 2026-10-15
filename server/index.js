@@ -154,6 +154,16 @@ async function pruneConfigSnapshots() {
   return toDelete.length;
 }
 setTimeout(() => { pruneConfigSnapshots().catch(err => console.error('Snapshot cleanup failed:', err.message)); }, 15000);
+// Who has Admin vs User dashboard logins (emails only, never passwords).
+setTimeout(async () => {
+  try {
+    const users = await getUsers();
+    const admins = Object.entries(users).filter(([, u]) => u && u.role === 'admin').map(([e]) => e);
+    const others = Object.entries(users).filter(([, u]) => !u || u.role !== 'admin').map(([e]) => e);
+    console.log(`[users] admin logins (${admins.length}): ${admins.join(', ') || '(none)'}`);
+    console.log(`[users] user logins (${others.length}): ${others.join(', ') || '(none)'}`);
+  } catch (err) { console.error('User list log failed:', err.message); }
+}, 8000);
 
 function verifyGithubSignature(req) {
   if (!GITHUB_WEBHOOK_SECRET || !req.rawBody) return false;
@@ -6291,13 +6301,34 @@ async function isRequestingUserAdmin(req) {
 
 // Monthly Financials belongs to the Owner (Configuration -> Financials);
 // until an Owner is set, admins have it.
-const OWNER_ONLY_KEYS = new Set(['monthly-financials']);
+// Extra Pay's own data (commission, misc, paid weeks) is the Owner's too.
+const OWNER_ONLY_KEYS = new Set(['monthly-financials', 'extra-pay-manual']);
 async function canSeeFinancials(req) {
   const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
   const owner = String((st.financials || {}).ownerEmail || '').toLowerCase();
   if (owner) return owner === String(req.userEmail || '').toLowerCase();
   return isRequestingUserAdmin(req);
 }
+// Ops Manager Metrics -> "Your Commission": only the Ops Manager's own
+// rows from Extra Pay, so his panel works without Extra Pay access.
+app.get('/api/ops-manager/commission-history', requireAuth, async (req, res) => {
+  try {
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    const omName = (st.commission || {}).opsManagerAssignment || '';
+    const rate = Number((st.commission || {}).opsManagerRate) || 0;
+    if (!omName) return res.json({ omName: '', rate, weeks: [] });
+    const manual = JSON.parse(await redis.get('extra-pay-manual') || '{}');
+    const weeks = Object.keys(manual).sort().reverse().map(ws => {
+      const entry = Object.entries(manual[ws] || {}).find(([n]) => nameCoreKey(n) === nameCoreKey(omName));
+      if (!entry) return null;
+      const v = entry[1] || {};
+      return { weekStart: ws, convertedRevenue: Number(v.convertedRevenue) || 0, commission: Number(v.commission) || 0,
+        omRatePct: v.omRatePct != null ? v.omRatePct : null, omScore: v.omScore != null ? v.omScore : null, omHours: v.omHours != null ? v.omHours : null };
+    }).filter(Boolean).slice(0, 8);
+    res.json({ omName, rate, weeks });
+  } catch (err) { console.error('OM commission history failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+
 async function requireFinancialsAccess(req, res, next) {
   try { if (await canSeeFinancials(req)) return next(); res.status(403).json({ error: 'Only the Owner can see Monthly Financials.' }); }
   catch (err) { res.status(500).json({ error: 'Permission check failed.' }); }
