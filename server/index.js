@@ -79,6 +79,7 @@ const ALLOWED_KEYS = new Set([
   'junk-removal-jobs',
   'moving-damage-reports',
   'manager-review-items',
+  'truck-condition-acks',
   'financial-state-tax-records',
   'monthly-financials',
   'hourly-rate-history',
@@ -298,6 +299,41 @@ const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 16; // 16 hours -- a work shift
 // endpoints below, and the digits are never sent back to the dashboard.
 const MANUAL_SSN_KEY = 'roster-manual-ssn';
 
+// ============ Employee roles: Captain / Wingman checkboxes ============
+// Set on the Employee Roster. These -- not "is a driver in Compliance" --
+// decide HUNK Portal sign-in and who's in Captain vs Wingman scoring,
+// reviews and metrics. Someone with nothing saved yet keeps the old
+// behavior: an active driver is a Captain, everyone else a Wingman.
+const EMPLOYEE_ROLES_KEY = 'employee-roles';   // { coreKey: { name, captain, wingman } }
+async function loadRoleRules() {
+  const [rolesRaw, driversRaw] = await Promise.all([redis.get(EMPLOYEE_ROLES_KEY), redis.get('compliance-drivers')]);
+  const roles = JSON.parse(rolesRaw || '{}');
+  const driverKeys = new Set(JSON.parse(driversRaw || '[]').filter(d => d && d.active).map(d => nameCoreKey(d.employeeName)));
+  const saved = name => roles[nameCoreKey(name)];
+  return {
+    roles, driverKeys,
+    isDriver: name => driverKeys.has(nameCoreKey(name)),
+    isCaptain: name => { const r = saved(name); return r ? !!r.captain : driverKeys.has(nameCoreKey(name)); },
+    isWingman: name => { const r = saved(name); return r ? !!r.wingman : !driverKeys.has(nameCoreKey(name)); }
+  };
+}
+// Ratings for anyone not marked Wingman are left out of Wingman scoring
+// (replaces "leave out active drivers"). Keys use nameDedupKey, as before.
+async function fetchNotWingmanKeys() {
+  const rules = await loadRoleRules();
+  const [weeksRaw, manualRaw, driversRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions'), redis.get('compliance-drivers')]);
+  const names = new Set([...computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')), ...JSON.parse(driversRaw || '[]').map(d => d.employeeName)]);
+  return new Set([...names].filter(n => n && !rules.isWingman(n)).map(nameDedupKey));
+}
+// Everyone marked Captain (roster + Compliance drivers) -- who Captain
+// Metrics scores (replaces "active drivers").
+async function fetchCaptainNames() {
+  const rules = await loadRoleRules();
+  const [weeksRaw, manualRaw, driversRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions'), redis.get('compliance-drivers')]);
+  const names = new Set([...computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')), ...JSON.parse(driversRaw || '[]').map(d => d.employeeName)]);
+  return [...names].filter(n => n && rules.isCaptain(n));
+}
+
 async function rebuildDriverAuthLookup() {
   try {
     const [weeksRaw, driversRaw] = await Promise.all([
@@ -310,6 +346,8 @@ async function rebuildDriverAuthLookup() {
     // an office employee who happens to be on payroll never gets Driver
     // Portal access just by having last-4 SSN data on file.
     const activeDriverNames = new Set(compDrivers.filter(d => d && d.active).map(d => d.employeeName));
+    // Driver Tools vs Wingman Tools follows the Captain checkbox (Employee Roster).
+    const roleRules = await loadRoleRules();
 
     // The two most recent payroll weeks -- the same window the employee
     // roster uses -- so someone who took an unpaid week off (and so isn't
@@ -324,7 +362,7 @@ async function rebuildDriverAuthLookup() {
       // A given last-4 maps to exactly one person and one portal.
       delete lookup[e.ssnLast4];
       delete wingmanLookup[e.ssnLast4];
-      if (activeDriverNames.has(e.name)) lookup[e.ssnLast4] = e.name;
+      if (roleRules.isCaptain(e.name)) lookup[e.ssnLast4] = e.name;
       else wingmanLookup[e.ssnLast4] = e.name;
     });
     // Manually added employees (Roster Additions -- brand-new hires not on
@@ -344,8 +382,7 @@ async function rebuildDriverAuthLookup() {
         if (!onManualList.has(nameCoreKey(name)) || onPayroll.has(nameCoreKey(name))) { delete manualSsn[name]; pruned = true; return; }
         const last4 = manualSsn[name];
         if (!/^\d{4}$/.test(last4) || lookup[last4] || wingmanLookup[last4]) return;
-        const isDriver = [...activeDriverNames].some(d => nameCoreKey(d) === nameCoreKey(name));
-        if (isDriver) lookup[last4] = name; else wingmanLookup[last4] = name;
+        if (roleRules.isCaptain(name)) lookup[last4] = name; else wingmanLookup[last4] = name;
       });
       if (pruned) await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
     } catch (err) {
@@ -779,8 +816,13 @@ app.get('/api/driver/roster', requireDriverAuth, async (req, res) => {
     ]);
     const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
     const manualAdditions = manualRaw ? JSON.parse(manualRaw) : [];
-    const names = computeRosterNames(weeks, manualAdditions).filter(n => !activeDriverKeys.has(nameDedupKey(n)));
-    res.json({ names });
+    // Everyone except the Captain himself -- other drivers sometimes work as
+    // a wingman, and leaving them off forced Captains to type names in.
+    const me = nameCoreKey(req.driverName);
+    const rules = await loadRoleRules();
+    // Everyone checked as a Wingman on the Employee Roster, except himself.
+    const names = computeRosterNames(weeks, manualAdditions).filter(n => nameCoreKey(n) !== me && rules.isWingman(n));
+    res.json({ names, drivers: names.filter(n => rules.isCaptain(n)) });
   } catch (err) {
     console.error('Driver roster fetch failed:', err.message);
     res.status(500).json({ error: 'Could not load roster.' });
@@ -814,12 +856,17 @@ app.post('/api/driver/wingman-rating', requireDriverAuth, async (req, res) => {
     return res.status(400).json({ error: 'answers must be a non-empty array of { question, answer }.' });
   }
   try {
+    // Only people on the roster can be rated (no typed-in names).
+    const [weeksRaw, manualRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions')]);
+    const roster = computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]'));
+    const match = roster.find(n => nameCoreKey(n) === nameCoreKey(wingmanName));
+    if (!match) return res.status(400).json({ error: 'Pick the wingman from the list. If he isn\u2019t on it, ask the office to add him to the Employee Roster.' });
     const raw = await redis.get('wingman-ratings');
     const ratings = raw ? JSON.parse(raw) : [];
     ratings.push({
       id: 'wr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       captainName: req.driverName,
-      wingmanName: wingmanName.trim().slice(0, 100),
+      wingmanName: match,
       date: new Date().toISOString().slice(0, 10),
       answers: answers.map(a => ({ question: String(a.question).slice(0, 300), answer: !!a.answer })),
       createdAt: new Date().toISOString()
@@ -830,6 +877,82 @@ app.post('/api/driver/wingman-rating', requireDriverAuth, async (req, res) => {
     console.error('Wingman rating submission failed:', err.message);
     res.status(500).json({ error: 'Could not save that wingman review.' });
   }
+});
+
+// Wingman Metrics cleanup: reviews saved under a name that isn't on the
+// roster (typed in before names had to be picked from the list).
+async function wingmanRosterAndRatings() {
+  const [weeksRaw, manualRaw, ratingsRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions'), redis.get('wingman-ratings')]);
+  return { roster: computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')), ratings: JSON.parse(ratingsRaw || '[]') };
+}
+app.get('/api/admin/wingman-ratings/unrecognized', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { roster, ratings } = await wingmanRosterAndRatings();
+    const known = new Set(roster.map(nameCoreKey)), groups = {};
+    ratings.forEach(r => {
+      if (known.has(nameCoreKey(r.wingmanName))) return;
+      const g = groups[r.wingmanName] = groups[r.wingmanName] || { name: r.wingmanName, count: 0, captains: new Set(), dates: [] };
+      g.count++; g.captains.add(r.captainName); g.dates.push(r.date);
+    });
+    res.json({ roster, names: Object.values(groups).map(g => ({ name: g.name, count: g.count, captains: [...g.captains], first: g.dates.sort()[0], last: g.dates.sort().slice(-1)[0] })) });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/wingman-ratings/fix', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { from, to, remove } = req.body || {};
+    const { roster, ratings } = await wingmanRosterAndRatings();
+    if (!from) return res.status(400).json({ error: 'Which name?' });
+    let kept = ratings, n = 0;
+    if (remove) { kept = ratings.filter(r => { const hit = r.wingmanName === from; if (hit) n++; return !hit; }); }
+    else {
+      const target = roster.find(x => x === to);
+      if (!target) return res.status(400).json({ error: 'Pick someone on the roster.' });
+      ratings.forEach(r => { if (r.wingmanName === from) { r.wingmanName = target; r.renamedFrom = from; n++; } });
+    }
+    await redis.set('wingman-ratings', JSON.stringify(kept));
+    console.log(`[wingman] ${remove ? 'removed' : 'reassigned'} ${n} review(s) for "${from}"${remove ? '' : ' -> ' + to} by ${req.userEmail || ''}`);
+    res.json({ ok: true, changed: n });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
+// Employee Roster: read / set the Captain and Wingman checkboxes.
+app.get('/api/employee-roles', requireAuth, async (req, res) => {
+  try {
+    const rules = await loadRoleRules();
+    const [weeksRaw, manualRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions')]);
+    const out = {};
+    computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')).forEach(n => {
+      out[n] = { captain: rules.isCaptain(n), wingman: rules.isWingman(n), driver: rules.isDriver(n), saved: !!rules.roles[nameCoreKey(n)] };
+    });
+    res.json({ roles: out });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/employee-roles', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { name, captain, wingman } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Name required.' });
+    const roles = JSON.parse(await redis.get(EMPLOYEE_ROLES_KEY) || '{}');
+    roles[nameCoreKey(name)] = { name: String(name).slice(0, 100), captain: !!captain, wingman: !!wingman, updatedAt: new Date().toISOString(), by: req.userEmail || '' };
+    await redis.set(EMPLOYEE_ROLES_KEY, JSON.stringify(roles));
+    await rebuildDriverAuthLookup();   // sign-in follows the Captain checkbox right away
+    console.log(`[roles] ${name}: captain=${!!captain} wingman=${!!wingman} (by ${req.userEmail || ''})`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+// "Driving today?" -- a Wingman who is a Driver in Compliance (a backup
+// driver) can open Driver Tools for the day. Not checked as a Captain, so
+// it doesn't put him in Captain scoring.
+app.get('/api/wingman/can-drive', requireWingmanAuth, async (req, res) => {
+  try { res.json({ canDrive: (await loadRoleRules()).isDriver(req.wingmanName) }); } catch (err) { res.json({ canDrive: false }); }
+});
+app.post('/api/wingman/drive-today', requireWingmanAuth, async (req, res) => {
+  try {
+    if (!(await loadRoleRules()).isDriver(req.wingmanName)) return res.status(403).json({ error: 'You\u2019re not set up as a driver yet \u2014 ask the office.' });
+    const token = crypto.randomBytes(32).toString('hex');
+    await redis.set(DRIVER_SESSION_PREFIX + token, req.wingmanName, 'EX', DRIVER_SESSION_TTL_SECONDS);
+    console.log(`[roles] ${req.wingmanName} opened Driver Tools for the day (backup driver)`);
+    res.json({ token, driverName: req.wingmanName, role: 'captain' });
+  } catch (err) { res.status(500).json({ error: 'Could not switch.' }); }
 });
 
 // ============ Required daily Wingman Review ============
@@ -1102,6 +1225,34 @@ app.post('/api/driver/materials-checkout', requireDriverOrTaskWingman(['pretrip'
     console.error('Materials checkout submission failed:', err.message);
     res.status(500).json({ error: 'Could not submit checkout.' });
   }
+});
+
+// ============ Truck Condition "Fail" -> Captain notice ============
+// A Truck Condition the manager marks Fail shows to the Captain as a pop-up
+// from the next day on, until he acknowledges it ("I Understand").
+const TRUCK_COND_ACKS_KEY = 'truck-condition-acks';   // { itemId: { name, at } }
+async function conditionNoticesFor(name) {
+  const [itemsRaw, acksRaw] = await Promise.all([redis.get('manager-review-items'), redis.get(TRUCK_COND_ACKS_KEY)]);
+  const acks = JSON.parse(acksRaw || '{}'), today = easternDateFromMs(Date.now());
+  const cutoff = easternDateFromMs(Date.now() - 30 * 864e5);
+  return JSON.parse(itemsRaw || '[]').filter(i => i.type === 'truck-condition' && i.outcome === 'fail' && i.reviewedAt
+      && nameCoreKey(i.driverName) === nameCoreKey(name) && !acks[i.id]) 
+    .filter(i => { const d = easternDateFromMs(Date.parse(i.reviewedAt)); return d < today && d >= cutoff; })   // from the next day on
+    .map(i => ({ id: i.id, date: i.date, truckNickname: i.truckNickname || '', summary: i.visionSummary || '', issues: (i.visionIssues || []).map(x => ({ issue: String(x.issue || ''), severity: x.severity || '' })) }));
+}
+app.get('/api/driver/condition-notices', requireDriverAuth, async (req, res) => {
+  try { res.json({ notices: await conditionNoticesFor(req.driverName) }); }
+  catch (err) { console.error('Condition notices failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/driver/condition-notices/ack', requireDriverAuth, async (req, res) => {
+  try {
+    const mine = new Set((await conditionNoticesFor(req.driverName)).map(n => n.id));
+    const ids = (Array.isArray((req.body || {}).ids) ? req.body.ids : []).filter(id => mine.has(id));
+    const acks = JSON.parse(await redis.get(TRUCK_COND_ACKS_KEY) || '{}');
+    ids.forEach(id => { acks[id] = { name: req.driverName, at: new Date().toISOString() }; });
+    await redis.set(TRUCK_COND_ACKS_KEY, JSON.stringify(acks));
+    res.json({ ok: true, acknowledged: ids.length });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
 
 // ============ Same-day changes to Material Checkout / Checkin ============
@@ -2116,7 +2267,10 @@ app.post('/api/driver/wingman-tasks', requireDriverAuth, async (req, res) => {
     ]);
     const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
     const manualAdditions = manualRaw ? JSON.parse(manualRaw) : [];
-    const eligible = computeRosterNames(weeks, manualAdditions).filter(n => !activeDriverKeys.has(nameDedupKey(n)));
+    const rules = await loadRoleRules();
+    // Wingman-checked, and not a Captain (Captains sign in to Driver Tools,
+    // where wingman tasks don't show).
+    const eligible = computeRosterNames(weeks, manualAdditions).filter(n => rules.isWingman(n) && !rules.isCaptain(n) && nameCoreKey(n) !== nameCoreKey(req.driverName));
     const match = eligible.find(n => nameDedupKey(n) === nameDedupKey(wingmanName));
     if (!match) return res.status(400).json({ error: 'That person isn\u2019t on the wingman roster.' });
 
@@ -2181,7 +2335,7 @@ app.get('/api/wingman/leaderboard', requireWingmanAuth, async (req, res) => {
     const { activeMonth } = await getActiveWingmanMetricsMonth();
     const [ratingsRaw, activeDriverKeys] = await Promise.all([
       redis.get('wingman-ratings'),
-      fetchActiveDriverKeys()
+      fetchNotWingmanKeys()
     ]);
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
     const scores = computeWingmanScoresForMonth(activeMonth, ratings, activeDriverKeys);
@@ -3065,7 +3219,7 @@ async function getActiveWingmanMetricsMonth() {
   };
   return getActiveMetricsMonth(WINGMAN_METRICS_MONTHLY_LOCKS_KEY, async (monthStr) => {
     const ratings = await getRatings();
-    if (!cachedDriverKeys) cachedDriverKeys = await fetchActiveDriverKeys();
+    if (!cachedDriverKeys) cachedDriverKeys = await fetchNotWingmanKeys();
     return computeWingmanScoresForMonth(monthStr, ratings, cachedDriverKeys);
   });
 }
@@ -3088,7 +3242,8 @@ async function fetchCaptainMetricsRawData() {
   // state that correctly restricts scoring to no one). Using driversRaw
   // itself for this, not the parsed array's length, since an empty array
   // is a valid, real value once the key exists.
-  const activeDriverNames = driversRaw ? JSON.parse(driversRaw).filter(d => d.active).map(d => d.employeeName) : null;
+  // Who's scored as a Captain: the Captain checkbox (Employee Roster).
+  const activeDriverNames = driversRaw ? await fetchCaptainNames() : null;
   return {
     archive: archiveRaw ? JSON.parse(archiveRaw) : [],
     ptiRecords: ptiRaw ? JSON.parse(ptiRaw) : [],
@@ -3321,7 +3476,7 @@ app.get('/api/admin/wingman-metrics/for-week', requireAuth, async (req, res) => 
   try {
     const [ratingsRaw, activeDriverKeys] = await Promise.all([
       redis.get('wingman-ratings'),
-      fetchActiveDriverKeys()
+      fetchNotWingmanKeys()
     ]);
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
 
@@ -3348,7 +3503,7 @@ app.get('/api/admin/wingman-metrics/current', requireAuth, async (req, res) => {
     const { activeMonth } = await getActiveWingmanMetricsMonth();
     const [ratingsRaw, activeDriverKeys] = await Promise.all([
       redis.get('wingman-ratings'),
-      fetchActiveDriverKeys()
+      fetchNotWingmanKeys()
     ]);
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
     const scores = computeWingmanScoresForMonth(activeMonth, ratings, activeDriverKeys);
@@ -3380,7 +3535,7 @@ app.get('/api/admin/wingman-metrics/weekly-trend', requireAuth, async (req, res)
   try {
     const [ratingsRaw, activeDriverKeys] = await Promise.all([
       redis.get('wingman-ratings'),
-      fetchActiveDriverKeys()
+      fetchNotWingmanKeys()
     ]);
     const ratings = ratingsRaw ? JSON.parse(ratingsRaw) : [];
 
