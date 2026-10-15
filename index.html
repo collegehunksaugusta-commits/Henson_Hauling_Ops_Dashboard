@@ -728,6 +728,12 @@
       <button type="button" id="wingmanMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
 
+    <div id="wmDriveToday" style="display:none; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px;">
+      <div style="font-weight:800; font-size:15px;">&#128666; Driving today?</div>
+      <div style="font-size:12.5px; color:var(--muted); margin:3px 0 8px;">You&rsquo;re set up as a backup driver. Open Driver Tools for the Pre-Trip, End of Day and your Truck Documents.</div>
+      <button type="button" id="wmDriveTodayBtn" style="width:100%; padding:11px; font-size:15px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:8px; cursor:pointer; font-family:inherit;">Open Driver Tools</button>
+      <p class="status-msg" id="wmDriveTodayStatus" style="margin:6px 0 0;"></p>
+    </div>
     <div class="portal-welcome" data-role="Wingman" style="background:var(--brand-green); color:#fff; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
       <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
       <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Wingman. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
@@ -1198,8 +1204,9 @@
       <h3 style="margin-top:0;">Who worked with you today?</h3>
       <p class="form-note" id="wingman_selectNote">Rate everyone who helped you on a job today.</p>
       <label id="wingman_selectWrap">Wingman <select id="wingman_select"></select></label>
-      <p class="form-note" id="wingman_noOptionsNote" style="display:none;">No one&rsquo;s on the roster yet &mdash; type their name below.</p>
-      <label>Not on the list? Type their full name <input type="text" id="wingman_otherName" placeholder="Last, First" autocomplete="off"></label>
+      <p class="form-note" id="wingman_noOptionsNote" style="display:none;">No one&rsquo;s on the roster yet &mdash; ask the office to add your wingman in Employee Roster.</p>
+      <p class="form-note" style="margin-top:4px;">Not on the list? Ask the office to add him in <strong>Employee Roster &rarr; Roster Additions</strong> &mdash; he&rsquo;ll show up here right away.</p>
+      <input type="hidden" id="wingman_otherName" value="">
       <p class="status-msg" id="wingman_selectStatus"></p>
       <div class="form-actions" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:14px;">
         <button class="btn-primary" id="wingman_startReviewBtn" type="button" style="width:100%; padding:14px; font-size:15px;">Review This Wingman</button>
@@ -1736,6 +1743,66 @@
 
   const ES_STEPS = [['license', 'Driver\u2019s License', 'Photo of the front and back', '&#129706;'], ['physical', 'DOT Physical', 'Upload your medical examiner\u2019s certificate', '&#129658;'], ['application', 'DOT Driver Application', 'Fill out and sign electronically', '&#128221;']];
   const esPending = () => esignRequests.filter(r => (r.status || 'pending') === 'pending');
+  // ---- Backup driver: a Wingman who's a Driver can open Driver Tools ----
+  async function loadDriveTodayOption(){
+    const box = document.getElementById('wmDriveToday');
+    if(driverRole !== 'wingman'){ box.style.display = 'none'; return; }
+    try{ const r = await fetch(API_BASE_AUTH + '/api/wingman/can-drive', { headers: {'Authorization': 'Bearer ' + driverToken} }); const d = r.ok ? await r.json() : {}; box.style.display = d.canDrive ? 'block' : 'none'; }
+    catch(err){ box.style.display = 'none'; }
+  }
+  document.getElementById('wmDriveTodayBtn').addEventListener('click', async () => {
+    const st = document.getElementById('wmDriveTodayStatus');
+    try{
+      const r = await fetch(API_BASE_AUTH + '/api/wingman/drive-today', { method: 'POST', headers: {'Authorization': 'Bearer ' + driverToken} });
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not switch.');
+      driverToken = d.token; driverRole = 'captain'; currentDriverName = d.driverName;
+      localStorage.setItem('henson_driver_token', d.token); localStorage.setItem('henson_driver_role', 'captain'); localStorage.setItem('henson_driver_name', d.driverName);
+      showDriverMenu();
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  });
+
+  // ---- Truck Condition marked FAIL -> pop-up the next day ----
+  // Styled like the weigh-station caution. Waits for any other pop-up to
+  // close first, and "I Understand" acknowledges every notice shown.
+  let condNoticeShownThisOpen = false;
+  async function loadConditionNotices(){
+    if(driverRole === 'wingman' || condNoticeShownThisOpen) return;
+    let notices = [];
+    try{
+      const r = await fetch(API_BASE_AUTH + '/api/driver/condition-notices', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(!r.ok) return; notices = (await r.json()).notices || [];
+    }catch(err){ return; }
+    if(!notices.length) return;
+    condNoticeShownThisOpen = true;
+    const busy = () => { const a = document.getElementById('dqNagModal'), b = document.getElementById('weighCautionOverlay'), c = document.getElementById('matEditModal');
+      return (a && a.style.display === 'flex') || !!b || (c && c.style.display === 'flex'); };
+    const show = () => {
+      if(busy()){ setTimeout(show, 600); return; }
+      const ov = document.createElement('div'); ov.id = 'condFailOverlay'; ov.setAttribute('role', 'alertdialog');
+      ov.style.cssText = 'position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; padding:20px; overflow-y:auto;';
+      ov.innerHTML = `<div style="background:#fff; max-width:440px; width:100%; border-radius:14px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.4); font-family:inherit;">
+        <div style="background:#b3261e; color:#fff; padding:16px 18px; display:flex; align-items:center; gap:12px;">
+          <span style="font-size:38px; line-height:1;">&#128666;</span>
+          <div><div style="font-size:21px; font-weight:800; letter-spacing:.03em;">TRUCK CONDITION \u2014 FAIL</div>
+          <div style="font-size:13px; opacity:.95;">The manager reviewed your End of Day truck photo${notices.length > 1 ? 's' : ''}</div></div>
+        </div>
+        <div style="padding:16px 18px 18px;">
+          ${notices.map(n => `<div style="margin-bottom:12px;">
+              <div style="font-weight:800; font-size:15px;">${new Date(n.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}${n.truckNickname ? ' \u00b7 ' + driverEsc(n.truckNickname) : ''}</div>
+              ${n.issues.length ? `<ul style="margin:4px 0 0; padding-left:20px; font-size:14px;">${n.issues.map(i => `<li>${driverEsc(i.issue)}${i.severity === 'moderate' ? ' <strong style="color:#b3261e;">(moderate)</strong>' : ''}</li>`).join('')}</ul>` : `<div style="font-size:14px;">${driverEsc(n.summary)}</div>`}
+            </div>`).join('')}
+          <p style="font-size:13.5px; color:var(--muted); margin:4px 0 16px;">Please leave the truck clean and in good shape at the end of every day. This counts toward your Truck Conditions score.</p>
+          <button type="button" id="condFailOk" style="width:100%; padding:15px; font-size:18px; font-weight:800; background:#b3261e; color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">I Understand</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+      document.getElementById('condFailOk').onclick = async () => {
+        ov.remove();
+        try{ await fetch(API_BASE_AUTH + '/api/driver/condition-notices/ack', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ ids: notices.map(n => n.id) }) }); }catch(err){}
+      };
+    };
+    show();
+  }
+
   // ---- Same-day changes to Material Checkout / Checkin ----
   // Today's record(s) with every item and its quantity; save sets the new
   // quantities and the server moves inventory by the difference.
@@ -2456,6 +2523,7 @@
     loadEsignRequests();
     loadDriverFileNag();
     refreshMaterialsChangeButtons();
+    loadConditionNotices();
     document.getElementById('driverInspectionView').style.display = 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
@@ -3244,6 +3312,7 @@
       const rData = await rRes.json();
       wingmanQuestions = (qData.questions || []).map(q => (q || '').trim()).filter(Boolean);
       wingmanRoster = (rData.names || []).filter(n => n !== currentDriverName);
+      window.__wingmanDrivers = new Set(rData.drivers || []);
       return true;
     }catch(err){
       console.error('Wingman questions/roster load failed:', err);
@@ -3338,7 +3407,7 @@
       selectWrap.style.display = '';
       noOptionsNote.style.display = 'none';
       select.innerHTML = '<option value="">Select a wingman\u2026</option>' + wingmanRoster.map(name =>
-        `<option value="${driverLbEsc(name)}">${driverLbEsc(name)}${wingmanReviewedThisSession.has(name) ? ' (already reviewed)' : ''}</option>`
+        `<option value="${driverLbEsc(name)}">${driverLbEsc(name)}${(window.__wingmanDrivers || new Set()).has(name) ? ' (Captain)' : ''}${wingmanReviewedThisSession.has(name) ? ' (already reviewed)' : ''}</option>`
       ).join('');
     }
     updateWingmanFinishControls();
@@ -3370,11 +3439,11 @@
 
   document.getElementById('wingman_startReviewBtn').addEventListener('click', ()=>{
     const select = document.getElementById('wingman_select');
-    const typed = document.getElementById('wingman_otherName').value.trim().replace(/\s+/g, ' ');
+    const typed = '';   // names come from the list only (no typing)
     const selectStatus = document.getElementById('wingman_selectStatus');
-    const name = typed || select.value;
+    const name = select.value;
     if(!name){
-      selectStatus.textContent = 'Pick a wingman from the list, or type their name.';
+      selectStatus.textContent = 'Pick a wingman from the list.';
       selectStatus.className = 'status-msg err';
       return;
     }
@@ -3547,6 +3616,7 @@
 
   function showWingmanMenu(flashMsg){
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
+    loadDriveTodayOption();
     driverActiveTask = null;
     ptiMode = 'full';
     eodMode = 'full';
@@ -3558,6 +3628,7 @@
     loadEsignRequests();
     loadDriverFileNag();
     refreshMaterialsChangeButtons();
+    loadConditionNotices();
     const flash = document.getElementById('wingmanTasksFlash');
     flash.textContent = flashMsg || '';
     flash.className = flashMsg ? 'status-msg ok' : 'status-msg';
@@ -4126,7 +4197,8 @@
       const tData = await tRes.json();
       const rData = await rRes.json();
       captainAssignTasks = tData.tasks || [];
-      captainAssignRoster = (rData.names || []).filter(n => n !== currentDriverName);
+      const capSet = new Set(rData.drivers || []);   // Captain-checked: they use Driver Tools, so no wingman tasks
+      captainAssignRoster = (rData.names || []).filter(n => n !== currentDriverName && !capSet.has(n));
     }catch(err){
       console.error('Task assignment load failed:', err);
       document.querySelectorAll('.driver-task-assign-status').forEach(statusEl => {
@@ -6649,7 +6721,8 @@
       <div style="overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
         <thead><tr>
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Name</th>
-          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Role</th>
+          <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Signs in to Driver Tools, and is scored in Captain Metrics">Captain</th>
+          <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Can be reviewed as a wingman, handed tasks, and is scored in Wingman Metrics">Wingman</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Source</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">HUNK Portal sign-in</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);" title="First payroll week on file, and when commission starts under the New Employee waiting period">Started &middot; Commission</th>
@@ -6756,6 +6829,12 @@
     </div>
     <p class="form-note">Percentage of "yes" answers across every Captain-submitted review, per wingman.</p>
     <p class="form-note" id="wm_activeMonthNote" style="font-weight:600;"></p>
+
+    <div class="panel" id="wmUnknownPanel" style="display:none; border:2px solid #E3A008;">
+      <h3>Unrecognized Names</h3>
+      <p class="form-note" style="margin-top:0;">Reviews saved under a name that isn&rsquo;t on the Employee Roster (typed in before Captains had to pick from the list). Reassign each to the right person &mdash; the Captain&rsquo;s answers are kept &mdash; or remove it.</p>
+      <div id="wm_unknownRows"></div>
+    </div>
 
     <div class="panel" id="wmTrendPanel">
       <h3>Score Trend</h3>
@@ -9637,7 +9716,7 @@
 
   // ---- Employee Roster tile ----
   // The full roster (last two payroll weeks + manual additions), who's a
-  // Captain (checked as an active driver on Compliance), and who can sign in
+  // Captain / Wingman (the checkboxes here), and who can sign in
   // to the HUNK Portal. Roster Additions below it is admin-only, as before.
   let rosterViewNames = [];
   let rosterNewHireInfo = null;
@@ -9662,6 +9741,7 @@
       rosterViewDrivers = new Set((drivers || []).filter(d => d.active).map(d => key(d.employeeName || '')));
     }catch(err){ console.error('Roster load failed:', err); rosterViewNames = []; }
     if(admin) await loadAndRenderRosterManualList();
+    await loadRosterRoles();
     renderEmployeeRosterView();
   }
   window.loadEmployeeRosterView = loadEmployeeRosterView;
@@ -9678,12 +9758,16 @@
     const cell = 'padding:6px 4px; border-bottom:1px solid var(--line);';
     document.getElementById('rosterListRows').innerHTML = rows.map(n => {
       const isManual = manual.has(key(n));
-      const isCaptain = rosterViewDrivers.has(key(n));
+      const role = (rosterRoles || {})[n] || { captain: rosterViewDrivers.has(key(n)), wingman: !rosterViewDrivers.has(key(n)), driver: rosterViewDrivers.has(key(n)) };
+      const box = (k, on) => admin
+        ? `<input type="checkbox" class="role-cb" data-name="${rosterManualEsc(n)}" data-k="${k}" ${on ? 'checked' : ''} style="width:18px; height:18px; cursor:pointer;">`
+        : (on ? '<span style="color:var(--brand-green-dark); font-weight:700;">\u2713</span>' : '');
       const access = !isManual ? '<span style="color:var(--brand-green-dark);">&#10003; via payroll</span>'
         : (rosterManualAccess.has(n) ? '<span style="color:var(--brand-green-dark);">&#128273; last 4 added</span>' : '<span style="color:#8a6d00;">Not yet \u2014 add their last 4 below</span>');
       return `<tr>
-        <td style="${cell} font-weight:600;">${rosterManualEsc(n)}</td>
-        <td style="${cell}">${isCaptain ? '<strong>Captain</strong>' : 'Wingman'}</td>
+        <td style="${cell} font-weight:600;">${rosterManualEsc(n)}${role.driver ? ' <span title="A driver in Regulatory Compliance" style="font-size:11px; color:var(--muted); font-weight:400;">\u00b7 driver</span>' : ''}</td>
+        <td style="${cell} text-align:center;">${box('captain', role.captain)}</td>
+        <td style="${cell} text-align:center;">${box('wingman', role.wingman)}</td>
         ${admin ? `<td style="${cell}">${isManual ? 'Added manually' : 'Payroll'}</td>
         <td style="${cell}">${access}</td>
         <td style="${cell}">${(() => {
@@ -9700,6 +9784,25 @@
     }).join('');
   }
   document.getElementById('rosterListSearch').addEventListener('input', renderEmployeeRosterView);
+  // Captain / Wingman checkboxes: saved right away (sign-in follows the Captain box).
+  let rosterRoles = null;
+  async function loadRosterRoles(){
+    try{ const r = await fetch(`${API_BASE}/api/employee-roles`, { headers: authHeaders() }); rosterRoles = r.ok ? (await r.json()).roles : null; }catch(err){ rosterRoles = null; }
+  }
+  document.getElementById('rosterListRows').addEventListener('change', async (e) => {
+    const cb = e.target.closest && e.target.closest('.role-cb'); if(!cb) return;
+    const name = cb.dataset.name, row = cb.closest('tr');
+    const captain = row.querySelector('.role-cb[data-k=captain]').checked, wingman = row.querySelector('.role-cb[data-k=wingman]').checked;
+    if(!captain && !wingman && !confirm(`${name} won't be a Captain or a Wingman \u2014 they'll sign in to Wingman Tools but won't be reviewed or scored. Continue?`)){ cb.checked = !cb.checked; return; }
+    row.querySelectorAll('.role-cb').forEach(x => x.disabled = true);
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/employee-roles`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name, captain, wingman }) });
+      if(!r.ok) throw new Error();
+      rosterRoles = rosterRoles || {}; rosterRoles[name] = Object.assign({}, rosterRoles[name], { captain, wingman, saved: true });
+      row.style.background = '#f1f8f3'; setTimeout(() => { row.style.background = ''; }, 900);
+    }catch(err){ cb.checked = !cb.checked; alert('Could not save \u2014 check your connection.'); }
+    row.querySelectorAll('.role-cb').forEach(x => x.disabled = false);
+  });
 
   async function loadAndRenderRosterManualList(){
     try{ rosterManualAdditions = await window.dashboardApi.get(ROSTER_MANUAL_KEY, []) || []; }
@@ -26556,6 +26659,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   }
 
   async function loadWingmanMetricsData(){
+    loadWingmanUnknownNames();
     const listEl = document.getElementById('wingman_scoreList');
     const emptyNote = document.getElementById('wingman_scoreEmptyNote');
     try{
@@ -26636,6 +26740,29 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     loadWingmanMetricsTrend();
   }
   window.loadWingmanMetricsData = loadWingmanMetricsData;
+
+  async function loadWingmanUnknownNames(){
+    const panel = document.getElementById('wmUnknownPanel'), rows = document.getElementById('wm_unknownRows');
+    if(localStorage.getItem('henson_auth_role') !== 'admin'){ panel.style.display = 'none'; return; }
+    let d;
+    try{ const r = await fetch(`${API_BASE}/api/admin/wingman-ratings/unrecognized`, { headers: authHeaders() }); if(!r.ok) return; d = await r.json(); }catch(err){ return; }
+    if(!d.names.length){ panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    const esc = x => { const e = document.createElement('div'); e.textContent = String(x == null ? '' : x); return e.innerHTML; };
+    rows.innerHTML = d.names.map((n, k) => `<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 0; border-top:1px solid var(--line);">
+        <div style="flex:1; min-width:200px;"><strong>&ldquo;${esc(n.name)}&rdquo;</strong> <span style="font-size:12.5px; color:var(--muted);">\u2014 ${n.count} review${n.count === 1 ? '' : 's'} by ${esc(n.captains.join(', '))} \u00b7 ${n.first === n.last ? window.fmtDate(n.first) : window.fmtDate(n.first) + ' \u2013 ' + window.fmtDate(n.last)}</span></div>
+        <select class="wm-fix-to" data-k="${k}" style="padding:6px;"><option value="">Reassign to\u2026</option>${d.roster.map(r => `<option>${esc(r)}</option>`).join('')}</select>
+        <button type="button" class="wm-fix-go" data-k="${k}" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">Reassign</button>
+        <button type="button" class="wm-fix-rm" data-k="${k}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; padding:7px 12px; border-radius:6px; cursor:pointer;">Remove</button>
+      </div>`).join('');
+    const send = async (body) => {
+      const r = await fetch(`${API_BASE}/api/admin/wingman-ratings/fix`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(body) });
+      const res = await r.json().catch(() => ({})); if(!r.ok){ alert(res.error || 'Could not save.'); return; }
+      loadWingmanMetricsData();
+    };
+    rows.querySelectorAll('.wm-fix-go').forEach(b => b.onclick = () => { const n = d.names[+b.dataset.k], to = rows.querySelector(`.wm-fix-to[data-k="${b.dataset.k}"]`).value; if(!to){ alert('Pick who it should be.'); return; } send({ from: n.name, to }); });
+    rows.querySelectorAll('.wm-fix-rm').forEach(b => b.onclick = () => { const n = d.names[+b.dataset.k]; if(confirm(`Remove ${n.count} review${n.count === 1 ? '' : 's'} saved under "${n.name}"?`)) send({ from: n.name, remove: true }); });
+  }
 
   let wmTrendChart = null;
   let wmTrendWeeksCache = null;
@@ -29530,6 +29657,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     loadMgrReviewWeightTickets();
     try{
       let items = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
+      // Which Truck Condition fails the Captain has seen ("I Understand").
+      try{ window.__condAcks = await window.dashboardApi.get('truck-condition-acks', {}) || {}; }catch(err){ window.__condAcks = {}; }
       const { kept, changed } = pruneOldManagerReviewItems(items);
       managerReviewItems = kept;
       if(changed) await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
@@ -29611,6 +29740,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   };
   window.refreshManagerReviewFlags = async function(){
     managerReviewItems = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || [];
+    try{ window.__condAcks = await window.dashboardApi.get('truck-condition-acks', {}) || {}; }catch(err){ window.__condAcks = {}; }
     renderMgrReviewTabCounts(); updateManagerReviewTileBadge(); renderMovingReports();
   };
 
@@ -30749,8 +30879,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   }
   function mgrReviewReviewedNoteHtml(item){
     const passed = item.outcome === 'pass';
+    const seen = item.type === 'truck-condition' && item.outcome === 'fail' && (window.__condAcks || {})[item.id];
     const badge = `<span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; background:${passed ? '#E6F4EA' : '#FCDCD6'}; color:${passed ? '#00612C' : '#B3261E'};">${passed ? 'Pass' : 'Fail'}</span>`;
-    return `<div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${badge}<span class="form-note" style="margin:0;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</span></div>`;
+    return `<div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${badge}<span class="form-note" style="margin:0;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</span>${item.type === 'truck-condition' && item.outcome === 'fail' ? (seen ? `<span class="form-note" style="margin:0; color:var(--brand-green-dark); font-weight:600;">\u2713 Seen by the Captain ${window.fmtDate(String(seen.at).slice(0,10))}</span>` : '<span class="form-note" style="margin:0;">\u2014 shows on the Captain\u2019s app from the next day</span>') : ''}</div>`;
   }
   function wireMgrReviewOutcomeButtons(scopeSelector){
     document.querySelectorAll(`${scopeSelector} .mgrreview-pass-btn`).forEach(btn => btn.addEventListener('click', (e)=> mgrReviewMarkOutcome(e.currentTarget.dataset.id, 'pass')));
