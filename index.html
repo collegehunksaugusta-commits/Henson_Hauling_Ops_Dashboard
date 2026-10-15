@@ -9306,6 +9306,11 @@
 
   function showView(view){
     window.__ownerTimeView = view;
+    // Extra Pay is Owner only: confirm who's signed in before showing it.
+    if(view === 'extrapay' && !(window.financialsAllowed && window.financialsAllowed())){
+      if(!window.__ownerInfo && window.refreshOwnerStatus){ window.refreshOwnerStatus().then(() => { if(window.financialsAllowed()) showView('extrapay'); }); }
+      view = 'home';
+    }
     if(view === 'home' && window.collapseAlwaysCollapsedSections) window.collapseAlwaysCollapsedSections();
     // Monthly Financials is admin-only -- block direct navigation (a typed
     // or bookmarked #monthlyfinancials hash, browser back/forward, etc.)
@@ -15268,8 +15273,10 @@
 
   // Extra Pay shows every employee's tips, bonuses and commission -- admins
   // only. (The Ops Manager sees his own commission on Ops Manager Metrics.)
+  // Extra Pay is the Owner's (Configuration -> Financials), enforced by the
+  // server too; until an Owner is set, admins keep it.
   function applyExtraPayPermission(){
-    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
+    const isAdmin = !!(window.financialsAllowed && window.financialsAllowed());
     const tile = document.getElementById('tile-extrapay');
     if(tile) tile.style.display = isAdmin ? '' : 'none';
     const countEl = document.querySelector('#dashSection-pay .dashSectionCount');
@@ -24918,6 +24925,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ window.__ownerInfo = { isOwner: false }; }
     window.__isOwner = !!window.__ownerInfo.isOwner;
     if(window.applyMonthlyFinancialsPermission) window.applyMonthlyFinancialsPermission();
+    if(window.applyExtraPayPermission) window.applyExtraPayPermission();
     return window.__ownerInfo;
   }
   window.refreshOwnerStatus = refreshOwnerStatus;
@@ -26530,13 +26538,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const commission = (window.appSettings || {}).commission || {};
       const omName = commission.opsManagerAssignment || '';
       const rate = Number(commission.opsManagerRate) || 0;
-      const manual = await window.dashboardApi.get('extra-pay-manual', {}) || {};
-      const key = n => String(n || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
-      const weeks = Object.keys(manual).sort().reverse().map(ws => {
-        const entry = Object.entries(manual[ws] || {}).find(([n]) => key(n) === key(omName));
-        return entry ? { weekStart: ws, conv: Number(entry[1].convertedRevenue) || 0, paid: Number(entry[1].commission) || 0,
-          rate: entry[1].omRatePct != null ? entry[1].omRatePct : rate, score: entry[1].omScore, hours: entry[1].omHours } : null;
-      }).filter(Boolean).slice(0, 8);
+      // Only the Ops Manager's own commission rows (Extra Pay itself is Owner only).
+      const ch = await (await fetch(`${API_BASE}/api/ops-manager/commission-history`, { headers: authHeaders() })).json();
+      const weeks = (ch.weeks || []).map(w => ({ weekStart: w.weekStart, conv: w.convertedRevenue, paid: w.commission,
+        rate: w.omRatePct != null ? w.omRatePct : rate, score: w.omScore, hours: w.omHours }));
       const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const span = ws => { const s = new Date(ws + 'T00:00:00'); const p = new Date(s); p.setDate(s.getDate() - 7); const e = new Date(p); e.setDate(p.getDate() + 6); const f = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); return `${f(p)} \u2013 ${f(e)}`; };
       if(!omName){ wrap.innerHTML = '<p class="form-note" style="margin:0;">No Ops Manager is selected in Configuration \u2192 Commission yet.</p>'; return; }
