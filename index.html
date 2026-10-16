@@ -505,6 +505,7 @@
       <input type="text" id="hpAddLabel" placeholder="New box label, e.g. Worksheet line 1" style="flex:1; min-width:200px; padding:7px;">
       <select id="hpAddType" style="padding:7px;"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="checkbox">Checkbox</option></select>
       <button type="button" id="hpAddBtn" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">+ Add Box</button>
+      <button type="button" id="hpFindBtn" title="Adds an optional box after every $ answer line (and numbered lines in the answer column) on this page that doesn't have one" style="background:#fff; border:1px solid var(--line); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#128269; Find blank lines</button>
       <button type="button" id="hpSigBtn" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#9997;&#65039; Place Signature</button>
       <span style="font-size:11.5px; color:var(--muted); width:100%;">Added boxes are optional for the new hire. After clicking a button, tap the spot on the page.</span>
     </div>
@@ -19216,6 +19217,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   };
 
   let hiringPlacementDoc = null;
+  let hiringPlacementFileUri = null;
   let hiringPlacementPages = [];
   let hiringPlacementCurrentPage = 0;
   let hiringPlacementArmedFieldId = null;
@@ -19239,6 +19241,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!fileRes.ok) throw new Error('Could not load the file.');
       const fileData = await fileRes.json();
       if(!fileData.value) throw new Error('No file data found.');
+      hiringPlacementFileUri = fileData.value;
       hiringPlacementPages = await hiringRenderPdfPages(fileData.value, 1.5);
     }catch(err){
       console.error('Hiring placement: could not render PDF', err);
@@ -19283,6 +19286,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       box.innerHTML = `<span style="font-size:10px; color:var(--brand-green-dark); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${hiringEsc(field.label)}</span><button type="button" class="hiring-placement-unplace" data-field-id="${field.id}" style="background:none; border:none; color:#b3261e; font-size:13px; font-weight:700; cursor:pointer; padding:0 2px; line-height:1;">&times;</button>`;
       if(overlaps(field)){ box.style.borderColor = '#b3261e'; box.style.background = 'rgba(179,38,30,0.16)'; box.title = 'Overlaps another box'; }
       if(field.type === 'signature'){ box.style.background = 'rgba(0,132,61,0.22)'; box.style.borderStyle = 'dashed'; }
+      if(field.type === 'select' && (field.options || []).length > 1){
+        // Guide lines: the new hire gets one check row per option -- size this
+        // box so each row sits on its printed checkbox.
+        const n = field.options.length;
+        for(let i = 1; i < n; i++){ const g = document.createElement('div'); g.style.cssText = `position:absolute; left:0; right:0; top:${(i / n * 100).toFixed(2)}%; border-top:1px dashed rgba(0,97,44,0.7); pointer-events:none;`; box.appendChild(g); }
+        box.title = (box.title ? box.title + ' \u00b7 ' : '') + `${n} check rows: ` + field.options.join(' / ');
+      }
       const handle = document.createElement('span'); handle.className = 'hp-resize'; handle.title = 'Drag to resize';
       handle.style.cssText = 'position:absolute; right:-5px; bottom:-5px; width:12px; height:12px; background:#fff; border:2px solid var(--brand-green-dark); border-radius:2px; cursor:nwse-resize; touch-action:none;';
       box.appendChild(handle);
@@ -19418,6 +19428,47 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('hiringPlacementNextPage').addEventListener('click', ()=>{
     if(hiringPlacementCurrentPage < hiringPlacementPages.length - 1){ hiringPlacementCurrentPage++; renderHiringPlacementPage(); }
   });
+  // Find blank lines: an optional box after every "$" answer line, and after
+  // a line number sitting alone in the right-hand answer column ("3"), on
+  // the current page -- skipping spots that already have a box.
+  document.getElementById('hpFindBtn').addEventListener('click', async () => {
+    if(!hiringPlacementDoc || !hiringPlacementFileUri) return;
+    const btn = document.getElementById('hpFindBtn'); btn.disabled = true; btn.textContent = 'Looking\u2026';
+    try{
+      const b64 = hiringPlacementFileUri.split(',')[1], raw = atob(b64), bytes = new Uint8Array(raw.length);
+      for(let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      const pg = await pdf.getPage(hiringPlacementCurrentPage + 1);
+      const vp = pg.getViewport({ scale: 1 });
+      const tc = await pg.getTextContent();
+      const items = tc.items.map(it => {
+        const [x, y] = vp.convertToViewportPoint(it.transform[4], it.transform[5]);
+        const h = Math.abs(it.transform[3]) || 9;
+        return { s: String(it.str || '').trim(), xPct: x / vp.width * 100, yPct: (y - h) / vp.height * 100, wPct: (it.width || 0) / vp.width * 100, hPct: h / vp.height * 100 };
+      }).filter(it => it.s);
+      const placed = (hiringPlacementDoc.fields || []).filter(f => f.position && f.position.page === hiringPlacementCurrentPage);
+      const free = (x, y, w, h) => !placed.some(f => { const q = f.position; return x < q.xPct + q.widthPct && q.xPct < x + w && y < q.yPct + q.heightPct && q.yPct < y + h; });
+      let added = 0;
+      items.forEach(it => {
+        const isDollar = /(^|\s)\$\s*_*$/.test(it.s);   // "$", "2a $", "$ ____"
+        const isLineNo = /^\d{1,2}[a-c]?$/.test(it.s) && it.xPct > 70;
+        if(!isDollar && !isLineNo) return;
+        if(isLineNo && items.some(o => /(^|\s)\$\s*_*$/.test(o.s) && Math.abs(o.yPct - it.yPct) < 0.8 && o.xPct > it.xPct)) return;   // its "$" gets the box
+        const x = Math.min(it.xPct + it.wPct + 0.4, 97), w = Math.min(14, 99 - x), hgt = Math.max(2.2, it.hPct * 1.6), y = Math.max(0, it.yPct - hgt * 0.3);
+        if(w < 4 || !free(x, y, w, hgt)) return;
+        // Label: the line number nearest to the left on the same line, if any.
+        const own = /^(\d{1,2}[a-c]?)\s+\$/.exec(it.s);   // "2a $" carries its own line number
+        const ln = own ? { s: own[1] } : items.filter(o => /^\d{1,2}[a-c]?$/.test(o.s) && Math.abs(o.yPct - it.yPct) < 0.8 && o.xPct <= it.xPct).sort((a, b2) => b2.xPct - a.xPct)[0];
+        const label = `Page ${hiringPlacementCurrentPage + 1} line ${ln ? ln.s : (isLineNo ? it.s : (added + 1))}`;
+        const f = { id: 'custom_' + Date.now() + '_' + added, label, type: isDollar ? 'number' : 'text', required: false, custom: true, position: { page: hiringPlacementCurrentPage, xPct: x, yPct: y, widthPct: w, heightPct: hgt } };
+        hiringPlacementDoc.fields.push(f); placed.push(f); added++;
+      });
+      saveHiringDocsConfig(); renderHiringPlacementPage(); renderHiringPlacementUnplacedList(); renderHiringDocRows();
+      alert(added ? `Added ${added} optional box${added === 1 ? '' : 'es'} on this page. Remove any you don't want with their \u00d7.` : 'No new blank answer lines found on this page.');
+    }catch(err){ console.error('Find blank lines failed:', err); alert('Could not read this page.'); }
+    btn.disabled = false; btn.innerHTML = '&#128269; Find blank lines';
+  });
+
   // + Add Box (optional for the new hire) and the signature spot
   document.getElementById('hpAddBtn').addEventListener('click', () => {
     if(!hiringPlacementDoc) return;
@@ -32609,6 +32660,14 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(field.type === 'checkbox'){
         return `<input type="checkbox" class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" title="${hoEsc(field.label)}" ${value ? 'checked' : ''} style="${baseStyle} width:auto; height:auto; accent-color:#f9a825;">`;
       }
+      if(field.type === 'select' && (field.options || []).length && (field.options || []).length <= 8){
+        // Tap-to-check choices: one row per option over the printed boxes.
+        const opts = field.options, n = opts.length;
+        return `<div class="ho-placed-field ho-check-group" data-field-id="${field.id}" style="${baseStyle}">${opts.map((o, i) => `
+          <button type="button" class="ho-check-opt" data-v="${hoEsc(o)}" title="${hoEsc(o)}" style="position:absolute; left:0; right:0; top:${(i / n * 100).toFixed(3)}%; height:${(100 / n).toFixed(3)}%; background:transparent; border:none; padding:0; cursor:pointer; display:flex; align-items:center;">
+            <span style="height:80%; aspect-ratio:1; max-height:22px; border:1.5px solid rgba(230,160,0,0.95); background:${value === o ? '#fff' : 'rgba(255,235,59,0.35)'}; display:flex; align-items:center; justify-content:center; font-weight:900; color:var(--brand-green-dark); font-size:clamp(9px, 1.6vw, 14px); line-height:1;">${value === o ? '\u2713' : ''}</span>
+          </button>`).join('')}</div>`;
+      }
       if(field.type === 'select'){
         const optionsHtml = (field.options || []).map(o => `<option value="${hoEsc(o)}" ${value === o ? 'selected' : ''}>${hoEsc(o)}</option>`).join('');
         return `<select class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" title="${hoEsc(field.label)}" style="${baseStyle} background:rgba(255,235,59,0.22); border:1.5px solid rgba(230,160,0,0.85); border-radius:2px; padding:0 2px;">
@@ -32644,6 +32703,14 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           const el = holder.firstElementChild;
           wrap.appendChild(el);
           if(field.type === 'signature'){ el.addEventListener('click', () => hoOpenSignatureModal(doc, placedFields)); return; }
+          if(el.classList.contains('ho-check-group')){
+            el.querySelectorAll('.ho-check-opt').forEach(b => b.addEventListener('click', () => {
+              const v = b.dataset.v, now = hoFieldValue(field) === v ? '' : v;   // tap again to clear
+              hoSetFieldValue(field, now);
+              el.querySelectorAll('.ho-check-opt').forEach(x => { const box = x.firstElementChild, on = x.dataset.v === now; box.textContent = on ? '\u2713' : ''; box.style.background = on ? '#fff' : 'rgba(255,235,59,0.35)'; });
+            }));
+            return;
+          }
           hoWireFieldInput(el, field);
         });
         contentEl.appendChild(wrap);
