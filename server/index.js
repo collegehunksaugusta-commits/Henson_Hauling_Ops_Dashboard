@@ -5912,8 +5912,17 @@ app.get('/api/hiring/package/:token', async (req, res) => {
     // This is the candidate's own in-progress data, in their own active
     // session -- not masked, the same way a web form doesn't mask what you
     // just typed into it.
+    // The EIN from Regulatory Compliance -> Business, for the employer
+    // section of forms like the W-4 (filled in and locked for the new hire).
+    let employerEin = '';
+    try {
+      const auths = JSON.parse(await redis.get('compliance-business-authorizations') || '[]');
+      const row = (Array.isArray(auths) ? auths : []).find(a => a && /\bEIN\b|employer identification/i.test(a.name || ''));
+      employerEin = String((row && row.number) || '').trim();
+    } catch (e) {}
     res.json({
       found: true,
+      employerEin,
       firstName: candidate.firstName, lastName: candidate.lastName,
       startingDate: candidate.startingDate, startingPay: candidate.startingPay,
       positionTitle: candidate.positionTitle,
