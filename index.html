@@ -27397,6 +27397,20 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         </div>
       </button>
       <div class="hiring-candidate-body" style="display:${isExpanded ? 'block' : 'none'}; margin-top:14px;">
+        ${hiringEditing.has(candidate.id) ? `<div class="hiring-edit-box" data-cand-id="${candidate.id}" style="border:2px solid var(--brand-orange); border-radius:8px; padding:12px; margin-bottom:12px; background:#fffaf3;">
+          <div style="font-weight:800; margin-bottom:8px;">Edit package details</div>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+            <label>First Name <input type="text" class="he-first" value="${hiringAdminEsc(candidate.firstName)}"></label>
+            <label>Last Name <input type="text" class="he-last" value="${hiringAdminEsc(candidate.lastName)}"></label>
+            <label>Email Address <input type="email" class="he-email" value="${hiringAdminEsc(candidate.email)}"></label>
+            <label>Position <input type="text" class="he-position" value="${hiringAdminEsc(candidate.positionTitle || '')}"></label>
+            <label>Starting Pay <input type="text" class="he-pay" value="${hiringAdminEsc(candidate.startingPay || '')}" placeholder="e.g. $16.00/hr"></label>
+            <label>Starting Date <input type="date" class="he-date" value="${hiringAdminEsc(candidate.startingDate || '')}"></label>
+          </div>
+          <p class="form-note" style="margin:6px 0 0;">${candidate.status === 'draft' ? 'Saved before sending.' : 'The link stays the same \u2014 they\u2019ll see the changes next time they open it. Anything they\u2019ve filled in is kept.'}</p>
+          <div style="display:flex; gap:8px; margin-top:10px; align-items:center;"><button type="button" class="hiring-edit-save" data-cand-id="${candidate.id}" style="background:var(--brand-green); color:#fff; border:none; padding:9px 16px; border-radius:6px; font-weight:800; cursor:pointer;">Save Changes</button>
+            <button type="button" class="hiring-edit-cancel" data-cand-id="${candidate.id}" style="background:#fff; border:1px solid var(--line); padding:9px 14px; border-radius:6px; cursor:pointer;">Cancel</button><span class="status-msg he-status"></span></div>
+        </div>` : ''}
         <div class="form-grid" style="grid-template-columns:1fr 1fr; font-size:12.5px; margin-bottom:10px;">
           <div><strong>Position:</strong> ${hiringAdminEsc(candidate.positionTitle)}</div>
           <div><strong>Starting Pay:</strong> ${hiringAdminEsc(candidate.startingPay)}</div>
@@ -27407,6 +27421,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${sharedHtml}
         <div class="form-actions" style="margin-top:14px;">
           <button type="button" class="hiring-send-btn" data-cand-id="${candidate.id}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">${candidate.status === 'draft' ? 'Send Onboarding Package' : '\u21bb Resend Onboarding Package'}</button>
+          <button type="button" class="hiring-edit-btn" data-cand-id="${candidate.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">\u270e Edit Details</button>
           <button type="button" class="hiring-delete-btn" data-cand-id="${candidate.id}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Remove</button>
           <span class="status-msg" id="hiring_cand_status_${candidate.id}"></span>
         </div>
@@ -27414,6 +27429,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     </div>`;
   }
 
+  const hiringEditing = new Set();   // cards with Edit Details open
   function renderHiringCandidateRows(){
     const rowsEl = document.getElementById('hiring_candidateRows');
     const emptyNote = document.getElementById('hiring_emptyNote');
@@ -27482,6 +27498,26 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   window.hiringSendPackage = hiringSendPackage;
   function wireHiringCandidateCardEventsRest(){
     const rowsEl = document.getElementById('hiring_candidateRows');
+    rowsEl.querySelectorAll('.hiring-edit-btn').forEach(b => b.addEventListener('click', () => { hiringEditing.add(b.dataset.candId); hiringExpandedCandidates.add(b.dataset.candId); renderHiringCandidateRows(); }));
+    rowsEl.querySelectorAll('.hiring-edit-cancel').forEach(b => b.addEventListener('click', () => { hiringEditing.delete(b.dataset.candId); renderHiringCandidateRows(); }));
+    rowsEl.querySelectorAll('.hiring-edit-save').forEach(b => b.addEventListener('click', async () => {
+      const id = b.dataset.candId, box = b.closest('.hiring-edit-box'), st = box.querySelector('.he-status');
+      const v = c => box.querySelector(c).value.trim();
+      const body = { firstName: v('.he-first'), lastName: v('.he-last'), email: v('.he-email'), positionTitle: v('.he-position'), startingPay: v('.he-pay'), startingDate: v('.he-date') };
+      if(!body.firstName || !body.lastName || !body.email || !body.startingDate){ st.textContent = 'First name, last name, email, and start date are required.'; st.className = 'status-msg he-status err'; return; }
+      st.textContent = 'Saving\u2026'; st.className = 'status-msg he-status';
+      try{
+        const res = await fetch(`${API_BASE}/api/admin/hiring/candidates/${encodeURIComponent(id)}`, { method: 'PATCH', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(body) });
+        if(handleAuthFailure(res)) return;
+        const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not save.');
+        hiringEditing.delete(id);
+        await loadHiringData();
+        const statusEl = document.getElementById(`hiring_cand_status_${id}`);
+        if(statusEl){ statusEl.textContent = d.changed && d.changed.length ? '\u2713 Details saved.' : 'No changes.'; statusEl.className = 'status-msg ok'; }
+        const c = hiringCandidates.find(x => x.id === id);
+        if(d.emailChanged && c && c.status !== 'draft' && c.status !== 'completed' && confirm(`The email changed to ${c.email}.\n\nResend the onboarding package to the new address now?`)) await hiringSendPackage(id, { skipConfirm: true });
+      }catch(err){ st.textContent = err.message; st.className = 'status-msg he-status err'; }
+    }));
 
     rowsEl.querySelectorAll('.hiring-delete-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.dataset.candId;
