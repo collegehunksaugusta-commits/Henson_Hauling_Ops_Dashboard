@@ -27510,7 +27510,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const b = document.querySelector(`.hiring-tab-btn[data-tab="${t}"]`);
       b.style.borderBottomColor = t === tab ? 'var(--brand-orange)' : 'transparent'; b.style.color = t === tab ? 'var(--charcoal)' : 'var(--muted)'; b.style.fontWeight = t === tab ? '700' : '600';
     });
-    if(tab === 'interviews') loadInterviews();
+    if(tab === 'interviews'){ loadInterviews(); loadIvMaterials(); }
     if(tab === 'materials') loadIvMaterials();
   }
   window.hiringSwitchTab = hiringSwitchTab;
@@ -27550,10 +27550,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         <td style="padding:8px 6px;"><strong>${hiringAdminEsc(c.firstName)} ${hiringAdminEsc(c.lastName)}</strong>${c.job ? `<div style="font-size:12px; color:var(--muted);">${hiringAdminEsc(c.job)}</div>` : ''}</td>
         <td style="padding:8px 6px;">${fmtWhen(c.interviewAt)}</td>
         <td style="padding:8px 6px; font-size:12.5px;">${hiringAdminEsc(c.email || '')}${c.phone ? `<div>${hiringAdminEsc(c.phone)}</div>` : ''}</td>
-        <td style="padding:8px 6px; text-align:right; white-space:nowrap;">${c.packageSentAt ? `<span style="color:var(--brand-green-dark); font-weight:700; font-size:12.5px;">\u2713 Package sent ${new Date(c.packageSentAt).toLocaleDateString()}</span>`
+        <td style="padding:8px 6px; text-align:right; white-space:nowrap;">${(() => {
+            const iv = c.interview, sc = iv && iv.scores ? Object.values(iv.scores).reduce((t, x) => ({ got: t.got + x.got, max: t.max + x.max }), { got: 0, max: 0 }) : null;
+            if(iv && iv.status === 'complete') return `<button type="button" class="iv-interview" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:6px 10px; border-radius:6px; font-weight:700; cursor:pointer; margin-right:6px;">\u2713 Interviewed${sc && sc.max ? ` \u00b7 Score ${sc.got}/${sc.max}` : ''} \u00b7 View</button>`;
+            return `<button type="button" class="iv-interview" style="background:#fff; border:1px solid var(--brand-orange); color:#b35c00; padding:6px 10px; border-radius:6px; font-weight:700; cursor:pointer; margin-right:6px;">\ud83d\udcdd ${iv ? 'Continue Interview' : 'Interview'}</button>`;
+          })()}${c.packageSentAt ? `<span style="color:var(--brand-green-dark); font-weight:700; font-size:12.5px;">\u2713 Package sent ${new Date(c.packageSentAt).toLocaleDateString()}</span>`
           : `<button type="button" class="iv-send" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">Send Onboarding Package</button>`}
           <button type="button" class="iv-del" title="Remove" style="background:#fff; border:1px solid var(--line); color:#b3261e; padding:6px 9px; border-radius:6px; cursor:pointer; margin-left:4px;">\u2715</button></td>
       </tr>`).join('')}</tbody></table></div>`;
+    el.querySelectorAll('.iv-interview').forEach(b => b.onclick = () => ivOpenInterview(b.closest('tr').dataset.id));
     el.querySelectorAll('.iv-del').forEach(b => b.onclick = async () => { const id = b.closest('tr').dataset.id; if(!confirm('Remove this candidate from the list?')) return; interviews = interviews.filter(x => x.id !== id); await ivSave(); renderInterviews(); });
     el.querySelectorAll('.iv-send').forEach(b => b.onclick = () => {
       const c = interviews.find(x => x.id === b.closest('tr').dataset.id);
@@ -27600,6 +27605,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         <div class="ivMat-thumb" data-id="${r.id}" style="width:100%; aspect-ratio:1; background:var(--offwhite); display:flex; align-items:center; justify-content:center; overflow:hidden; cursor:${r.hasFile ? 'pointer' : 'default'};">${r.thumbnailDataUri ? `<img src="${r.thumbnailDataUri}" alt="" style="width:100%; height:100%; object-fit:cover;">` : `<span style="font-size:32px;">${r.hasFile ? '\u{1F4C4}' : '\u{1F4DD}'}</span>`}</div>
         <div style="padding:9px 10px; display:flex; flex-direction:column; gap:3px; flex:1;">
           <div style="font-weight:600; font-size:13px; line-height:1.3;">${hiringAdminEsc(r.name)}</div><div style="font-size:11px; color:var(--muted);">${hiringAdminEsc(r.category)}</div>
+          ${r.form ? `<div style="font-size:11.5px; color:var(--brand-green-dark); font-weight:700; margin-top:3px;">\u2713 Electronic form <button type="button" class="ivMat-preview" data-id="${r.id}" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; font-size:11.5px; padding:0;">Preview</button> \u00b7 <button type="button" class="ivMat-build" data-id="${r.id}" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:11.5px; padding:0;">Rebuild</button></div>`
+            : (r.hasFile ? `<button type="button" class="ivMat-build" data-id="${r.id}" style="margin-top:4px; background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); font-size:11.5px; font-weight:700; padding:4px 6px; border-radius:4px; cursor:pointer;">\u26a1 Make electronic form</button>` : '')}
           <div style="margin-top:auto; padding-top:6px; display:flex; gap:6px;">${r.hasFile ? `<button type="button" class="ivMat-view" data-id="${r.id}" style="flex:1; background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 6px; border-radius:4px; cursor:pointer;">View</button>` : ''}
             <button type="button" class="ivMat-del" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 6px; border-radius:4px; cursor:pointer;">Delete</button></div>
         </div></div>`).join('');
@@ -27613,6 +27620,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       }catch(err){ alert('Could not load this file \u2014 check your connection.'); }
     };
     grid.querySelectorAll('.ivMat-view').forEach(b => b.onclick = () => view(b.dataset.id));
+    grid.querySelectorAll('.ivMat-build').forEach(b => b.onclick = () => ivBuildForm(b.dataset.id));
+    grid.querySelectorAll('.ivMat-preview').forEach(b => b.onclick = () => ivOpenInterview(null, b.dataset.id));
     grid.querySelectorAll('.ivMat-thumb').forEach(t => { const r = ivMatRecords.find(x => x.id === t.dataset.id); if(r && r.hasFile) t.onclick = () => view(t.dataset.id); });
     grid.querySelectorAll('.ivMat-del').forEach(b => b.onclick = async () => {
       if(!confirm('Delete this interview material?')) return;
@@ -27623,6 +27632,117 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     });
   }
   document.getElementById('ivMat_filter').addEventListener('input', renderIvMaterials);
+
+  // ---- Electronic interview forms ----
+  async function ivBuildForm(id){
+    const st = document.getElementById('ivMat_addStatus');
+    const rec = ivMatRecords.find(r => r.id === id); if(!rec) return;
+    st.textContent = `Building the electronic form for \u201c${rec.name}\u201d\u2026 (about 20 seconds)`; st.className = 'status-msg';
+    try{
+      const dataUri = await window.dashboardApi.get('interview-material-doc-' + id, null);
+      if(!dataUri) throw new Error('Could not load the file.');
+      const body = { name: rec.name };
+      if(/^data:(application\/pdf|image\/)/.test(dataUri)) body.file = dataUri;
+      else if(window.mammoth){ const buf = await (await fetch(dataUri)).arrayBuffer(); body.text = (await window.mammoth.extractRawText({ arrayBuffer: buf })).value; }
+      else throw new Error('That file type can\u2019t be read \u2014 upload a PDF or image.');
+      const r = await fetch(`${API_BASE}/api/admin/hiring/build-interview-form`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(body) });
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not build the form.');
+      const fresh = await window.dashboardApi.get(IV_MAT_KEY, []) || [];
+      const fr = fresh.find(x => x.id === id); if(fr){ fr.form = d.form; fr.formBuiltAt = new Date().toISOString(); }
+      await window.dashboardApi.set(IV_MAT_KEY, fresh); ivMatRecords = fresh;
+      renderIvMaterials();
+      const n = d.form.sections.reduce((t, sec) => t + (sec.items || []).length, 0);
+      st.textContent = `\u2713 Electronic form ready for \u201c${rec.name}\u201d (${n} items). Use it from the Interviews tab.`; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  }
+
+  // The interview itself: one tab per electronic form, answers saved on the candidate.
+  async function ivOpenInterview(candId, previewMatId){
+    if(!ivMatRecords.length){ try{ ivMatRecords = await window.dashboardApi.get(IV_MAT_KEY, []) || []; }catch(err){} }
+    const forms = ivMatRecords.filter(r => r.form && (!previewMatId || r.id === previewMatId));
+    const cand = candId ? interviews.find(x => x.id === candId) : null;
+    let ov = document.getElementById('ivFormModal');
+    if(!ov){ ov = document.createElement('div'); ov.id = 'ivFormModal'; document.body.appendChild(ov); }
+    ov.style.cssText = 'position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.5); display:flex; align-items:flex-start; justify-content:center; padding:24px 12px; overflow-y:auto;';
+    if(!forms.length){
+      ov.innerHTML = `<div style="background:#fff; max-width:520px; width:100%; border-radius:12px; padding:18px 20px;"><strong>No electronic forms yet</strong><p class="form-note">In <strong>Interview Materials</strong>, click <strong>\u26a1 Make electronic form</strong> on your interview documents first.</p><button type="button" id="ivFormClose" class="btn-primary">OK</button></div>`;
+      document.getElementById('ivFormClose').onclick = () => { ov.style.display = 'none'; };
+      return;
+    }
+    const iv = cand ? (cand.interview = cand.interview || { responses: {}, status: 'draft' }) : { responses: {}, status: 'preview' };
+    const me = localStorage.getItem('henson_auth_email') || '';
+    const auto = (key) => {
+      if(!cand) return '';
+      if(key === 'candidate_name') return `${cand.firstName} ${cand.lastName}`.trim();
+      if(key === 'interview_date') return (cand.interviewAt || '').slice(0, 10) || new Date().toLocaleDateString('en-CA');
+      if(key === 'interviewer') return iv.interviewer || me;
+      if(key === 'phone_email') return [cand.phone, cand.email].filter(Boolean).join(' \u00b7 ');
+      if(key === 'phone') return cand.phone || '';
+      if(key === 'email') return cand.email || '';
+      return '';
+    };
+    let tab = 0;
+    const val = (mid, it) => ((iv.responses[mid] || {})[it.id] || {});
+    const setVal = (mid, itId, patch) => { iv.responses[mid] = iv.responses[mid] || {}; iv.responses[mid][itId] = Object.assign({}, iv.responses[mid][itId], patch); };
+    const scoreOf = (f) => { let got = 0, max = 0; f.form.sections.forEach(sec => (sec.items || []).forEach(it => { if(it.type !== 'score') return; max += it.scaleMax; const v = Number(val(f.id, it).v); if(Number.isFinite(v)) got += v; })); return { got, max }; };
+    const draw = () => {
+      const f = forms[tab];
+      const btn = (on, label, attrs) => `<button type="button" ${attrs} style="min-width:42px; padding:7px 10px; border-radius:6px; border:1.5px solid ${on ? 'var(--brand-green)' : 'var(--line)'}; background:${on ? 'var(--brand-green)' : '#fff'}; color:${on ? '#fff' : 'var(--charcoal)'}; font-weight:700; cursor:pointer;">${label}</button>`;
+      const itemHtml = (it) => {
+        const v = val(f.id, it), a = `data-item="${it.id}"`;
+        const autoV = it.autoFill && it.autoFill !== 'none' ? auto(it.autoFill) : '';
+        const cur = v.v != null && v.v !== '' ? v.v : autoV;
+        let input = '';
+        if(it.type === 'longtext') input = `<textarea class="ivf-in" ${a} rows="3" style="width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:inherit; box-sizing:border-box;">${hiringAdminEsc(cur)}</textarea>`;
+        else if(it.type === 'yesno') input = `<div style="display:flex; gap:6px;">${btn(cur === 'yes', 'YES', `class="ivf-pick" ${a} data-v="yes"`)}${btn(cur === 'no', 'NO', `class="ivf-pick" ${a} data-v="no"`)}</div>`;
+        else if(it.type === 'score'){ const opts = []; for(let k = it.scaleMin; k <= it.scaleMax; k++) opts.push(k); input = `<div style="display:flex; gap:6px; flex-wrap:wrap;">${opts.map(k => btn(String(cur) === String(k), k, `class="ivf-pick" ${a} data-v="${k}"`)).join('')}</div>`; }
+        else if(it.type === 'checkbox') input = `<input type="checkbox" class="ivf-in" ${a} ${cur ? 'checked' : ''} style="width:20px; height:20px;">`;
+        else if(it.type === 'select') input = `<div style="display:flex; gap:6px; flex-wrap:wrap;">${(it.options || []).map(o => btn(cur === o, hiringAdminEsc(o), `class="ivf-pick" ${a} data-v="${hiringAdminEsc(o)}"`)).join('')}</div>`;
+        else input = `<input type="${it.type === 'date' ? 'date' : it.type === 'number' ? 'number' : 'text'}" class="ivf-in" ${a} value="${hiringAdminEsc(cur)}" style="width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; box-sizing:border-box;">`;
+        const notes = it.withNotes ? `<input type="text" class="ivf-note" ${a} value="${hiringAdminEsc(v.note || '')}" placeholder="Notes" style="width:100%; margin-top:6px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font-size:13px; box-sizing:border-box;">` : '';
+        return `<div style="padding:10px 0; border-bottom:1px solid var(--line);"><div style="font-weight:600; font-size:14px; margin-bottom:6px;">${hiringAdminEsc(it.label)}</div>${input}${notes}</div>`;
+      };
+      const sc = scoreOf(f);
+      ov.innerHTML = `<div style="background:#fff; max-width:760px; width:100%; border-radius:12px; padding:16px 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+          <div><div style="font-size:18px; font-weight:800;">${cand ? 'Interview \u2014 ' + hiringAdminEsc(cand.firstName + ' ' + cand.lastName) : 'Preview \u2014 ' + hiringAdminEsc(f.name)}</div>
+            <div style="font-size:12.5px; color:var(--muted);">${cand ? (iv.status === 'complete' ? '\u2713 Completed ' + new Date(iv.completedAt).toLocaleDateString() : 'In progress') + (iv.interviewer ? ' \u00b7 interviewer ' + hiringAdminEsc(iv.interviewer) : '') : 'This is what the interviewer will fill in.'}</div></div>
+          <button type="button" id="ivFormClose" style="background:none; border:none; font-size:24px; cursor:pointer;">&times;</button>
+        </div>
+        ${forms.length > 1 ? `<div style="display:flex; gap:6px; margin:12px 0 4px; flex-wrap:wrap;">${forms.map((x, k) => `<button type="button" class="ivf-tab" data-k="${k}" style="padding:7px 12px; border-radius:6px; border:1px solid ${k === tab ? 'var(--brand-orange)' : 'var(--line)'}; background:${k === tab ? 'var(--brand-orange)' : '#fff'}; color:${k === tab ? '#fff' : 'var(--charcoal)'}; font-weight:700; cursor:pointer;">${hiringAdminEsc(x.name)}</button>`).join('')}</div>` : ''}
+        ${f.form.sections.map(sec => `<div style="margin-top:12px;"><div style="font-size:12px; font-weight:800; letter-spacing:.05em; color:var(--brand-orange); text-transform:uppercase;">${hiringAdminEsc(sec.heading || '')}</div>${(sec.items || []).map(itemHtml).join('')}</div>`).join('')}
+        ${sc.max ? `<div style="margin-top:12px; font-size:16px; font-weight:800;">Score: <span id="ivfScore">${sc.got}</span> / ${sc.max}</div>` : ''}
+        ${cand ? `<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px; flex-wrap:wrap;"><span class="status-msg" id="ivfStatus" style="margin-right:auto;"></span>
+          <button type="button" id="ivfDraft" style="background:#fff; border:1px solid var(--line); padding:10px 16px; border-radius:6px; cursor:pointer; font-weight:600;">Save Draft</button>
+          <button type="button" id="ivfDone" style="background:var(--brand-green); color:#fff; border:none; padding:10px 18px; border-radius:6px; font-weight:800; cursor:pointer;">\u2713 Complete Interview</button></div>` : ''}
+      </div>`;
+      document.getElementById('ivFormClose').onclick = () => { ov.style.display = 'none'; };
+      ov.querySelectorAll('.ivf-tab').forEach(b => b.onclick = () => { collect(); tab = +b.dataset.k; draw(); });
+      ov.querySelectorAll('.ivf-pick').forEach(b => b.onclick = () => { collect(); const now = String(val(f.id, { id: b.dataset.item }).v) === b.dataset.v ? '' : b.dataset.v; setVal(f.id, b.dataset.item, { v: now }); draw(); });
+      const save = async (complete) => {
+        collect();
+        const st = document.getElementById('ivfStatus');
+        iv.interviewer = iv.interviewer || me;
+        iv.scores = {}; forms.forEach(x => { const s2 = scoreOf(x); if(s2.max) iv.scores[x.id] = s2; });
+        if(complete){ iv.status = 'complete'; iv.completedAt = new Date().toISOString(); } else iv.updatedAt = new Date().toISOString();
+        try{
+          const fresh = await window.dashboardApi.get(IV_KEY, []) || [];
+          const row = fresh.find(x => x.id === cand.id); if(!row) throw new Error('That candidate was removed.');
+          row.interview = iv; if(!(await window.dashboardApi.set(IV_KEY, fresh))) throw new Error('Could not save \u2014 check your connection.');
+          interviews = fresh; renderInterviews();
+          if(complete){ ov.style.display = 'none'; } else { st.textContent = 'Draft saved.'; st.className = 'status-msg ok'; }
+        }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+      };
+      if(cand){ document.getElementById('ivfDraft').onclick = () => save(false); document.getElementById('ivfDone').onclick = () => save(true); }
+    };
+    const collect = () => {
+      const f = forms[tab];
+      ov.querySelectorAll('.ivf-in').forEach(i => setVal(f.id, i.dataset.item, { v: i.type === 'checkbox' ? i.checked : i.value }));
+      ov.querySelectorAll('.ivf-note').forEach(i => setVal(f.id, i.dataset.item, { note: i.value }));
+    };
+    draw();
+  }
+  window.ivOpenInterview = ivOpenInterview;
   document.getElementById('ivMat_addBtn').addEventListener('click', async () => {
     const st = document.getElementById('ivMat_addStatus');
     const name = document.getElementById('ivMat_name').value.trim(), category = document.getElementById('ivMat_category').value;
@@ -27644,6 +27764,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     ['ivMat_name', 'ivMat_description', 'ivMat_file'].forEach(x => document.getElementById(x).value = '');
     renderIvMaterials();
     st.textContent = ok ? 'Added.' : 'Could not save \u2014 check your connection.'; st.className = 'status-msg ' + (ok ? 'ok' : 'err');
+    if(ok && hasFile) ivBuildForm(id);   // make its electronic form right away
   });
 
   document.getElementById('hiring_newHireToggleBtn').addEventListener('click', ()=>{
