@@ -500,7 +500,14 @@
       <h3 id="hiringPlacementTitle" style="margin:0; font-size:17px;">Place Fields</h3>
       <button type="button" id="hiringPlacementCloseBtn" aria-label="Close" style="background:none; border:none; font-size:22px; cursor:pointer; line-height:1; color:var(--muted);">&times;</button>
     </div>
-    <p class="form-note" style="margin-top:0;">Tap a field below, then tap the spot on the document where it belongs. Drag a placed field to move it, or tap its &times; to remove it.</p>
+    <p class="form-note" style="margin-top:0;">Tap a field below, then tap the spot on the document where it belongs. Drag a box to move it, drag its <strong>corner</strong> to resize it, or tap its &times; to remove it. Boxes outlined in <strong style="color:#b3261e;">red</strong> overlap another box. Boxes are see-through for the new hire, so keep them on the line, not over the printed words.</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; padding:8px 10px; background:var(--offwhite); border-radius:6px;">
+      <input type="text" id="hpAddLabel" placeholder="New box label, e.g. Worksheet line 1" style="flex:1; min-width:200px; padding:7px;">
+      <select id="hpAddType" style="padding:7px;"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="checkbox">Checkbox</option></select>
+      <button type="button" id="hpAddBtn" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">+ Add Box</button>
+      <button type="button" id="hpSigBtn" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#9997;&#65039; Place Signature</button>
+      <span style="font-size:11.5px; color:var(--muted); width:100%;">Added boxes are optional for the new hire. After clicking a button, tap the spot on the page.</span>
+    </div>
     <div id="hiringPlacementPageNav" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
       <button type="button" id="hiringPlacementPrevPage" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&larr;</button>
       <span id="hiringPlacementPageLabel" style="font-size:12.5px; color:var(--muted);"></span>
@@ -19204,7 +19211,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     email: { widthPct: 28, heightPct: 3.2 },
     address: { widthPct: 40, heightPct: 3.2 },
     number: { widthPct: 12, heightPct: 3.2 },
-    text: { widthPct: 30, heightPct: 3.2 }
+    text: { widthPct: 30, heightPct: 3.2 },
+    signature: { widthPct: 34, heightPct: 4.5 }
   };
 
   let hiringPlacementDoc = null;
@@ -19264,6 +19272,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     pageData.canvas.style.cssText = 'display:block; width:100%; height:100%;';
     canvasWrap.appendChild(pageData.canvas);
 
+    const onPage = (hiringPlacementDoc.fields || []).filter(f => f.position && f.position.page === hiringPlacementCurrentPage);
+    const overlaps = f => onPage.some(g => g !== f && f.position.xPct < g.position.xPct + g.position.widthPct && g.position.xPct < f.position.xPct + f.position.widthPct && f.position.yPct < g.position.yPct + g.position.heightPct && g.position.yPct < f.position.yPct + f.position.heightPct);
     (hiringPlacementDoc.fields || []).forEach(field => {
       if(!field.position || field.position.page !== hiringPlacementCurrentPage) return;
       const box = document.createElement('div');
@@ -19271,6 +19281,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       box.dataset.fieldId = field.id;
       box.style.cssText = `position:absolute; left:${field.position.xPct}%; top:${field.position.yPct}%; width:${field.position.widthPct}%; height:${field.position.heightPct}%; background:rgba(0,97,44,0.18); border:1.5px solid var(--brand-green-dark); border-radius:3px; cursor:move; display:flex; align-items:center; justify-content:space-between; padding:0 4px; box-sizing:border-box; overflow:hidden;`;
       box.innerHTML = `<span style="font-size:10px; color:var(--brand-green-dark); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${hiringEsc(field.label)}</span><button type="button" class="hiring-placement-unplace" data-field-id="${field.id}" style="background:none; border:none; color:#b3261e; font-size:13px; font-weight:700; cursor:pointer; padding:0 2px; line-height:1;">&times;</button>`;
+      if(overlaps(field)){ box.style.borderColor = '#b3261e'; box.style.background = 'rgba(179,38,30,0.16)'; box.title = 'Overlaps another box'; }
+      if(field.type === 'signature'){ box.style.background = 'rgba(0,132,61,0.22)'; box.style.borderStyle = 'dashed'; }
+      const handle = document.createElement('span'); handle.className = 'hp-resize'; handle.title = 'Drag to resize';
+      handle.style.cssText = 'position:absolute; right:-5px; bottom:-5px; width:12px; height:12px; background:#fff; border:2px solid var(--brand-green-dark); border-radius:2px; cursor:nwse-resize; touch-action:none;';
+      box.appendChild(handle);
       canvasWrap.appendChild(box);
     });
 
@@ -19313,7 +19328,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         e.stopPropagation();
         const point = e.touches ? e.touches[0] : e;
         hiringPlacementDragFieldId = fieldId;
-        hiringPlacementDragStart = { clientX: point.clientX, clientY: point.clientY, startXPct: field.position.xPct, startYPct: field.position.yPct, canvasWrap };
+        hiringPlacementDragStart = { clientX: point.clientX, clientY: point.clientY, startXPct: field.position.xPct, startYPct: field.position.yPct, startW: field.position.widthPct, startH: field.position.heightPct, resize: !!e.target.closest('.hp-resize'), canvasWrap };
       }
       box.addEventListener('mousedown', startDrag);
       box.addEventListener('touchstart', startDrag, { passive: false });
@@ -19341,6 +19356,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const point = e.touches ? e.touches[0] : e;
       const dxPct = ((point.clientX - hiringPlacementDragStart.clientX) / rect.width) * 100;
       const dyPct = ((point.clientY - hiringPlacementDragStart.clientY) / rect.height) * 100;
+      if(hiringPlacementDragStart.resize){
+        field.position.widthPct = Math.max(1.5, Math.min(100 - field.position.xPct, hiringPlacementDragStart.startW + dxPct));
+        field.position.heightPct = Math.max(1.2, Math.min(100 - field.position.yPct, hiringPlacementDragStart.startH + dyPct));
+        const rb = hiringPlacementDragStart.canvasWrap.querySelector(`.hiring-placement-box[data-field-id="${hiringPlacementDragFieldId}"]`);
+        if(rb){ rb.style.width = field.position.widthPct + '%'; rb.style.height = field.position.heightPct + '%'; }
+        return;
+      }
       const newX = Math.max(0, Math.min(100 - field.position.widthPct, hiringPlacementDragStart.startXPct + dxPct));
       const newY = Math.max(0, Math.min(100 - field.position.heightPct, hiringPlacementDragStart.startYPct + dyPct));
       field.position.xPct = newX;
@@ -19350,9 +19372,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     function up(){
       if(!hiringPlacementDragFieldId) return;
+      const wasResize = hiringPlacementDragStart && hiringPlacementDragStart.resize;
       hiringPlacementDragFieldId = null;
       hiringPlacementDragStart = null;
       saveHiringDocsConfig();
+      renderHiringPlacementPage();   // refresh overlap outlines
     }
     window.addEventListener('mousemove', move);
     window.addEventListener('touchmove', move, { passive: false });
@@ -19371,6 +19395,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const armed = hiringPlacementArmedFieldId === f.id;
       return `<button type="button" class="hiring-placement-chip" data-field-id="${f.id}" style="background:${armed ? 'var(--brand-orange)' : '#fff'}; color:${armed ? '#fff' : 'var(--charcoal)'}; border:1px solid ${armed ? 'var(--brand-orange)' : 'var(--line)'}; border-radius:14px; padding:6px 12px; font-size:12px; cursor:pointer;">${hiringEsc(f.label) || '(untitled field)'}</button>`;
     }).join('');
+    unplaced.filter(f => f.custom).forEach(f => {
+      const chip = listEl.querySelector(`.hiring-placement-chip[data-field-id="${f.id}"]`);
+      if(!chip) return;
+      const del = document.createElement('button'); del.type = 'button'; del.textContent = '\u2715'; del.title = 'Delete this added box';
+      del.style.cssText = 'margin-left:-4px; background:#fff; border:1px solid var(--line); border-radius:4px; color:#b3261e; cursor:pointer; padding:2px 6px;';
+      del.onclick = () => { hiringPlacementDoc.fields = hiringPlacementDoc.fields.filter(x => x !== f); saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage(); renderHiringDocRows(); };
+      chip.insertAdjacentElement('afterend', del);
+    });
     listEl.querySelectorAll('.hiring-placement-chip').forEach(chip => {
       chip.addEventListener('click', ()=>{
         hiringPlacementArmedFieldId = hiringPlacementArmedFieldId === chip.dataset.fieldId ? null : chip.dataset.fieldId;
@@ -19385,6 +19417,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   });
   document.getElementById('hiringPlacementNextPage').addEventListener('click', ()=>{
     if(hiringPlacementCurrentPage < hiringPlacementPages.length - 1){ hiringPlacementCurrentPage++; renderHiringPlacementPage(); }
+  });
+  // + Add Box (optional for the new hire) and the signature spot
+  document.getElementById('hpAddBtn').addEventListener('click', () => {
+    if(!hiringPlacementDoc) return;
+    const label = document.getElementById('hpAddLabel').value.trim();
+    if(!label){ alert('Give the new box a label first (what goes in it).'); return; }
+    const f = { id: 'custom_' + Date.now(), label, type: document.getElementById('hpAddType').value, required: false, custom: true };
+    hiringPlacementDoc.fields = (hiringPlacementDoc.fields || []).concat([f]);
+    hiringPlacementArmedFieldId = f.id;
+    document.getElementById('hpAddLabel').value = '';
+    saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
+  });
+  document.getElementById('hpSigBtn').addEventListener('click', () => {
+    if(!hiringPlacementDoc) return;
+    let f = (hiringPlacementDoc.fields || []).find(x => x.type === 'signature');
+    if(!f){ f = { id: 'sig_spot', label: 'Signature', type: 'signature', required: false, custom: true }; hiringPlacementDoc.fields = (hiringPlacementDoc.fields || []).concat([f]); }
+    hiringPlacementDoc.requiresSignature = true;
+    f.position = null;
+    hiringPlacementArmedFieldId = f.id;
+    saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
   });
   document.getElementById('hiringPlacementCloseBtn').addEventListener('click', closeHiringPlacementModal);
   document.getElementById('hiringPlacementDoneBtn').addEventListener('click', closeHiringPlacementModal);
@@ -32542,8 +32594,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // label here (the document's own printed text already says what it
     // is); the label survives as a title tooltip for accessibility.
     function hoPlacedFieldOverlayHtml(field){
-      const value = hoFieldValue(field);
       const pos = field.position;
+      // The signature spot placed on the form: tap to sign (full-size pad).
+      if(field.type === 'signature'){
+        const doc = hoPackage.documents[hoDocIndex];
+        const signedImg = hoSigHasStroke ? document.getElementById('ho_signatureCanvas').toDataURL('image/png') : '';
+        const already = !signedImg && (hoDocProgress[doc.id] || {}).signatureKey;
+        return `<button type="button" class="ho-sig-spot" style="position:absolute; left:${pos.xPct}%; top:${pos.yPct}%; width:${pos.widthPct}%; height:${pos.heightPct}%; box-sizing:border-box; background:${signedImg ? 'transparent' : 'rgba(0,132,61,0.14)'}; border:1.5px dashed var(--brand-green); border-radius:4px; cursor:pointer; padding:0; font-family:inherit; font-weight:700; font-size:clamp(10px, 1.8vw, 14px); color:var(--brand-green-dark); overflow:hidden;">${signedImg ? `<img src="${signedImg}" alt="Your signature" style="height:100%; max-width:100%; object-fit:contain;">` : (already ? '\u2713 Signed \u00b7 tap to re-sign' : '\u270d\ufe0f Tap to sign')}</button>`;
+      }
+      const value = hoFieldValue(field);
       const isLocked = HO_LOCKED_CANONICAL_KEYS.has(hoKeyOf(field));
       const baseStyle = `position:absolute; left:${pos.xPct}%; top:${pos.yPct}%; width:${pos.widthPct}%; height:${pos.heightPct}%; box-sizing:border-box; font-size:clamp(9px, 1.6vw, 13px); font-family:inherit;`;
 
@@ -32552,13 +32611,13 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       }
       if(field.type === 'select'){
         const optionsHtml = (field.options || []).map(o => `<option value="${hoEsc(o)}" ${value === o ? 'selected' : ''}>${hoEsc(o)}</option>`).join('');
-        return `<select class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" title="${hoEsc(field.label)}" style="${baseStyle} background:rgba(255,241,118,0.9); border:1.5px solid #f9a825; border-radius:2px; padding:0 2px;">
+        return `<select class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" title="${hoEsc(field.label)}" style="${baseStyle} background:rgba(255,235,59,0.22); border:1.5px solid rgba(230,160,0,0.85); border-radius:2px; padding:0 2px;">
           <option value="">\u2014</option>${optionsHtml}
         </select>`;
       }
       const inputType = field.type === 'date' ? 'date' : (field.type === 'email' ? 'email' : (field.type === 'phone' ? 'tel' : (field.type === 'number' ? 'number' : 'text')));
       const inputMode = (field.type === 'ssn' || field.type === 'routing_number' || field.type === 'account_number') ? ' inputmode="numeric"' : '';
-      const bg = isLocked ? 'rgba(210,210,210,0.75)' : 'rgba(255,241,118,0.9)';
+      const bg = isLocked ? 'rgba(200,200,200,0.35)' : 'rgba(255,235,59,0.22)';   // see-through: the printed label stays readable
       const border = isLocked ? '#999' : '#f9a825';
       return `<input type="${inputType === 'date' && isLocked ? 'text' : inputType}" class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}"${inputMode} title="${hoEsc(field.label)}" value="${hoEsc(value)}" ${isLocked ? 'readonly' : ''} style="${baseStyle} background:${bg}; border:1.5px solid ${border}; border-radius:2px; padding:0 3px;">`;
     }
@@ -32584,6 +32643,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           holder.innerHTML = hoPlacedFieldOverlayHtml(field);
           const el = holder.firstElementChild;
           wrap.appendChild(el);
+          if(field.type === 'signature'){ el.addEventListener('click', () => hoOpenSignatureModal(doc, placedFields)); return; }
           hoWireFieldInput(el, field);
         });
         contentEl.appendChild(wrap);
@@ -32718,6 +32778,33 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       }
     }
 
+    // Signing at the spot placed on a PDF form: the Sign Here pad opens
+    // full size in a pop-up, and the signature then shows on the form.
+    function hoOpenSignatureModal(doc, placedFields){
+      const wrap = document.getElementById('ho_docSignatureWrap');
+      if(!wrap._home) wrap._home = { parent: wrap.parentNode, next: wrap.nextSibling };
+      let ov = document.getElementById('hoSigModal');
+      if(!ov){
+        ov = document.createElement('div'); ov.id = 'hoSigModal';
+        ov.style.cssText = 'position:fixed; inset:0; z-index:100000; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:16px;';
+        ov.innerHTML = '<div style="background:#fff; width:100%; max-width:620px; border-radius:12px; padding:16px 18px;"><div style="font-weight:800; font-size:17px; margin-bottom:8px;">Sign here</div><div id="hoSigModalBody"></div><div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;"><button type="button" id="hoSigModalCancel" style="background:#fff; border:1px solid var(--line); padding:10px 16px; border-radius:8px; cursor:pointer;">Cancel</button><button type="button" id="hoSigModalDone" style="background:var(--brand-green); color:#fff; border:none; padding:10px 18px; border-radius:8px; font-weight:800; cursor:pointer;">Done</button></div></div>';
+        document.getElementById('hiringOnboardingGate').appendChild(ov);
+      }
+      ov.style.display = 'flex';
+      document.getElementById('hoSigModalBody').appendChild(wrap);
+      wrap.style.display = 'block';
+      hoSigHasStroke = false;
+      hoSetupSignaturePad();
+      const close = () => {
+        ov.style.display = 'none';
+        wrap.style.display = 'none';
+        wrap._home.parent.insertBefore(wrap, wrap._home.next);
+        renderHoPlacedFieldsPage(doc, placedFields);   // show the signature on the form
+      };
+      document.getElementById('hoSigModalCancel').onclick = close;
+      document.getElementById('hoSigModalDone').onclick = () => { if(!hoSigHasStroke){ alert('Draw your signature first.'); return; } close(); };
+    }
+
     function hoSetupSignaturePad(){
       const canvas = document.getElementById('ho_signatureCanvas');
       const dpr = window.devicePixelRatio || 1;
@@ -32768,6 +32855,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }
 
     async function hoRenderDocumentStep(){
+      hoSigHasStroke = false;   // each document is signed on its own
       // Every document starts at its top (not where the last one was scrolled to).
       const gate = document.getElementById('hiringOnboardingGate');
       if(gate) gate.scrollTop = 0;
@@ -32802,8 +32890,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       });
 
       const sigWrap = document.getElementById('ho_docSignatureWrap');
-      sigWrap.style.display = hoDocUsesPad(doc) ? 'block' : 'none';
-      if(hoDocUsesPad(doc)) hoSetupSignaturePad();
+      // A signature spot placed on the form replaces the pad under it.
+      const sigSpot = (doc.fields || []).some(f => f.type === 'signature' && f.position) && hoPdfPages.length;
+      sigWrap.style.display = hoDocUsesPad(doc) && !sigSpot ? 'block' : 'none';
+      if(hoDocUsesPad(doc) && !sigSpot) hoSetupSignaturePad();
     }
 
     // "Employee Signature & Date", "Signature", "Sign here"... on a document
@@ -32811,7 +32901,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // Every signature in the package is drawn on the Sign Here pad: a
     // document gets the pad if it's marked "Requires Signature" OR it has
     // a signature line of its own (typed signature boxes are never shown).
-    const hoSigLabel = f => !!(f && f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''));
+    const hoSigLabel = f => !!(f && (f.type === 'signature' || (f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''))));
     // Date-of-signing boxes, including a date split into parts
     // ("this ___ day of ______, 20__" -> Day / Month / Year).
     const hoDatePart = f => {
