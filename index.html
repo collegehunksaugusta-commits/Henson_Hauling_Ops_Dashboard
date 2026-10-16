@@ -32966,6 +32966,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       // A signature box read off the document duplicates the Sign Here pad:
       // hide it (it's filled in automatically when they sign).
       let remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f) && !hoIsPadDateField(doc, f));
+      // A PDF form laid out with placed boxes: optional boxes left unplaced are
+      // leftovers (an old dropdown, a removed worksheet box) -- don't show them.
+      // Required ones still show so the new hire can always finish.
+      if((doc.fields || []).some(f => f.position)) remainingFields = remainingFields.filter(f => f.position || f.required);
       // Split dates -> one full-date picker, placed where its first part was.
       const withFull = [];
       remainingFields.forEach(f => {
