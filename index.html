@@ -6892,6 +6892,11 @@
     <div class="detail-head">
       <h2 class="display">Hiring</h2>
     </div>
+    <div style="display:flex; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-bottom:16px;">
+      <button type="button" class="hiring-tab-btn" data-tab="onboarding" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Onboarding Packages</button><button type="button" class="hiring-tab-btn" data-tab="interviews" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Interviews <span id="hiring_interviewsCount" style="color:var(--brand-orange); font-weight:800;"></span></button><button type="button" class="hiring-tab-btn" data-tab="materials" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Interview Materials</button>
+      <a href="https://employers.indeed.com/candidates" target="_blank" rel="noopener" style="margin-left:auto; background:#2557a7; color:#fff; text-decoration:none; font-weight:700; padding:7px 14px; border-radius:6px; font-size:13.5px;">Indeed &#8599;</a>
+    </div>
+    <div id="hiring_tab_onboarding">
     <p class="form-note">Only the five basics below are needed to populate and send the full onboarding package. Documents and their required fields are managed in Configuration &rarr; Hiring.</p>
 
     <div class="panel" id="hiring_newHirePanel" style="padding:18px 20px; margin-bottom:18px;">
@@ -6917,6 +6922,52 @@
 
     <div id="hiring_candidateRows"></div>
     <p class="form-note" id="hiring_emptyNote" style="display:none;">No candidates yet \u2014 add one above to get started.</p>
+    </div>
+    <div id="hiring_tab_interviews" style="display:none;">
+      <div class="panel">
+        <h3>Scheduled Interviews</h3>
+        <p class="form-note" style="margin-top:0;">Indeed doesn&rsquo;t offer an API to individual employers, so bring candidates in from your Indeed account: upload Indeed&rsquo;s <strong>candidate export (CSV)</strong>, a <strong>screenshot</strong> of your upcoming interviews, or an <strong>interview confirmation email</strong> (PDF/image), or paste the email text. Anyone already listed is skipped.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <button type="button" id="iv_importBtn" class="btn-primary">&#128229; Import from Indeed</button>
+          <button type="button" id="iv_pasteToggle" style="background:#fff; border:1px solid var(--line); padding:9px 14px; border-radius:6px; cursor:pointer;">Paste email text</button>
+          <button type="button" id="iv_addToggle" style="background:#fff; border:1px solid var(--line); padding:9px 14px; border-radius:6px; cursor:pointer;">+ Add manually</button>
+          <input type="file" id="iv_file" accept=".csv,.pdf,image/*" style="display:none;">
+          <span class="status-msg" id="iv_status"></span>
+        </div>
+        <div id="iv_pasteBox" style="display:none; margin-top:10px;"><textarea id="iv_pasteText" rows="5" placeholder="Paste an Indeed interview confirmation email here" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:6px; font-family:inherit; box-sizing:border-box;"></textarea><button type="button" id="iv_pasteGo" style="margin-top:6px; background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Read it</button></div>
+        <div id="iv_addBox" style="display:none; margin-top:10px;">
+          <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));">
+            <label>First Name <input type="text" id="iv_first"></label><label>Last Name <input type="text" id="iv_last"></label>
+            <label>Email <input type="email" id="iv_email"></label><label>Phone <input type="tel" id="iv_phone"></label>
+            <label>Interview <input type="datetime-local" id="iv_when"></label>
+          </div>
+          <button type="button" id="iv_addGo" style="margin-top:6px; background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Add Candidate</button>
+        </div>
+        <div id="iv_list" style="margin-top:14px;"></div>
+      </div>
+    </div>
+    <div id="hiring_tab_materials" style="display:none;">
+      <div class="panel">
+        <h3>Add Interview Material</h3>
+        <p class="form-note" style="margin-top:0;">Interview questions, job descriptions, scorecards and anything else you use when interviewing &mdash; all in one place.</p>
+        <div class="form-grid">
+          <label>Name <input type="text" id="ivMat_name" placeholder="e.g. Wingman Interview Questions"></label>
+          <label>Category
+            <select id="ivMat_category"><option>Interview Questions</option><option>Job Description</option><option>Scorecard</option><option>Training</option><option>Other</option></select>
+          </label>
+        </div>
+        <label>Description (optional) <textarea id="ivMat_description" rows="2" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:14px; box-sizing:border-box;"></textarea></label>
+        <label style="display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; margin-top:8px;">File (optional)
+          <input type="file" id="ivMat_file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="font-family:'Inter',sans-serif; font-size:13px; text-transform:none; letter-spacing:normal;"></label>
+        <div class="form-actions"><button class="btn-primary" id="ivMat_addBtn" type="button">Add Material</button><span class="status-msg" id="ivMat_addStatus"></span></div>
+      </div>
+      <div class="panel">
+        <h3>Interview Materials (<span id="ivMat_count">0</span>)</h3>
+        <input type="text" id="ivMat_filter" placeholder="Search name or category..." style="font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:4px; margin-bottom:14px; min-width:240px;">
+        <div id="ivMat_grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:16px;"></div>
+        <p class="form-note" id="ivMat_emptyNote" style="display:none;">No interview materials yet &mdash; add your first one above.</p>
+      </div>
+    </div>
   </div>
 
   <div id="wingmanMetricsDetail" style="display:none;">
@@ -9547,6 +9598,8 @@
     }
     if(view === 'hiring'){
       window.loadHiringData();
+      if(window.hiringSwitchTab) window.hiringSwitchTab(window.__hiringTab || 'onboarding');
+      if(window.loadInterviews) window.loadInterviews();
     }
     if(view === 'extrapay'){
       window.loadExtraPayData();
@@ -17731,6 +17784,7 @@
   // Picks the right thumbnail generator by file type. Never throws --
   // returns null on any failure so a bad/corrupt file just falls back to
   // the generic icon rather than blocking the upload.
+  window.generateMaterialThumbnail = (...a) => generateMaterialThumbnail(...a);
   async function generateMaterialThumbnail(file){
     try{
       if(file.type.startsWith('image/')){
@@ -27456,6 +27510,189 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }));
   }
 
+  // ---- Hiring tabs: Onboarding Packages / Interviews / Interview Materials ----
+  function hiringSwitchTab(tab){
+    ['onboarding', 'interviews', 'materials'].forEach(t => {
+      document.getElementById('hiring_tab_' + t).style.display = t === tab ? 'block' : 'none';
+      const b = document.querySelector(`.hiring-tab-btn[data-tab="${t}"]`);
+      b.style.borderBottomColor = t === tab ? 'var(--brand-orange)' : 'transparent'; b.style.color = t === tab ? 'var(--charcoal)' : 'var(--muted)'; b.style.fontWeight = t === tab ? '700' : '600';
+    });
+    if(tab === 'interviews') loadInterviews();
+    if(tab === 'materials') loadIvMaterials();
+  }
+  window.hiringSwitchTab = hiringSwitchTab;
+  document.querySelectorAll('.hiring-tab-btn').forEach(b => b.addEventListener('click', () => hiringSwitchTab(b.dataset.tab)));
+
+  // ---- Interviews (imported from Indeed or added by hand) ----
+  const IV_KEY = 'hiring-interviews';
+  let interviews = [];
+  async function loadInterviews(){
+    try{ interviews = await window.dashboardApi.get(IV_KEY, []) || []; }catch(err){ interviews = []; }
+    renderInterviews();
+  }
+  window.loadInterviews = loadInterviews;
+  const ivSave = () => window.dashboardApi.set(IV_KEY, interviews);
+  const ivKey = c => (String(c.email || '').trim().toLowerCase()) || (String(c.firstName || '') + ' ' + String(c.lastName || '')).trim().toLowerCase();
+  function ivAddMany(list){
+    let added = 0;
+    (list || []).forEach(c => {
+      const first = String(c.firstName || '').trim(), last = String(c.lastName || '').trim();
+      if(!first && !last) return;
+      const rec = { id: 'iv_' + Date.now() + '_' + Math.floor(Math.random() * 1e4), firstName: first, lastName: last, email: String(c.email || '').trim(), phone: String(c.phone || '').trim(), interviewAt: String(c.interviewAt || '').trim(), job: String(c.job || '').trim(), addedAt: new Date().toISOString() };
+      if(interviews.some(x => ivKey(x) === ivKey(rec))) return;
+      interviews.push(rec); added++;
+    });
+    return added;
+  }
+  function renderInterviews(){
+    const el = document.getElementById('iv_list'); if(!el) return;
+    const open = interviews.filter(x => !x.packageSentAt);
+    document.getElementById('hiring_interviewsCount').textContent = open.length ? `(${open.length})` : '';
+    if(!interviews.length){ el.innerHTML = '<p class="form-note" style="margin:0;">No interviews yet \u2014 import from Indeed or add one.</p>'; return; }
+    const sorted = interviews.slice().sort((a, b) => String(a.interviewAt || '9').localeCompare(String(b.interviewAt || '9')));
+    const fmtWhen = w => { if(!w) return '\u2014'; const d = new Date(w.length > 10 ? w : w + 'T12:00:00'); return isNaN(d) ? w : (w.length > 10 ? d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })); };
+    el.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13.5px; min-width:640px;">
+      <thead><tr><th style="text-align:left; padding:6px;">Candidate</th><th style="text-align:left; padding:6px;">Interview</th><th style="text-align:left; padding:6px;">Contact</th><th style="padding:6px;"></th></tr></thead><tbody>
+      ${sorted.map(c => `<tr data-id="${c.id}" style="border-top:1px solid var(--line);">
+        <td style="padding:8px 6px;"><strong>${hiringAdminEsc(c.firstName)} ${hiringAdminEsc(c.lastName)}</strong>${c.job ? `<div style="font-size:12px; color:var(--muted);">${hiringAdminEsc(c.job)}</div>` : ''}</td>
+        <td style="padding:8px 6px;">${fmtWhen(c.interviewAt)}</td>
+        <td style="padding:8px 6px; font-size:12.5px;">${hiringAdminEsc(c.email || '')}${c.phone ? `<div>${hiringAdminEsc(c.phone)}</div>` : ''}</td>
+        <td style="padding:8px 6px; text-align:right; white-space:nowrap;">${c.packageSentAt ? `<span style="color:var(--brand-green-dark); font-weight:700; font-size:12.5px;">\u2713 Package sent ${new Date(c.packageSentAt).toLocaleDateString()}</span>`
+          : `<button type="button" class="iv-send" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">Send Onboarding Package</button>`}
+          <button type="button" class="iv-del" title="Remove" style="background:#fff; border:1px solid var(--line); color:#b3261e; padding:6px 9px; border-radius:6px; cursor:pointer; margin-left:4px;">\u2715</button></td>
+      </tr>`).join('')}</tbody></table></div>`;
+    el.querySelectorAll('.iv-del').forEach(b => b.onclick = async () => { const id = b.closest('tr').dataset.id; if(!confirm('Remove this candidate from the list?')) return; interviews = interviews.filter(x => x.id !== id); await ivSave(); renderInterviews(); });
+    el.querySelectorAll('.iv-send').forEach(b => b.onclick = () => {
+      const c = interviews.find(x => x.id === b.closest('tr').dataset.id);
+      hiringSwitchTab('onboarding');
+      const form = document.getElementById('hiring_newHireForm');
+      if(form.style.display === 'none') document.getElementById('hiring_newHireToggleBtn').click();
+      document.getElementById('hiring_nh_firstName').value = c.firstName || '';
+      document.getElementById('hiring_nh_lastName').value = c.lastName || '';
+      document.getElementById('hiring_nh_email').value = c.email || '';
+      window.__hiringFromInterviewId = c.id;
+      const st = document.getElementById('hiring_nh_status'); st.textContent = `Add ${c.firstName}\u2019s starting pay and start date, then create the package.`; st.className = 'status-msg';
+      document.getElementById('hiring_nh_startingPay').focus();
+      document.getElementById('hiring_newHirePanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+  // CSV (Indeed's candidate export): pick columns by their headers.
+  function ivParseCsv(text){
+    const rows = []; let row = [], cell = '', q = false;
+    for(let i = 0; i < text.length; i++){
+      const ch = text[i];
+      if(q){ if(ch === '"' && text[i + 1] === '"'){ cell += '"'; i++; } else if(ch === '"') q = false; else cell += ch; }
+      else if(ch === '"') q = true; else if(ch === ','){ row.push(cell); cell = ''; } else if(ch === '\n' || ch === '\r'){ if(ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += ch;
+    }
+    if(cell || row.length){ row.push(cell); rows.push(row); }
+    if(rows.length < 2) return [];
+    const h = rows[0].map(x => x.trim().toLowerCase());
+    const col = (...names) => h.findIndex(x => names.some(n => x === n || x.includes(n)));
+    const iName = col('name'), iFirst = col('first name'), iLast = col('last name'), iEmail = col('email'), iPhone = col('phone'), iWhen = col('interview', 'scheduled', 'date'), iJob = col('job title', 'job', 'position');
+    return rows.slice(1).filter(r => r.some(x => x.trim())).map(r => {
+      let first = iFirst >= 0 ? r[iFirst] : '', last = iLast >= 0 ? r[iLast] : '';
+      if(!first && !last && iName >= 0){ const parts = String(r[iName] || '').trim().split(/\s+/); first = parts.shift() || ''; last = parts.join(' '); }
+      let when = iWhen >= 0 ? String(r[iWhen] || '').trim() : '';
+      const d = when ? new Date(when) : null; if(d && !isNaN(d)) when = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      return { firstName: first, lastName: last, email: iEmail >= 0 ? r[iEmail] : '', phone: iPhone >= 0 ? r[iPhone] : '', interviewAt: when, job: iJob >= 0 ? r[iJob] : '' };
+    });
+  }
+  async function ivImportResult(list){
+    const st = document.getElementById('iv_status');
+    const added = ivAddMany(list);
+    await ivSave(); renderInterviews();
+    st.textContent = added ? `Added ${added} candidate${added === 1 ? '' : 's'}.` : (list.length ? 'Everyone in that file is already listed.' : 'No candidates found in that.');
+    st.className = 'status-msg ' + (added ? 'ok' : '');
+  }
+  async function ivReadWithAi(body){
+    const st = document.getElementById('iv_status');
+    st.textContent = 'Reading\u2026'; st.className = 'status-msg';
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/hiring/read-interviews`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(body) });
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not read that.');
+      await ivImportResult(d.candidates || []);
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  }
+  document.getElementById('iv_importBtn').addEventListener('click', () => document.getElementById('iv_file').click());
+  document.getElementById('iv_file').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if(!f) return;
+    if(/\.csv$/i.test(f.name) || f.type === 'text/csv'){ await ivImportResult(ivParseCsv(await f.text())); return; }
+    const dataUri = f.type.startsWith('image/') ? await window.compressImageForUpload(f, 2000, 0.85) : await new Promise((ok, bad) => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.onerror = bad; rd.readAsDataURL(f); });
+    await ivReadWithAi({ file: dataUri });
+  });
+  document.getElementById('iv_pasteToggle').addEventListener('click', () => { const b = document.getElementById('iv_pasteBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; });
+  document.getElementById('iv_pasteGo').addEventListener('click', () => { const t = document.getElementById('iv_pasteText').value.trim(); if(t) ivReadWithAi({ text: t }).then(() => { document.getElementById('iv_pasteText').value = ''; }); });
+  document.getElementById('iv_addToggle').addEventListener('click', () => { const b = document.getElementById('iv_addBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; });
+  document.getElementById('iv_addGo').addEventListener('click', async () => {
+    const v = id => document.getElementById(id).value.trim();
+    if(!v('iv_first') && !v('iv_last')){ alert('Enter a name.'); return; }
+    await ivImportResult([{ firstName: v('iv_first'), lastName: v('iv_last'), email: v('iv_email'), phone: v('iv_phone'), interviewAt: v('iv_when') }]);
+    ['iv_first', 'iv_last', 'iv_email', 'iv_phone', 'iv_when'].forEach(id => document.getElementById(id).value = '');
+  });
+
+  // ---- Interview Materials (same upload as Marketing Materials) ----
+  const IV_MAT_KEY = 'hiring-interview-materials';
+  let ivMatRecords = [];
+  async function loadIvMaterials(){
+    try{ ivMatRecords = await window.dashboardApi.get(IV_MAT_KEY, []) || []; }catch(err){ ivMatRecords = ivMatRecords || []; }
+    renderIvMaterials();
+  }
+  function renderIvMaterials(){
+    const filter = (document.getElementById('ivMat_filter').value || '').trim().toLowerCase();
+    const grid = document.getElementById('ivMat_grid');
+    const list = ivMatRecords.filter(r => !filter || (r.name || '').toLowerCase().includes(filter) || (r.category || '').toLowerCase().includes(filter)).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    document.getElementById('ivMat_count').textContent = ivMatRecords.length;
+    document.getElementById('ivMat_emptyNote').style.display = ivMatRecords.length ? 'none' : 'block';
+    grid.innerHTML = list.map(r => `<div style="border:1px solid var(--line); border-radius:6px; overflow:hidden; background:#fff; display:flex; flex-direction:column;" title="${hiringAdminEsc(r.description || '')}">
+        <div class="ivMat-thumb" data-id="${r.id}" style="width:100%; aspect-ratio:1; background:var(--offwhite); display:flex; align-items:center; justify-content:center; overflow:hidden; cursor:${r.hasFile ? 'pointer' : 'default'};">${r.thumbnailDataUri ? `<img src="${r.thumbnailDataUri}" alt="" style="width:100%; height:100%; object-fit:cover;">` : `<span style="font-size:32px;">${r.hasFile ? '\u{1F4C4}' : '\u{1F4DD}'}</span>`}</div>
+        <div style="padding:9px 10px; display:flex; flex-direction:column; gap:3px; flex:1;">
+          <div style="font-weight:600; font-size:13px; line-height:1.3;">${hiringAdminEsc(r.name)}</div><div style="font-size:11px; color:var(--muted);">${hiringAdminEsc(r.category)}</div>
+          <div style="margin-top:auto; padding-top:6px; display:flex; gap:6px;">${r.hasFile ? `<button type="button" class="ivMat-view" data-id="${r.id}" style="flex:1; background:#fff; border:1px solid var(--line); font-size:11px; padding:4px 6px; border-radius:4px; cursor:pointer;">View</button>` : ''}
+            <button type="button" class="ivMat-del" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 6px; border-radius:4px; cursor:pointer;">Delete</button></div>
+        </div></div>`).join('');
+    const view = async id => {
+      try{
+        const dataUri = await window.dashboardApi.get('interview-material-doc-' + id, null);
+        if(!dataUri){ alert('Could not load this file.'); return; }
+        const isPdf = dataUri.startsWith('data:application/pdf');
+        if(isPdf || dataUri.startsWith('data:image')) window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
+        else { const a = document.createElement('a'); a.href = dataUri; a.download = ''; document.body.appendChild(a); a.click(); a.remove(); }
+      }catch(err){ alert('Could not load this file \u2014 check your connection.'); }
+    };
+    grid.querySelectorAll('.ivMat-view').forEach(b => b.onclick = () => view(b.dataset.id));
+    grid.querySelectorAll('.ivMat-thumb').forEach(t => { const r = ivMatRecords.find(x => x.id === t.dataset.id); if(r && r.hasFile) t.onclick = () => view(t.dataset.id); });
+    grid.querySelectorAll('.ivMat-del').forEach(b => b.onclick = async () => {
+      if(!confirm('Delete this interview material?')) return;
+      ivMatRecords = ivMatRecords.filter(r => r.id !== b.dataset.id);
+      await window.dashboardApi.set(IV_MAT_KEY, ivMatRecords);
+      window.dashboardApi.delete && window.dashboardApi.delete('interview-material-doc-' + b.dataset.id);
+      renderIvMaterials();
+    });
+  }
+  document.getElementById('ivMat_filter').addEventListener('input', renderIvMaterials);
+  document.getElementById('ivMat_addBtn').addEventListener('click', async () => {
+    const st = document.getElementById('ivMat_addStatus');
+    const name = document.getElementById('ivMat_name').value.trim(), category = document.getElementById('ivMat_category').value;
+    const description = document.getElementById('ivMat_description').value.trim(), file = document.getElementById('ivMat_file').files[0];
+    if(!name){ st.textContent = 'Enter a name.'; st.className = 'status-msg err'; return; }
+    if(file && file.size > 10 * 1024 * 1024){ st.textContent = 'That file is over 10MB.'; st.className = 'status-msg err'; return; }
+    st.textContent = 'Saving...'; st.className = 'status-msg';
+    const id = 'ivmat_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    let hasFile = false, thumbnailDataUri = null;
+    if(file){
+      try{
+        const compressed = await window.compressUploadedFile(file);
+        hasFile = await window.dashboardApi.set('interview-material-doc-' + id, compressed.dataUri);
+        thumbnailDataUri = await window.generateMaterialThumbnail(file);
+      }catch(err){ console.error('Interview material upload failed:', err); }
+    }
+    ivMatRecords.push({ id, name, category, description, hasFile, thumbnailDataUri, dateAdded: new Date().toISOString().slice(0, 10) });
+    const ok = await window.dashboardApi.set(IV_MAT_KEY, ivMatRecords);
+    ['ivMat_name', 'ivMat_description', 'ivMat_file'].forEach(x => document.getElementById(x).value = '');
+    renderIvMaterials();
+    st.textContent = ok ? 'Added.' : 'Could not save \u2014 check your connection.'; st.className = 'status-msg ' + (ok ? 'ok' : 'err');
+  });
+
   document.getElementById('hiring_newHireToggleBtn').addEventListener('click', ()=>{
     const form = document.getElementById('hiring_newHireForm');
     const chevron = document.getElementById('hiring_newHireChevron');
@@ -27498,6 +27735,14 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       document.getElementById('hiring_nh_startingPay').value = '';
       document.getElementById('hiring_nh_startingDate').value = '';
       hiringExpandedCandidates.add(data.candidate.id);
+      if(window.__hiringFromInterviewId){
+        try{
+          const list = await window.dashboardApi.get('hiring-interviews', []) || [];
+          const row = list.find(x => x.id === window.__hiringFromInterviewId);
+          if(row){ row.packageSentAt = new Date().toISOString(); row.candidateId = data.candidate.id; await window.dashboardApi.set('hiring-interviews', list); }
+        }catch(err){}
+        window.__hiringFromInterviewId = null;
+      }
       await loadHiringData();
     }catch(err){
       console.error('Hiring candidate create failed:', err);
