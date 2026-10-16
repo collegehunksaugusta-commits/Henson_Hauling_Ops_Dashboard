@@ -506,6 +506,7 @@
       <select id="hpAddType" style="padding:7px;"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="checkbox">Checkbox</option><optgroup label="Auto-fill (locked)"><option value="auto:employer_name_address">Employer name &amp; address</option><option value="auto:employer_ein">Employer EIN</option><option value="auto:start_date">First date of employment</option></optgroup></select>
       <button type="button" id="hpAddBtn" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">+ Add Box</button>
       <button type="button" id="hpFindBtn" title="Adds an optional box after every $ answer line (and numbered lines in the answer column) on this page that doesn't have one" style="background:#fff; border:1px solid var(--line); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#128269; Find blank lines</button>
+      <button type="button" id="hpEmpSigBtn" title="Where the employer signs -- the Administrator signs it in Manager Review \u2192 New Hires" style="background:#2f6db5; color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#9997;&#65039; Place Employer Signature</button>
       <button type="button" id="hpSigBtn" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#9997;&#65039; Place Signature</button>
       <span style="font-size:11.5px; color:var(--muted); width:100%;">Added boxes are optional for the new hire. After clicking a button, tap the spot on the page.</span>
     </div>
@@ -7194,6 +7195,7 @@
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="roadtests" id="mgrreview_tab_roadtests" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Road Tests <span id="mgrreview_roadtestsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="newhires" id="mgrreview_tab_newhires" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">New Hires <span id="mgrreview_newhiresTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="expenses" id="mgrreview_tab_expenses" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Expenses <span id="mgrreview_expensesTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="damageclaims" id="mgrreview_tab_damageclaims" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Damage Claims <span id="mgrreview_damageClaimsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="moving" id="mgrreview_tab_moving" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Moving <span id="mgrreview_movingTabCount" style="color:#b3261e; font-weight:800;"></span></button>
@@ -7422,6 +7424,12 @@
       .dc-btn.danger{ border:none; background:none; color:#b3261e; font-weight:500; text-decoration:underline; margin-left:auto; }
     </style>
     <input type="file" id="dc_addPhotosInput" accept="image/*" multiple style="display:none;">
+    <div class="panel" id="mgrreview_panel_newhires" style="display:none;">
+      <h3>New Hires</h3>
+      <p class="form-note" style="margin-top:0;">Completed onboarding packages. The <strong>Administrator</strong> signs anything that calls for the employer&rsquo;s signature; then <strong>any manager</strong> confirms the new hire was added to HunkWare &mdash; which adds them to the Employee Roster automatically (name and last 4 of SSN from their package, for HUNK Portal sign-in).</p>
+      <div id="nh_list"></div>
+    </div>
+
     <div class="panel" id="mgrreview_panel_roadtests" style="display:none;">
       <h3>Road Tests</h3>
       <p class="form-note" style="margin-top:0;">New drivers need a road test before driving for us (49 CFR &sect;391.31). Ride along, check each item, then certify and sign here &mdash; the signed Road Test Certification is saved to the driver&rsquo;s file in Regulatory Compliance.</p>
@@ -18973,6 +18981,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <label style="display:flex; align-items:center; gap:5px; font-size:12.5px; white-space:nowrap;">
           <input type="checkbox" class="hiring-requires-sig" data-doc-id="${doc.id}" ${doc.requiresSignature?'checked':''}> Requires Signature
         </label>
+        <label style="display:flex; align-items:center; gap:5px; font-size:12.5px; white-space:nowrap;" title="The Administrator signs this document in Manager Review \u2192 New Hires after the new hire submits">
+          <input type="checkbox" class="hiring-requires-empsig" data-doc-id="${doc.id}" ${(doc.requiresEmployerSignature || (doc.fields || []).some(f => f.type === 'employer_signature'))?'checked':''}> Employer signs
+        </label>
         <button type="button" class="hiring-remove-doc" data-doc-id="${doc.id}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;">Remove</button>
       </div>
       <div style="margin-top:8px; font-size:12px; color:var(--muted);">
@@ -19019,6 +19030,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     rowsEl.querySelectorAll('.hiring-doc-name').forEach(input => input.addEventListener('change', (e)=>{
       const doc = hiringDocuments.find(d => d.id === e.target.dataset.docId);
       if(doc){ doc.name = e.target.value.trim(); saveHiringDocsConfig(); }
+    }));
+    rowsEl.querySelectorAll('.hiring-requires-empsig').forEach(cb => cb.addEventListener('change', (e)=>{
+      const doc = hiringDocuments.find(d => d.id === e.target.dataset.docId);
+      if(doc){ doc.requiresEmployerSignature = e.target.checked; saveHiringDocsConfig(); }
     }));
     rowsEl.querySelectorAll('.hiring-requires-sig').forEach(cb => cb.addEventListener('change', (e)=>{
       const doc = hiringDocuments.find(d => d.id === e.target.dataset.docId);
@@ -19213,7 +19228,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     address: { widthPct: 40, heightPct: 3.2 },
     number: { widthPct: 12, heightPct: 3.2 },
     text: { widthPct: 30, heightPct: 3.2 },
-    signature: { widthPct: 34, heightPct: 4.5 }
+    signature: { widthPct: 34, heightPct: 4.5 },
+    employer_signature: { widthPct: 34, heightPct: 4.5 }
   };
 
   let hiringPlacementDoc = null;
@@ -19286,6 +19302,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       box.innerHTML = `<span style="font-size:10px; color:var(--brand-green-dark); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${hiringEsc(field.label)}</span><button type="button" class="hiring-placement-unplace" data-field-id="${field.id}" style="background:none; border:none; color:#b3261e; font-size:13px; font-weight:700; cursor:pointer; padding:0 2px; line-height:1;">&times;</button>`;
       if(overlaps(field)){ box.style.borderColor = '#b3261e'; box.style.background = 'rgba(179,38,30,0.16)'; box.title = 'Overlaps another box'; }
       if(field.type === 'signature'){ box.style.background = 'rgba(0,132,61,0.22)'; box.style.borderStyle = 'dashed'; }
+      if(field.type === 'employer_signature'){ box.style.background = 'rgba(47,109,181,0.22)'; box.style.borderColor = '#2f6db5'; box.style.borderStyle = 'dashed'; }
       if(field.type === 'select' && (field.options || []).length > 1){
         // Guide lines: the new hire gets one check row per option -- size this
         // box so each row sits on its printed checkbox.
@@ -19482,6 +19499,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     hiringPlacementArmedFieldId = f.id;
     document.getElementById('hpAddLabel').value = '';
     saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
+  });
+  document.getElementById('hpEmpSigBtn').addEventListener('click', () => {
+    if(!hiringPlacementDoc) return;
+    let f = (hiringPlacementDoc.fields || []).find(x => x.type === 'employer_signature');
+    if(!f){ f = { id: 'emp_sig_spot', label: 'Employer Signature', type: 'employer_signature', required: false, custom: true }; hiringPlacementDoc.fields = (hiringPlacementDoc.fields || []).concat([f]); }
+    hiringPlacementDoc.requiresEmployerSignature = true;
+    f.position = null;
+    hiringPlacementArmedFieldId = f.id;
+    saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage(); renderHiringDocRows();
   });
   document.getElementById('hpSigBtn').addEventListener('click', () => {
     if(!hiringPlacementDoc) return;
@@ -30066,6 +30092,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     loadGoogleReviews();
     loadExpenseClaims();
     loadRoadTests();
+    loadNewHires();
     window.loadDamageClaimsData();
     loadJobsAndCaptains();
     loadMgrReviewWeightTickets();
@@ -30135,7 +30162,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       + (window.getTipsNeedsAttentionCount ? window.getTipsNeedsAttentionCount() : 0)
       + (window.damageClaimAlertCount || 0)
       + (window.expensePendingCount || 0)
-      + (window.roadTestPendingCount || 0);
+      + (window.roadTestPendingCount || 0)
+      + (window.newHirePendingCount || 0);
     const badge = document.getElementById('managerReviewTileBadge');
     const tile = document.getElementById('tile-managerreview');
     if(openCount > 0){
@@ -30314,6 +30342,92 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   const RT_KEY = 'compliance-roadtest-tasks';
   const RT_ITEMS = ['Pre-trip inspection', 'Coupling and uncoupling of combination units (if applicable)', 'Placing the vehicle in operation', 'Use of the vehicle\u2019s controls and emergency equipment', 'Operating the vehicle in traffic and while passing other vehicles', 'Turning the vehicle', 'Braking, and slowing by means other than braking', 'Backing and parking the vehicle'];
   let roadTests = [], rtOpenId = null;
+  // ---- New Hires: employer signatures + "Added to HunkWare" ----
+  let newHires = [];
+  async function loadNewHires(){
+    try{ const r = await fetch(`${API_BASE}/api/admin/new-hires`, { headers: authHeaders() }); newHires = r.ok ? (await r.json()).newHires || [] : []; }catch(err){ newHires = []; }
+    renderNewHires();
+  }
+  window.loadNewHires = loadNewHires;
+  function renderNewHires(){
+    const pending = newHires.filter(n => !n.done);
+    window.newHirePendingCount = pending.length;
+    const tc = document.getElementById('mgrreview_newhiresTabCount'); if(tc) tc.textContent = pending.length ? `(${pending.length})` : '';
+    if(typeof updateManagerReviewTileBadge === 'function') updateManagerReviewTileBadge();
+    const el = document.getElementById('nh_list'); if(!el) return;
+    const isAdmin = localStorage.getItem('henson_auth_role') === 'admin';
+    if(!newHires.length){ el.innerHTML = '<p class="form-note" style="margin:0;">No completed packages waiting.</p>'; return; }
+    const when = x => x ? new Date(x).toLocaleDateString() : '';
+    el.innerHTML = newHires.map(n => {
+      const sigs = n.employerSignatures || [], needSig = sigs.filter(x => !x.signed).length;
+      return `<div class="nh-card" data-id="${mgrReviewEsc(n.id)}" style="border:2px solid ${n.done ? 'var(--line)' : 'var(--brand-orange)'}; border-radius:10px; padding:12px 14px; margin-bottom:12px; background:${n.done ? 'var(--offwhite)' : '#fff'};">
+        <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <div><strong style="font-size:15px;">${mgrReviewEsc(n.name)}</strong><div style="font-size:12.5px; color:var(--muted);">${mgrReviewEsc(n.positionTitle || '')}${n.startingDate ? ' \u00b7 starts ' + window.fmtDate(n.startingDate) : ''} \u00b7 package completed ${when(n.completedAt)}</div></div>
+          ${n.done ? '<span style="color:var(--brand-green-dark); font-weight:800;">\u2713 Done</span>' : ''}
+        </div>
+        ${sigs.length ? `<div style="margin-top:10px;"><div style="font-weight:700; font-size:13px;">Employer signature${sigs.length === 1 ? '' : 's'} (Administrator)</div>
+          ${sigs.map(sg => `<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); font-size:13.5px;">
+            <span>${mgrReviewEsc(sg.name)}</span>
+            ${sg.signed ? `<span style="color:var(--brand-green-dark); font-size:12.5px;">\u2713 Signed ${when(sg.signedAt)}${sg.signedBy ? ' by ' + mgrReviewEsc(sg.signedBy) : ''}</span>`
+              : (isAdmin ? `<button type="button" class="nh-sign" data-doc="${mgrReviewEsc(sg.id)}" data-docname="${mgrReviewEsc(sg.name)}" style="background:#2f6db5; color:#fff; border:none; padding:6px 12px; border-radius:6px; font-weight:700; cursor:pointer;">\u270d\ufe0f Sign</button>` : '<span style="color:#8a6100; font-size:12.5px;">waiting on the Administrator</span>')}
+          </div>`).join('')}</div>` : ''}
+        <div style="margin-top:10px;">
+          ${n.hunkware ? `<div style="font-size:13px; color:var(--brand-green-dark);">\u2713 Added to HunkWare ${when(n.hunkware.at)}${n.hunkware.by ? ' by ' + mgrReviewEsc(n.hunkware.by) : ''}${n.hunkware.roster ? ` \u00b7 Employee Roster: ${mgrReviewEsc(n.hunkware.roster.name)}${n.hunkware.roster.added ? ' (added)' : ''}${n.hunkware.roster.signIn ? ', HUNK Portal sign-in set' : ''}` : ''}</div>${n.hunkware.roster && n.hunkware.roster.note ? `<div style="font-size:12.5px; color:#b3261e; margin-top:3px;">${mgrReviewEsc(n.hunkware.roster.note)}</div>` : ''}`
+            : `<button type="button" class="nh-hunkware" style="background:var(--brand-green); color:#fff; border:none; padding:9px 14px; border-radius:6px; font-weight:800; cursor:pointer;">\u2713 Added to HunkWare</button> <span style="font-size:12px; color:var(--muted);">Click once you&rsquo;ve entered ${mgrReviewEsc(n.name)} in HunkWare \u2014 adds them to the Employee Roster as <strong>${mgrReviewEsc(n.rosterName)}</strong>.</span>`}
+        </div>
+        <p class="status-msg nh-status" style="margin:6px 0 0;"></p>
+      </div>`;
+    }).join('');
+    el.querySelectorAll('.nh-hunkware').forEach(b => b.addEventListener('click', async () => {
+      const card = b.closest('.nh-card'), n = newHires.find(x => x.id === card.dataset.id), st = card.querySelector('.nh-status');
+      if(!confirm(`Confirm ${n.name} has been added to HunkWare? They'll be added to the Employee Roster.`)) return;
+      b.disabled = true; st.textContent = 'Saving\u2026'; st.className = 'status-msg nh-status';
+      try{
+        const r = await fetch(`${API_BASE}/api/admin/new-hires/${encodeURIComponent(n.id)}/hunkware`, { method: 'POST', headers: authHeaders() });
+        if(!r.ok) throw new Error((await r.json()).error || 'Could not save.');
+        loadNewHires();
+      }catch(err){ b.disabled = false; st.textContent = err.message; st.className = 'status-msg nh-status err'; }
+    }));
+    el.querySelectorAll('.nh-sign').forEach(b => b.addEventListener('click', () => nhOpenSign(b.closest('.nh-card').dataset.id, b.dataset.doc, b.dataset.docname)));
+  }
+  // The Administrator's signature pad for a document's employer signature.
+  function nhOpenSign(candId, docId, docName){
+    let ov = document.getElementById('nhSignModal');
+    if(!ov){ ov = document.createElement('div'); ov.id = 'nhSignModal'; document.body.appendChild(ov); }
+    ov.style.cssText = 'position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; padding:16px;';
+    ov.innerHTML = `<div style="background:#fff; width:100%; max-width:620px; border-radius:12px; padding:16px 18px;">
+      <div style="font-weight:800; font-size:16px;">Employer signature \u2014 ${mgrReviewEsc(docName)}</div>
+      <div style="font-size:12.5px; color:var(--muted); margin:2px 0 8px;">Signed as the Administrator (${mgrReviewEsc(localStorage.getItem('henson_auth_email') || '')}).</div>
+      <canvas id="nhSignCanvas" style="width:100%; height:170px; border:1px solid var(--line); border-radius:8px; touch-action:none; display:block;"></canvas>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+        <button type="button" id="nhSignClear" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer;">Clear</button>
+        <div style="display:flex; gap:8px;"><button type="button" id="nhSignCancel" style="background:#fff; border:1px solid var(--line); padding:9px 14px; border-radius:6px; cursor:pointer;">Cancel</button>
+        <button type="button" id="nhSignSave" style="background:#2f6db5; color:#fff; border:none; padding:9px 16px; border-radius:6px; font-weight:800; cursor:pointer;">Save Signature</button></div>
+      </div><p class="status-msg" id="nhSignStatus" style="margin:6px 0 0;"></p></div>`;
+    const cv = document.getElementById('nhSignCanvas'), dpr = window.devicePixelRatio || 1, rect = cv.getBoundingClientRect();
+    cv.width = rect.width * dpr; cv.height = rect.height * dpr;
+    const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#111';
+    let drawing = false, stroked = false, last = null;
+    const pt = e => { const r = cv.getBoundingClientRect(), t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top }; };
+    const start = e => { e.preventDefault(); drawing = true; last = pt(e); };
+    const move = e => { if(!drawing) return; e.preventDefault(); const p = pt(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; stroked = true; };
+    const end = () => { drawing = false; };
+    cv.addEventListener('mousedown', start); cv.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
+    cv.addEventListener('touchstart', start, { passive: false }); cv.addEventListener('touchmove', move, { passive: false }); cv.addEventListener('touchend', end);
+    document.getElementById('nhSignClear').onclick = () => { ctx.clearRect(0, 0, cv.width, cv.height); stroked = false; };
+    document.getElementById('nhSignCancel').onclick = () => { ov.style.display = 'none'; };
+    document.getElementById('nhSignSave').onclick = async () => {
+      const st = document.getElementById('nhSignStatus');
+      if(!stroked){ st.textContent = 'Draw your signature first.'; st.className = 'status-msg err'; return; }
+      st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+      try{
+        const r = await fetch(`${API_BASE}/api/admin/new-hires/${encodeURIComponent(candId)}/employer-sign`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ documentId: docId, signatureDataUri: cv.toDataURL('image/png') }) });
+        if(!r.ok) throw new Error((await r.json()).error || 'Could not save.');
+        ov.style.display = 'none'; loadNewHires();
+      }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+    };
+  }
+
   async function loadRoadTests(){
     try{ roadTests = await window.dashboardApi.get(RT_KEY, []) || []; }catch(err){ roadTests = []; }
     renderRoadTests();
@@ -30781,7 +30895,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','roadtests','expenses','damageclaims','moving','greviews'].forEach(t => {
+    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','roadtests','newhires','expenses','damageclaims','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -30796,6 +30910,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(tab === 'damageclaims') window.loadDamageClaimsData();
     if(tab === 'expenses') loadExpenseClaims();
     if(tab === 'roadtests') loadRoadTests();
+    if(tab === 'newhires') loadNewHires();
   }
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
@@ -32729,6 +32844,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         wrap.appendChild(pageData.canvas);
         (placedFields || []).forEach(field => {
           if(!field.position || field.position.page !== pageIndex) return;
+          if(hoIsEmployerSigField(field)) return;   // the Administrator signs this later
           const holder = document.createElement('div');
           holder.innerHTML = hoPlacedFieldOverlayHtml(field);
           const el = holder.firstElementChild;
@@ -32983,7 +33099,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const fieldsEl = document.getElementById('ho_docFields');
       // A signature box read off the document duplicates the Sign Here pad:
       // hide it (it's filled in automatically when they sign).
-      let remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f) && !hoIsPadDateField(doc, f));
+      let remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f) && !hoIsPadDateField(doc, f) && !hoIsEmployerSigField(f));
       // A PDF form laid out with placed boxes: optional boxes left unplaced are
       // leftovers (an old dropdown, a removed worksheet box) -- don't show them.
       // Required ones still show so the new hire can always finish.
@@ -33014,7 +33130,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // Every signature in the package is drawn on the Sign Here pad: a
     // document gets the pad if it's marked "Requires Signature" OR it has
     // a signature line of its own (typed signature boxes are never shown).
-    const hoSigLabel = f => !!(f && (f.type === 'signature' || (f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''))));
+    // (Employer / company / supervisor signatures are the Administrator's -- signed in Manager Review -> New Hires.)
+    const hoIsEmployerSigField = f => !!(f && (f.type === 'employer_signature' || /\b(employer|company|supervisor|manager|authorized|representative|hr)\b.*\bsignature\b|\bsignature\b.*\b(employer|company|supervisor|manager|authorized|representative)\b/i.test(f.label || '')));
+    const hoSigLabel = f => !!(f && !hoIsEmployerSigField(f) && (f.type === 'signature' || (f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''))));
     // Date-of-signing boxes, including a date split into parts
     // ("this ___ day of ______, 20__" -> Day / Month / Year).
     const hoDatePart = f => {
@@ -33116,6 +33234,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(!f.required) return;
         if(hoIsPadSignatureField(doc, f) || hoIsPadDateField(doc, f)) return;   // covered by the Sign Here pad
         if(f._partOf) return;   // asked as one full date (checked below)
+        if(hoIsEmployerSigField(f)) return;   // the Administrator signs this
         if(f.type === 'checkbox') return; // a lone checkbox's "required" just means it exists on the form; choose-one groups are checked below
         const value = hoFieldValue(f);
         if(!value || !String(value).trim()) missing.push(f.label);
