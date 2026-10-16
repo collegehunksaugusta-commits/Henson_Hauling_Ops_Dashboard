@@ -1545,6 +1545,17 @@
     window.__hiringToken = __hiringHashMatch[1];
   }
 
+  // A public link (onboarding package, customer damage claim) is locked to
+  // its own screen: nothing else in the app is shown or reachable, even on a
+  // device where an admin is signed in -- refresh, Back, typed shortcuts.
+  if(window.__hiringToken || window.__damageClaimToken){
+    const keep = window.__hiringToken ? 'hiringOnboardingGate' : 'damageClaimUploadGate';
+    const lock = document.createElement('style');
+    lock.textContent = `body > *:not(#${keep}):not(script):not(style){ display:none !important; } #${keep}{ display:block !important; }`;
+    document.head.appendChild(lock);
+    window.__publicLinkOnly = true;
+  }
+
   if(localStorage.getItem('henson_auth_token')){
     document.getElementById('loginGate').style.display = 'none';
   }
@@ -9544,6 +9555,7 @@
   }
 
   function navigateTo(view){
+    if(window.__publicLinkOnly) return;   // locked to the onboarding / claim screen
     const resolvedView = showView(view);
     history.pushState({view: resolvedView}, '', '#'+resolvedView);
   }
@@ -9551,12 +9563,16 @@
   window.showView = showView;
 
   window.addEventListener('popstate', (e)=>{
+    if(window.__publicLinkOnly) return;
     showView(e.state && e.state.view ? e.state.view : 'home');
   });
 
   const initialHash = location.hash || '';
   if(initialHash.indexOf('#sign-') === 0){
     window.__pendingSignHash = initialHash;
+  } else if(window.__publicLinkOnly){
+    // Onboarding / damage-claim link: leave it in the address bar so a
+    // refresh comes right back to it.
   } else {
     history.replaceState({view:'home'}, '', location.pathname + location.search);
   }
