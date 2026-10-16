@@ -32597,10 +32597,26 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       }
     }
 
+    // Checkboxes on one document with the same label ("Filing Status" x3)
+    // are one "choose one" question: checking one unchecks the others.
+    const hoCbKey = f => String((f && f.label) || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    function hoCheckGroupOf(doc, field){
+      if(!doc || !field || field.type !== 'checkbox') return null;
+      const g = (doc.fields || []).filter(f => f.type === 'checkbox' && hoCbKey(f) === hoCbKey(field));
+      return g.length > 1 ? g : null;
+    }
     function hoWireFieldInput(input, field){
       if(!field) return;
       input.addEventListener('input', () => {
         hoSetFieldValue(field, input.type === 'checkbox' ? input.checked : input.value);
+        if(input.type === 'checkbox' && input.checked){
+          const group = hoCheckGroupOf(hoPackage.documents[hoDocIndex], field);
+          (group || []).forEach(other => {
+            if(other.id === field.id) return;
+            hoSetFieldValue(other, false);
+            document.querySelectorAll(`.ho-field-input[data-field-id="${other.id}"]`).forEach(el => { el.checked = false; });
+          });
+        }
       });
     }
 
@@ -33070,11 +33086,19 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(!f.required) return;
         if(hoIsPadSignatureField(doc, f) || hoIsPadDateField(doc, f)) return;   // covered by the Sign Here pad
         if(f._partOf) return;   // asked as one full date (checked below)
-        if(f.type === 'checkbox') return; // a checkbox's "required" just means it exists on the form, not that it must be checked
+        if(f.type === 'checkbox') return; // a lone checkbox's "required" just means it exists on the form; choose-one groups are checked below
         const value = hoFieldValue(f);
         if(!value || !String(value).trim()) missing.push(f.label);
       });
       (doc._fullDates || []).forEach(vf => { if(vf.required && !hoFieldValue(vf)) missing.push(vf.label); });
+      // Choose-one checkbox groups: if any box in the group is marked
+      // Required, one of them must be checked.
+      const seenGroups = new Set();
+      (doc.fields || []).forEach(f => {
+        const group = hoCheckGroupOf(doc, f); if(!group) return;
+        const k = hoCbKey(f); if(seenGroups.has(k)) return; seenGroups.add(k);
+        if(group.some(x => x.required) && !group.some(x => !!hoFieldValue(x))) missing.push(`${f.label} (choose one)`);
+      });
       if(hoDocUsesPad(doc)){
         const existingSig = (hoDocProgress[doc.id] || {}).signatureKey;
         if(!hoSigHasStroke && !existingSig) missing.push('your signature');
