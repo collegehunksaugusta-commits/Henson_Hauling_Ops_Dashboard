@@ -32565,7 +32565,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       [/^city$/, 'employee_city'], [/^state$/, 'employee_state'], [/^(zip(\s*code)?|postal\s*code)$/, 'employee_zip'],
       [/^((cell|mobile|home)\s*)?(phone|telephone)(\s*(number|#|no))?$/, 'employee_phone'],
       [/^e-?mail(\s*address)?$/, 'employee_email'],
-      [/^(date\s*of\s*birth|dob|birth\s*date|birthdate)$/, 'employee_dob'],
+      [/^(date\s*of\s*birth|dob|d o b|birth\s*date|birthdate|birthday|date\s*born)$/, 'employee_dob'],
       [/^(ssn|social\s*security(\s*(number|#|no))?)$/, 'ssn'],
       [/^(work\s*)?location$/, 'work_location'],
       [/^employer'?s?\s*(legal\s*)?name(\s*(and|&)\s*address)?$|^employer'?s?\s*address$/, 'employer_name_address'],
@@ -32576,7 +32576,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     function hoShareKeyFor(f){
       if(f && f.autoKey) return f.autoKey;   // chosen with "+ Add Box" (Auto-fill)
       if(!f || f.type === 'checkbox') return null;
-      const norm = String(f.label || '').toLowerCase().replace(/[*:]/g, ' ')
+      const norm = String(f.label || '').toLowerCase()
+        .replace(/\(?\s*(mm|m)\s*[\/\-.]\s*(dd|d)\s*[\/\-.]\s*(yyyy|yy)\s*\)?/g, ' ').replace(/\((optional|required|if any)\)/g, ' ')
+        .replace(/[*:]/g, ' ')
         .replace(/\b(employee'?s?|team\s*member'?s?|applicant'?s?|new\s*hire'?s?|your|please)\b/g, ' ')
         .replace(/[^a-z0-9#'\- ]/g, ' ').replace(/\s+/g, ' ').trim();
       if(!norm) return null;
@@ -32587,6 +32589,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     function hoFieldValue(field){
       const key = hoKeyOf(field);
       if(key === 'today_date'){ const t = new Date(); return field.type === 'date' ? t.toLocaleDateString('en-CA') : t.toLocaleDateString(); }
+      if(hoKeyOf(field) === 'employee_dob' && field.position && field.type !== 'date' && /^\d{4}-\d{2}-\d{2}$/.test(hoSharedValues.employee_dob || '')) return new Date(hoSharedValues.employee_dob + 'T12:00:00').toLocaleDateString();
       if(field.canonicalKey) return hoSharedValues[field.canonicalKey] || '';
       if(field.shareKey === 'start_date' && /^\d{4}-\d{2}-\d{2}$/.test(hoSharedValues.start_date || '') && field.type !== 'date') return new Date(hoSharedValues.start_date + 'T12:00:00').toLocaleDateString();
       if(field.shareKey && hoSharedValues[field.shareKey]) return hoSharedValues[field.shareKey];
@@ -32594,6 +32597,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       return ((hoDocProgress[doc.id] || {}).fieldValues || {})[field.id] || '';
     }
     function hoSetFieldValue(field, value){
+      if(hoKeyOf(field) === 'employee_dob' && typeof value === 'string'){
+        const m = /^\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})\s*$/.exec(value);   // typed 4/12/1995 -> 1995-04-12
+        if(m){ let y = Number(m[3]); if(y < 100) y += y > (new Date().getFullYear() % 100) ? 1900 : 2000; value = `${y}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`; }
+      }
       if(field.shareKey && !field.canonicalKey) hoSharedValues[field.shareKey] = value;   // carry it forward
       if(field.canonicalKey){
         hoSharedValues[field.canonicalKey] = value;
@@ -32637,7 +32644,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     function hoFieldInputHtml(field){
       const value = hoFieldValue(field);
       // Any date question gets a full date picker, even if tagged as text.
-      const looksLikeDate = field.type === 'text' && !HO_LOCKED_CANONICAL_KEYS.has(hoKeyOf(field)) && (hoKeyOf(field) === 'employee_dob' || /\bdate\b|\bdob\b|birthday/i.test(field.label || ''));
+      const looksLikeDate = field.type === 'text' && !HO_LOCKED_CANONICAL_KEYS.has(hoKeyOf(field)) && (hoKeyOf(field) === 'employee_dob' || /\bdate\b|\bdob\b/i.test(field.label || '') || /^\s*(your\s+)?birthday\s*:?\s*$/i.test(field.label || ''));   // "Birthday" alone -- not "Birthday Cake Flavor"
       const inputType = (field.type === 'date' || looksLikeDate) ? 'date' : (field.type === 'email' ? 'email' : (field.type === 'phone' ? 'tel' : (field.type === 'number' ? 'number' : 'text')));
       if(field.type === 'checkbox'){
         return `<label style="display:flex; align-items:center; gap:8px; margin:10px 0; font-size:13.5px;">
@@ -32778,6 +32785,17 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       // are nothing but labels and blanks are removed; a blank inside a
       // sentence is tidied ("I, ______, agree" -> "I, <their name>, agree").
       Array.from(contentEl.querySelectorAll('u')).forEach(u => { if(!(u.textContent || '').trim()) u.remove(); });   // underlined empty space
+      // A line that's only a label for one of the boxes below ("Name:",
+      // "T-Shirt Size:", "Children (Y/N) How Many:") repeats that box -- remove it.
+      const labelKey = t => String(t || '').toLowerCase().replace(/_{2,}/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+      const boxLabels = (doc.fields || []).map(f => labelKey(f.label)).filter(Boolean);
+      Array.from(contentEl.querySelectorAll('p, li')).forEach(el => {
+        const raw = (el.textContent || '').trim();
+        if(!raw || raw.length > 70 || /[.!?]\s|[.!?]$/.test(raw) || el.querySelector('img')) return;
+        if(!/:\s*(_*)\s*$/.test(raw) && !/_{3,}/.test(raw)) return;   // label lines end with ":" (or a blank)
+        const k = labelKey(raw);
+        if(k && boxLabels.some(b => b === k || (b.length >= 3 && (k.startsWith(b) || b.startsWith(k))))) el.remove();
+      });
       const BLANK = /_{3,}/;
       const fullName = (hoSharedValues.employee_full_name || '').trim();
       Array.from(contentEl.querySelectorAll('p, li, td, th')).forEach(el => {
