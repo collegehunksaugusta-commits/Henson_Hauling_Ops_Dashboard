@@ -1361,7 +1361,8 @@
       </div>
       <p class="form-note" id="ho_progressText" style="margin:0 0 14px; text-align:center;"></p>
       <h3 id="ho_docTitle" style="margin:0 0 10px;"></h3>
-      <div id="ho_docContent" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); padding:14px; border-radius:6px; margin-bottom:16px; font-size:13.5px; line-height:1.5; background:var(--offwhite);"></div>
+      <div id="ho_docContent" class="ho-doc-page" style="border:1px solid var(--line); padding:20px 22px; border-radius:6px; margin-bottom:18px; font-size:15px; line-height:1.6; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.06);"></div>
+      <style>.ho-doc-page img{max-width:100%; height:auto;} .ho-doc-page table{max-width:100%;}</style>
       <div id="ho_docFields"></div>
       <div id="ho_docSignatureWrap" style="display:none; margin-top:10px;">
         <label style="display:block; margin-bottom:6px; font-weight:600; font-size:13px;">Sign Here</label>
@@ -32531,44 +32532,28 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // Renders the PDF page the placed fields live on, with those fields
     // as real overlay inputs on top of it -- page navigation shown only
     // when the document has more than one page.
+    // Every page, one after another -- reads like scrolling the PDF itself
+    // (no Prev/Next, no inner scroll box). Fill-in boxes sit on their pages.
     function renderHoPlacedFieldsPage(doc, placedFields){
       const contentEl = document.getElementById('ho_docContent');
-      const pageData = hoPdfPages[hoPdfCurrentPage];
-      if(!pageData) return;
-
+      if(!hoPdfPages.length) return;
       contentEl.innerHTML = '';
       contentEl.style.padding = '0';
-
-      if(hoPdfPages.length > 1){
-        const navBar = document.createElement('div');
-        navBar.style.cssText = 'display:flex; align-items:center; justify-content:center; gap:10px; padding:8px; background:var(--offwhite); border-bottom:1px solid var(--line);';
-        navBar.innerHTML = `<button type="button" id="ho_pdfPrevPage" ${hoPdfCurrentPage===0?'disabled':''} style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&larr;</button>
-          <span style="font-size:12px; color:var(--muted);">Page ${hoPdfCurrentPage+1} of ${hoPdfPages.length}</span>
-          <button type="button" id="ho_pdfNextPage" ${hoPdfCurrentPage===hoPdfPages.length-1?'disabled':''} style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&rarr;</button>`;
-        contentEl.appendChild(navBar);
-        navBar.querySelector('#ho_pdfPrevPage').addEventListener('click', ()=>{
-          if(hoPdfCurrentPage > 0){ hoPdfCurrentPage--; renderHoPlacedFieldsPage(doc, placedFields); }
+      hoPdfPages.forEach((pageData, pageIndex) => {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = `position:relative; width:100%; max-width:${pageData.width}px; aspect-ratio:${pageData.width}/${pageData.height}; margin:0 auto;${pageIndex ? ' border-top:8px solid var(--offwhite);' : ''}`;
+        pageData.canvas.style.cssText = 'display:block; width:100%; height:100%;';
+        wrap.appendChild(pageData.canvas);
+        (placedFields || []).forEach(field => {
+          if(!field.position || field.position.page !== pageIndex) return;
+          const holder = document.createElement('div');
+          holder.innerHTML = hoPlacedFieldOverlayHtml(field);
+          const el = holder.firstElementChild;
+          wrap.appendChild(el);
+          hoWireFieldInput(el, field);
         });
-        navBar.querySelector('#ho_pdfNextPage').addEventListener('click', ()=>{
-          if(hoPdfCurrentPage < hoPdfPages.length - 1){ hoPdfCurrentPage++; renderHoPlacedFieldsPage(doc, placedFields); }
-        });
-      }
-
-      const wrap = document.createElement('div');
-      wrap.style.cssText = `position:relative; width:100%; max-width:${pageData.width}px; aspect-ratio:${pageData.width}/${pageData.height}; margin:0 auto;`;
-      pageData.canvas.style.cssText = 'display:block; width:100%; height:100%;';
-      wrap.appendChild(pageData.canvas);
-
-      placedFields.forEach(field => {
-        if(!field.position || field.position.page !== hoPdfCurrentPage) return;
-        const holder = document.createElement('div');
-        holder.innerHTML = hoPlacedFieldOverlayHtml(field);
-        const el = holder.firstElementChild;
-        wrap.appendChild(el);
-        hoWireFieldInput(el, field);
+        contentEl.appendChild(wrap);
       });
-
-      contentEl.appendChild(wrap);
     }
 
     // Tries the placed-fields view for a PDF; returns true if it rendered
@@ -32642,16 +32627,22 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           const placedResult = await hoTryRenderPlacedFieldsPdf(doc, dataUri);
           if(placedResult) return placedResult;
 
+          // No fill-in boxes: still show every page in the flow of the page.
+          try{
+            hoPdfPages = await window.hiringRenderPdfPages(dataUri, 1.5);
+            if(hoPdfPages.length){ renderHoPlacedFieldsPage(doc, []); return new Set(); }
+          }catch(err){ console.error('Hiring: could not draw PDF pages; using the viewer instead', err); }
+
           contentEl.innerHTML = '';
           contentEl.style.padding = '0';
           const iframe = document.createElement('iframe');
           iframe.src = dataUri;
           iframe.title = doc.name;
-          iframe.style.cssText = 'width:100%; height:260px; border:none; display:block;';
+          iframe.style.cssText = 'width:100%; height:85vh; border:none; display:block;';   // tall, like viewing the PDF itself
           contentEl.appendChild(iframe);
           return new Set();
         } else {
-          contentEl.style.padding = '14px';
+          contentEl.style.padding = '20px 22px';
           const arrayBuffer = await (await fetch(dataUri)).arrayBuffer();
           const result = await window.mammoth.convertToHtml({ arrayBuffer });
           contentEl.innerHTML = result.value || '<p style="color:var(--muted);">(No preview available.)</p>';
@@ -32726,7 +32717,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const handledFieldIds = await hoLoadDocContent(doc);
 
       const fieldsEl = document.getElementById('ho_docFields');
-      const remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id));
+      // A signature box read off the document duplicates the Sign Here pad:
+      // hide it (it's filled in automatically when they sign).
+      const remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f));
       fieldsEl.innerHTML = remainingFields.map(hoFieldInputHtml).join('');
       fieldsEl.querySelectorAll('.ho-field-input').forEach(input => {
         const field = remainingFields.find(f => f.id === input.dataset.fieldId);
@@ -32738,11 +32731,17 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(doc.requiresSignature) hoSetupSignaturePad();
     }
 
+    // "Employee Signature & Date", "Signature", "Sign here"... on a document
+    // that already has the Sign Here pad.
+    function hoIsPadSignatureField(doc, f){
+      return !!(doc && doc.requiresSignature && f && f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''));
+    }
     function hoValidateCurrentStep(){
       const doc = hoPackage.documents[hoDocIndex];
       const missing = [];
       (doc.fields || []).forEach(f => {
         if(!f.required) return;
+        if(hoIsPadSignatureField(doc, f)) return;   // covered by the Sign Here pad
         if(f.type === 'checkbox') return; // a checkbox's "required" just means it exists on the form, not that it must be checked
         const value = hoFieldValue(f);
         if(!value || !String(value).trim()) missing.push(f.label);
@@ -32757,7 +32756,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     async function hoSaveCurrentStep(){
       const doc = hoPackage.documents[hoDocIndex];
       const docFieldValues = {};
-      (doc.fields || []).forEach(f => { if(!f.canonicalKey) docFieldValues[f.id] = hoFieldValue(f); });
+      const signedNote = 'Signed electronically \u2014 ' + new Date().toLocaleDateString();
+      (doc.fields || []).forEach(f => { if(!f.canonicalKey) docFieldValues[f.id] = hoIsPadSignatureField(doc, f) ? signedNote : hoFieldValue(f); });
       const sharedToSave = {};
       (doc.fields || []).forEach(f => { if(f.canonicalKey) sharedToSave[f.canonicalKey] = hoSharedValues[f.canonicalKey]; });
 
