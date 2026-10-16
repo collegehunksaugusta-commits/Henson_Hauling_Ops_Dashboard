@@ -32620,6 +32620,34 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(/^\s*next\s+steps\s*:/i.test(el.textContent || '')) el.remove();
       });
 
+      // Fill-in blanks printed on the document ("Print Name ______") can't
+      // be typed into -- the real boxes are below the document. Lines that
+      // are nothing but labels and blanks are removed; a blank inside a
+      // sentence is tidied ("I, ______, agree" -> "I, <their name>, agree").
+      Array.from(contentEl.querySelectorAll('u')).forEach(u => { if(!(u.textContent || '').trim()) u.remove(); });   // underlined empty space
+      const BLANK = /_{3,}/;
+      const fullName = (hoSharedValues.employee_full_name || '').trim();
+      Array.from(contentEl.querySelectorAll('p, li, td, th')).forEach(el => {
+        if(!BLANK.test(el.textContent || '')) return;
+        const remaining = (el.textContent || '').replace(/_{3,}/g, ' ').replace(/\s+/g, ' ').trim();
+        // Only labels left (e.g. "Print Name Location:", "Signature: Date:")?
+        const onlyLabels = remaining.length <= 80 && !/[.!?]\s|[.!?]$/.test(remaining) && remaining.split(/\s+/).length <= 10;
+        if(!remaining || onlyLabels){ el.remove(); return; }
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const nodes = []; while(walker.nextNode()) nodes.push(walker.currentNode);
+        // "this ___ day of ______, 20__" -> "this 16th day of October, 2026"
+        const t = new Date(), d = t.getDate();
+        const ord = d + ((d % 100 >= 11 && d % 100 <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[d % 10] || 'th'));
+        const monthName = t.toLocaleDateString(undefined, { month: 'long' });
+        nodes.forEach(n => {
+          n.nodeValue = n.nodeValue
+            .replace(/_{3,}(\s*day\s+of\s+)_{3,}(\s*,?\s*)(20)?_{2,}/gi, (m, a, b) => `${ord}${a}${monthName}, ${t.getFullYear()}`)
+            .replace(/\bI\s*,?\s*_{3,}\s*,?/g, fullName ? `I, ${fullName},` : 'I,')
+            .replace(/\s*_{3,}\s*/g, ' ')
+            .replace(/\s+([,.;:])/g, '$1');
+        });
+      });
+
       // For each employer-known field, look for a line that's JUST its
       // label followed by a colon (a genuinely blank line in the
       // template, like "Start Date:") and fold the value directly into
@@ -32678,6 +32706,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           const arrayBuffer = await (await fetch(dataUri)).arrayBuffer();
           const result = await window.mammoth.convertToHtml({ arrayBuffer });
           contentEl.innerHTML = result.value || '<p style="color:var(--muted);">(No preview available.)</p>';
+          doc._textAsksForSignature = /\bsignature\b|\bsigned\b|\bsign\s+(below|here)\b/i.test(contentEl.textContent || '');
           return hoStripBoilerplateAndInjectValues(contentEl, doc);
         }
       }catch(err){
@@ -32773,15 +32802,40 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // document gets the pad if it's marked "Requires Signature" OR it has
     // a signature line of its own (typed signature boxes are never shown).
     const hoSigLabel = f => !!(f && f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''));
+    // Date-of-signing boxes, including a date split into parts
+    // ("this ___ day of ______, 20__" -> Day / Month / Year).
+    const hoDatePart = f => {
+      if(!f || f.type === 'checkbox') return null;
+      const l = String(f.label || '').toLowerCase().replace(/[*:_]/g, ' ').replace(/\s+/g, ' ').trim();
+      if(/^((today'?s|current)\s*)?date(\s*signed)?$|^(signature|signed|signing|execution)\s*date$|^date\s*of\s*(signature|signing|execution)$/.test(l) || f.canonicalKey === 'today_date' || f.shareKey === 'today_date') return 'date';
+      if(/^(the\s*)?day(\s*of(\s*the\s*month)?)?$/.test(l)) return 'day';
+      if(/^month(\s*(and|&|\/)\s*year)?$/.test(l)) return /year/.test(l) ? 'monthyear' : 'month';
+      if(/^(year|20\s*)$/.test(l)) return 'year';
+      return null;
+    };
+    const hoDatePartValue = (part, f) => {
+      const t = new Date();
+      if(part === 'day') return String(t.getDate());
+      if(part === 'month') return t.toLocaleDateString(undefined, { month: 'long' });
+      if(part === 'monthyear') return t.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      if(part === 'year') return String(t.getFullYear());
+      return f && f.type === 'date' ? t.toLocaleDateString('en-CA') : t.toLocaleDateString();
+    };
+    // Gets the Sign Here pad: marked "Requires Signature", or has a
+    // signature line, or a date-of-signing box, or (Word documents) its
+    // text asks for a signature.
     function hoDocUsesPad(doc){
-      return !!(doc && (doc.requiresSignature || (doc.fields || []).some(hoSigLabel)));
+      if(!doc) return false;
+      if(doc.requiresSignature || (doc.fields || []).some(hoSigLabel)) return true;
+      if((doc.fields || []).some(f => hoDatePart(f) === 'date')) return true;
+      return !!doc._textAsksForSignature;
     }
     function hoIsPadSignatureField(doc, f){
       return hoDocUsesPad(doc) && hoSigLabel(f);
     }
     // The "Date" beside the signature: today's date, filled in automatically.
     function hoIsPadDateField(doc, f){
-      return hoDocUsesPad(doc) && !!f && !f.canonicalKey && f.type !== 'checkbox' && /^\s*(signature\s*|signed\s*)?date(\s*signed)?\s*:?\s*$/i.test(f.label || '');
+      return hoDocUsesPad(doc) && !!hoDatePart(f);
     }
     function hoValidateCurrentStep(){
       const doc = hoPackage.documents[hoDocIndex];
@@ -32808,11 +32862,11 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       (doc.fields || []).forEach(f => {
         if(f.canonicalKey) return;
         docFieldValues[f.id] = hoIsPadSignatureField(doc, f) ? signedNote
-          : hoIsPadDateField(doc, f) ? (f.type === 'date' ? todayIso : today.toLocaleDateString())
+          : hoIsPadDateField(doc, f) ? hoDatePartValue(hoDatePart(f), f)
           : hoFieldValue(f);
       });
       const sharedToSave = {};
-      (doc.fields || []).forEach(f => { if(f.canonicalKey) sharedToSave[f.canonicalKey] = hoSharedValues[f.canonicalKey]; });
+      (doc.fields || []).forEach(f => { if(f.canonicalKey) sharedToSave[f.canonicalKey] = f.canonicalKey === 'today_date' ? today.toLocaleDateString('en-CA') : hoSharedValues[f.canonicalKey]; });
       const HO_STANDARD = ['employee_full_name','employee_first_name','employee_last_name','employee_address','employee_city','employee_state','employee_zip','employee_phone','employee_email','employee_dob','ssn'];
       (doc.fields || []).forEach(f => { if(!f.canonicalKey && HO_STANDARD.includes(f.shareKey) && hoSharedValues[f.shareKey]) sharedToSave[f.shareKey] = hoSharedValues[f.shareKey]; });
 
