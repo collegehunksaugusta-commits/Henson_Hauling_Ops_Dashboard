@@ -67,6 +67,8 @@ const ALLOWED_KEYS = new Set([
   'mail-neighborhoods',
   'mail-neighborhood-visits',
   'mail-marketing-materials',
+  'hiring-interviews',
+  'hiring-interview-materials',
   'mail-mailed-history',
   'square-tip-allocations',
   'square-tip-paid-weeks',
@@ -101,7 +103,7 @@ const ALLOWED_KEYS = new Set([
   'hiring-reveal-log',
   'ops-manager-metrics-monthly-locks'
 ]);
-const ALLOWED_KEY_PREFIXES = ['expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
+const ALLOWED_KEY_PREFIXES = ['interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -6031,6 +6033,38 @@ app.post('/api/hiring/package/:token/submit', async (req, res) => {
     console.error('POST /api/hiring/package/:token/submit failed:', err.message);
     res.status(500).json({ error: 'Could not submit \u2014 please check your connection and try again.' });
   }
+});
+
+// ============ Hiring -> Interviews: read an Indeed screenshot / email ============
+// No Indeed API is available to individual employers, so the office uploads
+// a screenshot of Indeed's upcoming interviews, an interview confirmation
+// email (PDF/image), or pastes its text; AI lists the candidates in it.
+const READ_INTERVIEWS_TOOL = {
+  name: 'list_interview_candidates',
+  description: 'Every job candidate shown, with their interview details if present.',
+  input_schema: { type: 'object', properties: { candidates: { type: 'array', items: { type: 'object', properties: {
+    firstName: { type: 'string' }, lastName: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' },
+    interviewAt: { type: 'string', description: 'Interview date/time as YYYY-MM-DDTHH:MM (24h, local), or YYYY-MM-DD if no time, or empty' },
+    job: { type: 'string', description: 'Job title applied for, if shown' } }, required: ['firstName', 'lastName'] } } }, required: ['candidates'] }
+};
+app.post('/api/admin/hiring/read-interviews', requireAuth, async (req, res) => {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'AI is not set up on the server.' });
+    const { file, text } = req.body || {};
+    const content = [];
+    const m = /^data:(image\/[a-zA-Z]+|application\/pdf);base64,(.+)$/.exec(file || '');
+    if (m) content.push(m[1] === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: m[2] } } : { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } });
+    if (text) content.push({ type: 'text', text: 'Pasted text:\n' + String(text).slice(0, 20000) });
+    if (!content.length) return res.status(400).json({ error: 'Upload a screenshot or PDF, or paste the email text.' });
+    content.push({ type: 'text', text: `This is from an employer's Indeed account (upcoming interviews, candidate list, or an interview confirmation email). List every candidate with their name, email, phone, interview date/time and job if shown. Today is ${easternDateFromMs(Date.now())}; assume this year for dates without a year. Leave anything not shown empty.` });
+    const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, tools: [READ_INTERVIEWS_TOOL], tool_choice: { type: 'tool', name: 'list_interview_candidates' }, messages: [{ role: 'user', content }] }) });
+    if (!r.ok) return res.status(502).json({ error: 'Could not read that \u2014 try a clearer screenshot.' });
+    const d = await r.json();
+    const out = (((d.content || []).find(b => b.type === 'tool_use') || {}).input || {}).candidates || [];
+    res.json({ candidates: out.filter(c => c && (c.firstName || c.lastName)).slice(0, 100) });
+  } catch (err) { console.error('Read interviews failed:', err.message); res.status(500).json({ error: 'Could not read that.' }); }
 });
 
 // ============ Manager Review -> New Hires ============
