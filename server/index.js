@@ -6033,6 +6033,81 @@ app.post('/api/hiring/package/:token/submit', async (req, res) => {
   }
 });
 
+// ============ Manager Review -> New Hires ============
+// A completed onboarding package waits here until (1) the Administrator has
+// signed every spot that calls for the employer's signature and (2) a
+// manager confirms the new hire was added to HunkWare -- which also adds
+// them to the Employee Roster (name + last 4 of SSN from the package).
+const employerSignDocs = docs => docs.filter(d => d.requiresEmployerSignature || (d.fields || []).some(f => f.type === 'employer_signature'));
+function newHireRosterName(c) {
+  const sv = c.sharedFieldValues || {};
+  const first = String(sv.employee_first_name || c.firstName || '').trim();
+  const last = String(sv.employee_last_name || c.lastName || '').trim();
+  return last && first ? `${last}, ${first}` : `${last}${first}`.trim();
+}
+app.get('/api/admin/new-hires', requireAuth, async (req, res) => {
+  try {
+    const [candidates, docs] = await Promise.all([redis.get(HIRING_CANDIDATES_KEY).then(r => JSON.parse(r || '[]')), getHiringDocumentsList()]);
+    const signDocs = employerSignDocs(docs);
+    const cutoff = new Date(Date.now() - 30 * 864e5).toISOString();
+    const out = candidates.filter(c => c.status === 'completed').map(c => {
+      const sigs = c.employerSignatures || {};
+      const needs = signDocs.map(d => ({ id: d.id, name: d.name, signed: !!sigs[d.id], signedBy: (sigs[d.id] || {}).by || '', signedAt: (sigs[d.id] || {}).at || '' }));
+      const done = needs.every(n => n.signed) && !!c.hunkwareAddedAt;
+      return { id: c.id, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(), rosterName: newHireRosterName(c), completedAt: c.completedAt, startingDate: c.startingDate,
+        positionTitle: c.positionTitle, employerSignatures: needs, hunkware: c.hunkwareAddedAt ? { at: c.hunkwareAddedAt, by: c.hunkwareAddedBy, roster: c.rosterResult || null } : null, done };
+    }).filter(x => !x.done || (x.hunkware && x.hunkware.at >= cutoff)).sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
+    res.json({ newHires: out });
+  } catch (err) { console.error('New hires list failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/new-hires/:id/employer-sign', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { documentId, signatureDataUri } = req.body || {};
+    if (!documentId || !/^data:image\//.test(signatureDataUri || '')) return res.status(400).json({ error: 'A signature is required.' });
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const c = candidates.find(x => x.id === req.params.id);
+    if (!c || c.status !== 'completed') return res.status(404).json({ error: 'That package isn\u2019t waiting for a signature.' });
+    await redis.set(`hiring-employer-signature-${c.id}-${documentId}`, JSON.stringify(signatureDataUri));
+    c.employerSignatures = c.employerSignatures || {};
+    c.employerSignatures[documentId] = { by: req.userEmail || '', at: new Date().toISOString() };
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    console.log(`[new-hires] employer signed ${documentId} for ${c.firstName} ${c.lastName} (${req.userEmail || ''})`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save the signature.' }); }
+});
+app.post('/api/admin/new-hires/:id/hunkware', requireAuth, async (req, res) => {
+  try {
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const c = candidates.find(x => x.id === req.params.id);
+    if (!c || c.status !== 'completed') return res.status(404).json({ error: 'That package isn\u2019t completed.' });
+    if (c.hunkwareAddedAt) return res.json({ ok: true, already: true, roster: c.rosterResult || null });
+    // Employee Roster: name from the package, last 4 of SSN for sign-in.
+    const rosterName = newHireRosterName(c);
+    const result = { name: rosterName, added: false, signIn: false, note: '' };
+    if (rosterName) {
+      const [manualRaw, ssnRaw, weeksRaw] = await Promise.all([redis.get('roster-manual-additions'), redis.get(MANUAL_SSN_KEY), redis.get('labor-weeks')]);
+      const manual = JSON.parse(manualRaw || '[]'), manualSsn = JSON.parse(ssnRaw || '{}');
+      const weeks = JSON.parse(weeksRaw || '[]');
+      const onRoster = computeRosterNames(weeks, manual).some(n => nameCoreKey(n) === nameCoreKey(rosterName));
+      if (!onRoster) { manual.push(rosterName); await redis.set('roster-manual-additions', JSON.stringify(manual)); result.added = true; }
+      else result.note = 'Already on the Employee Roster.';
+      const last4 = String((c.sharedFieldValues || {}).ssn || '').replace(/\D/g, '').slice(-4);
+      if (/^\d{4}$/.test(last4)) {
+        const recent = weeks.slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || '')).slice(0, 2).flatMap(w => w.employees || []);
+        const holder = recent.find(e => e && e.ssnLast4 === last4 && nameCoreKey(e.name || '') !== nameCoreKey(rosterName))
+          || Object.keys(manualSsn).find(n => manualSsn[n] === last4 && nameCoreKey(n) !== nameCoreKey(rosterName));
+        if (holder) result.note = `HUNK Portal sign-in not set: those SSN digits already belong to ${holder.name || holder}. Set them by hand on the Employee Roster.`;
+        else { Object.keys(manualSsn).forEach(n => { if (nameCoreKey(n) === nameCoreKey(rosterName)) delete manualSsn[n]; }); manualSsn[rosterName] = last4; await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn)); result.signIn = true; }
+      } else result.note = (result.note ? result.note + ' ' : '') + 'No SSN in the package \u2014 set HUNK Portal sign-in by hand.';
+      await rebuildDriverAuthLookup();
+    }
+    c.hunkwareAddedAt = new Date().toISOString(); c.hunkwareAddedBy = req.userEmail || ''; c.rosterResult = result;
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    console.log(`[new-hires] ${rosterName} added to HunkWare by ${req.userEmail || ''}; roster ${result.added ? 'added' : 'unchanged'}, sign-in ${result.signIn ? 'set' : 'not set'}`);
+    res.json({ ok: true, roster: result });
+  } catch (err) { console.error('New hire HunkWare step failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+
 // ============ Monthly Financials: Extraction ============
 // One uploaded file = one month's financial statement (a P&L/income
 // statement export, typically from accounting software). Unlike the
