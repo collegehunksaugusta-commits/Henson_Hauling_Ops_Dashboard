@@ -14246,12 +14246,13 @@
     await loadCompDriverFiles();
     const docName = { license: 'License', physical: 'DOT Physical', application: 'Driver Application', roadtest: 'Road Test' };
     tbody.innerHTML = roster.map(name => {
-      const rec = compDrivers.find(d => d.employeeName === name);
+      const rec = compDrivers.find(d => compSameName(d.employeeName, name));
       const isDriver = !!(rec && rec.active);
       let statusHtml = '';
       if(isDriver){
         // OK only when every document is on file and the physical is current.
-        const exp = rec.physicalExpiration, f = compDriverFiles[name];
+        const exp = rec.physicalExpiration;
+        const f = compDriverFiles[name] || (Object.entries(compDriverFiles).find(([k]) => compSameName(k, name)) || [])[1];
         const missing = f ? f.missing.map(k => docName[k]) : [];
         const red = t => `<span style="color:#B3261E; font-weight:700; margin-left:8px;">${t}</span>`;
         if(exp && exp <= today) statusHtml = red('DOT PHYSICAL EXPIRED') + (missing.length ? red('\u00b7 MISSING: ' + missing.join(', ')) : '');
@@ -14269,7 +14270,7 @@
 
     tbody.querySelectorAll('.comp-driver-toggle').forEach(cb => cb.addEventListener('change', async (e)=>{
       const name = e.target.dataset.name;
-      let rec = compDrivers.find(d => d.employeeName === name);
+      let rec = compDrivers.find(d => compSameName(d.employeeName, name));
       if(e.target.checked){
         if(!rec){ compDrivers.push({ employeeName: name, physicalExpiration: '', active: true }); }
         else { rec.active = true; }
@@ -14293,9 +14294,16 @@
     { key: 'application', label: 'DOT Driver Application', printable: true }
   ];
 
+  // Filed by name ignoring punctuation, order and middle initials (same
+  // rule as the server) -- a spelling change can't hide a driver's documents.
   function driverDocKey(name, docKey){
-    return 'compliance-doc-driver-' + name.replace(/[^a-zA-Z0-9]/g, '_') + '-' + docKey;
+    const slug = String(name || '').replace(/[^a-zA-Z0-9]+/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join('_');
+    return 'compliance-doc-driver-' + slug + '-' + docKey;
   }
+  window.driverDocKey = driverDocKey;
+  // Same person, however the name is spelled ("Franklin, Thomas" = "Franklin, Thomas A").
+  const compSameName = (a, b) => { const k = n => String(n || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' '); return k(a) === k(b); };
+  window.compSameName = compSameName;
 
   function printBlankForm(bodyHtml, title){
     const win = window.open('', '_blank');
@@ -14487,7 +14495,7 @@
   async function openDriverDocs(name){
     compSelectedDriverName = name;
     document.getElementById('comp_driverDocsHeading').textContent = 'Driver Documents \u2014 ' + name;
-    const rec = compDrivers.find(d => d.employeeName === name);
+    const rec = compDrivers.find(d => compSameName(d.employeeName, name));
     document.getElementById('comp_driverPhysicalExp').value = (rec && rec.physicalExpiration) || '';
     document.getElementById('comp_driverDocsPanel').style.display = 'block';
     await renderDriverDocUploads(name);
@@ -14502,12 +14510,12 @@
       if(key === 'roadtest'){
         const tasks = await window.dashboardApi.get('compliance-roadtest-tasks', []) || [];
         let changed = false;
-        tasks.forEach(t => { if(t.driverName === name && t.status === 'pending'){ Object.assign(t, { status: 'completed', completedAt: now, completedVia: 'paper', examiner: 'paper copy', completedBy: by }); changed = true; } });
+        tasks.forEach(t => { if(compSameName(t.driverName, name) && t.status === 'pending'){ Object.assign(t, { status: 'completed', completedAt: now, completedVia: 'paper', examiner: 'paper copy', completedBy: by }); changed = true; } });
         if(changed){ await window.dashboardApi.set('compliance-roadtest-tasks', tasks); if(window.refreshRoadTestCount) window.refreshRoadTestCount(); }
       } else {
         const reqs = await window.dashboardApi.get('compliance-esign-requests', []) || [];
         let changed = false;
-        reqs.forEach(r => { if(r.driverName === name && r.type === key && r.status === 'pending'){ Object.assign(r, { status: 'completed', completedAt: now, completedVia: 'paper', completedBy: by }); changed = true; } });
+        reqs.forEach(r => { if(compSameName(r.driverName, name) && r.type === key && r.status === 'pending'){ Object.assign(r, { status: 'completed', completedAt: now, completedVia: 'paper', completedBy: by }); changed = true; } });
         if(changed) await window.dashboardApi.set('compliance-esign-requests', reqs);
       }
     }catch(err){ console.error('Paper completion failed:', err); }
@@ -14558,9 +14566,11 @@
       else if(key === 'application') printBlankForm(buildDriverApplicationForm(), 'DOT Driver Application');
     }));
 
+    const onFile = {};   // which documents are already in his file (bundle sends only what's missing)
     for(const dt of DRIVER_DOC_TYPES){
       try{
         const rec = await window.dashboardApi.get(driverDocKey(name, dt.key), null);
+        onFile[dt.key] = !!rec;
         const el = document.getElementById('driverDocStatus_' + dt.key);
         if(rec){
           el.innerHTML = `On file: <b>${fleetEsc(rec.fileName)}</b> (${new Date(rec.uploadedAt).toLocaleDateString()}) <button type="button" class="driver-doc-view" data-key="${dt.key}" style="margin-left:8px; background:#fff; border:1px solid var(--line); font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer;">View</button> <button type="button" class="driver-doc-remove" data-key="${dt.key}" style="margin-left:4px; background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer;">Remove</button>`;
@@ -14581,27 +14591,59 @@
         window.dashboardApi.get('compliance-esign-requests', []).then(v => v || []),
         window.dashboardApi.get('compliance-roadtest-tasks', []).then(v => v || [])
       ]);
-      const mine = reqs.filter(x => x.driverName === name && x.bundleId).sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
-      const bundleId = mine.length ? mine[0].bundleId : null;
+      const mine = reqs.filter(x => compSameName(x.driverName, name) && x.bundleId).sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+      // Latest bundle from either his steps or the road test task (a bundle
+      // can be road-test-only when everything else is already on file).
+      const myTasks = tasks.filter(t => compSameName(t.driverName, name) && t.bundleId).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      const latestReq = mine[0], latestTask = myTasks[0];
+      const bundleId = latestReq && (!latestTask || (latestReq.sentAt || '') >= (latestTask.createdAt || '')) ? latestReq.bundleId : (latestTask ? latestTask.bundleId : null);
       const steps = bundleId ? mine.filter(x => x.bundleId === bundleId) : [];
       const rt = bundleId ? tasks.find(t => t.bundleId === bundleId) : null;
       const box = document.getElementById('driverBundleBox');
       const label = { license: 'Driver\u2019s License photo', physical: 'DOT Physical', application: 'DOT Driver Application (e-signed)' };
       const line = (txt, done, who) => `<div style="font-size:13px; margin:3px 0;">${done ? '<span style="color:var(--brand-green-dark); font-weight:700;">\u2713</span>' : '<span style="color:#8a6d00;">\u23f3</span>'} ${txt}${who ? ` <span style="color:var(--muted);">\u2014 ${who}</span>` : ''}</div>`;
       box.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <div><div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--brand-green-dark);">DIGITAL (PREFERRED)</div><strong>Onboarding Bundle</strong><div style="font-size:12px; color:var(--muted);">${bundleId ? 'Sent ' + new Date(steps[0] ? steps[0].sentAt : Date.now()).toLocaleDateString() : 'License photo, DOT Physical and DOT Driver Application on his HUNK Portal, plus a Road Test task for the Ops Manager.'}</div></div>
+          <div><div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--brand-green-dark);">DIGITAL (PREFERRED)</div><strong>Onboarding Bundle</strong><div style="font-size:12px; color:var(--muted);">${bundleId ? 'Sent ' + new Date(steps[0] ? steps[0].sentAt : (rt ? rt.createdAt : Date.now())).toLocaleDateString() : 'License photo, DOT Physical and DOT Driver Application on his HUNK Portal, plus a Road Test task for the Ops Manager.'}</div></div>
           <button type="button" id="driverBundleSend" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:700;">&#128232; ${bundleId ? 'Send Again' : 'Send Onboarding Bundle'}</button>
         </div>
-        ${bundleId ? `<div style="margin-top:8px;">${['license', 'physical', 'application'].map(t => { const st = steps.find(x => x.type === t); return line(label[t], st && st.status === 'completed', st && st.status === 'completed' ? (st.completedVia === 'paper' ? 'paper copy uploaded ' : 'done by the driver ') + new Date(st.completedAt).toLocaleDateString()
+        ${bundleId ? `<div style="margin-top:8px;">${['license', 'physical', 'application'].map(t => { const st = steps.find(x => x.type === t); if(!st) return line(label[t], onFile[t], onFile[t] ? 'already on file (not sent)' : 'not sent \u2014 not on file'); return line(label[t], st && st.status === 'completed', st && st.status === 'completed' ? (st.completedVia === 'paper' ? 'paper copy uploaded ' : 'done by the driver ') + new Date(st.completedAt).toLocaleDateString()
               : (st && st.physicalDueBy ? (st.physicalDueBy < new Date().toLocaleDateString('en-CA') ? '<span style="color:#b3261e; font-weight:700;">needs a new physical \u2014 OVERDUE (was due ' + window.fmtDate(st.physicalDueBy) + ')</span>' : 'getting a new physical \u2014 due by ' + window.fmtDate(st.physicalDueBy)) : 'waiting on the driver')); }).join('')}
-          ${line('Road Test Certification', rt && rt.status === 'completed', rt && rt.status === 'completed' ? (rt.completedVia === 'paper' ? 'paper copy uploaded ' : 'certified by ' + fleetEsc(rt.examiner || 'the Ops Manager') + ' ') + new Date(rt.completedAt).toLocaleDateString() : 'waiting on the Ops Manager (Manager Review \u2192 Road Tests)')}</div>` : ''}`;
+          ${!rt ? line('Road Test Certification', onFile.roadtest, onFile.roadtest ? 'already on file (not sent)' : 'not sent \u2014 not on file') : line('Road Test Certification', rt && rt.status === 'completed', rt && rt.status === 'completed' ? (rt.completedVia === 'paper' ? 'paper copy uploaded ' : 'certified by ' + fleetEsc(rt.examiner || 'the Ops Manager') + ' ') + new Date(rt.completedAt).toLocaleDateString() : 'waiting on the Ops Manager (Manager Review \u2192 Road Tests)')}</div>` : ''}`;
       document.getElementById('driverBundleSend').addEventListener('click', async () => {
-        if(bundleId && !confirm(`Send ${name} a new onboarding bundle? Any steps still open from the last one are replaced.`)) return;
+        // Choose what to send: anything missing (or an expired physical) is
+        // pre-checked; documents already on file are left out unless ticked.
+        const drec = (compDrivers || []).find(d => compSameName(d.employeeName, name)) || {};
+        const physExpired = !!drec.physicalExpiration && drec.physicalExpiration <= new Date().toLocaleDateString('en-CA');
+        const items = [
+          { t: 'license', label: 'Driver\u2019s License photo', on: onFile.license },
+          { t: 'physical', label: 'DOT Physical', on: onFile.physical && !physExpired, note: onFile.physical && physExpired ? 'on file but EXPIRED' : '' },
+          { t: 'application', label: 'DOT Driver Application (e-signed)', on: onFile.application },
+          { t: 'roadtest', label: 'Road Test Certification (Ops Manager task)', on: onFile.roadtest }
+        ];
+        const chosen = await new Promise(resolve => {
+          const ov = document.createElement('div');
+          ov.style.cssText = 'position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; padding:20px;';
+          ov.innerHTML = `<div style="background:#fff; max-width:460px; width:100%; border-radius:12px; padding:18px 20px; box-shadow:0 12px 40px rgba(0,0,0,.3);">
+            <div style="font-size:17px; font-weight:800;">Send to ${fleetEsc(name)}</div>
+            <div style="font-size:12.5px; color:var(--muted); margin:4px 0 12px;">Only the checked steps are sent. Items already in his driver file are unchecked &mdash; tick one to have it done again.${bundleId ? ' Any steps still open from the last bundle are replaced.' : ''}</div>
+            ${items.map(i => `<label style="display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--line); font-size:14px; margin:0;">
+                <input type="checkbox" class="bnd-pick" data-t="${i.t}" ${i.on ? '' : 'checked'} style="width:18px; height:18px; margin-top:2px;">
+                <span>${i.label}<br><span style="font-size:12px; color:${i.note ? '#b3261e' : i.on ? 'var(--brand-green-dark)' : 'var(--muted)'};">${i.note || (i.on ? '\u2713 already on file' : 'not on file yet')}</span></span></label>`).join('')}
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+              <button type="button" class="bnd-cancel" style="background:#fff; border:1px solid var(--line); padding:8px 14px; border-radius:6px; cursor:pointer;">Cancel</button>
+              <button type="button" class="bnd-go" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:700;">Send Checked Steps</button>
+            </div></div>`;
+          document.body.appendChild(ov);
+          ov.querySelector('.bnd-cancel').onclick = () => { ov.remove(); resolve(null); };
+          ov.querySelector('.bnd-go').onclick = () => { const picks = [...ov.querySelectorAll('.bnd-pick')].filter(c => c.checked).map(c => c.dataset.t); ov.remove(); resolve(picks); };
+        });
+        if(!chosen) return;
+        if(!chosen.length){ alert('Nothing checked \u2014 nothing was sent.'); return; }
         const nb = 'bundle_' + Date.now(), now = new Date().toISOString(), by = localStorage.getItem('henson_auth_email') || '';
-        const freshReqs = (await window.dashboardApi.get('compliance-esign-requests', []) || []).filter(x => !(x.driverName === name && x.status === 'pending'));
-        ['license', 'physical', 'application'].forEach((t, k) => freshReqs.push({ id: `esign_${Date.now()}_${k}`, bundleId: nb, driverName: name, type: t, status: 'pending', sentAt: now, sentBy: by }));
-        const freshTasks = (await window.dashboardApi.get('compliance-roadtest-tasks', []) || []).filter(x => !(x.driverName === name && x.status === 'pending'));
-        freshTasks.push({ id: 'roadtest_' + Date.now(), bundleId: nb, driverName: name, status: 'pending', createdAt: now, createdBy: by });
+        const freshReqs = (await window.dashboardApi.get('compliance-esign-requests', []) || []).filter(x => !(compSameName(x.driverName, name) && x.status === 'pending'));
+        ['license', 'physical', 'application'].filter(t => chosen.includes(t)).forEach((t, k) => freshReqs.push({ id: `esign_${Date.now()}_${k}`, bundleId: nb, driverName: name, type: t, status: 'pending', sentAt: now, sentBy: by }));
+        const freshTasks = (await window.dashboardApi.get('compliance-roadtest-tasks', []) || []).filter(x => !(compSameName(x.driverName, name) && x.status === 'pending'));
+        if(chosen.includes('roadtest')) freshTasks.push({ id: 'roadtest_' + Date.now(), bundleId: nb, driverName: name, status: 'pending', createdAt: now, createdBy: by });
         const ok = await window.dashboardApi.set('compliance-esign-requests', freshReqs) && await window.dashboardApi.set('compliance-roadtest-tasks', freshTasks);
         if(ok){ renderDriverDocUploads(name); if(window.refreshRoadTestCount) window.refreshRoadTestCount(); }
         else alert('Could not send \u2014 check your connection.');
@@ -30195,7 +30237,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(f.size > 10 * 1024 * 1024){ alert('That file is over 10MB.'); return; }
       try{
         const c = await window.compressUploadedFile(f);
-        const docKey = 'compliance-doc-driver-' + t.driverName.replace(/[^a-zA-Z0-9]/g, '_') + '-roadtest';
+        const docKey = window.driverDocKey(t.driverName, 'roadtest');
         if(!(await window.dashboardApi.set(docKey, { dataUri: c.dataUri, fileName: f.name, uploadedAt: new Date().toISOString() }))) throw new Error('save');
         await window.completeOnboardingStepByPaper(t.driverName, 'roadtest');
         await loadRoadTests();
@@ -30298,7 +30340,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       line(`Signature of examiner \u2014 ${v('rt_examiner')}, ${v('rt_title')}`, { size: 10 }); line(`Organization: ${v('rt_org')}`, { size: 10 });
       y += 6; line(`Electronic signature record: signed electronically by "${v('rt_examiner')}" on ${signedAt.toLocaleString()} (${signedAt.toISOString()}) in the operations dashboard while signed in as ${localStorage.getItem('henson_auth_email') || 'a dashboard user'}. The examiner agreed to sign electronically and that the electronic signature is the legal equivalent of a handwritten signature.`, { size: 8 });
       const pdf = doc.output('datauristring').replace(/^data:application\/pdf(;[^;,]*?)*;base64,/, 'data:application/pdf;base64,');
-      const docKey = 'compliance-doc-driver-' + t.driverName.replace(/[^a-zA-Z0-9]/g, '_') + '-roadtest';
+      const docKey = window.driverDocKey(t.driverName, 'roadtest');
       const ok1 = await window.dashboardApi.set(docKey, { dataUri: pdf, fileName: 'Road Test Certification (e-signed).pdf', uploadedAt: signedAt.toISOString(), esign: { signedName: v('rt_examiner'), signedAt: signedAt.toISOString(), by: localStorage.getItem('henson_auth_email') || '' } });
       fetch(`${API_BASE}/api/person-profile`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name: t.driverName, fields: { licenseNumber: v('rt_licNum'), licenseState: v('rt_licState') } }) }).catch(() => {});
       const fresh = await window.dashboardApi.get(RT_KEY, []) || [];
