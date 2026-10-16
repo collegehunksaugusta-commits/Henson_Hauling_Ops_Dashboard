@@ -7556,6 +7556,26 @@
       <p class="form-note" id="mf_tableEmptyNote" style="display:none;">No months recorded yet &mdash; add one above to get started.</p>
     </div>
 
+    <div class="panel" id="mf_payPlanPanel">
+      <h3>Pay Plan Comparison <span style="font-size:12px; font-weight:600; color:var(--muted);">(what-if &middot; read-only)</span></h3>
+      <p class="form-note" style="margin-top:0;">Compares what you actually paid crews (hourly + commission) with a <strong>commission-only</strong> plan: a share of each week&rsquo;s revenue, split by hours worked. Uses your saved payroll weeks. <strong>Nothing here is saved or changes anyone&rsquo;s pay.</strong></p>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+        <label style="max-width:150px;">Commission rate (%) <input type="number" id="pp_rate" value="22" min="1" max="60" step="0.5"></label>
+        <label style="max-width:170px;">From week <select id="pp_from"></select></label>
+        <label style="max-width:170px;">To week <select id="pp_to"></select></label>
+        <label style="max-width:180px;" title="1 = everyone's hours count the same. 1.25 = a Captain's hour counts as 1.25 hours when splitting the pool.">Captain hours count &times; <input type="number" id="pp_capWeight" value="1" min="0" max="5" step="0.05"></label>
+        <label style="max-width:150px;">Minimum wage ($/hr) <input type="number" id="pp_minWage" value="7.25" min="0" step="0.25"></label>
+        <label style="max-width:190px;" title="Federal rule: hours over 40 earn an extra 0.5 x the commission-based hourly rate.">Overtime premium (&times; hourly rate) <input type="number" id="pp_otPrem" value="0.5" min="0" max="2" step="0.05"></label>
+        <label style="max-width:190px;">Split the pool by <select id="pp_split"><option value="hours">Hours worked</option><option value="equal">Equal shares (per person each week)</option></select></label>
+        <button type="button" id="pp_reset" style="background:#fff; border:1px solid var(--line); padding:8px 12px; border-radius:6px; cursor:pointer;">Reset test</button>
+      </div>
+      <details id="pp_peopleBox" style="margin-top:10px;"><summary style="cursor:pointer; font-weight:600; font-size:13.5px;">Who&rsquo;s in the test <span id="pp_peopleCount" style="font-weight:400; color:var(--muted);"></span></summary>
+        <p class="form-note" style="margin:6px 0;">Test-only &mdash; these checkboxes never change the Employee Roster or Configuration. Uncheck anyone who shouldn&rsquo;t be on commission (e.g. the Ops Manager or office help paid as field staff).</p>
+        <div id="pp_people" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:4px 14px;"></div>
+      </details>
+      <div id="pp_out" style="margin-top:14px;"></div>
+    </div>
+
     <div class="panel" id="mf_ownerTimePanel" style="display:none; border:2px solid #2f6db5;">
       <h3>Owner Time</h3>
       <p class="form-note" style="margin-top:0;">Only you (the Owner) see this. <strong>App time</strong> is counted automatically while you actively use the dashboard (not Configuration). Log everything else by day below in <strong>decimal hours</strong> &mdash; <strong>2.5</strong> is 2 hours 30 minutes, <strong>.25</strong> is 15 minutes (1:30 or 45m also work). Categories are set in Configuration &rarr; Financials.</p>
@@ -9405,6 +9425,7 @@
         if(!window.__ownerInfo && window.refreshOwnerStatus) await window.refreshOwnerStatus();
         if(!(window.financialsAllowed && window.financialsAllowed())){ navigateTo('home'); return; }
         window.loadMonthlyFinancialsData();
+        if(window.loadPayPlanComparison) window.loadPayPlanComparison();
       })();
     }
     if(view === 'paperwork'){
@@ -24916,6 +24937,152 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     compliance: 'Regulatory Compliance', materials: 'Inventory Management', monthlyfinancials: 'Monthly Financials', captain: 'Captain Metrics', opsmetrics: 'Ops Manager Metrics',
     wingmanmetrics: 'Wingman Metrics', attendance: 'Attendance', roster: 'Employee Roster', hiring: 'Hiring', maillist: 'Marketing Lists', mailroute: 'Mail Route',
     calc: 'Calculators', statetaxes: 'State Taxes', damageclaim: 'Damage Claims' };
+  // ---- Pay Plan Comparison (what-if, read-only) ----
+  // Current = what crews were actually paid through payroll for hourly work
+  // + commission (tips and bonuses removed -- they'd be the same either way).
+  // Commission-only = rate x that week's revenue, split by hours (Captain
+  // hours optionally weighted), plus what the law still requires each
+  // week: a top-up to minimum wage, and overtime at half the commission-
+  // based regular rate for hours over 40. Office staff and the Ops Manager
+  // are left out of both sides. Never saves anything.
+  let ppWeeks = [], ppCaptains = new Set();
+  // Test settings live only in this browser (not the app's settings).
+  const PP_STORE = 'henson_payplan_test_v1';
+  const PP_DEFAULTS = { rate: 22, capWeight: 1, minWage: 7.25, otPrem: 0.5, split: 'hours', excluded: [], captain: {} };
+  let ppState = (() => { try{ return Object.assign({}, PP_DEFAULTS, JSON.parse(localStorage.getItem(PP_STORE) || '{}')); }catch(err){ return Object.assign({}, PP_DEFAULTS); } })();
+  const ppSave = () => { try{ localStorage.setItem(PP_STORE, JSON.stringify(ppState)); }catch(err){} };
+  const ppIsCaptain = n => { const k = ppKey(n); return Object.prototype.hasOwnProperty.call(ppState.captain, k) ? !!ppState.captain[k] : ppCaptains.has(k); };
+  const ppIncluded = n => !ppState.excluded.includes(ppKey(n));
+  const ppKey = n => String(n || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+  const ppMoney = n => '$' + Math.round(n).toLocaleString();
+  const ppMoney2 = n => '$' + Number(n || 0).toFixed(2);
+  async function loadPayPlanComparison(){
+    const out = document.getElementById('pp_out'); if(!out) return;
+    out.innerHTML = '<p class="form-note">Loading payroll weeks\u2026</p>';
+    try{
+      await ensureAppSettingsLoaded();
+      const [weeks, rolesRes] = await Promise.all([
+        window.dashboardApi.get('labor-weeks', []),
+        fetch(`${API_BASE}/api/employee-roles`, { headers: authHeaders() }).then(r => r.ok ? r.json() : { roles: {} }).catch(() => ({ roles: {} }))
+      ]);
+      ppCaptains = new Set(Object.entries((rolesRes && rolesRes.roles) || {}).filter(([, v]) => v && v.captain).map(([n]) => ppKey(n)));
+      ppWeeks = (weeks || []).filter(w => w && w.weekStart && Number(w.revenue) > 0 && (w.employees || []).some(e => e.role !== 'Admin' && Number(e.totalEarnings) > 0))
+        .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    }catch(err){ out.innerHTML = '<p class="form-note">Couldn\u2019t load payroll weeks.</p>'; return; }
+    if(!ppWeeks.length){ out.innerHTML = '<p class="form-note">No saved payroll weeks with revenue and employee earnings yet (Labor Cost).</p>'; return; }
+    const opt = ppWeeks.map((w, k) => `<option value="${k}">${window.fmtDate(w.weekStart)}</option>`).join('');
+    const from = document.getElementById('pp_from'), to = document.getElementById('pp_to');
+    from.innerHTML = opt; to.innerHTML = opt;
+    from.value = String(Math.max(0, ppWeeks.length - 12)); to.value = String(ppWeeks.length - 1);
+    document.getElementById('pp_rate').value = ppState.rate; document.getElementById('pp_capWeight').value = ppState.capWeight;
+    document.getElementById('pp_minWage').value = ppState.minWage; document.getElementById('pp_otPrem').value = ppState.otPrem; document.getElementById('pp_split').value = ppState.split;
+    renderPayPlanComparison();
+  }
+  window.loadPayPlanComparison = loadPayPlanComparison;
+  // One week under a given rate -> per-person results.
+  function ppWeek(w, ratePct, capWeight, minWage, otPremX, split){
+    const crew = (w.employees || []).filter(e => e.role !== 'Admin' && ppIncluded(e.name) && (Number(e.regHrs) || 0) + (Number(e.otHrs) || 0) > 0);
+    const hrs = e => (Number(e.regHrs) || 0) + (Number(e.otHrs) || 0);
+    const totHrs = crew.reduce((t, e) => t + hrs(e), 0);
+    // Tips + bonuses go out the same under either plan; payroll keeps only
+    // the week's totals, so each person's share is estimated by hours.
+    const extras = (Number(w.tips) || 0) + (Number(w.bonusPaid) || 0);
+    const fieldHrs = totHrs;   // crew only (tips/bonuses go to the crew, not the Ops Manager)
+    const pool = (Number(w.revenue) || 0) * ratePct / 100;
+    const wHrs = e => (split === 'equal' ? 1 : hrs(e)) * (ppIsCaptain(e.name) ? capWeight : 1);
+    const totW = crew.reduce((t, e) => t + wHrs(e), 0) || 1;
+    return crew.map(e => {
+      const h = hrs(e), ot = Number(e.otHrs) || 0;
+      const current = Math.max(0, (Number(e.totalEarnings) || 0) - (fieldHrs ? extras * h / fieldHrs : 0));
+      const share = pool * wHrs(e) / totW;
+      const topUp = Math.max(0, minWage * h - share);
+      const regRate = h ? (share + topUp) / h : 0;
+      const otPrem = otPremX * regRate * ot;
+      return { name: e.name, hours: h, current, share, topUp, otPrem, plan: share + topUp + otPrem };
+    });
+  }
+  function ppRun(ratePct){
+    const capW = Math.max(0, Number(ppState.capWeight)); const minWage = Math.max(0, Number(ppState.minWage) || 0);
+    const otPremX = Math.max(0, Number(ppState.otPrem) || 0), split = ppState.split;
+    const a = Number(document.getElementById('pp_from').value), b = Number(document.getElementById('pp_to').value);
+    const sel = ppWeeks.slice(Math.min(a, b), Math.max(a, b) + 1);
+    return sel.map(w => ({ w, people: ppWeek(w, ratePct, capW, minWage, otPremX, split) }));
+  }
+  function renderPpPeople(){
+    const a = Number(document.getElementById('pp_from').value), b = Number(document.getElementById('pp_to').value);
+    const names = [...new Set(ppWeeks.slice(Math.min(a, b), Math.max(a, b) + 1).flatMap(w => (w.employees || []).filter(e => e.role !== 'Admin' && (Number(e.regHrs) || 0) + (Number(e.otHrs) || 0) > 0).map(e => e.name)))].sort();
+    const box = document.getElementById('pp_people');
+    box.innerHTML = names.map(n => `<div style="display:flex; align-items:center; gap:10px; font-size:13px; padding:3px 0; border-bottom:1px solid var(--line);">
+        <label style="display:flex; align-items:center; gap:6px; margin:0; flex:1; font-size:13px;"><input type="checkbox" class="pp-inc" data-k="${mfEsc(ppKey(n))}" ${ppIncluded(n) ? 'checked' : ''}> ${mfEsc(n)}</label>
+        <label style="display:flex; align-items:center; gap:4px; margin:0; font-size:12px; color:var(--muted);"><input type="checkbox" class="pp-cap" data-k="${mfEsc(ppKey(n))}" ${ppIsCaptain(n) ? 'checked' : ''}> Captain</label></div>`).join('');
+    document.getElementById('pp_peopleCount').textContent = `(${names.filter(ppIncluded).length} of ${names.length} included)`;
+    box.querySelectorAll('.pp-inc').forEach(cb => cb.onchange = () => { const k = cb.dataset.k; ppState.excluded = ppState.excluded.filter(x => x !== k); if(!cb.checked) ppState.excluded.push(k); ppSave(); renderPayPlanComparison(); });
+    box.querySelectorAll('.pp-cap').forEach(cb => cb.onchange = () => { ppState.captain[cb.dataset.k] = cb.checked; ppSave(); renderPayPlanComparison(); });
+  }
+  function renderPayPlanComparison(){
+    const out = document.getElementById('pp_out');
+    renderPpPeople();
+    const rate = Math.max(0, Number(ppState.rate) || 0);
+    const res = ppRun(rate);
+    if(!res.length){ out.innerHTML = ''; return; }
+    const sum = (arr, f) => arr.reduce((t, x) => t + f(x), 0);
+    const rev = sum(res, r => Number(r.w.revenue) || 0);
+    const cur = sum(res, r => sum(r.people, p => p.current)), plan = sum(res, r => sum(r.people, p => p.plan));
+    const topUps = sum(res, r => sum(r.people, p => p.topUp)), topUpWeeks = sum(res, r => r.people.filter(p => p.topUp > 0.005).length);
+    const personWeeks = sum(res, r => r.people.length);
+    // Break-even: the rate where commission-only costs what you paid.
+    let lo = 0, hi = 100;
+    for(let k = 0; k < 40; k++){ const mid = (lo + hi) / 2; const c = sum(ppRun(mid), r => sum(r.people, p => p.plan)); if(c < cur) lo = mid; else hi = mid; }
+    const diff = plan - cur;
+    const card = (l, v, sub, color) => `<div style="flex:1; min-width:170px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">${l}</div><div style="font-size:22px; font-weight:800; ${color ? 'color:' + color + ';' : ''}">${v}</div>${sub ? `<div style="font-size:11.5px; color:var(--muted);">${sub}</div>` : ''}</div>`;
+    // Per person across the range.
+    const byP = {};
+    res.forEach(r => r.people.forEach(p => { const x = byP[p.name] = byP[p.name] || { name: p.name, hours: 0, current: 0, plan: 0, topWeeks: 0, weeks: 0 }; x.hours += p.hours; x.current += p.current; x.plan += p.plan; x.weeks++; if(p.topUp > 0.005) x.topWeeks++; }));
+    const people = Object.values(byP).sort((x, y) => (y.plan - y.current) - (x.plan - x.current));
+    const th = 'padding:6px 6px; text-align:right;', td = 'padding:6px 6px; text-align:right; border-bottom:1px solid var(--line);';
+    const dCol = v => `<span style="color:${v >= 0 ? 'var(--brand-green-dark)' : '#b3261e'}; font-weight:700;">${v >= 0 ? '+' : '\u2212'}${ppMoney(Math.abs(v))}</span>`;
+    out.innerHTML = `
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        ${card('What you paid (hourly + commission)', ppMoney(cur), `${(cur / rev * 100).toFixed(1)}% of ${ppMoney(rev)} revenue`)}
+        ${card(`Commission-only at ${rate}%`, ppMoney(plan), `${(plan / rev * 100).toFixed(1)}% of revenue \u00b7 incl. ${ppMoney(topUps)} min-wage top-ups`)}
+        ${card('Difference to the company', (diff >= 0 ? '+' : '\u2212') + ppMoney(Math.abs(diff)), diff >= 0 ? 'commission-only would cost MORE' : 'commission-only would cost LESS', diff >= 0 ? '#b3261e' : 'var(--brand-green-dark)')}
+        ${card('Break-even rate', lo.toFixed(1) + '%', 'commission-only would cost the same as now')}
+      </div>
+      <p class="form-note" style="margin:8px 0 0;">Minimum-wage top-ups needed in <strong>${topUpWeeks} of ${personWeeks}</strong> person-weeks (${res.length} weeks).</p>
+      <div style="font-weight:700; margin:14px 0 4px;">By person (${res.length} weeks)</div>
+      <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px; min-width:640px;">
+        <thead><tr><th style="text-align:left; padding:6px;">Employee</th><th style="${th}">Hours</th><th style="${th}">Paid now</th><th style="${th}">$/hr now</th><th style="${th}">Commission-only</th><th style="${th}">$/hr</th><th style="${th}">Difference</th><th style="${th}">Top-up weeks</th></tr></thead>
+        <tbody>${people.map(x => `<tr><td style="padding:6px; border-bottom:1px solid var(--line);">${mfEsc(x.name)}${ppIsCaptain(x.name) ? ' <span style="font-size:11px; color:var(--muted);">Captain</span>' : ''}</td>
+          <td style="${td}">${x.hours.toFixed(1)}</td><td style="${td}">${ppMoney(x.current)}</td><td style="${td}">${ppMoney2(x.current / (x.hours || 1))}</td>
+          <td style="${td}">${ppMoney(x.plan)}</td><td style="${td}">${ppMoney2(x.plan / (x.hours || 1))}</td><td style="${td}">${dCol(x.plan - x.current)}</td><td style="${td}">${x.topWeeks ? x.topWeeks + ' of ' + x.weeks : '\u2014'}</td></tr>`).join('')}</tbody></table></div>
+      <div style="font-weight:700; margin:14px 0 4px;">By week</div>
+      <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px; min-width:560px;">
+        <thead><tr><th style="text-align:left; padding:6px;">Week of</th><th style="${th}">Revenue</th><th style="${th}">Paid now</th><th style="${th}">Commission-only</th><th style="${th}">Difference</th><th style="${th}">Top-ups</th></tr></thead>
+        <tbody>${res.map(r => { const c = sum(r.people, p => p.current), q = sum(r.people, p => p.plan), t = sum(r.people, p => p.topUp);
+          return `<tr><td style="padding:6px; border-bottom:1px solid var(--line);">${window.fmtDate(r.w.weekStart)}</td><td style="${td}">${ppMoney(r.w.revenue)}</td><td style="${td}">${ppMoney(c)}</td><td style="${td}">${ppMoney(q)}</td><td style="${td}">${dCol(q - c)}</td><td style="${td}">${t > 0.005 ? ppMoney(t) : '\u2014'}</td></tr>`; }).join('')}</tbody></table></div>
+      <p class="form-note" style="margin-top:10px;">How this is figured: <strong>Paid now</strong> = each person&rsquo;s payroll earnings minus his share of that week&rsquo;s tips and bonuses (same under either plan; payroll only keeps the week&rsquo;s total, so it&rsquo;s split by hours &mdash; a close estimate per person, exact in total). <strong>Commission-only</strong> = the rate &times; revenue, split by hours, plus what the law requires every week: a top-up to minimum wage, and overtime at the premium you set (federal rule: 0.5 &times; the commission-based hourly rate) for hours over 40. Employer payroll taxes scale with pay under both plans and aren&rsquo;t shown. Office staff are left out; everyone else follows &ldquo;Who&rsquo;s in the test.&rdquo; Every factor here is test-only and never changes Configuration, the Employee Roster, or anyone&rsquo;s pay. Review any pay change with your accountant or an employment attorney.</p>`;
+  }
+  const ppRead = () => {
+    ppState.rate = Number(document.getElementById('pp_rate').value) || 0;
+    ppState.capWeight = Math.max(0, Number(document.getElementById('pp_capWeight').value));
+    if(!isFinite(ppState.capWeight)) ppState.capWeight = 1;
+    ppState.minWage = Number(document.getElementById('pp_minWage').value) || 0;
+    ppState.otPrem = Number(document.getElementById('pp_otPrem').value); if(!isFinite(ppState.otPrem)) ppState.otPrem = 0.5;
+    ppState.split = document.getElementById('pp_split').value;
+    ppSave();
+  };
+  ['pp_rate', 'pp_from', 'pp_to', 'pp_capWeight', 'pp_minWage', 'pp_otPrem', 'pp_split'].forEach(id => {
+    const el = document.getElementById(id);
+    const go = () => { ppRead(); if(ppWeeks.length) renderPayPlanComparison(); };
+    el.addEventListener('input', go); el.addEventListener('change', go);
+  });
+  document.getElementById('pp_reset').addEventListener('click', () => {
+    if(!confirm('Reset the test to its starting values (22%, everyone included, Captains as on the roster)?')) return;
+    ppState = Object.assign({}, PP_DEFAULTS, { excluded: [], captain: {} }); ppSave();
+    ['rate', 'capWeight', 'minWage', 'otPrem', 'split'].forEach(k => { document.getElementById('pp_' + (k === 'otPrem' ? 'otPrem' : k)).value = ppState[k]; });
+    if(ppWeeks.length) renderPayPlanComparison();
+  });
+
   // ---- Owner Time: app time + a manual daily log by category ----
   window.__isOwner = false;
   async function refreshOwnerStatus(){
