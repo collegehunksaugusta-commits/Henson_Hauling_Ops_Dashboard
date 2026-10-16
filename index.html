@@ -919,6 +919,28 @@
       <div id="moneyTipsList" style="margin-top:10px; border-top:1px solid var(--line); padding-top:8px;"></div>
     </div>
 
+    <div class="panel" id="moneyReviewsPanel" style="border:2px solid #E3A008;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div>
+          <div style="font-size:13px; font-weight:700; color:#8a6100; letter-spacing:.03em;">&#11088; REVIEW BONUSES THIS WEEK</div>
+          <div id="moneyReviewsSub" style="font-size:12px; color:var(--muted); margin-top:2px;"></div>
+        </div>
+        <div id="moneyReviewsTotal" style="font-size:30px; font-weight:800; color:#8a6100;">&mdash;</div>
+      </div>
+      <div id="moneyReviewsList" style="margin-top:10px; border-top:1px solid var(--line); padding-top:8px;"></div>
+    </div>
+
+    <div class="panel" id="moneyCommissionPanel" style="border:2px solid #2f6db5;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div>
+          <div style="font-size:13px; font-weight:700; color:#1f4f87; letter-spacing:.03em;">&#128200; EXPECTED COMMISSION</div>
+          <div id="moneyCommissionSub" style="font-size:12px; color:var(--muted); margin-top:2px;"></div>
+        </div>
+        <div id="moneyCommissionTotal" style="font-size:30px; font-weight:800; color:#1f4f87;">&mdash;</div>
+      </div>
+      <div id="moneyCommissionNote" style="margin-top:10px; border-top:1px solid var(--line); padding-top:8px; font-size:12.5px; color:var(--muted);"></div>
+    </div>
+
     <div class="panel" id="moneyExpensesPanel" style="border:2px solid var(--brand-orange);">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
         <div>
@@ -1641,6 +1663,36 @@
     document.querySelectorAll('.portal-welcome-full').forEach(el => el.textContent = full || 'unknown');
   }
   document.querySelectorAll('.portal-welcome-logout').forEach(btn => btn.addEventListener('click', () => driverLogout()));
+
+  // ---- My Money: Review Bonuses + Expected Commission ----
+  async function loadMyExtras(){
+    const base = API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman/my-extras' : '/api/driver/my-extras');
+    let d;
+    try{
+      const res = await fetch(base, { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      if(!res.ok) return; d = await res.json();
+    }catch(err){ return; }
+    const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const short = x => new Date(x + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const r = d.reviews || { thisWeek: { count: 0, items: [] }, lastWeek: { count: 0 } };
+    document.getElementById('moneyReviewsTotal').textContent = money(r.thisWeek.amount);
+    document.getElementById('moneyReviewsSub').textContent = `${r.thisWeek.count} review${r.thisWeek.count === 1 ? '' : 's'} credited to you${r.rate ? ' \u00b7 ' + money(r.rate) + ' each' : ''} \u00b7 last week ${money(r.lastWeek.amount)}`;
+    document.getElementById('moneyReviewsList').innerHTML = r.thisWeek.items.length
+      ? r.thisWeek.items.map(i => `<div style="display:flex; justify-content:space-between; font-size:13.5px; padding:4px 0;"><span>&#11088; Google review \u00b7 ${short(i.date)}</span><strong>${money(r.rate)}</strong></div>`).join('')
+      : '<div style="font-size:13px; color:var(--muted);">No reviews credited to you yet this week. Ask happy customers to mention you by name in a Google review!</div>';
+    const c = d.commission;
+    const note = '<strong>Commissions are impacted by Hunk scores and damage payouts.</strong> This is an estimate &mdash; the final amount is set when payroll runs.';
+    if(!c){
+      document.getElementById('moneyCommissionTotal').textContent = '\u2014';
+      document.getElementById('moneyCommissionSub').textContent = 'Shows once the office runs this week\u2019s numbers.';
+      document.getElementById('moneyCommissionNote').innerHTML = note;
+      return;
+    }
+    document.getElementById('moneyCommissionTotal').textContent = money(c.amount - c.damage);
+    document.getElementById('moneyCommissionSub').textContent = `Payday week of ${short(c.payWeek)} \u00b7 for work the week of ${short(c.workWeekStart)}`;
+    document.getElementById('moneyCommissionNote').innerHTML = (c.damage > 0 ? `<div style="margin-bottom:6px; color:#b3261e;">Commission ${money(c.amount)} \u2212 damage payout ${money(c.damage)}</div>` : '') + note;
+  }
 
   // ---- My Tips This Week ----
   // Each person's own tips for the current pay week (Mon-Sun), from the
@@ -2380,6 +2432,7 @@
     document.getElementById('milDate').max = driverLocalDate();
     document.getElementById('milStatus').textContent = '';
     loadMyExpenses();
+    loadMyExtras();
   }
   document.querySelectorAll('.my-money-tile').forEach(t => t.addEventListener('click', showMyMoney));
   document.getElementById('moneyBackBtn').addEventListener('click', () => driverRole === 'wingman' ? showWingmanMenu() : showDriverMenu());
@@ -12732,9 +12785,26 @@
       });
 
       renderExtraPayWeeksList(weeksData);
+      publishCrewPayPreview();
     }catch(err){
       console.error('Extra Pay load failed:', err);
     }
+  }
+  // My Money -> Expected Commission: each person's commission (after any
+  // damage deduction) exactly as shown here, saved per pay week.
+  async function publishCrewPayPreview(){
+    try{
+      const weeks = {};
+      document.querySelectorAll('.extraPay-week-panel[data-week]').forEach(pnl => {
+        const people = {};
+        pnl.querySelectorAll('.extraPay-employee-row').forEach(row => {
+          const v = extraPayRecalcRow(row);
+          if(v.commission > 0 || v.damage > 0) people[row.dataset.name] = { commission: v.commission, damage: v.damage };
+        });
+        weeks[pnl.dataset.week] = people;
+      });
+      if(Object.keys(weeks).length) await fetch(`${API_BASE}/api/owner/crew-pay-preview`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ weeks }) });
+    }catch(err){ /* best effort */ }
   }
   window.loadExtraPayData = loadExtraPayData;
 
