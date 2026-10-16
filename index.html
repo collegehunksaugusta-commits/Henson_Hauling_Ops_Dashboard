@@ -597,7 +597,7 @@
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
         <span style="display:block; font-size:18px; font-weight:800; color:var(--brand-green-dark);">My Money</span>
-        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips, expenses &amp; mileage &middot; tap to open</span>
+        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips, review bonuses, commission, expenses &amp; mileage &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
     </button>
@@ -742,7 +742,7 @@
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
         <span style="display:block; font-size:18px; font-weight:800; color:var(--brand-green-dark);">My Money</span>
-        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips, expenses &amp; mileage &middot; tap to open</span>
+        <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips, review bonuses, commission, expenses &amp; mileage &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
     </button>
@@ -1664,6 +1664,22 @@
   }
   document.querySelectorAll('.portal-welcome-logout').forEach(btn => btn.addEventListener('click', () => driverLogout()));
 
+  // ---- My Money tile preview: tips, review bonuses, expected commission ----
+  const mmPeek = { tips: null, reviews: null, commission: undefined };
+  function renderMoneyPeek(){
+    const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const b = v => `<strong style="color:var(--charcoal);">${v}</strong>`;
+    const lines = [];
+    if(mmPeek.tips != null) lines.push(`Tips this week: ${b(money(mmPeek.tips))}`);
+    const second = [];
+    if(mmPeek.reviews != null) second.push(`Review bonuses: ${b(money(mmPeek.reviews))}`);
+    if(mmPeek.commission !== undefined) second.push(`Expected commission: ${b(mmPeek.commission == null ? '\u2014' : money(mmPeek.commission))}`);
+    lines.push(...second);   // one amount per line -- reads cleanly on a phone
+    if(!lines.length) return;
+    lines.push('tap to open');
+    document.querySelectorAll('.my-money-sub').forEach(el => el.innerHTML = lines.join('<br>'));
+  }
+
   // ---- My Money: Review Bonuses + Expected Commission ----
   async function loadMyExtras(){
     const base = API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman/my-extras' : '/api/driver/my-extras');
@@ -1676,6 +1692,9 @@
     const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const short = x => new Date(x + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     const r = d.reviews || { thisWeek: { count: 0, items: [] }, lastWeek: { count: 0 } };
+    mmPeek.reviews = r.thisWeek.amount || 0;
+    mmPeek.commission = d.commission ? Math.max(0, d.commission.amount - d.commission.damage) : null;
+    renderMoneyPeek();
     document.getElementById('moneyReviewsTotal').textContent = money(r.thisWeek.amount);
     document.getElementById('moneyReviewsSub').textContent = `${r.thisWeek.count} review${r.thisWeek.count === 1 ? '' : 's'} credited to you${r.rate ? ' \u00b7 ' + money(r.rate) + ' each' : ''} \u00b7 last week ${money(r.lastWeek.amount)}`;
     document.getElementById('moneyReviewsList').innerHTML = r.thisWeek.items.length
@@ -1710,7 +1729,7 @@
     const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const short = x => new Date(x + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     // Peek on the home-screen tile
-    document.querySelectorAll('.my-money-sub').forEach(el => el.textContent = `Tips this week: ${money(d.total)} \u00b7 tap to open`);
+    mmPeek.tips = d.total; renderMoneyPeek();
     // The My Money screen
     document.getElementById('moneyTipsTotal').textContent = money(d.total);
     document.getElementById('moneyTipsSub').textContent = `${short(d.weekStart)} \u2013 ${short(d.weekEnd)} \u00b7 ${d.jobs.length} job${d.jobs.length === 1 ? '' : 's'} \u00b7 last week ${money(d.lastWeekTotal)}`;
@@ -2573,6 +2592,7 @@
     fillPortalWelcome();
     loadDamageNotices();
     loadMyTips();
+    loadMyExtras();
     loadEsignRequests();
     loadDriverFileNag();
     refreshMaterialsChangeButtons();
@@ -3678,6 +3698,7 @@
     fillPortalWelcome();
     loadDamageNotices();
     loadMyTips();
+    loadMyExtras();
     loadEsignRequests();
     loadDriverFileNag();
     refreshMaterialsChangeButtons();
