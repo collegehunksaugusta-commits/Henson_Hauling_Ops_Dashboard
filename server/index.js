@@ -5804,6 +5804,28 @@ app.post('/api/admin/hiring/candidates', requireAuth, async (req, res) => {
   }
 });
 
+// Edit a package's details after it's created/sent: the same fields that
+// were needed to send it. The link (token) and anything the new hire has
+// already filled in are untouched -- they see the change next time they
+// open it.
+app.patch('/api/admin/hiring/candidates/:id', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const firstName = String(b.firstName || '').trim(), lastName = String(b.lastName || '').trim(), email = String(b.email || '').trim(), startingDate = String(b.startingDate || '').slice(0, 10);
+  if (!firstName || !lastName || !email || !startingDate) return res.status(400).json({ error: 'First name, last name, email, and start date are required.' });
+  try {
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const c = candidates.find(x => x.id === req.params.id);
+    if (!c) return res.status(404).json({ error: 'Candidate not found.' });
+    const before = { firstName: c.firstName, lastName: c.lastName, email: c.email, startingPay: c.startingPay, startingDate: c.startingDate, positionTitle: c.positionTitle };
+    Object.assign(c, { firstName: firstName.slice(0, 100), lastName: lastName.slice(0, 100), email: email.slice(0, 200), startingPay: String(b.startingPay || '').slice(0, 60), startingDate,
+      positionTitle: (String(b.positionTitle || '').trim() || c.positionTitle || 'General Laborer').slice(0, 100), editedAt: new Date().toISOString(), editedBy: req.userEmail || '' });
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    const changed = Object.keys(before).filter(k => String(before[k] || '') !== String(c[k] || ''));
+    console.log(`[hiring] ${c.firstName} ${c.lastName}: details edited by ${req.userEmail || ''} (${changed.join(', ') || 'no changes'})`);
+    res.json({ candidate: c, changed, emailChanged: changed.includes('email') });
+  } catch (err) { console.error('PATCH hiring candidate failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+
 // Marks a candidate as sent, and (re)issues a fresh link -- called right
 // before the admin's mailto: link opens, same "generate link, admin's own
 // email client sends it" pattern Damage Claims already uses. Re-sending
