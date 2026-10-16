@@ -32509,7 +32509,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
 
     function hoFieldInputHtml(field){
       const value = hoFieldValue(field);
-      const inputType = field.type === 'date' ? 'date' : (field.type === 'email' ? 'email' : (field.type === 'phone' ? 'tel' : (field.type === 'number' ? 'number' : 'text')));
+      // Any date question gets a full date picker, even if tagged as text.
+      const looksLikeDate = field.type === 'text' && !HO_LOCKED_CANONICAL_KEYS.has(hoKeyOf(field)) && (hoKeyOf(field) === 'employee_dob' || /\bdate\b|\bdob\b|birthday/i.test(field.label || ''));
+      const inputType = (field.type === 'date' || looksLikeDate) ? 'date' : (field.type === 'email' ? 'email' : (field.type === 'phone' ? 'tel' : (field.type === 'number' ? 'number' : 'text')));
       if(field.type === 'checkbox'){
         return `<label style="display:flex; align-items:center; gap:8px; margin:10px 0; font-size:13.5px;">
           <input type="checkbox" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" ${value ? 'checked' : ''}> ${hoEsc(field.label)}${field.required ? ' *' : ''}
@@ -32784,7 +32786,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const fieldsEl = document.getElementById('ho_docFields');
       // A signature box read off the document duplicates the Sign Here pad:
       // hide it (it's filled in automatically when they sign).
-      const remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f) && !hoIsPadDateField(doc, f));
+      let remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f) && !hoIsPadDateField(doc, f));
+      // Split dates -> one full-date picker, placed where its first part was.
+      const withFull = [];
+      remainingFields.forEach(f => {
+        if(!f._partOf){ withFull.push(f); return; }
+        const vf = (doc._fullDates || []).find(v => v.id === f._partOf);
+        if(vf && !withFull.includes(vf)) withFull.push(vf);
+      });
+      remainingFields = withFull;
       fieldsEl.innerHTML = remainingFields.map(hoFieldInputHtml).join('');
       fieldsEl.querySelectorAll('.ho-field-input').forEach(input => {
         const field = remainingFields.find(f => f.id === input.dataset.fieldId);
@@ -32807,6 +32817,18 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const hoDatePart = f => {
       if(!f || f.type === 'checkbox') return null;
       const l = String(f.label || '').toLowerCase().replace(/[*:_]/g, ' ').replace(/\s+/g, ' ').trim();
+      // "Date (Year)", "Date (Month/Day)", "Date - Year", "Year Signed"...
+      const m = /^(?:(?:today'?s|current|signature|signed|signing)\s*)?date\s*[(\-\u2013\u2014,]?\s*([a-z /&,]+?)\s*\)?$|^(day|month|year)s?\s*signed$/.exec(l);
+      if(m){
+        const inner = (m[1] || m[2] || '').trim(), has = w => new RegExp('\\b' + w).test(inner);
+        if(inner === 'signed' || !inner) return 'date';
+        if(has('day') && has('month') && has('year')) return 'date';
+        if(has('month') && has('day')) return 'monthday';
+        if(has('month') && has('year')) return 'monthyear';
+        if(has('year')) return 'year';
+        if(has('month')) return 'month';
+        if(has('day')) return 'day';
+      }
       if(/^((today'?s|current)\s*)?date(\s*signed)?$|^(signature|signed|signing|execution)\s*date$|^date\s*of\s*(signature|signing|execution)$/.test(l) || f.canonicalKey === 'today_date' || f.shareKey === 'today_date') return 'date';
       if(/^(the\s*)?day(\s*of(\s*the\s*month)?)?$/.test(l)) return 'day';
       if(/^month(\s*(and|&|\/)\s*year)?$/.test(l)) return /year/.test(l) ? 'monthyear' : 'month';
@@ -32818,16 +32840,63 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(part === 'day') return String(t.getDate());
       if(part === 'month') return t.toLocaleDateString(undefined, { month: 'long' });
       if(part === 'monthyear') return t.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      if(part === 'monthday') return t.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
       if(part === 'year') return String(t.getFullYear());
       return f && f.type === 'date' ? t.toLocaleDateString('en-CA') : t.toLocaleDateString();
     };
+    // ---- Every date he fills in is ONE full date ----
+    // "Date of Birth (Month)" + "(Day)" + "(Year)", "Birth Year", "Year of
+    // Birth"... become a single "Date of Birth" date picker; picking the
+    // date fills each part on the document.
+    function hoSplitDatePart(f){
+      if(!f || f.type === 'checkbox' || f.position || hoDatePart(f)) return null;
+      let l = String(f.label || '').toLowerCase().replace(/[*:_]/g, ' ').replace(/\s+/g, ' ').trim();
+      const P = '(month\\s*(?:/|and|&)\\s*day|month\\s*(?:/|and|&)\\s*year|day|month|year|mm|dd|yyyy|yy)';
+      let m = new RegExp('^(.+?)\\s*[(\\-\\u2013\\u2014,]\\s*' + P + 's?\\s*\\)?$').exec(l) || new RegExp('^(.+?)\\s+' + P + 's?$').exec(l);
+      let base, part;
+      if(m){ base = m[1]; part = m[2]; }
+      else if((m = new RegExp('^' + P + 's?\\s+(?:of\\s+)?(.+)$').exec(l))){ part = m[1]; base = m[2]; }
+      else return null;
+      base = base.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+      if(!base || /^(today'?s|current|signature|signed|signing)?\s*date$/.test(base)) return null;
+      if(/^(birth|of birth|date of birth|birth date|dob)$/.test(base)) base = 'date of birth';
+      part = part.replace(/\s+/g, '');
+      part = { mm: 'month', dd: 'day', yyyy: 'year', yy: 'year', 'month/day': 'monthday', monthandday: 'monthday', 'month&day': 'monthday', 'month/year': 'monthyear', monthandyear: 'monthyear', 'month&year': 'monthyear' }[part] || part;
+      return { base, part };
+    }
+    function hoBuildFullDates(doc){
+      const groups = {};
+      (doc.fields || []).forEach(f => {
+        const sp = hoSplitDatePart(f); if(!sp) return;
+        (groups[sp.base] = groups[sp.base] || []).push({ f, part: sp.part });
+      });
+      doc._fullDates = Object.entries(groups).map(([base, parts]) => {
+        const label = base.replace(/\b\w+/g, (w, i) => (i > 0 && /^(of|and|the|for|to|in)$/.test(w)) ? w : w[0].toUpperCase() + w.slice(1));
+        const vf = { id: 'fulldate_' + base.replace(/\W+/g, '_'), label, type: 'date', required: parts.some(x => x.f.required), _parts: parts };
+        vf.shareKey = hoShareKeyFor({ label, type: 'date' });
+        parts.forEach(x => { x.f._partOf = vf.id; });
+        return vf;
+      });
+    }
+    // One part of a full date (yyyy-mm-dd) as the document wants it.
+    function hoPartFromIso(iso, part, f){
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '';
+      const t = new Date(iso + 'T12:00:00');
+      if(part === 'day') return String(t.getDate());
+      if(part === 'month') return f && f.type === 'number' ? String(t.getMonth() + 1) : t.toLocaleDateString(undefined, { month: 'long' });
+      if(part === 'year') return String(t.getFullYear());
+      if(part === 'monthday') return t.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+      if(part === 'monthyear') return t.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      return '';
+    }
+
     // Gets the Sign Here pad: marked "Requires Signature", or has a
     // signature line, or a date-of-signing box, or (Word documents) its
     // text asks for a signature.
     function hoDocUsesPad(doc){
       if(!doc) return false;
       if(doc.requiresSignature || (doc.fields || []).some(hoSigLabel)) return true;
-      if((doc.fields || []).some(f => hoDatePart(f) === 'date')) return true;
+      if((doc.fields || []).some(f => !!hoDatePart(f))) return true;   // a signing date, whole or split
       return !!doc._textAsksForSignature;
     }
     function hoIsPadSignatureField(doc, f){
@@ -32843,10 +32912,12 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       (doc.fields || []).forEach(f => {
         if(!f.required) return;
         if(hoIsPadSignatureField(doc, f) || hoIsPadDateField(doc, f)) return;   // covered by the Sign Here pad
+        if(f._partOf) return;   // asked as one full date (checked below)
         if(f.type === 'checkbox') return; // a checkbox's "required" just means it exists on the form, not that it must be checked
         const value = hoFieldValue(f);
         if(!value || !String(value).trim()) missing.push(f.label);
       });
+      (doc._fullDates || []).forEach(vf => { if(vf.required && !hoFieldValue(vf)) missing.push(vf.label); });
       if(hoDocUsesPad(doc)){
         const existingSig = (hoDocProgress[doc.id] || {}).signatureKey;
         if(!hoSigHasStroke && !existingSig) missing.push('your signature');
@@ -32861,14 +32932,17 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const today = new Date(), todayIso = today.toLocaleDateString('en-CA');
       (doc.fields || []).forEach(f => {
         if(f.canonicalKey) return;
+        const vf = f._partOf ? (doc._fullDates || []).find(v => v.id === f._partOf) : null;
         docFieldValues[f.id] = hoIsPadSignatureField(doc, f) ? signedNote
           : hoIsPadDateField(doc, f) ? hoDatePartValue(hoDatePart(f), f)
+          : vf ? hoPartFromIso(hoFieldValue(vf), (vf._parts.find(x => x.f === f) || {}).part, f)
           : hoFieldValue(f);
       });
       const sharedToSave = {};
       (doc.fields || []).forEach(f => { if(f.canonicalKey) sharedToSave[f.canonicalKey] = f.canonicalKey === 'today_date' ? today.toLocaleDateString('en-CA') : hoSharedValues[f.canonicalKey]; });
       const HO_STANDARD = ['employee_full_name','employee_first_name','employee_last_name','employee_address','employee_city','employee_state','employee_zip','employee_phone','employee_email','employee_dob','ssn'];
       (doc.fields || []).forEach(f => { if(!f.canonicalKey && HO_STANDARD.includes(f.shareKey) && hoSharedValues[f.shareKey]) sharedToSave[f.shareKey] = hoSharedValues[f.shareKey]; });
+      (doc._fullDates || []).forEach(vf => { if(HO_STANDARD.includes(vf.shareKey) && hoSharedValues[vf.shareKey]) sharedToSave[vf.shareKey] = hoSharedValues[vf.shareKey]; });
 
       await hoApiCall('/save', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -32973,6 +33047,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       // key from its label, then seed it from anything already answered.
       hoSharedValues.today_date = new Date().toLocaleDateString('en-CA');
       (hoPackage.documents || []).forEach(d => (d.fields || []).forEach(f => { if(!f.canonicalKey) f.shareKey = hoShareKeyFor(f); }));
+      (hoPackage.documents || []).forEach(d => hoBuildFullDates(d));
       (hoPackage.documents || []).forEach(d => (d.fields || []).forEach(f => {
         if(!f.shareKey || HO_LOCKED_CANONICAL_KEYS.has(f.shareKey)) return;
         const v = ((hoDocProgress[d.id] || {}).fieldValues || {})[f.id];
