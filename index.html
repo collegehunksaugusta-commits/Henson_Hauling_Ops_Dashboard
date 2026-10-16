@@ -10958,6 +10958,7 @@
 
   // Browsers block navigating a new tab directly to a data: URI (a phishing
   // protection), so PDFs must be converted to a blob: URL first to display reliably.
+  window.fleetDataUriToBlobUrl = (...a) => fleetDataUriToBlobUrl(...a);   // reachable from every part of the page
   function fleetDataUriToBlobUrl(dataUri){
     const [header, base64] = dataUri.split(',');
     const mimeMatch = header.match(/data:(.*?);base64/);
@@ -27607,7 +27608,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         const dataUri = await window.dashboardApi.get('interview-material-doc-' + id, null);
         if(!dataUri){ alert('Could not load this file.'); return; }
         const isPdf = dataUri.startsWith('data:application/pdf');
-        if(isPdf || dataUri.startsWith('data:image')) window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
+        if(isPdf || dataUri.startsWith('data:image')) window.showPhotoModal(isPdf ? window.fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
         else { const a = document.createElement('a'); a.href = dataUri; a.download = ''; document.body.appendChild(a); a.click(); a.remove(); }
       }catch(err){ alert('Could not load this file \u2014 check your connection.'); }
     };
