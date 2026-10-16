@@ -2132,6 +2132,50 @@ async function myTipsFor(personName) {
     total: Math.round(jobs.reduce((t, j) => t + j.share, 0) * 100) / 100, jobs,
     lastWeekTotal: Math.round(lastWeekTotal * 100) / 100 };
 }
+// ============ My Money: Review Bonuses + Expected Commission ============
+// Review bonuses are figured live (credited reviews by the date posted x the
+// per-review amount). Expected commission is exactly what Extra Pay shows:
+// each time the Owner opens Extra Pay it saves everyone's expected
+// commission (after any damage deduction) per pay week; each person only
+// ever gets his own.
+const CREW_PAY_PREVIEW_KEY = 'crew-pay-preview';   // { payWeek: { publishedAt, people: { name: { commission, damage } } } }
+async function myExtrasFor(personName) {
+  const me = nameCoreKey(personName);
+  const [allocRaw, previewRaw] = await Promise.all([redis.get('google-review-allocations'), redis.get(CREW_PAY_PREVIEW_KEY)]);
+  const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+  const rate = Number((st.commission || {}).reviewBonusPerReview) || 0;
+  const thisWeek = payWeekStartOf(easternDateFromMs(Date.now()));
+  const lw = new Date(thisWeek + 'T00:00:00Z'); lw.setUTCDate(lw.getUTCDate() - 7); const lastWeek = lw.toISOString().slice(0, 10);
+  const reviews = { rate, thisWeek: { count: 0, items: [] }, lastWeek: { count: 0 } };
+  Object.values(JSON.parse(allocRaw || '{}')).forEach(a => {
+    if (!a || !a.date || !(a.employees || []).some(n => nameCoreKey(n) === me)) return;
+    const wk = payWeekStartOf(a.date);
+    if (wk === thisWeek) { reviews.thisWeek.count++; reviews.thisWeek.items.push({ date: a.date, reviewer: String(a.reviewerName || a.author || '').slice(0, 60) }); }
+    else if (wk === lastWeek) reviews.lastWeek.count++;
+  });
+  reviews.thisWeek.items.sort((x, y) => y.date.localeCompare(x.date));
+  reviews.thisWeek.amount = Math.round(reviews.thisWeek.count * rate * 100) / 100;
+  reviews.lastWeek.amount = Math.round(reviews.lastWeek.count * rate * 100) / 100;
+  reviews.weekStart = thisWeek;
+  // Most recent pay week Extra Pay has figured.
+  const preview = JSON.parse(previewRaw || '{}');
+  const wk = Object.keys(preview).sort().reverse()[0];
+  let commission = null;
+  if (wk) {
+    const entry = Object.entries((preview[wk] || {}).people || {}).find(([n]) => nameCoreKey(n) === me);
+    const workWeek = new Date(wk + 'T00:00:00Z'); workWeek.setUTCDate(workWeek.getUTCDate() - 7);
+    commission = { payWeek: wk, workWeekStart: workWeek.toISOString().slice(0, 10), publishedAt: preview[wk].publishedAt || null,
+      amount: entry ? Math.round((Number(entry[1].commission) || 0) * 100) / 100 : 0, damage: entry ? Math.round((Number(entry[1].damage) || 0) * 100) / 100 : 0 };
+  }
+  return { reviews, commission };
+}
+app.get('/api/driver/my-extras', requireDriverAuth, async (req, res) => {
+  try { res.json(await myExtrasFor(req.driverName)); } catch (err) { console.error('My extras failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+app.get('/api/wingman/my-extras', requireWingmanAuth, async (req, res) => {
+  try { res.json(await myExtrasFor(req.wingmanName)); } catch (err) { console.error('My extras failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+
 app.get('/api/driver/my-tips', requireDriverAuth, async (req, res) => {
   try { res.json(await myTipsFor(req.driverName)); } catch (err) { console.error('My tips failed:', err.message); res.status(500).json({ error: 'Could not load tips.' }); }
 });
@@ -6309,6 +6353,24 @@ async function canSeeFinancials(req) {
   if (owner) return owner === String(req.userEmail || '').toLowerCase();
   return isRequestingUserAdmin(req);
 }
+// Extra Pay -> My Money: the Owner's Extra Pay saves each person's expected
+// commission per pay week (only the Owner can save it).
+app.post('/api/owner/crew-pay-preview', requireAuth, requireFinancialsAccess, async (req, res) => {
+  try {
+    const weeks = (req.body || {}).weeks || {};
+    const preview = JSON.parse(await redis.get(CREW_PAY_PREVIEW_KEY) || '{}');
+    Object.entries(weeks).forEach(([wk, people]) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(wk) || !people || typeof people !== 'object') return;
+      const clean = {};
+      Object.entries(people).slice(0, 200).forEach(([n, v]) => { clean[String(n).slice(0, 100)] = { commission: Math.max(0, Number(v && v.commission) || 0), damage: Math.max(0, Number(v && v.damage) || 0) }; });
+      preview[wk] = { publishedAt: new Date().toISOString(), people: clean };
+    });
+    Object.keys(preview).sort().reverse().slice(6).forEach(k => delete preview[k]);   // keep the last 6 pay weeks
+    await redis.set(CREW_PAY_PREVIEW_KEY, JSON.stringify(preview));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
 // Ops Manager Metrics -> "Your Commission": only the Ops Manager's own
 // rows from Extra Pay, so his panel works without Extra Pay access.
 app.get('/api/ops-manager/commission-history', requireAuth, async (req, res) => {
