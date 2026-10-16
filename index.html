@@ -6926,22 +6926,14 @@
     <div id="hiring_tab_interviews" style="display:none;">
       <div class="panel">
         <h3>Scheduled Interviews</h3>
-        <p class="form-note" style="margin-top:0;">Indeed doesn&rsquo;t offer an API to individual employers, so bring candidates in from your Indeed account: upload Indeed&rsquo;s <strong>candidate export (CSV)</strong>, a <strong>screenshot</strong> of your upcoming interviews, or an <strong>interview confirmation email</strong> (PDF/image), or paste the email text. Anyone already listed is skipped.</p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <button type="button" id="iv_importBtn" class="btn-primary">&#128229; Import from Indeed</button>
-          <button type="button" id="iv_pasteToggle" style="background:#fff; border:1px solid var(--line); padding:9px 14px; border-radius:6px; cursor:pointer;">Paste email text</button>
-          <button type="button" id="iv_addToggle" style="background:#fff; border:1px solid var(--line); padding:9px 14px; border-radius:6px; cursor:pointer;">+ Add manually</button>
-          <input type="file" id="iv_file" accept=".csv,.pdf,image/*" style="display:none;">
-          <span class="status-msg" id="iv_status"></span>
-        </div>
-        <div id="iv_pasteBox" style="display:none; margin-top:10px;"><textarea id="iv_pasteText" rows="5" placeholder="Paste an Indeed interview confirmation email here" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:6px; font-family:inherit; box-sizing:border-box;"></textarea><button type="button" id="iv_pasteGo" style="margin-top:6px; background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Read it</button></div>
-        <div id="iv_addBox" style="display:none; margin-top:10px;">
+        <p class="form-note" style="margin-top:0;">Add each candidate you&rsquo;ve scheduled an interview with, then use <strong>Send Onboarding Package</strong> when you hire them. The <strong>Indeed</strong> button above opens your Indeed candidates.</p>
+        <div id="iv_addBox" style="margin-top:10px;">
           <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));">
             <label>First Name <input type="text" id="iv_first"></label><label>Last Name <input type="text" id="iv_last"></label>
             <label>Email <input type="email" id="iv_email"></label><label>Phone <input type="tel" id="iv_phone"></label>
             <label>Interview <input type="datetime-local" id="iv_when"></label>
           </div>
-          <button type="button" id="iv_addGo" style="margin-top:6px; background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Add Candidate</button>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:6px;"><button type="button" id="iv_addGo" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">+ Add Candidate</button><span class="status-msg" id="iv_status"></span></div>
         </div>
         <div id="iv_list" style="margin-top:14px;"></div>
       </div>
@@ -27548,7 +27540,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const el = document.getElementById('iv_list'); if(!el) return;
     const open = interviews.filter(x => !x.packageSentAt);
     document.getElementById('hiring_interviewsCount').textContent = open.length ? `(${open.length})` : '';
-    if(!interviews.length){ el.innerHTML = '<p class="form-note" style="margin:0;">No interviews yet \u2014 import from Indeed or add one.</p>'; return; }
+    if(!interviews.length){ el.innerHTML = '<p class="form-note" style="margin:0;">No interviews yet \u2014 add one above.</p>'; return; }
     const sorted = interviews.slice().sort((a, b) => String(a.interviewAt || '9').localeCompare(String(b.interviewAt || '9')));
     const fmtWhen = w => { if(!w) return '\u2014'; const d = new Date(w.length > 10 ? w : w + 'T12:00:00'); return isNaN(d) ? w : (w.length > 10 ? d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })); };
     el.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13.5px; min-width:640px;">
@@ -27576,53 +27568,13 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       document.getElementById('hiring_newHirePanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
-  // CSV (Indeed's candidate export): pick columns by their headers.
-  function ivParseCsv(text){
-    const rows = []; let row = [], cell = '', q = false;
-    for(let i = 0; i < text.length; i++){
-      const ch = text[i];
-      if(q){ if(ch === '"' && text[i + 1] === '"'){ cell += '"'; i++; } else if(ch === '"') q = false; else cell += ch; }
-      else if(ch === '"') q = true; else if(ch === ','){ row.push(cell); cell = ''; } else if(ch === '\n' || ch === '\r'){ if(ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += ch;
-    }
-    if(cell || row.length){ row.push(cell); rows.push(row); }
-    if(rows.length < 2) return [];
-    const h = rows[0].map(x => x.trim().toLowerCase());
-    const col = (...names) => h.findIndex(x => names.some(n => x === n || x.includes(n)));
-    const iName = col('name'), iFirst = col('first name'), iLast = col('last name'), iEmail = col('email'), iPhone = col('phone'), iWhen = col('interview', 'scheduled', 'date'), iJob = col('job title', 'job', 'position');
-    return rows.slice(1).filter(r => r.some(x => x.trim())).map(r => {
-      let first = iFirst >= 0 ? r[iFirst] : '', last = iLast >= 0 ? r[iLast] : '';
-      if(!first && !last && iName >= 0){ const parts = String(r[iName] || '').trim().split(/\s+/); first = parts.shift() || ''; last = parts.join(' '); }
-      let when = iWhen >= 0 ? String(r[iWhen] || '').trim() : '';
-      const d = when ? new Date(when) : null; if(d && !isNaN(d)) when = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      return { firstName: first, lastName: last, email: iEmail >= 0 ? r[iEmail] : '', phone: iPhone >= 0 ? r[iPhone] : '', interviewAt: when, job: iJob >= 0 ? r[iJob] : '' };
-    });
-  }
   async function ivImportResult(list){
     const st = document.getElementById('iv_status');
     const added = ivAddMany(list);
     await ivSave(); renderInterviews();
-    st.textContent = added ? `Added ${added} candidate${added === 1 ? '' : 's'}.` : (list.length ? 'Everyone in that file is already listed.' : 'No candidates found in that.');
+    st.textContent = added ? 'Added.' : 'That candidate is already listed.';
     st.className = 'status-msg ' + (added ? 'ok' : '');
   }
-  async function ivReadWithAi(body){
-    const st = document.getElementById('iv_status');
-    st.textContent = 'Reading\u2026'; st.className = 'status-msg';
-    try{
-      const r = await fetch(`${API_BASE}/api/admin/hiring/read-interviews`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(body) });
-      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not read that.');
-      await ivImportResult(d.candidates || []);
-    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
-  }
-  document.getElementById('iv_importBtn').addEventListener('click', () => document.getElementById('iv_file').click());
-  document.getElementById('iv_file').addEventListener('change', async (e) => {
-    const f = e.target.files[0]; e.target.value = ''; if(!f) return;
-    if(/\.csv$/i.test(f.name) || f.type === 'text/csv'){ await ivImportResult(ivParseCsv(await f.text())); return; }
-    const dataUri = f.type.startsWith('image/') ? await window.compressImageForUpload(f, 2000, 0.85) : await new Promise((ok, bad) => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.onerror = bad; rd.readAsDataURL(f); });
-    await ivReadWithAi({ file: dataUri });
-  });
-  document.getElementById('iv_pasteToggle').addEventListener('click', () => { const b = document.getElementById('iv_pasteBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; });
-  document.getElementById('iv_pasteGo').addEventListener('click', () => { const t = document.getElementById('iv_pasteText').value.trim(); if(t) ivReadWithAi({ text: t }).then(() => { document.getElementById('iv_pasteText').value = ''; }); });
-  document.getElementById('iv_addToggle').addEventListener('click', () => { const b = document.getElementById('iv_addBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; });
   document.getElementById('iv_addGo').addEventListener('click', async () => {
     const v = id => document.getElementById(id).value.trim();
     if(!v('iv_first') && !v('iv_last')){ alert('Enter a name.'); return; }
