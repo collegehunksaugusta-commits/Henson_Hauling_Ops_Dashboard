@@ -1416,6 +1416,8 @@
     legalName: 'Henson Hauling, LLC',               // the LLC, as on letterheads
     carrierName: 'Henson Hauling LLC',              // as printed on the Bill of Lading and emails
     dbaName: 'College Hunks Hauling Junk and Moving',
+    // Filled in (locked) wherever a new-hire document asks for "Location".
+    workLocation: 'College Hunks \u2013 Augusta',
     officeAddress: '3001 McCrary Ct, Suite 1, Evans, GA 30809',
     officePhone: '843-468-0302',                    // main office line
     // Address and phone exactly as printed under compliance-form letterheads.
@@ -32446,12 +32448,42 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       return { ok: res.ok, status: res.status, data };
     }
 
+    // ---- Enter once, filled in everywhere ----
+    // Labels for the same thing ("Print Name", "Phone Number", "DOB"...) map
+    // to the same key; anything else shares by its own label, so a later
+    // box asking for the same thing is filled in for them.
+    const HO_LABEL_SYNONYMS = [
+      [/^(full\s*|printed\s*|print\s*)?name$/, 'employee_full_name'],
+      [/^first\s*name$/, 'employee_first_name'], [/^last\s*name$/, 'employee_last_name'],
+      [/^(street\s*|home\s*|mailing\s*|current\s*)?address(\s*line\s*1)?$/, 'employee_address'],
+      [/^city$/, 'employee_city'], [/^state$/, 'employee_state'], [/^(zip(\s*code)?|postal\s*code)$/, 'employee_zip'],
+      [/^((cell|mobile|home)\s*)?(phone|telephone)(\s*(number|#|no))?$/, 'employee_phone'],
+      [/^e-?mail(\s*address)?$/, 'employee_email'],
+      [/^(date\s*of\s*birth|dob|birth\s*date|birthdate)$/, 'employee_dob'],
+      [/^(ssn|social\s*security(\s*(number|#|no))?)$/, 'ssn'],
+      [/^(work\s*)?location$/, 'work_location'],
+      [/^((today'?s|current)\s*date|date(\s*signed)?|signature\s*date|signed\s*date)$/, 'today_date']
+    ];
+    function hoShareKeyFor(f){
+      if(!f || f.type === 'checkbox') return null;
+      const norm = String(f.label || '').toLowerCase().replace(/[*:]/g, ' ')
+        .replace(/\b(employee'?s?|team\s*member'?s?|applicant'?s?|new\s*hire'?s?|your|please)\b/g, ' ')
+        .replace(/[^a-z0-9#'\- ]/g, ' ').replace(/\s+/g, ' ').trim();
+      if(!norm) return null;
+      const hit = HO_LABEL_SYNONYMS.find(([re]) => re.test(norm));
+      return hit ? hit[1] : 'label:' + norm;
+    }
+    const hoKeyOf = f => f.canonicalKey || f.shareKey || null;
     function hoFieldValue(field){
+      const key = hoKeyOf(field);
+      if(key === 'today_date'){ const t = new Date(); return field.type === 'date' ? t.toLocaleDateString('en-CA') : t.toLocaleDateString(); }
       if(field.canonicalKey) return hoSharedValues[field.canonicalKey] || '';
+      if(field.shareKey && hoSharedValues[field.shareKey]) return hoSharedValues[field.shareKey];
       const doc = hoPackage.documents[hoDocIndex];
       return ((hoDocProgress[doc.id] || {}).fieldValues || {})[field.id] || '';
     }
     function hoSetFieldValue(field, value){
+      if(field.shareKey && !field.canonicalKey) hoSharedValues[field.shareKey] = value;   // carry it forward
       if(field.canonicalKey){
         hoSharedValues[field.canonicalKey] = value;
       } else {
@@ -32473,7 +32505,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // creating this candidate -- shown so the new hire can see and
     // confirm them on the Offer Letter, but not something they're meant
     // to change themselves the way they would their own address or SSN.
-    const HO_LOCKED_CANONICAL_KEYS = new Set(['start_date', 'starting_pay', 'position_title']);
+    const HO_LOCKED_CANONICAL_KEYS = new Set(['start_date', 'starting_pay', 'position_title', 'work_location', 'today_date']);
 
     function hoFieldInputHtml(field){
       const value = hoFieldValue(field);
@@ -32493,7 +32525,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           </select>
         </label>`;
       }
-      const isLocked = HO_LOCKED_CANONICAL_KEYS.has(field.canonicalKey);
+      const isLocked = HO_LOCKED_CANONICAL_KEYS.has(hoKeyOf(field));
       const inputMode = (field.type === 'ssn' || field.type === 'routing_number' || field.type === 'account_number') ? ' inputmode="numeric"' : '';
       const lockedStyle = isLocked ? ' background:var(--offwhite); color:var(--charcoal);' : '';
       return `<label style="display:block; margin:10px 0;">
@@ -32510,7 +32542,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     function hoPlacedFieldOverlayHtml(field){
       const value = hoFieldValue(field);
       const pos = field.position;
-      const isLocked = HO_LOCKED_CANONICAL_KEYS.has(field.canonicalKey);
+      const isLocked = HO_LOCKED_CANONICAL_KEYS.has(hoKeyOf(field));
       const baseStyle = `position:absolute; left:${pos.xPct}%; top:${pos.yPct}%; width:${pos.widthPct}%; height:${pos.heightPct}%; box-sizing:border-box; font-size:clamp(9px, 1.6vw, 13px); font-family:inherit;`;
 
       if(field.type === 'checkbox'){
@@ -32705,6 +32737,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }
 
     async function hoRenderDocumentStep(){
+      // Every document starts at its top (not where the last one was scrolled to).
+      const gate = document.getElementById('hiringOnboardingGate');
+      if(gate) gate.scrollTop = 0;
+      window.scrollTo(0, 0);
       const doc = hoPackage.documents[hoDocIndex];
       const total = hoPackage.documents.length;
       document.getElementById('ho_progressFill').style.width = `${Math.round((hoDocIndex / total) * 100)}%`;
@@ -32719,7 +32755,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const fieldsEl = document.getElementById('ho_docFields');
       // A signature box read off the document duplicates the Sign Here pad:
       // hide it (it's filled in automatically when they sign).
-      const remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f));
+      const remainingFields = (doc.fields || []).filter(f => !handledFieldIds.has(f.id) && !hoIsPadSignatureField(doc, f) && !hoIsPadDateField(doc, f));
       fieldsEl.innerHTML = remainingFields.map(hoFieldInputHtml).join('');
       fieldsEl.querySelectorAll('.ho-field-input').forEach(input => {
         const field = remainingFields.find(f => f.id === input.dataset.fieldId);
@@ -32727,26 +32763,37 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       });
 
       const sigWrap = document.getElementById('ho_docSignatureWrap');
-      sigWrap.style.display = doc.requiresSignature ? 'block' : 'none';
-      if(doc.requiresSignature) hoSetupSignaturePad();
+      sigWrap.style.display = hoDocUsesPad(doc) ? 'block' : 'none';
+      if(hoDocUsesPad(doc)) hoSetupSignaturePad();
     }
 
     // "Employee Signature & Date", "Signature", "Sign here"... on a document
     // that already has the Sign Here pad.
+    // Every signature in the package is drawn on the Sign Here pad: a
+    // document gets the pad if it's marked "Requires Signature" OR it has
+    // a signature line of its own (typed signature boxes are never shown).
+    const hoSigLabel = f => !!(f && f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''));
+    function hoDocUsesPad(doc){
+      return !!(doc && (doc.requiresSignature || (doc.fields || []).some(hoSigLabel)));
+    }
     function hoIsPadSignatureField(doc, f){
-      return !!(doc && doc.requiresSignature && f && f.type !== 'checkbox' && !f.canonicalKey && /signature|sign\s*here/i.test(f.label || ''));
+      return hoDocUsesPad(doc) && hoSigLabel(f);
+    }
+    // The "Date" beside the signature: today's date, filled in automatically.
+    function hoIsPadDateField(doc, f){
+      return hoDocUsesPad(doc) && !!f && !f.canonicalKey && f.type !== 'checkbox' && /^\s*(signature\s*|signed\s*)?date(\s*signed)?\s*:?\s*$/i.test(f.label || '');
     }
     function hoValidateCurrentStep(){
       const doc = hoPackage.documents[hoDocIndex];
       const missing = [];
       (doc.fields || []).forEach(f => {
         if(!f.required) return;
-        if(hoIsPadSignatureField(doc, f)) return;   // covered by the Sign Here pad
+        if(hoIsPadSignatureField(doc, f) || hoIsPadDateField(doc, f)) return;   // covered by the Sign Here pad
         if(f.type === 'checkbox') return; // a checkbox's "required" just means it exists on the form, not that it must be checked
         const value = hoFieldValue(f);
         if(!value || !String(value).trim()) missing.push(f.label);
       });
-      if(doc.requiresSignature){
+      if(hoDocUsesPad(doc)){
         const existingSig = (hoDocProgress[doc.id] || {}).signatureKey;
         if(!hoSigHasStroke && !existingSig) missing.push('your signature');
       }
@@ -32757,16 +32804,24 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const doc = hoPackage.documents[hoDocIndex];
       const docFieldValues = {};
       const signedNote = 'Signed electronically \u2014 ' + new Date().toLocaleDateString();
-      (doc.fields || []).forEach(f => { if(!f.canonicalKey) docFieldValues[f.id] = hoIsPadSignatureField(doc, f) ? signedNote : hoFieldValue(f); });
+      const today = new Date(), todayIso = today.toLocaleDateString('en-CA');
+      (doc.fields || []).forEach(f => {
+        if(f.canonicalKey) return;
+        docFieldValues[f.id] = hoIsPadSignatureField(doc, f) ? signedNote
+          : hoIsPadDateField(doc, f) ? (f.type === 'date' ? todayIso : today.toLocaleDateString())
+          : hoFieldValue(f);
+      });
       const sharedToSave = {};
       (doc.fields || []).forEach(f => { if(f.canonicalKey) sharedToSave[f.canonicalKey] = hoSharedValues[f.canonicalKey]; });
+      const HO_STANDARD = ['employee_full_name','employee_first_name','employee_last_name','employee_address','employee_city','employee_state','employee_zip','employee_phone','employee_email','employee_dob','ssn'];
+      (doc.fields || []).forEach(f => { if(!f.canonicalKey && HO_STANDARD.includes(f.shareKey) && hoSharedValues[f.shareKey]) sharedToSave[f.shareKey] = hoSharedValues[f.shareKey]; });
 
       await hoApiCall('/save', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ documentId: doc.id, fieldValues: docFieldValues, sharedFieldValues: sharedToSave })
       });
 
-      if(doc.requiresSignature && hoSigHasStroke){
+      if(hoDocUsesPad(doc) && hoSigHasStroke){
         const canvas = document.getElementById('ho_signatureCanvas');
         const signatureDataUri = canvas.toDataURL('image/png');
         const { ok, data } = await hoApiCall('/signature', {
@@ -32857,8 +32912,18 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         employee_full_name: `${data.firstName || ''} ${data.lastName || ''}`.trim(),
         start_date: data.startingDate || '',
         starting_pay: data.startingPay || '',
-        position_title: data.positionTitle || ''
+        position_title: data.positionTitle || '',
+        work_location: (window.LOCATION_PROFILE || {}).workLocation || ''
       };
+      // Enter once, filled in everywhere: give every untagged box a share
+      // key from its label, then seed it from anything already answered.
+      hoSharedValues.today_date = new Date().toLocaleDateString('en-CA');
+      (hoPackage.documents || []).forEach(d => (d.fields || []).forEach(f => { if(!f.canonicalKey) f.shareKey = hoShareKeyFor(f); }));
+      (hoPackage.documents || []).forEach(d => (d.fields || []).forEach(f => {
+        if(!f.shareKey || HO_LOCKED_CANONICAL_KEYS.has(f.shareKey)) return;
+        const v = ((hoDocProgress[d.id] || {}).fieldValues || {})[f.id];
+        if(v && !hoSharedValues[f.shareKey]) hoSharedValues[f.shareKey] = v;
+      }));
       if(data.status === 'completed'){
         hoShowState('ho_alreadyCompletedState');
         return;
