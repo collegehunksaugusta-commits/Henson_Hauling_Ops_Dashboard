@@ -6067,6 +6067,51 @@ app.post('/api/admin/hiring/read-interviews', requireAuth, async (req, res) => {
   } catch (err) { console.error('Read interviews failed:', err.message); res.status(500).json({ error: 'Could not read that.' }); }
 });
 
+// ============ Interview Materials -> electronic interview forms ============
+// AI reads an uploaded interview document (questions, scorecard...) and
+// lays out everything it asks the interviewer to fill in as a form.
+const BUILD_IV_FORM_TOOL = {
+  name: 'interview_form',
+  description: 'Everything this interview document asks the interviewer to fill in or mark, in order.',
+  input_schema: { type: 'object', properties: {
+    title: { type: 'string' },
+    sections: { type: 'array', items: { type: 'object', properties: {
+      heading: { type: 'string' },
+      items: { type: 'array', items: { type: 'object', properties: {
+        label: { type: 'string', description: 'The question or field exactly as printed (short).' },
+        type: { type: 'string', enum: ['text', 'longtext', 'yesno', 'score', 'checkbox', 'date', 'number', 'select'], description: 'text = short answer; longtext = an open interview question; yesno = YES/NO boxes; score = a numeric rating scale; checkbox = a single tick box; select = pick one of printed options.' },
+        scaleMax: { type: 'number', description: 'For score: the top of the scale (e.g. 5 for "Score 0-5" or "1-5").' },
+        scaleMin: { type: 'number', description: 'For score: the bottom of the scale (0 or 1).' },
+        options: { type: 'array', items: { type: 'string' }, description: 'For select: the printed choices.' },
+        withNotes: { type: 'boolean', description: 'True if the row also has a Notes/Comments column.' },
+        autoFill: { type: 'string', enum: ['none', 'candidate_name', 'interview_date', 'interviewer', 'phone_email', 'phone', 'email'], description: 'If this blank is the candidate name, the interview date, the interviewer, or the candidate phone/email.' }
+      }, required: ['label', 'type'] } }
+    }, required: ['heading', 'items'] } }
+  }, required: ['title', 'sections'] }
+};
+app.post('/api/admin/hiring/build-interview-form', requireAuth, async (req, res) => {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'AI is not set up on the server.' });
+    const { file, text, name } = req.body || {};
+    const content = [];
+    const m = /^data:(image\/[a-zA-Z]+|application\/pdf);base64,(.+)$/.exec(file || '');
+    if (m) content.push(m[1] === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: m[2] } } : { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } });
+    if (text) content.push({ type: 'text', text: 'Document text:\n' + String(text).slice(0, 30000) });
+    if (!content.length) return res.status(400).json({ error: 'That material has no file to read.' });
+    content.push({ type: 'text', text: `This is an interview document ("${String(name || '').slice(0, 100)}") for a moving / junk-removal company. Turn EVERYTHING the interviewer is meant to fill in, tick, rate or answer into form items, in the printed order and grouped under the printed section headings. Include header blanks (candidate name, date, phone/email, interviewer) and mark them with autoFill. Every interview question gets type longtext. YES/NO box rows are yesno (withNotes if there is a Notes column). Score rows use type score with the printed scale. Do not invent items that aren't on the document.` });
+    const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 6000, tools: [BUILD_IV_FORM_TOOL], tool_choice: { type: 'tool', name: 'interview_form' }, messages: [{ role: 'user', content }] }) });
+    if (!r.ok) return res.status(502).json({ error: 'Could not read that document \u2014 try again.' });
+    const d = await r.json();
+    const form = ((d.content || []).find(b => b.type === 'tool_use') || {}).input || null;
+    if (!form || !Array.isArray(form.sections) || !form.sections.some(sec => (sec.items || []).length)) return res.status(422).json({ error: 'No fill-in items were found in that document.' });
+    let n = 0;
+    form.sections.forEach(sec => (sec.items || []).forEach(it => { it.id = 'q' + (++n); if (it.type === 'score'){ it.scaleMax = Number(it.scaleMax) || 5; it.scaleMin = Number.isFinite(Number(it.scaleMin)) ? Number(it.scaleMin) : 1; } }));
+    res.json({ form });
+  } catch (err) { console.error('Build interview form failed:', err.message); res.status(500).json({ error: 'Could not build the form.' }); }
+});
+
 // ============ Manager Review -> New Hires ============
 // A completed onboarding package waits here until (1) the Administrator has
 // signed every spot that calls for the employer's signature and (2) a
