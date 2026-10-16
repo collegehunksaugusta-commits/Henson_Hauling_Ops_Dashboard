@@ -3925,7 +3925,43 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
 // Compliance page uses (compliance-doc-driver-<name>-physical/application)
 // -- the physical also updates his expiration date.
 const ESIGN_KEY = 'compliance-esign-requests';
-const driverDocStoreKey = (name, docKey) => 'compliance-doc-driver-' + String(name).replace(/[^a-zA-Z0-9]/g, '_') + '-' + docKey;
+// Driver documents are filed by name, ignoring punctuation, order and
+// middle initials -- "Franklin, Thomas" and "Franklin, Thomas A" share one
+// file, so a spelling change in payroll can't hide a driver's documents.
+// (Same rule as nameCoreKey; the page uses the identical rule.)
+const driverDocNameSlug = name => String(name || '').replace(/[^a-zA-Z0-9]+/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join('_');
+const driverDocStoreKey = (name, docKey) => 'compliance-doc-driver-' + driverDocNameSlug(name) + '-' + docKey;
+// One-time tidy-up (runs at startup, safe to repeat): moves documents filed
+// under the old exact-spelling names to the new rule. If two spellings of
+// the same person each have one, the newest upload is kept.
+async function migrateDriverDocKeys() {
+  const DOC_TYPES = ['license', 'physical', 'application', 'roadtest'];
+  let cursor = '0'; const old = [];
+  do {
+    const [next, keys] = await redis.scan(cursor, 'MATCH', 'compliance-doc-driver-*', 'COUNT', 500);
+    cursor = next; old.push(...keys);
+  } while (cursor !== '0');
+  let moved = 0;
+  for (const key of old) {
+    const m = /^compliance-doc-driver-(.+)-([a-z]+)$/.exec(key);
+    if (!m || !DOC_TYPES.includes(m[2])) continue;
+    const slug = m[1].split('_').filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join('_');
+    const target = 'compliance-doc-driver-' + slug + '-' + m[2];
+    if (target === key) continue;
+    const [raw, existing] = await Promise.all([redis.get(key), redis.get(target)]);
+    if (!raw) continue;
+    let keep = raw;
+    if (existing) {
+      try { if (String(JSON.parse(existing).uploadedAt || '') >= String(JSON.parse(raw).uploadedAt || '')) keep = existing; } catch (e) {}
+    }
+    if (keep !== existing) await redis.set(target, keep);
+    await redis.del(key);
+    moved++;
+    console.log(`[driver-docs] ${key} -> ${target}${keep === existing ? ' (kept the newer one already there)' : ''}`);
+  }
+  if (moved) console.log(`[driver-docs] moved ${moved} driver document(s) to name-tolerant filing`);
+}
+setTimeout(() => { migrateDriverDocKeys().catch(err => console.error('Driver doc tidy-up failed:', err.message)); }, 5000);
 async function myEsignRequest(driverName, id) {
   const list = JSON.parse(await redis.get(ESIGN_KEY) || '[]');
   const r = list.find(x => x.id === id && x.status === 'pending' && nameCoreKey(x.driverName) === nameCoreKey(driverName));
