@@ -27406,7 +27406,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         <h4 style="margin:10px 0 4px; font-size:13px;">Submitted Information</h4>
         ${sharedHtml}
         <div class="form-actions" style="margin-top:14px;">
-          <button type="button" class="hiring-send-btn" data-cand-id="${candidate.id}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">${candidate.status === 'draft' ? 'Send Onboarding Package' : 'Resend Link'}</button>
+          <button type="button" class="hiring-send-btn" data-cand-id="${candidate.id}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">${candidate.status === 'draft' ? 'Send Onboarding Package' : '\u21bb Resend Onboarding Package'}</button>
           <button type="button" class="hiring-delete-btn" data-cand-id="${candidate.id}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-weight:600; padding:9px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Remove</button>
           <span class="status-msg" id="hiring_cand_status_${candidate.id}"></span>
         </div>
@@ -27421,6 +27421,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     emptyNote.style.display = sorted.length === 0 ? 'block' : 'none';
     rowsEl.innerHTML = sorted.map(hiringCandidateCardHtml).join('');
     wireHiringCandidateCardEvents();
+    wireHiringCandidateCardEventsRest();
   }
 
   function wireHiringCandidateCardEvents(){
@@ -27433,11 +27434,18 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       renderHiringCandidateRows();
     }));
 
-    rowsEl.querySelectorAll('.hiring-send-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
-      const id = e.currentTarget.dataset.candId;
+    rowsEl.querySelectorAll('.hiring-send-btn').forEach(btn => btn.addEventListener('click', (e)=> hiringSendPackage(e.currentTarget.dataset.candId)));
+  }
+  // Sends (or resends) a new hire's onboarding package: a fresh link in an
+  // email draft. Resending retires the old link; their progress is kept.
+  async function hiringSendPackage(id, opts){
+    opts = opts || {};
+    {
       const candidate = hiringCandidates.find(c => c.id === id);
-      const statusEl = document.getElementById(`hiring_cand_status_${id}`);
-      if(!candidate) return;
+      const statusEl = opts.statusEl || document.getElementById(`hiring_cand_status_${id}`);
+      if(!candidate) return false;
+      const isResend = candidate.status !== 'draft';
+      if(isResend && !opts.skipConfirm && !confirm(`Resend ${candidate.firstName}\u2019s onboarding package?\n\nThey\u2019ll get a new link and the old one will stop working. Anything they\u2019ve already filled in is kept.`)) return false;
       if(statusEl){ statusEl.textContent = 'Preparing link\u2026'; statusEl.className = 'status-msg'; }
       try{
         const res = await fetch(`${API_BASE}/api/admin/hiring/candidates/${id}/send`, { method: 'POST', headers: authHeaders() });
@@ -27455,13 +27463,25 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         const cc = (hiringEmailSettings.emailCc || '').trim();
         const mailto = `mailto:${encodeURIComponent(candidate.email)}?${cc ? `cc=${encodeURIComponent(cc)}&` : ''}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         window.location.href = mailto;
-        if(statusEl){ statusEl.textContent = 'Link ready \u2014 opening your email client.'; statusEl.className = 'status-msg ok'; }
+        if(statusEl){ statusEl.textContent = (isResend ? 'New link ready' : 'Link ready') + ' \u2014 opening your email client.'; statusEl.className = 'status-msg ok'; }
         await loadHiringData();
+        // Keep the Interviews row in step.
+        try{
+          const list = await window.dashboardApi.get('hiring-interviews', []) || [];
+          const row = list.find(x => x.candidateId === id);
+          if(row){ if(isResend) row.resentAt = new Date().toISOString(); else row.packageSentAt = row.packageSentAt || new Date().toISOString(); await window.dashboardApi.set('hiring-interviews', list); if(window.loadInterviews) window.loadInterviews(); }
+        }catch(err){}
+        return true;
       }catch(err){
         console.error('Hiring send failed:', err);
         if(statusEl){ statusEl.textContent = 'Could not reach the server \u2014 check your connection.'; statusEl.className = 'status-msg err'; }
+        return false;
       }
-    }));
+    }
+  }
+  window.hiringSendPackage = hiringSendPackage;
+  function wireHiringCandidateCardEventsRest(){
+    const rowsEl = document.getElementById('hiring_candidateRows');
 
     rowsEl.querySelectorAll('.hiring-delete-btn').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.dataset.candId;
@@ -27554,11 +27574,21 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
             const iv = c.interview, sc = iv && iv.scores ? Object.values(iv.scores).reduce((t, x) => ({ got: t.got + x.got, max: t.max + x.max }), { got: 0, max: 0 }) : null;
             if(iv && iv.status === 'complete') return `<button type="button" class="iv-interview" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:6px 10px; border-radius:6px; font-weight:700; cursor:pointer; margin-right:6px;">\u2713 Interviewed${sc && sc.max ? ` \u00b7 Score ${sc.got}/${sc.max}` : ''} \u00b7 View</button>`;
             return `<button type="button" class="iv-interview" style="background:#fff; border:1px solid var(--brand-orange); color:#b35c00; padding:6px 10px; border-radius:6px; font-weight:700; cursor:pointer; margin-right:6px;">\ud83d\udcdd ${iv ? 'Continue Interview' : 'Interview'}</button>`;
-          })()}${c.packageSentAt ? `<span style="color:var(--brand-green-dark); font-weight:700; font-size:12.5px;">\u2713 Package sent ${new Date(c.packageSentAt).toLocaleDateString()}</span>`
+          })()}${c.packageSentAt ? (() => {
+            const cand = (typeof hiringCandidates !== 'undefined' ? hiringCandidates : []).find(x => x.id === c.candidateId);
+            if(cand && cand.status === 'completed') return `<span style="color:var(--brand-green-dark); font-weight:700; font-size:12.5px;">\u2713 Package completed ${cand.completedAt ? new Date(cand.completedAt).toLocaleDateString() : ''}</span>`;
+            return `<span style="color:var(--brand-green-dark); font-weight:700; font-size:12.5px;">\u2713 Package sent ${new Date(c.packageSentAt).toLocaleDateString()}${c.resentAt ? ' \u00b7 resent ' + new Date(c.resentAt).toLocaleDateString() : ''}</span>${c.candidateId ? ` <button type="button" class="iv-resend" style="background:#fff; border:1px solid var(--line); padding:5px 9px; border-radius:6px; cursor:pointer; font-weight:600; margin-left:4px;">\u21bb Resend</button>` : ''}`;
+          })()
           : `<button type="button" class="iv-send" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">Send Onboarding Package</button>`}
           <button type="button" class="iv-del" title="Remove" style="background:#fff; border:1px solid var(--line); color:#b3261e; padding:6px 9px; border-radius:6px; cursor:pointer; margin-left:4px;">\u2715</button></td>
       </tr>`).join('')}</tbody></table></div>`;
     el.querySelectorAll('.iv-interview').forEach(b => b.onclick = () => ivOpenInterview(b.closest('tr').dataset.id));
+    el.querySelectorAll('.iv-resend').forEach(b => b.onclick = async () => {
+      const c = interviews.find(x => x.id === b.closest('tr').dataset.id);
+      if(!hiringCandidates.some(x => x.id === c.candidateId)) await loadHiringData();
+      if(!hiringCandidates.some(x => x.id === c.candidateId)){ alert('That onboarding package was removed \u2014 use Send Onboarding Package to create a new one.'); return; }
+      await hiringSendPackage(c.candidateId, { statusEl: document.getElementById('iv_status') });
+    });
     el.querySelectorAll('.iv-del').forEach(b => b.onclick = async () => { const id = b.closest('tr').dataset.id; if(!confirm('Remove this candidate from the list?')) return; interviews = interviews.filter(x => x.id !== id); await ivSave(); renderInterviews(); });
     el.querySelectorAll('.iv-send').forEach(b => b.onclick = () => {
       const c = interviews.find(x => x.id === b.closest('tr').dataset.id);
@@ -27809,15 +27839,17 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       document.getElementById('hiring_nh_startingPay').value = '';
       document.getElementById('hiring_nh_startingDate').value = '';
       hiringExpandedCandidates.add(data.candidate.id);
-      if(window.__hiringFromInterviewId){
+      const fromInterview = window.__hiringFromInterviewId;
+      if(fromInterview){
         try{
           const list = await window.dashboardApi.get('hiring-interviews', []) || [];
-          const row = list.find(x => x.id === window.__hiringFromInterviewId);
-          if(row){ row.packageSentAt = new Date().toISOString(); row.candidateId = data.candidate.id; await window.dashboardApi.set('hiring-interviews', list); }
+          const row = list.find(x => x.id === fromInterview);
+          if(row){ row.candidateId = data.candidate.id; await window.dashboardApi.set('hiring-interviews', list); }
         }catch(err){}
         window.__hiringFromInterviewId = null;
       }
       await loadHiringData();
+      if(fromInterview) await hiringSendPackage(data.candidate.id, { statusEl, skipConfirm: true });   // "Send Onboarding Package" really sends it
     }catch(err){
       console.error('Hiring candidate create failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
