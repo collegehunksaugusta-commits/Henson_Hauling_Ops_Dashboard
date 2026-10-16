@@ -503,7 +503,7 @@
     <p class="form-note" style="margin-top:0;">Tap a field below, then tap the spot on the document where it belongs. Drag a box to move it, drag its <strong>corner</strong> to resize it, or tap its &times; to remove it. Boxes outlined in <strong style="color:#b3261e;">red</strong> overlap another box. Boxes are see-through for the new hire, so keep them on the line, not over the printed words.</p>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; padding:8px 10px; background:var(--offwhite); border-radius:6px;">
       <input type="text" id="hpAddLabel" placeholder="New box label, e.g. Worksheet line 1" style="flex:1; min-width:200px; padding:7px;">
-      <select id="hpAddType" style="padding:7px;"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="checkbox">Checkbox</option></select>
+      <select id="hpAddType" style="padding:7px;"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="checkbox">Checkbox</option><optgroup label="Auto-fill (locked)"><option value="auto:employer_name_address">Employer name &amp; address</option><option value="auto:employer_ein">Employer EIN</option><option value="auto:start_date">First date of employment</option></optgroup></select>
       <button type="button" id="hpAddBtn" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">+ Add Box</button>
       <button type="button" id="hpFindBtn" title="Adds an optional box after every $ answer line (and numbered lines in the answer column) on this page that doesn't have one" style="background:#fff; border:1px solid var(--line); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#128269; Find blank lines</button>
       <button type="button" id="hpSigBtn" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#9997;&#65039; Place Signature</button>
@@ -19472,9 +19472,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // + Add Box (optional for the new hire) and the signature spot
   document.getElementById('hpAddBtn').addEventListener('click', () => {
     if(!hiringPlacementDoc) return;
-    const label = document.getElementById('hpAddLabel').value.trim();
+    const chosen = document.getElementById('hpAddType').value;
+    const AUTO_LABELS = { 'auto:employer_name_address': 'Employer\u2019s name and address', 'auto:employer_ein': 'Employer identification number (EIN)', 'auto:start_date': 'First date of employment' };
+    const label = document.getElementById('hpAddLabel').value.trim() || AUTO_LABELS[chosen] || '';
     if(!label){ alert('Give the new box a label first (what goes in it).'); return; }
-    const f = { id: 'custom_' + Date.now(), label, type: document.getElementById('hpAddType').value, required: false, custom: true };
+    const f = { id: 'custom_' + Date.now(), label, type: chosen.startsWith('auto:') ? 'text' : chosen, required: false, custom: true };
+    if(chosen.startsWith('auto:')) f.autoKey = chosen.slice(5);
     hiringPlacementDoc.fields = (hiringPlacementDoc.fields || []).concat([f]);
     hiringPlacementArmedFieldId = f.id;
     document.getElementById('hpAddLabel').value = '';
@@ -32565,9 +32568,13 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       [/^(date\s*of\s*birth|dob|birth\s*date|birthdate)$/, 'employee_dob'],
       [/^(ssn|social\s*security(\s*(number|#|no))?)$/, 'ssn'],
       [/^(work\s*)?location$/, 'work_location'],
+      [/^employer'?s?\s*(legal\s*)?name(\s*(and|&)\s*address)?$|^employer'?s?\s*address$/, 'employer_name_address'],
+      [/^(employer'?s?\s*)?(employer\s*)?identification\s*number(\s*ein)?$|^(employer'?s?\s*)?(fein|ein)$/, 'employer_ein'],
+      [/^(first\s*(day|date)\s*of\s*(employment|work)|date\s*of\s*hire|hire\s*date|start(ing)?\s*date|employment\s*start\s*date)$/, 'start_date'],
       [/^((today'?s|current)\s*date|date(\s*signed)?|signature\s*date|signed\s*date)$/, 'today_date']
     ];
     function hoShareKeyFor(f){
+      if(f && f.autoKey) return f.autoKey;   // chosen with "+ Add Box" (Auto-fill)
       if(!f || f.type === 'checkbox') return null;
       const norm = String(f.label || '').toLowerCase().replace(/[*:]/g, ' ')
         .replace(/\b(employee'?s?|team\s*member'?s?|applicant'?s?|new\s*hire'?s?|your|please)\b/g, ' ')
@@ -32581,6 +32588,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const key = hoKeyOf(field);
       if(key === 'today_date'){ const t = new Date(); return field.type === 'date' ? t.toLocaleDateString('en-CA') : t.toLocaleDateString(); }
       if(field.canonicalKey) return hoSharedValues[field.canonicalKey] || '';
+      if(field.shareKey === 'start_date' && /^\d{4}-\d{2}-\d{2}$/.test(hoSharedValues.start_date || '') && field.type !== 'date') return new Date(hoSharedValues.start_date + 'T12:00:00').toLocaleDateString();
       if(field.shareKey && hoSharedValues[field.shareKey]) return hoSharedValues[field.shareKey];
       const doc = hoPackage.documents[hoDocIndex];
       return ((hoDocProgress[doc.id] || {}).fieldValues || {})[field.id] || '';
@@ -32624,7 +32632,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // creating this candidate -- shown so the new hire can see and
     // confirm them on the Offer Letter, but not something they're meant
     // to change themselves the way they would their own address or SSN.
-    const HO_LOCKED_CANONICAL_KEYS = new Set(['start_date', 'starting_pay', 'position_title', 'work_location', 'today_date']);
+    const HO_LOCKED_CANONICAL_KEYS = new Set(['start_date', 'starting_pay', 'position_title', 'work_location', 'today_date', 'employer_name_address', 'employer_ein']);
 
     function hoFieldInputHtml(field){
       const value = hoFieldValue(field);
@@ -33222,7 +33230,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         start_date: data.startingDate || '',
         starting_pay: data.startingPay || '',
         position_title: data.positionTitle || '',
-        work_location: (window.LOCATION_PROFILE || {}).workLocation || ''
+        work_location: (window.LOCATION_PROFILE || {}).workLocation || '',
+        // Employer section of forms like the W-4 (filled in and locked).
+        employer_name_address: [(window.LOCATION_PROFILE || {}).legalName, (window.LOCATION_PROFILE || {}).officeAddress].filter(Boolean).join(', '),
+        employer_ein: data.employerEin || ''
       };
       // Enter once, filled in everywhere: give every untagged box a share
       // key from its label, then seed it from anything already answered.
