@@ -1768,6 +1768,47 @@
   // to complete here. The physical is a photo/PDF + expiration date; the
   // application is filled in, signed electronically, and saved as a PDF.
   let esignRequests = [], esignCurrent = null, esPhysFile = null;
+
+  // ---- Android-safe photo picking ----
+  // Android can close the page to free memory while the camera is open; it
+  // then reloads on return and the photo is lost. So: (1) let the phone
+  // offer Camera OR Gallery/Files (no forced camera), (2) keep the chooser
+  // attached to the page so the photo isn't dropped, and (3) remember where
+  // they were so a reload brings them straight back with a tip.
+  const HUNK_RESUME_KEY = 'hunk_photo_resume';
+  function hunkPickPhoto(onFile, resume){
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*';
+    input.style.cssText = 'position:fixed; left:-9999px; width:1px; height:1px; opacity:0;';
+    document.body.appendChild(input);
+    try{ if(resume) sessionStorage.setItem(HUNK_RESUME_KEY, JSON.stringify(Object.assign({ at: Date.now() }, resume))); }catch(e){}
+    const done = () => { try{ sessionStorage.removeItem(HUNK_RESUME_KEY); }catch(e){} setTimeout(() => input.remove(), 1000); };
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0];
+      done();
+      if(f){ try{ await onFile(f); }catch(err){ console.error('Photo handling failed:', err); alert('That photo couldn\u2019t be used \u2014 try again, or pick it from your gallery.'); } }
+    });
+    input.addEventListener('cancel', done);
+    input.click();
+  }
+  window.hunkPickPhoto = hunkPickPhoto;
+  // Came back from a reload mid-photo? Reopen the same step with a tip.
+  let hunkResumeChecked = false;
+  async function hunkResumeAfterReload(){
+    if(hunkResumeChecked) return; hunkResumeChecked = true;
+    let r = null; try{ r = JSON.parse(sessionStorage.getItem(HUNK_RESUME_KEY) || 'null'); sessionStorage.removeItem(HUNK_RESUME_KEY); }catch(e){}
+    if(!r || Date.now() - (r.at || 0) > 15 * 60 * 1000) return;
+    const tip = 'Your phone restarted the app while the camera was open. Tap the photo button again and choose your photo from the Gallery (or take it with your camera app first, then pick it).';
+    if(r.kind === 'esign'){
+      showEsign();
+      await loadEsignRequests();
+      const btn = document.querySelector(`.es-start[data-id="${r.id}"]`);
+      if(btn){ btn.click(); const st = document.getElementById(r.status || 'esLicStatus'); if(st){ st.textContent = tip; st.className = 'status-msg err'; } }
+    } else if(r.kind === 'expense'){
+      showMyMoney();
+      const st = document.getElementById('expSubmitStatus'); if(st){ st.textContent = tip; st.className = 'status-msg err'; }
+    }
+  }
   const ES_GROUPS = {
     res: { title: i => i === 0 ? 'Current address' : 'Previous address', max: 5, min: 1, fields: [['street','Street'],['city','City'],['state','State'],['zip','Zip'],['years','# of years there']] },
     lic: { title: i => 'License ' + (i + 1), max: 4, min: 1, fields: [['state','State'],['number','License #'],['class','Type / Class'],['endorse','Endorsements'],['exp','Expiration','date']] },
@@ -2066,18 +2107,14 @@
     wrap.querySelectorAll('.crop-toggle').forEach(a => a.addEventListener('click', e => { e.preventDefault(); const sd = a.closest('[data-side]').dataset.side, c = esLicCrop[sd]; esLic[sd] = esLic[sd] === c.original ? c.dataUri : c.original; esRenderLicPreview(); }));
   }
   document.querySelectorAll('.esLicPick').forEach(b => b.addEventListener('click', () => {
-    const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
-    if(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) input.setAttribute('capture', 'environment');   // phones: straight to the camera
-    input.addEventListener('change', async () => {
-      const f = input.files && input.files[0]; if(!f) return;
+    hunkPickPhoto(async (f) => {
       const side = b.dataset.side;
       document.getElementById('esLicStatus').textContent = 'Cropping\u2026'; document.getElementById('esLicStatus').className = 'status-msg';
       const c = await window.aiCropDocument(await window.compressImageForUpload(f, 1400, 0.85), 'license');
       esLic[side] = c.dataUri; esLicCrop[side] = c;
       document.getElementById('esLicStatus').textContent = '';
       esRenderLicPreview();
-    });
-    input.click();
+    }, { kind: 'esign', id: esignCurrent && esignCurrent.id, status: 'esLicStatus' });
   }));
   async function esCombineLicense(front, back){
     const load = src => new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = src; });
@@ -2143,10 +2180,7 @@
     box.querySelector('.ph-rcpt').addEventListener('click', () => physicalReceipt(box, p.name));
   }
   function physicalReceipt(box, providerName){
-    const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
-    if(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) input.setAttribute('capture', 'environment');
-    input.addEventListener('change', async () => {
-      const f = input.files && input.files[0]; if(!f) return;
+    hunkPickPhoto(async (f) => {
       const form = box.querySelector('.ph-rcpt-form'); form.style.display = 'block';
       form.innerHTML = '<div class="form-note">Reading the receipt\u2026</div>';
       const base = API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman' : '/api/driver');
@@ -2173,8 +2207,7 @@
           form.innerHTML = '<p class="status-msg ok" style="margin:0;">\u2713 Receipt sent to the office. Once approved, it\u2019s added to your Extra Pay \u2014 you can follow it in My Money \u2192 Expenses.</p>';
         }catch(err){ btn.disabled = false; st.textContent = err.message || 'Couldn\u2019t submit \u2014 try again.'; st.className = 'status-msg ph-st err'; }
       });
-    });
-    input.click();
+    }, { kind: 'esign', id: esignCurrent && esignCurrent.id, status: 'esPhysStatus' });
   }
   document.getElementById('esPhysNone').addEventListener('click', async () => {
     const box = document.getElementById('esPhysHelp'); box.style.display = 'block';
@@ -2395,11 +2428,7 @@
     document.getElementById('expAddBtn').style.display = 'block';
   }
   document.getElementById('expAddBtn').addEventListener('click', () => {
-    const input = document.createElement('input');
-    input.type = 'file'; input.accept = 'image/*'; input.setAttribute('capture', 'environment');
-    input.addEventListener('change', async () => {
-      const file = input.files && input.files[0];
-      if(!file) return;
+    hunkPickPhoto(async (file) => {
       const statusEl = document.getElementById('expReadStatus');
       document.getElementById('expAddBtn').style.display = 'none';
       document.getElementById('expForm').style.display = 'block';
@@ -2436,8 +2465,7 @@
         document.getElementById('expDate').value = driverLocalDate();
       }
       document.getElementById('expFields').style.display = 'block';
-    });
-    input.click();
+    }, { kind: 'expense' });
   });
   document.getElementById('expCancelBtn').addEventListener('click', expReset);
   document.getElementById('expSubmitBtn').addEventListener('click', async (e) => {
@@ -2606,6 +2634,7 @@
   }
 
   function showDriverMenu(){
+    setTimeout(() => { try{ hunkResumeAfterReload(); }catch(e){} }, 400);   // back from a reload mid-photo?
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
@@ -11221,7 +11250,25 @@
   // Claude to read the text off it, so this caps the longest side at 2000px
   // and re-encodes as JPEG, which is typically 80-95% smaller with no
   // meaningful loss of readability.
-  function compressImageForUpload(file, maxDimension, quality){
+  async function compressImageForUpload(file, maxDimension, quality){
+    // Phones: decode straight to the smaller size (far less memory than
+    // loading a full 12-megapixel photo first). Falls back if unsupported.
+    if(window.createImageBitmap && file instanceof Blob){
+      try{
+        const probe = await createImageBitmap(file, { resizeWidth: 2000, resizeQuality: 'pixelated' });   // just to learn the true shape
+        const ratio = probe.height / probe.width; probe.close && probe.close();
+        let w = maxDimension, h = Math.round(maxDimension * ratio);
+        if(h > maxDimension){ h = maxDimension; w = Math.round(maxDimension / ratio); }
+        const bmp = await createImageBitmap(file, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+        if(bmp.width > maxDimension * 1.05 || bmp.height > maxDimension * 1.05){ bmp.close && bmp.close(); throw new Error('resize not supported'); }
+        const canvas = document.createElement('canvas'); canvas.width = bmp.width; canvas.height = bmp.height;
+        canvas.getContext('2d').drawImage(bmp, 0, 0); bmp.close && bmp.close();
+        return canvas.toDataURL('image/jpeg', quality);
+      }catch(err){ /* fall back below */ }
+    }
+    return compressImageForUploadClassic(file, maxDimension, quality);
+  }
+  function compressImageForUploadClassic(file, maxDimension, quality){
     return new Promise((resolve, reject) => {
       const objectUrl = URL.createObjectURL(file);
       const img = new Image();
