@@ -30822,15 +30822,21 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
               : (isAdmin ? `<button type="button" class="nh-sign" data-doc="${mgrReviewEsc(sg.id)}" data-docname="${mgrReviewEsc(sg.name)}" style="background:#2f6db5; color:#fff; border:none; padding:6px 12px; border-radius:6px; font-weight:700; cursor:pointer;">\u270d\ufe0f Sign</button>` : '<span style="color:#8a6100; font-size:12.5px;">waiting on the Administrator</span>')}
           </div>`).join('')}</div>` : ''}
         <div style="margin-top:10px;">
-          ${n.hunkware ? `<div style="font-size:13px; color:var(--brand-green-dark);">\u2713 Added to HunkWare ${when(n.hunkware.at)}${n.hunkware.by ? ' by ' + mgrReviewEsc(n.hunkware.by) : ''}${n.hunkware.roster ? ` \u00b7 Employee Roster: ${mgrReviewEsc(n.hunkware.roster.name)}${n.hunkware.roster.added ? ' (added)' : ''}${n.hunkware.roster.signIn ? ', HUNK Portal sign-in set' : ''}` : ''}</div>${n.hunkware.roster && n.hunkware.roster.note ? `<div style="font-size:12.5px; color:#b3261e; margin-top:3px;">${mgrReviewEsc(n.hunkware.roster.note)}</div>` : ''}`
-            : `<button type="button" class="nh-hunkware" style="background:var(--brand-green); color:#fff; border:none; padding:9px 14px; border-radius:6px; font-weight:800; cursor:pointer;">\u2713 Added to HunkWare</button> <span style="font-size:12px; color:var(--muted);">Click once you&rsquo;ve entered ${mgrReviewEsc(n.name)} in HunkWare \u2014 adds them to the Employee Roster as <strong>${mgrReviewEsc(n.rosterName)}</strong>.</span>`}
+          ${n.hunkware ? (() => {
+            const ro = n.hunkware.roster, line = (ok, txt) => `<div style="font-size:13px; color:${ok ? 'var(--brand-green-dark)' : '#b3261e'}; margin-top:2px;">${ok ? '\u2713' : '\u26a0'} ${txt}</div>`;
+            const signInNote = ro && ro.note ? ro.note.replace('Already on the Employee Roster.', '').trim() : '';
+            return line(true, `Added to HunkWare ${when(n.hunkware.at)}${n.hunkware.by ? ' by ' + mgrReviewEsc(n.hunkware.by) : ''}`)
+              + (ro && ro.name ? line(true, ro.added ? `Added to the Employee Roster as <strong>${mgrReviewEsc(ro.name)}</strong>` : `Already on the Employee Roster as <strong>${mgrReviewEsc(ro.name)}</strong> \u2014 no duplicate added`) : '')
+              + (ro ? (ro.signIn ? line(true, 'HUNK Portal sign-in set (last 4 of SSN from the package)') : (signInNote ? line(false, mgrReviewEsc(signInNote)) : '')) : '');
+          })()
+            : `<button type="button" class="nh-hunkware" style="background:var(--brand-green); color:#fff; border:none; padding:9px 14px; border-radius:6px; font-weight:800; cursor:pointer;">\u2713 Added to HunkWare</button> <span style="font-size:12px; color:var(--muted);">Click once you&rsquo;ve entered ${mgrReviewEsc(n.name)} in HunkWare \u2014 adds them to the Employee Roster as <strong>${mgrReviewEsc(n.rosterName)}</strong> (unless they&rsquo;re already on it).</span>`}
         </div>
         <p class="status-msg nh-status" style="margin:6px 0 0;"></p>
       </div>`;
     }).join('');
     el.querySelectorAll('.nh-hunkware').forEach(b => b.addEventListener('click', async () => {
       const card = b.closest('.nh-card'), n = newHires.find(x => x.id === card.dataset.id), st = card.querySelector('.nh-status');
-      if(!confirm(`Confirm ${n.name} has been added to HunkWare? They'll be added to the Employee Roster.`)) return;
+      if(!confirm(`Confirm ${n.name} has been added to HunkWare?\n\nThey'll be added to the Employee Roster (unless they're already on it) and their HUNK Portal sign-in will be set.`)) return;
       b.disabled = true; st.textContent = 'Saving\u2026'; st.className = 'status-msg nh-status';
       try{
         const r = await fetch(`${API_BASE}/api/admin/new-hires/${encodeURIComponent(n.id)}/hunkware`, { method: 'POST', headers: authHeaders() });
