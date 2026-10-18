@@ -33193,7 +33193,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }
     function hoWireFieldInput(input, field){
       if(!field) return;
-      input.addEventListener('input', () => {
+      // Safari (iPhone) often sends only "change" for checkboxes and dates,
+      // Chrome sends "input" -- listen for both so every tap is recorded.
+      const onEdit = () => {
         hoSetFieldValue(field, input.type === 'checkbox' ? input.checked : input.value);
         if(input.type === 'checkbox' && input.checked){
           const group = hoCheckGroupOf(hoPackage.documents[hoDocIndex], field);
@@ -33203,7 +33205,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
             document.querySelectorAll(`.ho-field-input[data-field-id="${other.id}"]`).forEach(el => { el.checked = false; });
           });
         }
-      });
+      };
+      input.addEventListener('input', onEdit);
+      input.addEventListener('change', onEdit);
     }
 
     // These three are terms of the offer the admin already set when
@@ -33685,6 +33689,12 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }
     function hoValidateCurrentStep(){
       const doc = hoPackage.documents[hoDocIndex];
+      // Trust what's on screen: a box that SHOWS checked counts as checked,
+      // even if the phone never reported the tap.
+      document.querySelectorAll('#ho_documentState input.ho-field-input[type=checkbox]').forEach(i => {
+        const f = (doc.fields || []).find(x => x.id === i.dataset.fieldId);
+        if(f && !!hoFieldValue(f) !== i.checked) hoSetFieldValue(f, i.checked);
+      });
       const missing = [];
       (doc.fields || []).forEach(f => {
         if(!f.required) return;
