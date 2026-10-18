@@ -97,6 +97,7 @@ const ALLOWED_KEYS = new Set([
   'weight-tickets',
   'weight-ticket-trucks',
   'expense-claims',
+  'time-off-requests',
   'damage-claim-crew-acks',
   'hiring-documents',
   'hiring-candidates',
@@ -2092,8 +2093,47 @@ async function myExpenses(personName) {
       status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
 }
 
+// ============ Time-off requests (HUNK Portal -> Manager Review) ============
+const TIME_OFF_KEY = 'time-off-requests';
+async function submitTimeOff(personName, role, body) {
+  const start = String(body && body.start || ''), end = String(body && body.end || body && body.start || '');
+  const reason = String(body && body.reason || '').trim();
+  const today = easternDateFromMs(Date.now());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return { status: 400, body: { error: 'Pick the day(s) you want off.' } };
+  if (start < today) return { status: 400, body: { error: 'Time off can\u2019t start in the past.' } };
+  if (end < start) return { status: 400, body: { error: 'The last day off can\u2019t be before the first day.' } };
+  const days = Math.round((Date.parse(end + 'T12:00:00Z') - Date.parse(start + 'T12:00:00Z')) / 864e5) + 1;
+  if (days > 30) return { status: 400, body: { error: 'Request 30 days or fewer at a time.' } };
+  if (reason.length < 3) return { status: 400, body: { error: 'Enter the reason you\u2019re requesting off.' } };
+  const list = JSON.parse(await redis.get(TIME_OFF_KEY) || '[]');
+  const me = nameCoreKey(personName);
+  if (list.some(r => nameCoreKey(r.employeeName) === me && r.status !== 'denied' && r.status !== 'cancelled' && r.start <= end && start <= r.end))
+    return { status: 400, body: { error: 'You already have a request that covers some of those days.' } };
+  const rec = { id: 'to_' + Date.now() + '_' + Math.floor(Math.random() * 1000), employeeName: String(personName).slice(0, 100), role, start, end, days, reason: reason.slice(0, 500), status: 'pending', submittedAt: new Date().toISOString() };
+  list.push(rec);
+  await redis.set(TIME_OFF_KEY, JSON.stringify(list));
+  console.log(`[time-off] ${personName} requested ${start}${end !== start ? ' to ' + end : ''} (${days} day${days === 1 ? '' : 's'})`);
+  return { status: 200, body: { ok: true, request: rec } };
+}
+async function myTimeOff(personName) {
+  const me = nameCoreKey(personName);
+  const cutoff = easternDateFromMs(Date.now() - 120 * 864e5);
+  return JSON.parse(await redis.get(TIME_OFF_KEY) || '[]')
+    .filter(r => nameCoreKey(r.employeeName) === me && (r.end || '') >= cutoff)
+    .sort((a, b) => (b.start || '').localeCompare(a.start || ''))
+    .map(r => ({ id: r.id, start: r.start, end: r.end, days: r.days, reason: r.reason, status: r.status, submittedAt: r.submittedAt, decidedAt: r.decidedAt || null, denyReason: r.denyReason || '' }));
+}
+
 [['/api/driver', requireDriverAuth, req => req.driverName, 'captain'],
  ['/api/wingman', requireWingmanAuth, req => req.wingmanName, 'wingman']].forEach(([base, auth, who, role]) => {
+  app.post(base + '/time-off', auth, async (req, res) => {
+    try { const r = await submitTimeOff(who(req), role, req.body || {}); res.status(r.status).json(r.body); }
+    catch (err) { console.error('Time-off submit failed:', err.message); res.status(500).json({ error: 'Could not submit the request.' }); }
+  });
+  app.get(base + '/time-off', auth, async (req, res) => {
+    try { res.json({ requests: await myTimeOff(who(req)) }); }
+    catch (err) { res.status(500).json({ error: 'Could not load your requests.' }); }
+  });
   app.post(base + '/expense/read', auth, async (req, res) => {
     try {
       const r = await readReceiptPhoto(req.body && req.body.photo);
