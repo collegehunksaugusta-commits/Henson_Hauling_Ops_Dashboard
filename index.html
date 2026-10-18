@@ -972,6 +972,7 @@
           <label style="display:block; margin-bottom:8px; font-size:13px;">Category <select id="expCategory" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></select></label>
           <label style="display:block; margin-bottom:8px; font-size:13px;">What was it? <input type="text" id="expDescription" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
           <label style="display:block; margin-bottom:10px; font-size:13px;">Note for the office (optional) <input type="text" id="expNote" placeholder="e.g. Fuel for truck 2 on the Savannah move" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
+          <div class="reimb-picker" data-form="exp"></div>
           <button type="button" id="expSubmitBtn" style="width:100%; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit for Approval</button>
           <button type="button" id="expCancelBtn" style="width:100%; margin-top:8px; padding:10px; font-size:14px; background:#fff; color:var(--charcoal); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Cancel</button>
           <p class="status-msg" id="expSubmitStatus" style="margin:8px 0 0;"></p>
@@ -989,6 +990,7 @@
       </div>
       <label style="display:block; margin-top:8px; font-size:13px;">What was the trip for? <input type="text" id="milPurpose" placeholder="e.g. Picked up boxes at U-Haul for the Smith move" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>
       <div id="milPreview" style="font-size:13px; color:#1f4f87; margin-top:6px; min-height:18px;"></div>
+      <div class="reimb-picker" data-form="mil"></div>
       <button type="button" id="milSubmitBtn" style="width:100%; margin-top:8px; padding:14px; font-size:16px; font-weight:800; background:#2f6db5; color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Submit Mileage for Approval</button>
       <p class="status-msg" id="milStatus" style="margin:8px 0 0;"></p>
       <div id="milList" style="margin-top:10px;"></div>
@@ -2362,7 +2364,7 @@
       const short = x => x ? new Date(x + (x.length === 10 ? 'T00:00:00' : '')).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
       const pill = e => e.status === 'approved' ? `<span style="background:#EAF6EE; color:var(--brand-green-dark); padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Approved${e.reimbursedVia ? ' \u00b7 reimbursed via ' + driverEsc(e.reimbursedVia) : (e.payWeek ? ' \u00b7 paid wk of ' + short(e.payWeek) : '')}</span>`
         : e.status === 'denied' ? `<span style="background:#fdecea; color:#b3261e; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Denied</span>`
-        : `<span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Pending</span>`;
+        : `<span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Pending${e.wants && e.wants.method !== 'paycheck' ? ' \u00b7 to your ' + (e.wants.method === 'cashapp' ? 'CashApp' : 'Zelle') : ''}</span>`;
       window.__milRate = Number(d.mileageRate) || 0;
       renderMyMileage((d.expenses || []).filter(e => e.type === 'mileage'), pill, short);
       const receipts = (d.expenses || []).filter(e => e.type !== 'mileage');
@@ -2405,12 +2407,15 @@
     if(!date){ statusEl.textContent = 'Pick the day you drove.'; statusEl.className = 'status-msg err'; return; }
     if(!(miles > 0)){ statusEl.textContent = 'Enter the miles you drove.'; statusEl.className = 'status-msg err'; return; }
     if(purpose.length < 3){ statusEl.textContent = 'Say what the trip was for.'; statusEl.className = 'status-msg err'; return; }
+    const reimb = readReimbPicker('mil');
+    if(reimb.error){ statusEl.textContent = reimb.error; statusEl.className = 'status-msg err'; return; }
     btn.disabled = true; statusEl.textContent = 'Submitting\u2026'; statusEl.className = 'status-msg';
     try{
-      const res = await fetch(expBase() + '/mileage', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ date, miles, purpose }) });
+      const res = await fetch(expBase() + '/mileage', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ reimburseMethod: reimb.reimburseMethod, reimburseHandle: reimb.reimburseHandle, date, miles, purpose }) });
       if(res.status === 401){ driverSessionExpired(); return; }
       const d = await res.json();
       if(!res.ok) throw new Error(d.error || 'Could not submit.');
+      rememberReimb(reimb);
       document.getElementById('milMiles').value = ''; document.getElementById('milPurpose').value = '';
       statusEl.textContent = '\u2713 Sent to the office for approval.'; statusEl.className = 'status-msg ok';
       await loadMyExpenses();
@@ -2468,22 +2473,67 @@
     }, { kind: 'expense' });
   });
   document.getElementById('expCancelBtn').addEventListener('click', expReset);
+  // ---- How would you like to be reimbursed? ----
+  // Next Paycheck (default), CashApp ($Cashtag) or Zelle (phone/email). The
+  // last choice and handles are remembered on this phone.
+  const REIMB_PREF_KEY = 'hunk_reimb_pref';
+  const reimbPref = () => { try{ return JSON.parse(localStorage.getItem(REIMB_PREF_KEY) || '{}'); }catch(e){ return {}; } };
+  function renderReimbPickers(){
+    const pref = reimbPref();
+    document.querySelectorAll('.reimb-picker').forEach(box => {
+      const method = box.dataset.method || pref.method || 'paycheck';
+      box.dataset.method = method;
+      const opt = (m, label) => `<button type="button" class="reimb-opt" data-m="${m}" style="flex:1; padding:10px 6px; border-radius:8px; border:1.5px solid ${method === m ? 'var(--brand-green)' : 'var(--line)'}; background:${method === m ? 'var(--brand-green)' : '#fff'}; color:${method === m ? '#fff' : 'var(--charcoal)'}; font-weight:700; font-size:13.5px; cursor:pointer;">${label}</button>`;
+      const handleLabel = method === 'cashapp' ? 'Your CashApp $Cashtag' : 'The phone number or email on your Zelle';
+      const ph = method === 'cashapp' ? '$JohnSmith' : '706-555-0123 or name@email.com';
+      box.innerHTML = `<div style="margin:6px 0 10px;"><div style="font-size:13px; font-weight:700; margin-bottom:6px;">How would you like to be reimbursed?</div>
+        <div style="display:flex; gap:6px;">${opt('paycheck', 'Next Paycheck')}${opt('cashapp', 'CashApp')}${opt('zelle', 'Zelle')}</div>
+        ${method !== 'paycheck' ? `<label style="display:block; margin-top:8px; font-size:13px;">${handleLabel} <span style="color:#b3261e;">*</span>
+          <input type="text" class="reimb-handle" autocomplete="off" autocapitalize="none" placeholder="${ph}" value="${driverEsc((box.dataset.handle != null ? box.dataset.handle : pref[method]) || '')}" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>` : ''}</div>`;
+      box.querySelectorAll('.reimb-opt').forEach(b => b.onclick = () => { const h = box.querySelector('.reimb-handle'); box.dataset.method = b.dataset.m; delete box.dataset.handle; if(h && h.value) box.dataset['h_' + method] = h.value; renderReimbPickers(); });
+      const h = box.querySelector('.reimb-handle'); if(h) h.oninput = () => { box.dataset.handle = h.value; };
+    });
+  }
+  // Returns { reimburseMethod, reimburseHandle } or { error }.
+  function readReimbPicker(form){
+    const box = document.querySelector(`.reimb-picker[data-form="${form}"]`);
+    const method = (box && box.dataset.method) || 'paycheck';
+    if(method === 'paycheck') return { reimburseMethod: 'paycheck' };
+    let handle = ((box.querySelector('.reimb-handle') || {}).value || '').trim();
+    if(method === 'cashapp'){
+      handle = handle.replace(/^\$?/, '$');
+      if(!/^\$[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(handle)) return { error: 'Enter your CashApp $Cashtag (like $JohnSmith).' };
+    } else {
+      const digits = handle.replace(/\D/g, '');
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(handle) && digits.length !== 10 && !(digits.length === 11 && digits[0] === '1')) return { error: 'Enter the phone number or email on your Zelle account.' };
+    }
+    return { reimburseMethod: method, reimburseHandle: handle };
+  }
+  function rememberReimb(r){
+    const pref = reimbPref(); pref.method = r.reimburseMethod; if(r.reimburseHandle) pref[r.reimburseMethod] = r.reimburseHandle;
+    try{ localStorage.setItem(REIMB_PREF_KEY, JSON.stringify(pref)); }catch(e){}
+  }
+  window.renderReimbPickers = renderReimbPickers;
+
   document.getElementById('expSubmitBtn').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const statusEl = document.getElementById('expSubmitStatus');
     const total = Math.round((parseFloat(String(document.getElementById('expTotal').value).replace(/[^0-9.]/g, '')) || 0) * 100) / 100;
     if(!expPhoto){ statusEl.textContent = 'Take a photo of the receipt first.'; statusEl.className = 'status-msg err'; return; }
     if(!(total > 0)){ statusEl.textContent = 'Enter the receipt total.'; statusEl.className = 'status-msg err'; return; }
+    const reimb = readReimbPicker('exp');
+    if(reimb.error){ statusEl.textContent = reimb.error; statusEl.className = 'status-msg err'; return; }
     btn.disabled = true;
     statusEl.textContent = 'Submitting\u2026'; statusEl.className = 'status-msg';
     try{
       const res = await fetch(expBase() + '/expense', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken},
         body: JSON.stringify({ photo: expPhoto, merchant: document.getElementById('expMerchant').value.trim(), date: document.getElementById('expDate').value,
           total, category: document.getElementById('expCategory').value, description: document.getElementById('expDescription').value.trim(),
-          note: document.getElementById('expNote').value.trim(), aiRead: expAiRead }) });
+          note: document.getElementById('expNote').value.trim(), aiRead: expAiRead, reimburseMethod: reimb.reimburseMethod, reimburseHandle: reimb.reimburseHandle }) });
       if(res.status === 401){ driverSessionExpired(); return; }
       const d = await res.json();
       if(!res.ok) throw new Error(d.error || 'submit failed');
+      rememberReimb(reimb);
       expReset();
       await loadMyExpenses();
       const list = document.getElementById('expList');
@@ -2496,6 +2546,8 @@
 
   function showMyMoney(){
     showOnlyDriverGateView('driverMoneyView');
+    document.querySelectorAll('.reimb-picker').forEach(b => { delete b.dataset.method; delete b.dataset.handle; });
+    renderReimbPickers();
     loadMyTips();
     expReset();
     document.getElementById('milDate').value = driverLocalDate();
@@ -31066,6 +31118,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           <div style="font-weight:800; font-size:15px;">${mgrReviewEsc(c.employeeName)} <span style="font-weight:400; font-size:12px; color:var(--muted);">· ${c.role === 'wingman' ? 'Wingman' : 'Captain'} · submitted ${when(c.submittedAt)}</span></div>
           <div style="font-size:14px; margin-top:4px;"><strong>${c.miles} miles</strong> on ${window.fmtDate(c.date)} in a personal vehicle</div>
           <div style="font-size:13px; margin-top:4px; background:#fff; border-radius:4px; padding:4px 8px;">“${mgrReviewEsc(c.purpose || '')}”</div>
+          ${expWantsHtml(c)}
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px;">
             <label style="margin:0; font-size:13px;">Miles <input type="number" min="0" step="0.1" class="exp-miles" value="${c.miles}" style="width:80px; margin-left:4px;"></label>
             <span class="exp-mil-calc" data-rate="${milRate}" style="font-size:13px; color:#1f4f87; font-weight:600;">${milRate > 0 ? `× ${expMoneyFmt(milRate)}/mi = ${expMoneyFmt(Math.round(c.miles * milRate * 100) / 100)}` : '<span style="color:#b3261e;">Set the mileage rate in Configuration → Pay first</span>'}</span>
@@ -31085,6 +31138,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           ${c.note ? `<div style="font-size:13px; margin-top:4px; background:#fff; border-radius:4px; padding:4px 8px;">\u201c${mgrReviewEsc(c.note)}\u201d</div>` : ''}
           ${aiDiff ? `<div style="font-size:12px; color:#8a6d00; margin-top:4px;">AI read the total as ${expMoneyFmt(c.aiRead.total)}; the employee entered ${expMoneyFmt(c.total)}.</div>` : ''}
           ${c.aiRead && !c.aiRead.confident ? '<div style="font-size:12px; color:#8a6d00; margin-top:2px;">AI flagged this receipt as hard to read \u2014 check the photo.</div>' : ''}
+          ${expWantsHtml(c)}
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px;">
             <label style="margin:0; font-size:13px;">Amount $<input type="number" min="0" step="0.01" class="exp-amount" value="${Number(c.total).toFixed(2)}" style="width:100px; margin-left:4px;"></label>
             <button type="button" class="exp-approve" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Approve</button>
@@ -31095,7 +31149,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       </div>`; }).join('') : '<p class="form-note" style="margin:0;">No expenses waiting for approval.</p>';
     decidedEl.innerHTML = decided.length ? decided.map(c => `<div style="display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; flex-wrap:wrap;">
       <div><strong>${mgrReviewEsc(c.employeeName)}</strong> \u00b7 ${c.type === 'mileage' ? `\u{1F697} ${c.status === 'approved' ? c.approvedMiles + ' mi \u00d7 ' + expMoneyFmt(c.approvedRate) : c.miles + ' mi'} \u00b7 ${mgrReviewEsc(c.purpose || '')}` : `${mgrReviewEsc(c.merchant || 'Receipt')} \u00b7 ${mgrReviewEsc(c.category)}`}
-        <div style="font-size:12px; color:var(--muted);">${c.status === 'approved' ? `Approved ${when(c.decidedAt)} \u00b7 ${c.reimbursedOutside ? 'already reimbursed via ' + mgrReviewEsc(c.reimbursedOutside.method) : 'paid week of ' + window.fmtDate(c.payWeek)}` : `Denied ${when(c.decidedAt)}${c.denyReason ? ' \u2014 ' + mgrReviewEsc(c.denyReason) : ''}`}${c.decidedBy ? ' by ' + mgrReviewEsc(c.decidedBy) : ''}</div></div>
+        <div style="font-size:12px; color:var(--muted);">${c.status === 'approved' ? `Approved ${when(c.decidedAt)} \u00b7 ${c.reimbursedOutside ? 'reimbursed via ' + mgrReviewEsc(c.reimbursedOutside.method) + (c.reimbursedOutside.handle ? ' to ' + mgrReviewEsc(c.reimbursedOutside.handle) : '') : 'paid week of ' + window.fmtDate(c.payWeek)}` : `Denied ${when(c.decidedAt)}${c.denyReason ? ' \u2014 ' + mgrReviewEsc(c.denyReason) : ''}`}${c.decidedBy ? ' by ' + mgrReviewEsc(c.decidedBy) : ''}</div></div>
       <div style="font-weight:700; ${c.status === 'denied' ? 'color:var(--muted); text-decoration:line-through;' : 'color:var(--brand-green-dark);'}">${expMoneyFmt(c.status === 'approved' ? c.approvedAmount : c.total)}</div>
     </div>`).join('') : '<p class="form-note" style="margin:0;">None yet.</p>';
     // Receipt photos load on demand
@@ -31113,6 +31167,20 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(box){ box.remove(); return; }
       box = document.createElement('div'); box.className = 'exp-approve-choice';
       box.style.cssText = 'margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#fff;';
+      const claim = expenseClaims.find(x => x.id === card.dataset.id) || {}, wants = claim.reimburseVia || { method: 'paycheck' };
+      if(wants.method !== 'paycheck'){
+        // They asked for CashApp / Zelle: confirm it was sent (kept off the paycheck), or pay on the paycheck instead.
+        const name = wants.method === 'cashapp' ? 'CashApp' : 'Zelle';
+        box.innerHTML = `<div style="font-weight:700; font-size:13.5px; margin-bottom:8px;">${mgrReviewEsc(claim.employeeName || '')} asked to be paid by ${name}: <span style="color:#1f4f87;">${mgrReviewEsc(wants.handle || '')}</span></div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="exp-ok-sent" style="background:var(--brand-green); color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:700; cursor:pointer;">\u2713 Sent via ${name} to ${mgrReviewEsc(wants.handle || '')}</button>
+            <button type="button" class="exp-ok-pay" style="background:#fff; border:1px solid var(--line); padding:8px 12px; border-radius:6px; font-weight:600; cursor:pointer;">Pay on next paycheck instead</button>
+          </div><div style="font-size:12px; color:var(--muted); margin-top:6px;">\u201cSent\u201d keeps it off their paycheck so it\u2019s never paid twice.</div>`;
+        card.querySelector('.exp-status').insertAdjacentElement('beforebegin', box);
+        box.querySelector('.exp-ok-sent').onclick = () => decideExpense(card, 'approved', { method: name, handle: wants.handle });
+        box.querySelector('.exp-ok-pay').onclick = () => decideExpense(card, 'approved');
+        return;
+      }
       box.innerHTML = `<div style="font-weight:700; font-size:13.5px; margin-bottom:8px;">Has this already been reimbursed?</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
           <button type="button" class="exp-ok-pay" style="background:var(--brand-green); color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:700; cursor:pointer;">No \u2014 add to Extra Pay</button>
@@ -31125,6 +31193,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       box.querySelector('.exp-ok-outside').onclick = () => decideExpense(card, 'approved', { method: box.querySelector('.exp-method').value });
     }));
     pendingEl.querySelectorAll('.exp-deny').forEach(b => b.addEventListener('click', e => decideExpense(e.currentTarget.closest('.exp-card'), 'denied')));
+    pendingEl.querySelectorAll('.exp-copy-handle').forEach(b => b.addEventListener('click', async () => { try{ await navigator.clipboard.writeText(b.dataset.h); b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); }catch(e){ prompt('Copy this:', b.dataset.h); } }));
+  }
+  // How the employee asked to be paid back.
+  function expWantsHtml(c){
+    const w = c.reimburseVia || { method: 'paycheck' };
+    if(w.method === 'paycheck') return `<div style="font-size:13px; margin-top:6px;"><strong>Wants:</strong> Next Paycheck</div>`;
+    const name = w.method === 'cashapp' ? 'CashApp' : 'Zelle';
+    return `<div style="font-size:13px; margin-top:6px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;"><strong>Wants:</strong> <span style="background:#E8F0FB; color:#1f4f87; padding:2px 8px; border-radius:10px; font-weight:700;">${name} ${mgrReviewEsc(w.handle || '')}</span>
+      <button type="button" class="exp-copy-handle" data-h="${mgrReviewEsc(w.handle || '')}" style="background:#fff; border:1px solid var(--line); padding:3px 8px; border-radius:5px; font-size:12px; cursor:pointer;">Copy</button></div>`;
   }
   async function decideExpense(card, status, opts){
     opts = opts || {};
@@ -31153,7 +31230,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       Object.assign(c, { status, decidedAt: new Date().toISOString(), decidedBy: localStorage.getItem('henson_auth_email') || '' },
         status === 'approved' ? Object.assign({ approvedAmount: amount, payWeek: expPayWeekStart() }, card.dataset.type === 'mileage' ? { approvedMiles: milesApproved, approvedRate: rateNow } : {},
           // Paid outside payroll: approved, but kept out of Extra Pay.
-          opts.method ? { reimbursedOutside: { method: opts.method, at: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || '', when: 'at approval' } } : {}) : { denyReason: denyReason.slice(0, 300) });
+          opts.method ? { reimbursedOutside: Object.assign({ method: opts.method, at: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || '', when: 'at approval' }, opts.handle ? { handle: opts.handle } : {}) } : {}) : { denyReason: denyReason.slice(0, 300) });
       if(!(await window.dashboardApi.set(EXPENSE_CLAIMS_KEY, fresh))) throw new Error('save');
       expenseClaims = fresh;
       renderExpenseClaims();
