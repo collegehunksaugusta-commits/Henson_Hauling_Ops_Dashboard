@@ -6036,6 +6036,21 @@ async function loadCandidateByToken(token) {
 // getting interrupted mid-form is routine) never loses what they already
 // entered. sharedFieldValues are merged in, not replaced, since different
 // documents contribute different shared fields over time.
+// When the onboarding page won't let a new hire past a document, it reports
+// what it thinks is missing and the state of that page's boxes (types,
+// required, filled or not -- never the answers themselves) so we can see why.
+app.post('/api/hiring/package/:token/blocked', async (req, res) => {
+  try {
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const c = candidates.find(x => x.token === req.params.token);
+    if (!c) return res.status(404).json({ error: 'not found' });
+    const b = req.body || {};
+    const fields = (Array.isArray(b.fields) ? b.fields : []).slice(0, 60).map(f => `${String(f.label || '').slice(0, 40)}(${String(f.type || '').slice(0, 12)}${f.required ? ',req' : ''}${f.placed ? ',placed' : ''}${f.group ? ',group' : ''}:${f.filled ? 'filled' : 'empty'}${f.onScreen != null ? (f.onScreen ? '/onscreen-checked' : '/onscreen-unchecked') : ''})`);
+    console.log(`[hiring-blocked] ${c.firstName} ${c.lastName} on "${String(b.document || '').slice(0, 60)}" (page ${String(b.version || '?').slice(0, 20)}, ${String(b.ua || '').slice(0, 80)}): missing [${(b.missing || []).slice(0, 10).join('; ')}] | ${fields.join(' ')}`);
+    res.json({ ok: true });
+  } catch (err) { res.json({ ok: false }); }
+});
+
 app.post('/api/hiring/package/:token/save', async (req, res) => {
   const { documentId, fieldValues, sharedFieldValues } = req.body || {};
   try {
