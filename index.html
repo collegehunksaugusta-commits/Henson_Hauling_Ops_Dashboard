@@ -7923,7 +7923,14 @@
     </div>
 
     <div class="panel" id="mf_valuationPanel" style="border:2px solid var(--brand-green);">
-      <h3>Business Valuation Estimate</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;"><h3 style="margin:0;">Business Valuation Estimate</h3><button type="button" id="mf_valLockBtn" style="display:none; background:#fff; border:1px solid var(--line); padding:6px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#128274; Lock</button></div>
+      <div id="mf_valLocked" style="padding:10px 0 4px;">
+        <div style="font-size:15px; font-weight:700;">&#128274; Locked</div>
+        <p class="form-note" style="margin:4px 0 10px;">Enter the Administrator Override PIN to view.</p>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;"><input type="password" id="mf_valPin" inputmode="numeric" autocomplete="off" placeholder="PIN" style="width:140px; padding:9px; font-size:15px;">
+          <button type="button" id="mf_valUnlockBtn" class="btn-primary">Unlock</button><span class="status-msg" id="mf_valUnlockStatus"></span></div>
+      </div>
+      <div id="mf_valBody" style="display:none;">
       <p class="form-note" style="margin-top:0;">Estimates what the business could sell for, using the standard method for a business this size: <strong>Seller&rsquo;s Discretionary Earnings (SDE) &times; a market multiple</strong>. SDE is figured from your last 12 months above: EBIT + owner wages + depreciation &amp; amortization (from your saved months, unless you enter an override) + one-time expenses. Claude judges the multiple &mdash; weighing growth, history, the franchise term, seasonality, and how little the owner is needed day-to-day. Run it every few months to watch the trend.</p>
       <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); align-items:end;">
         <label>Business opened <input type="month" id="val_openedMonth"></label>
@@ -7942,6 +7949,7 @@
       <h4 style="margin:18px 0 6px; font-size:13px; color:var(--muted);">Past Estimates</h4>
       <div id="val_history"><p class="form-note" style="margin:0;">None yet.</p></div>
       <p class="form-note" style="margin-top:14px;">An informed estimate, not a formal appraisal. Before listing the business, have a business broker who knows franchise resales and your CPA confirm the figures &mdash; a sale also needs franchisor approval.</p>
+      </div>
     </div>
   </div>
 
@@ -9161,10 +9169,11 @@
         <div class="panel" id="set_extraPayMileagePanel" data-collapsible="true">
           <h3>Extra Pay: Mileage Reimbursement</h3>
           <p class="form-note" style="margin-top:0;">Paid for work miles a Captain or wingman drives in his own vehicle (submitted on the HUNK Portal &rarr; My Money &rarr; Mileage, approved in Manager Review &rarr; Expenses). Enter the federal (IRS) standard mileage rate. Each approval locks in the rate in effect that day, so changing it later doesn&rsquo;t change past payments.</p>
-          <label>Mileage Rate ($ per mile) <input type="number" min="0" max="5" step="0.005" id="appset_mileageRate" style="max-width:120px;"></label>
+          <label>Mileage Rate (dollars per mile, e.g. 0.70) <input type="number" min="0" max="2" step="0.005" id="appset_mileageRate" placeholder="0.70" style="max-width:120px;"></label>
           <div class="form-actions">
             <button type="button" id="appset_mileageRateSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-family:inherit;">Save Rate</button>
             <span class="status-msg" id="appset_mileageRateStatus"></span>
+            <div id="appset_mileageRateNow" style="font-size:12.5px; color:var(--muted); margin-top:4px; width:100%;"></div>
           </div>
         </div>
         <div class="panel" id="set_commissionPanel" data-collapsible="true">
@@ -9663,6 +9672,7 @@
   const monthlyFinancialsDetail = document.getElementById('monthlyFinancialsDetail');
 
   function showView(view){
+    if(view !== 'monthlyfinancials' && window.lockBusinessValuation) window.lockBusinessValuation();
     window.__ownerTimeView = view;
     // Extra Pay is Owner only: confirm who's signed in before showing it.
     if(view === 'extrapay' && !(window.financialsAllowed && window.financialsAllowed())){
@@ -18756,6 +18766,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
     document.getElementById('appset_mileageRate').value = ((window.appSettings || {}).extraPay || {}).mileageRate || 0;
+    window.renderMileageRateNow && window.renderMileageRateNow();
     renderFinancialMetricsSettings();
     const dp = (window.appSettings || {}).dotPhysical || {};
     document.getElementById('appset_dotProvName').value = dp.providerName || '';
@@ -18831,9 +18842,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ st.textContent = 'Could not reach the server \u2014 check your connection.'; st.className = 'status-msg err'; }
   });
 
+  // What employees see in the HUNK Portal (My Money -> Mileage).
+  window.renderMileageRateNow = () => {
+    const r = Number(((window.appSettings || {}).extraPay || {}).mileageRate) || 0;
+    const el = document.getElementById('appset_mileageRateNow');
+    if(el) el.innerHTML = r > 0 ? `Employees see: <strong>reimbursed at $${r.toFixed(r * 100 % 1 ? 3 : 2)} per mile</strong>.` : 'Not set \u2014 employees aren\u2019t shown a rate.';
+  };
   document.getElementById('appset_mileageRateSaveBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('appset_mileageRateStatus');
-    const mileageRate = Math.max(0, Math.min(5, Math.round((Number(document.getElementById('appset_mileageRate').value) || 0) * 1000) / 1000));
+    const typed = Number(String(document.getElementById('appset_mileageRate').value).replace(/[^0-9.]/g, '')) || 0;
+    // Dollars per mile. A big number was almost certainly meant as cents
+    // ("70" for 70\u00a2) -- never silently cap it.
+    if(typed > 2){
+      const guess = typed >= 10 && typed < 200 ? Math.round(typed) / 100 : null;
+      statusEl.innerHTML = `That\u2019s over $2.00 per mile.${guess ? ` That looks like cents \u2014 did you mean <strong>$${guess.toFixed(2)}</strong>? <button type="button" id="appset_mileageFix" style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:2px 8px; cursor:pointer;">Use $${guess.toFixed(2)}</button>` : ' Enter dollars per mile, like 0.70.'}`;
+      statusEl.className = 'status-msg err';
+      const fix = document.getElementById('appset_mileageFix');
+      if(fix) fix.onclick = () => { document.getElementById('appset_mileageRate').value = guess; document.getElementById('appset_mileageRateSaveBtn').click(); };
+      return;
+    }
+    const mileageRate = Math.max(0, Math.round(typed * 1000) / 1000);
     statusEl.textContent = 'Saving...'; statusEl.className = 'status-msg';
     try{
       const saveRes = await fetch(`${API_BASE}/api/admin/app-settings`, {
@@ -18845,6 +18873,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!saveRes.ok){ statusEl.textContent = saveData.error || 'Could not save.'; statusEl.className = 'status-msg err'; return; }
       window.appSettings.extraPay = Object.assign({}, window.appSettings.extraPay, { mileageRate });
       statusEl.textContent = `Saved \u2014 $${mileageRate.toFixed(3).replace(/0$/, '')} per mile.`; statusEl.className = 'status-msg ok';
+      window.renderMileageRateNow();
     }catch(err){
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.'; statusEl.className = 'status-msg err';
     }
@@ -25850,10 +25879,42 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // ---- Business Valuation Estimate ----
   let businessValuations = [];
   const valMoney = n => '$' + Math.round(Number(n) || 0).toLocaleString();
-  async function loadBusinessValuations(){
+  // Locked until the Administrator Override PIN is entered (kept only in
+  // memory -- gone when you leave Monthly Financials or refresh). The server
+  // won't send any valuation without it.
+  window.__valPin = null;
+  function setValuationLocked(locked){
+    document.getElementById('mf_valLocked').style.display = locked ? 'block' : 'none';
+    document.getElementById('mf_valBody').style.display = locked ? 'none' : 'block';
+    document.getElementById('mf_valLockBtn').style.display = locked ? 'none' : 'inline-block';
+    if(locked){ window.__valPin = null; businessValuations = []; document.getElementById('mf_valPin').value = ''; }
+    if(typeof renderMonthlyFinancialsChart === 'function') renderMonthlyFinancialsChart();
+  }
+  window.lockBusinessValuation = () => { if(window.__valPin) setValuationLocked(true); };
+  document.getElementById('mf_valUnlockBtn').addEventListener('click', async () => {
+    const pin = document.getElementById('mf_valPin').value.trim(), st = document.getElementById('mf_valUnlockStatus');
+    if(!pin){ st.textContent = 'Enter the PIN.'; st.className = 'status-msg err'; return; }
+    st.textContent = 'Checking\u2026'; st.className = 'status-msg';
     try{
-      const res = await fetch(`${API_BASE}/api/admin/business-valuations`, { headers: authHeaders() });
-      if(handleAuthFailure(res) || !res.ok) return;
+      const res = await fetch(`${API_BASE}/api/admin/business-valuations`, { headers: authHeaders({ 'X-Valuation-Pin': pin }) });
+      if(handleAuthFailure(res)) return;
+      if(res.status === 403){ st.textContent = 'Incorrect PIN.'; st.className = 'status-msg err'; return; }
+      if(!res.ok){ st.textContent = (await res.json().catch(() => ({}))).error || 'Could not unlock.'; st.className = 'status-msg err'; return; }
+      window.__valPin = pin; st.textContent = '';
+    }catch(err){ st.textContent = 'Could not reach the server.'; st.className = 'status-msg err'; return; }
+    setValuationLocked(false);
+    try{ await loadBusinessValuations(); }catch(err){ console.error('Valuation load failed:', err); }
+    renderMonthlyFinancialsChart();
+  });
+  document.getElementById('mf_valPin').addEventListener('keydown', e => { if(e.key === 'Enter') document.getElementById('mf_valUnlockBtn').click(); });
+  document.getElementById('mf_valLockBtn').addEventListener('click', () => setValuationLocked(true));
+  async function loadBusinessValuations(){
+    if(!window.__valPin){ businessValuations = []; return; }   // locked: nothing is fetched
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/business-valuations`, { headers: authHeaders({ 'X-Valuation-Pin': window.__valPin }) });
+      if(handleAuthFailure(res)) return;
+      if(res.status === 403){ setValuationLocked(true); return; }
+      if(!res.ok) return;
       businessValuations = (await res.json()).valuations || [];
     }catch(err){ return; }
     // Prefill the form from the most recent estimate.
@@ -25870,8 +25931,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       document.getElementById('val_managerRuns').checked = !!i.managerRunsDayToDay;
       document.getElementById('val_notes').value = i.notes || '';
     }
-    renderValuationHistory();
-    if(last && !document.getElementById('val_result').innerHTML) renderValuation(last);
+    // Drawing problems in one panel never hide the rest (or the chart line).
+    try{ renderValuationHistory(); }catch(err){ console.error('Valuation history failed to draw:', err); }
+    try{ if(last && !document.getElementById('val_result').innerHTML) renderValuation(last); }catch(err){ console.error('Latest valuation failed to draw:', err); }
     if(businessValuations.length) renderMonthlyFinancialsChart();   // adds the business value line
   }
   function renderValuationHistory(){
@@ -25933,7 +25995,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const btn = e.currentTarget, st = document.getElementById('val_status');
     btn.disabled = true; st.textContent = 'Estimating\u2026 (about 20\u201340 seconds)'; st.className = 'status-msg';
     try{
-      const res = await fetch(`${API_BASE}/api/admin/business-valuation`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({
+      const res = await fetch(`${API_BASE}/api/admin/business-valuation`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json', 'X-Valuation-Pin': window.__valPin || ''}), body: JSON.stringify({
         openedMonth: document.getElementById('val_openedMonth').value,
         franchiseExpiresYear: document.getElementById('val_franchiseYear').value,
         ownerHoursPerWeek: document.getElementById('val_ownerHours').value,
@@ -26037,7 +26099,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return { key: 'businessValue', label: 'Estimated Business Value', data: MF_MONTH_ABBR.map((_, i) => byM[i] ? byM[i].value.mid : null), valuations: byM,
           borderColor: '#6B3FA0', backgroundColor: '#6B3FA0', borderDash: [6, 4], pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', spanGaps: true };
       })()
-    ].filter(ds => mfShown(ds.key))   // metrics switched off in Configuration -> Financials
+    ].filter(ds => mfShown(ds.key) && (ds.key !== 'businessValue' || !!window.__valPin))   // switched off in Configuration -> Financials; valuation only when unlocked
      .filter(ds => ds.key !== 'businessValue' || ds.data.some(v => v != null))
      .map(ds => ({ fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false, ...ds }));
 
