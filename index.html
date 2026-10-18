@@ -610,6 +610,14 @@
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
     </button>
+    <button type="button" class="time-off-tile" style="width:100%; text-align:left; background:#fff; border:2px solid #2f6db5; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:14px;">
+      <span style="font-size:34px; line-height:1;">&#127796;</span>
+      <span style="flex:1;">
+        <span style="display:block; font-size:18px; font-weight:800; color:#1f4f87;">Time Off</span>
+        <span class="time-off-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Request day(s) off &middot; tap to open</span>
+      </span>
+      <span style="font-size:22px; color:#1f4f87;">&rsaquo;</span>
+    </button>
     <button type="button" class="damage-notice-tile" style="display:none; width:100%; text-align:left; background:#b3261e; color:#fff; border:none; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; box-shadow:0 2px 6px rgba(179,38,30,.3);">
       <div style="font-size:17px; font-weight:800;">&#9888; Damage Claim Closed on Your Job</div>
       <div class="damage-notice-sub" style="font-size:13px; margin-top:4px; opacity:.95;"></div>
@@ -754,6 +762,14 @@
         <span class="my-money-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Your tips, review bonuses, commission, expenses &amp; mileage &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:var(--brand-green-dark);">&rsaquo;</span>
+    </button>
+    <button type="button" class="time-off-tile" style="width:100%; text-align:left; background:#fff; border:2px solid #2f6db5; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:14px;">
+      <span style="font-size:34px; line-height:1;">&#127796;</span>
+      <span style="flex:1;">
+        <span style="display:block; font-size:18px; font-weight:800; color:#1f4f87;">Time Off</span>
+        <span class="time-off-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Request day(s) off &middot; tap to open</span>
+      </span>
+      <span style="font-size:22px; color:#1f4f87;">&rsaquo;</span>
     </button>
     <button type="button" class="damage-notice-tile" style="display:none; width:100%; text-align:left; background:#b3261e; color:#fff; border:none; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; box-shadow:0 2px 6px rgba(179,38,30,.3);">
       <div style="font-size:17px; font-weight:800;">&#9888; Damage Claim Closed on Your Job</div>
@@ -909,6 +925,28 @@
         <button type="button" id="dqNagLater" style="width:100%; margin-top:8px; padding:11px; font-size:14px; background:#fff; color:var(--muted); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Remind me later</button>
       </div>
     </div>
+  </div>
+
+  <div id="driverTimeOffView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="toBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Back</button>
+      <h2 class="display" style="margin:0; font-size:20px;">&#127796; Time Off</h2>
+      <span style="width:50px;"></span>
+    </div>
+    <div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px;">
+      <div style="font-weight:800; font-size:16px; margin-bottom:10px;">Request Time Off</div>
+      <div style="display:flex; gap:10px;">
+        <label style="flex:1; min-width:0; font-size:13px;">First day off <input type="date" id="toStart" style="display:block; width:100%; min-width:0; max-width:100%; margin-top:3px; padding:10px 6px; font-size:16px; box-sizing:border-box;"></label>
+        <label style="flex:1; min-width:0; font-size:13px;">Last day off <input type="date" id="toEnd" style="display:block; width:100%; min-width:0; max-width:100%; margin-top:3px; padding:10px 6px; font-size:16px; box-sizing:border-box;"></label>
+      </div>
+      <div id="toSummary" style="font-size:14px; color:#1f4f87; font-weight:700; margin-top:8px; min-height:20px;"></div>
+      <label style="display:block; margin-top:8px; font-size:13px;">Reason <span style="color:#b3261e;">*</span>
+        <textarea id="toReason" rows="3" placeholder="e.g. Family wedding out of town" style="display:block; width:100%; margin-top:3px; padding:10px; font-size:15px; font-family:inherit; box-sizing:border-box; border:1px solid var(--line); border-radius:6px;"></textarea></label>
+      <button type="button" id="toSubmitBtn" style="width:100%; margin-top:12px; padding:14px; font-size:16px; font-weight:800; background:#2f6db5; color:#fff; border:none; border-radius:10px; cursor:pointer;">Submit Request</button>
+      <p class="status-msg" id="toStatus" style="margin:8px 0 0;"></p>
+    </div>
+    <div style="font-weight:800; font-size:15px; margin:18px 0 6px;">My Requests</div>
+    <div id="toList"></div>
   </div>
 
   <div id="driverMoneyView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
@@ -2557,6 +2595,67 @@
     loadMyExtras();
   }
   document.querySelectorAll('.my-money-tile').forEach(t => t.addEventListener('click', showMyMoney));
+
+  // ---- Time Off ----
+  const toFmt = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const toRange = (a, b) => a === b ? toFmt(a) : `${toFmt(a)} \u2013 ${toFmt(b)}`;
+  const toDays = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 864e5) + 1;
+  function toUpdateSummary(){
+    const a = document.getElementById('toStart'), b = document.getElementById('toEnd');
+    b.min = a.value || driverLocalDate();
+    if(a.value && (!b.value || b.value < a.value)) b.value = a.value;   // one day = same date
+    const out = document.getElementById('toSummary');
+    if(!a.value){ out.textContent = ''; return; }
+    const n = toDays(a.value, b.value);
+    out.textContent = `${n} day${n === 1 ? '' : 's'} off: ${toRange(a.value, b.value)}`;
+  }
+  async function loadMyTimeOff(){
+    const list = document.getElementById('toList');
+    try{
+      const res = await fetch(expBase() + '/time-off', { headers: { 'Authorization': 'Bearer ' + driverToken } });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const reqs = (await res.json()).requests || [];
+      const pill = r => r.status === 'approved' ? '<span style="background:#EAF6EE; color:var(--brand-green-dark); padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Approved</span>'
+        : r.status === 'denied' ? '<span style="background:#fdecea; color:#b3261e; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Denied</span>'
+        : '<span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Pending</span>';
+      list.innerHTML = reqs.length ? reqs.map(r => `<div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; gap:8px; align-items:center;"><strong style="font-size:14.5px;">${toRange(r.start, r.end)}</strong>${pill(r)}</div>
+          <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${r.days} day${r.days === 1 ? '' : 's'} \u00b7 ${driverEsc(r.reason)}</div>
+          ${r.status === 'denied' && r.denyReason ? `<div style="font-size:12.5px; color:#b3261e; margin-top:3px;">Reason: ${driverEsc(r.denyReason)}</div>` : ''}
+        </div>`).join('') : '<p class="form-note" style="margin:0;">No requests yet.</p>';
+      const pending = reqs.filter(r => r.status === 'pending').length;
+      document.querySelectorAll('.time-off-sub').forEach(x => { x.textContent = pending ? `${pending} request${pending === 1 ? '' : 's'} waiting for approval \u00b7 tap to open` : 'Request day(s) off \u00b7 tap to open'; });
+    }catch(err){ list.innerHTML = '<p class="status-msg err">Couldn\u2019t load your requests \u2014 check your connection.</p>'; }
+  }
+  function showTimeOff(){
+    showOnlyDriverGateView('driverTimeOffView');
+    const a = document.getElementById('toStart'), b = document.getElementById('toEnd');
+    a.min = driverLocalDate(); b.min = driverLocalDate();
+    document.getElementById('toStatus').textContent = '';
+    toUpdateSummary();
+    loadMyTimeOff();
+  }
+  document.querySelectorAll('.time-off-tile').forEach(t => t.addEventListener('click', showTimeOff));
+  document.getElementById('toBackBtn').addEventListener('click', () => showDriverMenu());
+  ['input', 'change'].forEach(ev => { document.getElementById('toStart').addEventListener(ev, toUpdateSummary); document.getElementById('toEnd').addEventListener(ev, toUpdateSummary); });
+  document.getElementById('toSubmitBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, st = document.getElementById('toStatus');
+    const start = document.getElementById('toStart').value, end = document.getElementById('toEnd').value || start, reason = document.getElementById('toReason').value.trim();
+    if(!start){ st.textContent = 'Pick the day(s) you want off.'; st.className = 'status-msg err'; return; }
+    if(start < driverLocalDate()){ st.textContent = 'Time off can\u2019t start in the past.'; st.className = 'status-msg err'; return; }
+    if(reason.length < 3){ st.textContent = 'Enter the reason you\u2019re requesting off.'; st.className = 'status-msg err'; return; }
+    btn.disabled = true; st.textContent = 'Submitting\u2026'; st.className = 'status-msg';
+    try{
+      const res = await fetch(expBase() + '/time-off', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ start, end, reason }) });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not submit.');
+      document.getElementById('toStart').value = ''; document.getElementById('toEnd').value = ''; document.getElementById('toReason').value = '';
+      toUpdateSummary();
+      st.textContent = '\u2713 Sent to the office for approval.'; st.className = 'status-msg ok';
+      await loadMyTimeOff();
+    }catch(err){ st.textContent = err.message || 'Couldn\u2019t submit \u2014 check your connection.'; st.className = 'status-msg err'; }
+    finally{ btn.disabled = false; }
+  });
   document.getElementById('moneyBackBtn').addEventListener('click', () => driverRole === 'wingman' ? showWingmanMenu() : showDriverMenu());
 
   // ---- Closed damage claims on your jobs ----
@@ -3758,7 +3857,7 @@
   });
 
   // ---------- Wingman Portal ----------
-  const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverMoneyView', 'driverEsignView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView', 'driverWeightTicketView'];
+  const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverMoneyView', 'driverTimeOffView', 'driverEsignView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView', 'driverWeightTicketView'];
   // Hides every HUNK Portal screen. Finds them on the page rather than via
   // DRIVER_GATE_VIEW_IDS, which isn't defined yet when the menu first shows.
   function hideAllDriverGateViews(){
@@ -7330,6 +7429,7 @@
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="roadtests" id="mgrreview_tab_roadtests" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Road Tests <span id="mgrreview_roadtestsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="timeoff" id="mgrreview_tab_timeoff" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Time Off <span id="mgrreview_timeoffTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="newhires" id="mgrreview_tab_newhires" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">New Hires <span id="mgrreview_newhiresTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="expenses" id="mgrreview_tab_expenses" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Expenses <span id="mgrreview_expensesTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="damageclaims" id="mgrreview_tab_damageclaims" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Damage Claims <span id="mgrreview_damageClaimsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
@@ -7559,6 +7659,14 @@
       .dc-btn.danger{ border:none; background:none; color:#b3261e; font-weight:500; text-decoration:underline; margin-left:auto; }
     </style>
     <input type="file" id="dc_addPhotosInput" accept="image/*" multiple style="display:none;">
+    <div class="panel" id="mgrreview_panel_timeoff" style="display:none;">
+      <h3>Time-Off Requests</h3>
+      <p class="form-note" style="margin-top:0;">Requests from the HUNK Portal. Once approved, enter it in ADP as <strong>Unavailability</strong> &mdash; approving opens ADP for you.</p>
+      <div id="to_pending"></div>
+      <h3 style="margin-top:18px;">Recently Decided</h3>
+      <div id="to_decided"></div>
+    </div>
+
     <div class="panel" id="mgrreview_panel_newhires" style="display:none;">
       <h3>New Hires</h3>
       <p class="form-note" style="margin-top:0;">Completed onboarding packages. The <strong>Administrator</strong> signs anything that calls for the employer&rsquo;s signature; then <strong>any manager</strong> confirms the new hire was added to HunkWare &mdash; which adds them to the Employee Roster automatically (name and last 4 of SSN from their package, for HUNK Portal sign-in).</p>
@@ -9628,6 +9736,7 @@
     if(view === 'mailroute'){
       renderMailAptRoute(mailCurrentRouteSource || 'apartments', mailCurrentRouteTier || 'all');
     }
+    if(view === 'home' && window.refreshManagerReviewBadge) window.refreshManagerReviewBadge();
     if(view === 'materials'){
       window.loadMaterialsData();
       window.renderMaterialsSupplierContact();
@@ -30595,6 +30704,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     loadExpenseClaims();
     loadRoadTests();
     loadNewHires();
+    loadTimeOff();
     window.loadDamageClaimsData();
     loadJobsAndCaptains();
     loadMgrReviewWeightTickets();
@@ -30659,13 +30769,25 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   }
   window.loadManagerReviewData = loadManagerReviewData;
 
+  // Keeps the Manager Review tile's badge current from the home screen, so a
+  // new time-off request / expense / road test / new hire shows without
+  // opening Manager Review first. At most once every 2 minutes.
+  let mgrBadgeCheckedAt = 0;
+  window.refreshManagerReviewBadge = async function(){
+    if(!localStorage.getItem('henson_auth_token') || Date.now() - mgrBadgeCheckedAt < 120000) return;
+    mgrBadgeCheckedAt = Date.now();
+    try{ managerReviewItems = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || managerReviewItems; }catch(err){}
+    await Promise.all([loadTimeOff(), loadExpenseClaims(), loadRoadTests(), loadNewHires()].map(p => Promise.resolve(p).catch(() => {})));
+    updateManagerReviewTileBadge();
+  };
   function updateManagerReviewTileBadge(){
     const openCount = managerReviewItems.filter(i => !i.reviewedAt).length
       + (window.getTipsNeedsAttentionCount ? window.getTipsNeedsAttentionCount() : 0)
       + (window.damageClaimAlertCount || 0)
       + (window.expensePendingCount || 0)
       + (window.roadTestPendingCount || 0)
-      + (window.newHirePendingCount || 0);
+      + (window.newHirePendingCount || 0)
+      + (window.timeOffPendingCount || 0);
     const badge = document.getElementById('managerReviewTileBadge');
     const tile = document.getElementById('tile-managerreview');
     if(openCount > 0){
@@ -30844,6 +30966,79 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   const RT_KEY = 'compliance-roadtest-tasks';
   const RT_ITEMS = ['Pre-trip inspection', 'Coupling and uncoupling of combination units (if applicable)', 'Placing the vehicle in operation', 'Use of the vehicle\u2019s controls and emergency equipment', 'Operating the vehicle in traffic and while passing other vehicles', 'Turning the vehicle', 'Braking, and slowing by means other than braking', 'Backing and parking the vehicle'];
   let roadTests = [], rtOpenId = null;
+  // ---- Time Off: approve (then enter as Unavailability in ADP) / deny ----
+  const TIME_OFF_KEY = 'time-off-requests';
+  let timeOffReqs = [];
+  const toFmtD = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const toRangeD = (a, b) => a === b ? toFmtD(a) : `${toFmtD(a)} \u2013 ${toFmtD(b)}`;
+  async function loadTimeOff(){
+    try{ timeOffReqs = await window.dashboardApi.get(TIME_OFF_KEY, []) || []; }catch(err){ timeOffReqs = []; }
+    renderTimeOff();
+  }
+  window.loadTimeOff = loadTimeOff;
+  function renderTimeOff(){
+    const pending = timeOffReqs.filter(r => r.status === 'pending').sort((a, b) => a.start.localeCompare(b.start));
+    window.timeOffPendingCount = pending.length;
+    const tc = document.getElementById('mgrreview_timeoffTabCount'); if(tc) tc.textContent = pending.length ? `(${pending.length})` : '';
+    if(typeof updateManagerReviewTileBadge === 'function') updateManagerReviewTileBadge();
+    const pEl = document.getElementById('to_pending'), dEl = document.getElementById('to_decided'); if(!pEl) return;
+    const approved = timeOffReqs.filter(r => r.status === 'approved');
+    pEl.innerHTML = pending.length ? pending.map(r => {
+      const overlap = approved.filter(x => x.id !== r.id && x.start <= r.end && r.start <= x.end).map(x => mgrReviewEsc(x.employeeName));
+      return `<div class="to-card" data-id="${mgrReviewEsc(r.id)}" style="border:1px solid #2f6db5; border-left:5px solid #2f6db5; background:#F3F7FD; border-radius:8px; padding:12px; margin-bottom:10px;">
+        <div style="font-weight:800; font-size:15px;">${mgrReviewEsc(r.employeeName)} <span style="font-weight:400; font-size:12px; color:var(--muted);">\u00b7 ${r.role === 'wingman' ? 'Wingman' : 'Captain'} \u00b7 asked ${new Date(r.submittedAt).toLocaleDateString()}</span></div>
+        <div style="font-size:15px; margin-top:4px;"><strong>${toRangeD(r.start, r.end)}</strong> \u00b7 ${r.days} day${r.days === 1 ? '' : 's'}</div>
+        <div style="font-size:13.5px; margin-top:3px;">\u201c${mgrReviewEsc(r.reason)}\u201d</div>
+        ${overlap.length ? `<div style="font-size:12.5px; color:#8a6d00; margin-top:4px;">\u26a0 Already approved off on some of these days: ${overlap.join(', ')}</div>` : ''}
+        <div style="display:flex; gap:8px; margin-top:10px; align-items:center;"><button type="button" class="to-approve" style="background:var(--brand-green); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Approve</button>
+          <button type="button" class="to-deny" style="background:#fff; color:#b3261e; border:1px solid #b3261e; padding:8px 14px; border-radius:6px; font-weight:700; cursor:pointer;">Deny</button><span class="status-msg to-status" style="margin:0;"></span></div>
+      </div>`;
+    }).join('') : '<p class="form-note" style="margin:0;">No time-off requests waiting.</p>';
+    const cutoff = new Date(Date.now() - 45 * 864e5).toISOString();
+    const decided = timeOffReqs.filter(r => r.status !== 'pending' && (r.decidedAt || '') >= cutoff).sort((a, b) => (b.decidedAt || '').localeCompare(a.decidedAt || ''));
+    dEl.innerHTML = decided.length ? decided.map(r => `<div style="display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; flex-wrap:wrap;">
+      <div><strong>${mgrReviewEsc(r.employeeName)}</strong> \u00b7 ${toRangeD(r.start, r.end)} \u00b7 ${r.days} day${r.days === 1 ? '' : 's'}
+        <div style="font-size:12px; color:var(--muted);">${r.status === 'approved' ? `Approved ${new Date(r.decidedAt).toLocaleDateString()}${r.decidedBy ? ' by ' + mgrReviewEsc(r.decidedBy) : ''}${r.adpAcknowledgedAt ? ' \u00b7 ADP Unavailability acknowledged' : ''}` : `Denied ${new Date(r.decidedAt).toLocaleDateString()} \u2014 ${mgrReviewEsc(r.denyReason || '')}`}</div></div>
+      <div style="font-weight:700; color:${r.status === 'approved' ? 'var(--brand-green-dark)' : '#b3261e'};">${r.status === 'approved' ? 'Approved' : 'Denied'}</div></div>`).join('') : '<p class="form-note" style="margin:0;">None yet.</p>';
+    pEl.querySelectorAll('.to-approve').forEach(b => b.onclick = () => decideTimeOff(b.closest('.to-card').dataset.id, 'approved'));
+    pEl.querySelectorAll('.to-deny').forEach(b => b.onclick = () => decideTimeOff(b.closest('.to-card').dataset.id, 'denied'));
+  }
+  async function saveTimeOff(id, patch){
+    const fresh = await window.dashboardApi.get(TIME_OFF_KEY, []) || [];   // re-read so a new request isn't lost
+    const r = fresh.find(x => x.id === id); if(!r) throw new Error('That request was removed.');
+    Object.assign(r, patch);
+    if(!(await window.dashboardApi.set(TIME_OFF_KEY, fresh))) throw new Error('Could not save \u2014 check your connection.');
+    timeOffReqs = fresh; return r;
+  }
+  async function decideTimeOff(id, status){
+    const card = document.querySelector(`.to-card[data-id="${id}"]`), st = card && card.querySelector('.to-status');
+    let denyReason = '';
+    if(status === 'denied'){ denyReason = (prompt('Why is this request denied? The employee will see this.') || '').trim(); if(!denyReason) return; }
+    try{
+      const r = await saveTimeOff(id, Object.assign({ status, decidedAt: new Date().toISOString(), decidedBy: localStorage.getItem('henson_auth_email') || '' }, status === 'denied' ? { denyReason: denyReason.slice(0, 300) } : {}));
+      renderTimeOff();
+      if(status === 'approved') toAdpReminder(r);
+    }catch(err){ if(st){ st.textContent = err.message; st.className = 'status-msg to-status err'; } }
+  }
+  // Approved -> it must also go into ADP as Unavailability; acknowledging opens ADP.
+  function toAdpReminder(r){
+    const adpUrl = ((document.getElementById('tile-adp') || {}).href) || 'https://runpayroll.adp.com';
+    let ov = document.getElementById('toAdpModal');
+    if(!ov){ ov = document.createElement('div'); ov.id = 'toAdpModal'; document.body.appendChild(ov); }
+    ov.style.cssText = 'position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; padding:16px;';
+    ov.innerHTML = `<div style="background:#fff; max-width:480px; width:100%; border-radius:12px; padding:18px 20px; border-top:6px solid var(--brand-green);">
+      <div style="font-size:18px; font-weight:800;">\u2713 Time off approved</div>
+      <p style="margin:10px 0 6px; font-size:14.5px;">This must also be entered in <strong>ADP</strong> as an <strong>Unavailability</strong>:</p>
+      <div style="background:var(--offwhite); border-radius:8px; padding:10px 12px; font-size:15px;"><strong>${mgrReviewEsc(r.employeeName)}</strong><br>${toRangeD(r.start, r.end)} \u00b7 ${r.days} day${r.days === 1 ? '' : 's'}</div>
+      <button type="button" id="toAdpGo" style="width:100%; margin-top:14px; background:var(--brand-green); color:#fff; border:none; padding:12px; border-radius:8px; font-weight:800; font-size:15px; cursor:pointer;">OK \u2014 Open ADP</button>
+    </div>`;
+    document.getElementById('toAdpGo').onclick = async () => {
+      window.open(adpUrl, '_blank', 'noopener');   // opened right from the click so it isn't blocked
+      ov.style.display = 'none';
+      try{ await saveTimeOff(r.id, { adpAcknowledgedAt: new Date().toISOString(), adpAcknowledgedBy: localStorage.getItem('henson_auth_email') || '' }); renderTimeOff(); }catch(err){}
+    };
+  }
+
   // ---- New Hires: employer signatures + "Added to HunkWare" ----
   let newHires = [];
   async function loadNewHires(){
@@ -31428,7 +31623,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','roadtests','newhires','expenses','damageclaims','moving','greviews'].forEach(t => {
+    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','roadtests','timeoff','newhires','expenses','damageclaims','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -31444,6 +31639,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(tab === 'expenses') loadExpenseClaims();
     if(tab === 'roadtests') loadRoadTests();
     if(tab === 'newhires') loadNewHires();
+    if(tab === 'timeoff') loadTimeOff();
   }
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
@@ -33956,6 +34152,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   if(localStorage.getItem('henson_auth_token') && !window.__damageClaimToken && !window.__pendingSignHash && !window.__hiringToken){
     window.loadDamageClaimsData();
     window.checkMaterialsOrderDeadline();
+    if(window.refreshManagerReviewBadge) window.refreshManagerReviewBadge();   // tile badge current from the start
   }
 
   recalc();
