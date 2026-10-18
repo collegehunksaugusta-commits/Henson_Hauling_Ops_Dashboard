@@ -2014,12 +2014,30 @@ async function readReceiptPhoto(photoDataUri) {
   };
 }
 
+// How the employee wants to be paid back: Next Paycheck (default), CashApp
+// ($Cashtag required) or Zelle (phone or email required).
+function readReimburseVia(body) {
+  const method = ['paycheck', 'cashapp', 'zelle'].includes(body && body.reimburseMethod) ? body.reimburseMethod : 'paycheck';
+  if (method === 'paycheck') return { ok: true, via: { method: 'paycheck' } };
+  let handle = String(body.reimburseHandle || '').trim().slice(0, 120);
+  if (method === 'cashapp') {
+    handle = handle.replace(/^\$?/, '$');
+    if (!/^\$[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(handle)) return { ok: false, error: 'Enter your CashApp $Cashtag (like $JohnSmith).' };
+  } else {
+    const digits = handle.replace(/\D/g, '');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(handle) && digits.length !== 10 && !(digits.length === 11 && digits[0] === '1')) return { ok: false, error: 'Enter the phone number or email on your Zelle account.' };
+  }
+  return { ok: true, via: { method, handle } };
+}
+
 async function submitExpense(personName, role, body) {
   const photo = body && body.photo;
   if (!/^data:image\/[a-zA-Z]+;base64,/.test(photo || '')) return { status: 400, body: { error: 'Take a photo of the receipt first.' } };
   if (photo.length > 6 * 1024 * 1024) return { status: 400, body: { error: 'That photo is too large \u2014 try again.' } };
   const total = Math.round((Number(body.total) || 0) * 100) / 100;
   if (!(total > 0)) return { status: 400, body: { error: 'Enter the receipt total.' } };
+  const rv = readReimburseVia(body);
+  if (!rv.ok) return { status: 400, body: { error: rv.error } };
   const id = 'exp_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
   const claim = {
     id, employeeName: String(personName).slice(0, 100), role, submittedAt: new Date().toISOString(),
@@ -2027,7 +2045,7 @@ async function submitExpense(personName, role, body) {
     total, category: EXPENSE_CATEGORIES.includes(body.category) ? body.category : 'Other',
     description: String(body.description || '').slice(0, 200), note: String(body.note || '').slice(0, 500),
     aiRead: body.aiRead && typeof body.aiRead === 'object' ? { merchant: String(body.aiRead.merchant || '').slice(0, 120), total: Number(body.aiRead.total) || 0, date: String(body.aiRead.date || '').slice(0, 10), confident: !!body.aiRead.confident } : null,
-    photoKey: 'expense-receipt-photo-' + id, status: 'pending'
+    photoKey: 'expense-receipt-photo-' + id, status: 'pending', reimburseVia: rv.via
   };
   await redis.set(claim.photoKey, JSON.stringify(photo));
   const claims = JSON.parse(await redis.get(EXPENSE_CLAIMS_KEY) || '[]');
@@ -2050,10 +2068,12 @@ async function submitMileage(personName, role, body) {
   if (date < oldest) return { status: 400, body: { error: 'Mileage has to be turned in within 60 days.' } };
   if (!(miles > 0) || miles > 1000) return { status: 400, body: { error: 'Enter the miles you drove (up to 1,000).' } };
   if (purpose.length < 3) return { status: 400, body: { error: 'Say what the trip was for.' } };
+  const rv = readReimburseVia(body);
+  if (!rv.ok) return { status: 400, body: { error: rv.error } };
   const claims = JSON.parse(await redis.get(EXPENSE_CLAIMS_KEY) || '[]');
   const id = 'mil_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
   claims.push({ id, type: 'mileage', employeeName: String(personName).slice(0, 100), role, submittedAt: new Date().toISOString(),
-    date, miles, purpose: purpose.slice(0, 300), status: 'pending' });
+    date, miles, purpose: purpose.slice(0, 300), status: 'pending', reimburseVia: rv.via });
   await redis.set(EXPENSE_CLAIMS_KEY, JSON.stringify(claims));
   console.log(`[mileage] ${personName} submitted ${miles} mi for ${date}`);
   return { status: 200, body: { ok: true, id } };
@@ -2068,6 +2088,7 @@ async function myExpenses(personName) {
     .map(c => ({ id: c.id, type: c.type || 'receipt', submittedAt: c.submittedAt, merchant: c.merchant, date: c.date, total: c.total, approvedAmount: c.approvedAmount, category: c.category, description: c.description,
       miles: c.miles, purpose: c.purpose, approvedMiles: c.approvedMiles, approvedRate: c.approvedRate,
       reimbursedVia: c.reimbursedOutside ? c.reimbursedOutside.method : null,
+      wants: c.reimburseVia || { method: 'paycheck' },
       status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
 }
 
