@@ -1379,6 +1379,7 @@
 </div>
 
 <div id="hiringOnboardingGate" style="display:none; position:fixed; inset:0; background:var(--offwhite); z-index:9999; overflow-y:auto; padding:16px;">
+  <div style="position:fixed; right:8px; bottom:6px; font-size:10px; color:#9a9a9a; z-index:10000; pointer-events:none;">v10-18 3:58pm</div>
   <div style="max-width:640px; width:100%; margin:16px auto 40px; background:#fff; border:1px solid var(--line); border-radius:10px; padding:24px 20px; box-shadow:0 4px 24px rgba(0,0,0,0.08); box-sizing:border-box;">
     <h2 class="display" data-profile="displayName" style="margin:0 0 4px; text-align:center; font-size:19px;">College Hunks-Augusta</h2>
     <p style="text-align:center; color:var(--muted); font-size:13px; margin:0 0 20px;">Onboarding Paperwork</p>
@@ -1576,6 +1577,7 @@
     window.__damageClaimToken = __damageClaimHashMatch[1];
   }
 
+  window.__appVersion = '10-18 3:58pm';
   // A new hire opening their onboarding link has no dashboard credentials
   // either -- same reasoning as the Damage Claim gate above.
   const __hiringHashMatch = (location.hash || '').match(/^#hiring-(.+)$/);
@@ -33960,6 +33962,19 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     function hoIsPadDateField(doc, f){
       return hoDocUsesPad(doc) && !!hoDatePart(f);
     }
+    // Tell the office (server log) what's blocking this page: each box's
+    // type / required / filled-or-empty -- never the answers themselves.
+    function hoReportBlocked(missing){
+      try{
+        const doc = hoPackage.documents[hoDocIndex];
+        const fields = (doc.fields || []).map(f => {
+          const el = document.querySelector(`#ho_documentState .ho-field-input[data-field-id="${f.id}"]`);
+          return { label: f.label, type: f.type, required: !!f.required, placed: !!f.position, group: !!hoCheckGroupOf(doc, f), filled: !!hoFieldValue(f), onScreen: el && el.type === 'checkbox' ? el.checked : null };
+        });
+        fetch(`${API_BASE_AUTH}/api/hiring/package/${encodeURIComponent(window.__hiringToken)}/blocked`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document: doc.name, missing, fields, version: window.__appVersion, ua: navigator.userAgent }) }).catch(() => {});
+      }catch(e){}
+    }
     function hoValidateCurrentStep(){
       const doc = hoPackage.documents[hoDocIndex];
       // Trust what's on screen: a box that SHOWS checked counts as checked,
@@ -34047,6 +34062,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(missing.length > 0){
         statusEl.textContent = `Please complete: ${missing.join(', ')}.`;
         statusEl.className = 'status-msg err';
+        hoReportBlocked(missing);
         return;
       }
       statusEl.textContent = 'Saving\u2026';

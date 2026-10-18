@@ -4,7 +4,7 @@
 //   - The app page itself (index.html) is NETWORK-FIRST: opening the app
 //     always loads the latest deployed version, so updates show up right
 //     away instead of one launch late. If there's no signal, or the network
-//     takes more than 4 seconds, the saved copy is shown instead, so the app
+//     takes more than 15 seconds, the saved copy is shown instead, so the app
 //     still opens with no signal instead of a blank white screen.
 //   - Everything else (icons, manifest, CDN scripts) is stale-while-
 //     revalidate: served instantly from the saved copy and refreshed in the
@@ -58,7 +58,7 @@ self.addEventListener('fetch', (event) => {
       try {
         const res = await Promise.race([
           fetch(req, { cache: 'no-store' }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('slow network')), 4000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('slow network')), 15000))
         ]);
         if (res && res.status === 200) cache.put(req, res.clone());
         return res;
