@@ -4573,12 +4573,22 @@ function valuationFigures(records, inputs) {
   };
 }
 
-app.get('/api/admin/business-valuations', requireAuth, requireFinancialsAccess, async (req, res) => {
+// Valuations are hidden behind the Administrator Override PIN (sent as the
+// X-Valuation-Pin header) so they never reach the page while it's locked.
+async function requireValuationPin(req, res, next) {
+  try {
+    const saved = await redis.get(MATERIALS_OVERRIDE_PIN_KEY);
+    if (!saved) return next();   // no PIN set up yet -> nothing to lock with
+    if (String(req.headers['x-valuation-pin'] || '') !== saved) return res.status(403).json({ error: 'Incorrect PIN.', locked: true });
+    next();
+  } catch (err) { res.status(500).json({ error: 'Could not check the PIN.' }); }
+}
+app.get('/api/admin/business-valuations', requireAuth, requireFinancialsAccess, requireValuationPin, async (req, res) => {
   try { res.json({ valuations: JSON.parse(await redis.get(BUSINESS_VALUATIONS_KEY) || '[]') }); }
   catch (err) { res.status(500).json({ error: 'Could not load valuations.' }); }
 });
 
-app.post('/api/admin/business-valuation', requireAuth, requireFinancialsAccess, async (req, res) => {
+app.post('/api/admin/business-valuation', requireAuth, requireFinancialsAccess, requireValuationPin, async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'AI is not configured on this server.' });
   const b = req.body || {};
