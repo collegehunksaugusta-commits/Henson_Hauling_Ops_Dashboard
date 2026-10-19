@@ -602,6 +602,14 @@
         <span id="esignTileSub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;"></span></span>
       <span style="font-size:22px; color:#b3261e;">&rsaquo;</span>
     </button>
+    <button type="button" id="dwpTile" style="display:none; width:100%; text-align:left; background:#fff; border:2px solid #2f6db5; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; align-items:center; gap:14px;">
+      <span style="font-size:34px; line-height:1;">&#128221;</span>
+      <span style="flex:1;">
+        <span style="display:block; font-size:18px; font-weight:800; color:#1f4f87;">Work Packages</span>
+        <span id="dwpTileSub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Complete the job paperwork with your client &middot; tap to open</span>
+      </span>
+      <span style="font-size:22px; color:#1f4f87;">&rsaquo;</span>
+    </button>
     <button type="button" class="my-money-tile" style="width:100%; text-align:left; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:14px;">
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
@@ -925,6 +933,16 @@
         <button type="button" id="dqNagLater" style="width:100%; margin-top:8px; padding:11px; font-size:14px; background:#fff; color:var(--muted); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Remind me later</button>
       </div>
     </div>
+  </div>
+
+  <div id="driverWorkPkgView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
+      <button type="button" id="dwpBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Back</button>
+      <h2 class="display" style="margin:0; font-size:20px;">&#128221; Work Packages</h2>
+      <span style="width:50px;"></span>
+    </div>
+    <p class="status-msg" id="dwpStatus" style="margin:0 0 10px;"></p>
+    <div id="dwpList"></div>
   </div>
 
   <div id="driverTimeOffView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
@@ -2598,6 +2616,50 @@
   }
   document.querySelectorAll('.my-money-tile').forEach(t => t.addEventListener('click', showMyMoney));
 
+  // ---- Digital Work Packages (pushed by the office) ----
+  let dwpList = [];
+  async function loadMyWorkPackages(){
+    if(driverRole === 'wingman') return;
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/work-packages', { headers: { 'Authorization': 'Bearer ' + driverToken } });
+      if(!res.ok) return;
+      dwpList = (await res.json()).packages || [];
+    }catch(err){ return; }
+    const open = dwpList.filter(w => w.status !== 'completed').length;
+    const tile = document.getElementById('dwpTile');
+    tile.style.display = dwpList.length ? 'flex' : 'none';
+    document.getElementById('dwpTileSub').textContent = open ? `${open} job${open === 1 ? '' : 's'} to complete with the client \u00b7 tap to open` : 'All done \u00b7 tap to view';
+    tile.style.borderColor = open ? '#2f6db5' : 'var(--line)';
+    const fmt = d => d ? new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+    document.getElementById('dwpList').innerHTML = dwpList.length ? dwpList.map(w => `<div style="background:#fff; border:1px solid var(--line); border-left:5px solid ${w.status === 'completed' ? 'var(--brand-green)' : '#2f6db5'}; border-radius:10px; padding:12px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; gap:8px;"><strong style="font-size:15px;">${driverEsc(w.clientName || '')}</strong><span style="font-size:12px; color:var(--muted);">Job ${driverEsc(w.jobNumber || '')}</span></div>
+        <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${fmt(w.jobDate)}</div>
+        ${w.status === 'completed' ? `<div style="margin-top:8px; color:var(--brand-green-dark); font-weight:700; font-size:13.5px;">\u2713 Completed ${new Date(w.completedAt).toLocaleDateString()}</div>`
+          : `<button type="button" class="dwp-open" data-key="${driverEsc(w.jobKey)}" style="width:100%; margin-top:10px; padding:12px; font-size:15px; font-weight:800; background:#2f6db5; color:#fff; border:none; border-radius:8px; cursor:pointer;">Start with Client</button>`}
+      </div>`).join('') : '<p class="form-note">No work packages right now.</p>';
+    document.querySelectorAll('.dwp-open').forEach(b => b.onclick = () => openMyWorkPackage(b.dataset.key));
+  }
+  async function openMyWorkPackage(jobKey){
+    const st = document.getElementById('dwpStatus');
+    st.textContent = 'Opening\u2026'; st.className = 'status-msg';
+    try{
+      const res = await fetch(API_BASE_AUTH + '/api/driver/work-packages/' + encodeURIComponent(jobKey), { headers: { 'Authorization': 'Bearer ' + driverToken } });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not open it.');
+      st.textContent = '';
+      window.startPortalWorkPackage(jobKey, d.jobData);
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  }
+  window.onPortalWorkPackageDone = async (ok, clientName) => {
+    showOnlyDriverGateView('driverWorkPkgView');
+    const st = document.getElementById('dwpStatus');
+    st.textContent = ok ? `\u2713 Paperwork saved for ${clientName || 'the client'} \u2014 sent to the office.` : 'Couldn\u2019t save the signatures \u2014 check your connection and try again.';
+    st.className = 'status-msg ' + (ok ? 'ok' : 'err');
+    await loadMyWorkPackages();
+  };
+  document.getElementById('dwpTile').addEventListener('click', () => { showOnlyDriverGateView('driverWorkPkgView'); document.getElementById('dwpStatus').textContent = ''; loadMyWorkPackages(); });
+  document.getElementById('dwpBackBtn').addEventListener('click', () => showDriverMenu());
+
   // ---- Time Off ----
   const toFmt = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const toRange = (a, b) => a === b ? toFmt(a) : `${toFmt(a)} \u2013 ${toFmt(b)}`;
@@ -2788,6 +2850,7 @@
 
   function showDriverMenu(){
     setTimeout(() => { try{ hunkResumeAfterReload(); }catch(e){} }, 400);   // back from a reload mid-photo?
+    setTimeout(() => { try{ loadMyWorkPackages(); }catch(e){} }, 300);
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
@@ -3859,7 +3922,7 @@
   });
 
   // ---------- Wingman Portal ----------
-  const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverMoneyView', 'driverTimeOffView', 'driverEsignView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView', 'driverWeightTicketView'];
+  const DRIVER_GATE_VIEW_IDS = ['driverCodeForm', 'driverMenuView', 'driverMoneyView', 'driverTimeOffView', 'driverWorkPkgView', 'driverEsignView', 'driverInspectionView', 'driverNbhdView', 'driverTruckDocsView', 'driverEodView', 'driverWingmanView', 'driverJunkRemovalView', 'driverMovingView', 'wingmanMenuView', 'wingmanCaptainReviewView', 'driverWeightTicketView'];
   // Hides every HUNK Portal screen. Finds them on the page rather than via
   // DRIVER_GATE_VIEW_IDS, which isn't defined yet when the menu first shows.
   function hideAllDriverGateViews(){
@@ -8926,6 +8989,16 @@
         <div class="dashSectionBody" id="setGroupBody-operations">
         <div class="panel" id="set_paperworkPanel" data-collapsible="true">
           <h3>Job Paperwork</h3>
+          <div style="border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:14px; background:var(--offwhite);">
+            <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Work Package Process</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="wp-mode-btn" data-mode="both" style="flex:1; min-width:180px; text-align:left; padding:10px 12px; border-radius:8px; cursor:pointer; font-family:inherit;"><strong>&#128424;&#65039; + &#128241; Both</strong><br><span style="font-size:12px;">Each work package can be printed <em>or</em> pushed to the Captain&rsquo;s app.</span></button>
+              <button type="button" class="wp-mode-btn" data-mode="analog" style="flex:1; min-width:180px; text-align:left; padding:10px 12px; border-radius:8px; cursor:pointer; font-family:inherit;"><strong>&#128424;&#65039; Print only</strong><br><span style="font-size:12px;">Only the Print button &mdash; the crew fills out paper and it&rsquo;s scanned back in.</span></button>
+              <button type="button" class="wp-mode-btn" data-mode="digital" style="flex:1; min-width:180px; text-align:left; padding:10px 12px; border-radius:8px; cursor:pointer; font-family:inherit;"><strong>&#128241; Digital only</strong><br><span style="font-size:12px;">Only Push Digital Work Package &mdash; the Captain completes it with the client in the HUNK Portal.</span></button>
+            </div>
+            <span class="status-msg" id="appset_wpModeStatus"></span>
+            <p class="form-note" style="margin:6px 0 0;">Applies to everyone using Paperwork. Signing links already handed out keep working either way.</p>
+          </div>
           <label>Completed Paperwork Email CC List <input type="text" id="appset_completedPaperworkCc" placeholder="email1@example.com, email2@example.com"></label>
           <p class="form-note">Comma-separated. These addresses get CC'd whenever the "Email Client" button is used after uploading completed paperwork.</p>
           <label>Google Review Link <input type="url" id="appset_googleReviewLink"></label>
@@ -9778,6 +9851,7 @@
       })();
     }
     if(view === 'paperwork'){
+      if(window.applyWorkPackageMode){ window.applyWorkPackageMode(); (typeof ensureAppSettingsLoaded === 'function' ? ensureAppSettingsLoaded() : Promise.resolve()).then(() => window.applyWorkPackageMode()).catch(() => {}); }
       window.loadPwBatchJunkRemovalPersistent();
     }
     if(view === 'captain'){
@@ -18333,6 +18407,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_redfinEvansMartinez').value = marketing.redfinEvansMartinez || '';
     document.getElementById('appset_redfinAugusta').value = marketing.redfinAugusta || '';
     document.getElementById('appset_completedPaperworkCc').value = paperwork.completedPaperworkCc || '';
+    window.applyWorkPackageMode && window.applyWorkPackageMode();
     document.getElementById('appset_googleReviewLink').value = paperwork.googleReviewLink || '';
     document.getElementById('appset_paperworkEmailHappy').value = paperwork.emailBodyHappy || '';
     document.getElementById('appset_paperworkEmailSad').value = paperwork.emailBodySad || '';
@@ -22110,7 +22185,35 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // ---------- Job Paperwork: Batch Work Order Upload ----------
   let pwBatchPastedImages = []; // {id, previewDataUri, originalFile, isPdf}
   let pwBatchReview = [];       // review rows before generation
-  let pwBatchPackages = [];     // generated work packages {jobNumber, clientName, jobType, html, extraNote}
+  let pwBatchPackages = [];
+  // ---- Push Digital Work Package -> the Captain's HUNK Portal ----
+  const DIGITAL_WP_KEY = 'digital-work-packages';
+  let pwDigitalWP = [];
+  const pwJobKey = n => String(n || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  async function loadDigitalWP(){ try{ pwDigitalWP = await window.dashboardApi.get(DIGITAL_WP_KEY, []) || []; }catch(err){} }
+  async function pushDigitalWorkPackage(idx){
+    const pkg = pwBatchPackages[idx]; if(!pkg) return;
+    const st = document.getElementById('pwpkg_status_' + idx);
+    const say = (t, ok) => { if(st){ st.textContent = t; st.className = 'status-msg ' + (ok === true ? 'ok' : ok === false ? 'err' : ''); } };
+    if(!pkg.captainName){ say('Select a Captain before pushing.', false); return; }
+    if(!pkg.jobNumber){ say('This job needs a HunkWare Job # to push.', false); return; }
+    const jobKey = pwJobKey(pkg.jobNumber);
+    const existing = (pwDigitalWP || []).find(x => x.jobKey === jobKey);
+    if(existing && existing.status === 'completed' && !confirm(`${pkg.jobNumber} was already completed in the app. Push it again for a new set of signatures?`)) return;
+    say('Pushing\u2026');
+    try{
+      const jobData = Object.assign({}, pkg.jobData || { jobType: pkg.jobType, jobNumber: pkg.jobNumber, clientName: pkg.clientName }, { captainName: pkg.captainName });
+      if(!(await window.dashboardApi.set('paperwork-job-link-' + jobKey, jobData))) throw new Error('save');
+      await loadDigitalWP();
+      const list = (pwDigitalWP || []).filter(x => x.jobKey !== jobKey);
+      list.push({ jobKey, jobNumber: pkg.jobNumber, clientName: pkg.clientName, jobType: pkg.jobType, jobDate: (pkg.jobData || {}).loadingDate || '', captainName: pkg.captainName, status: 'pushed', pushedAt: new Date().toISOString(), pushedBy: localStorage.getItem('henson_auth_email') || '' });
+      if(!(await window.dashboardApi.set(DIGITAL_WP_KEY, list))) throw new Error('save');
+      pwDigitalWP = list;
+      renderPwBatchPackages();
+      const st2 = document.getElementById('pwpkg_status_' + idx); if(st2){ st2.textContent = `\u2713 Sent to ${pkg.captainName}\u2019s HUNK Portal.`; st2.className = 'status-msg ok'; }
+    }catch(err){ say('Could not push \u2014 check your connection.', false); }
+  }
+  window.loadDigitalWP = loadDigitalWP;     // generated work packages {jobNumber, clientName, jobType, html, extraNote}
   let pwBatchSeq = 0;           // which Read Work Orders batch -- keeps packets in upload order across batches
   const pwBySortKey = (a, b) => (a.sortKey || 0) - (b.sortKey || 0);
   let pwBatchExcluded = [];     // estimates found but excluded (no paperwork needed until booked)
@@ -23155,7 +23258,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
         await archiveJobData(r.packingMaterials);
         const { html, extraNote } = await buildWorkPackageHtml(r.jobType, r.workOrderPages);
-        generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote, sortKey: r.sortKey });
+        const jobData = { jobType: r.jobType, jobNumber: r.jobNumber, clientName: r.clientName, clientPhone: r.clientPhone, clientEmail: r.clientEmail, originAddress: r.originAddress, destAddress: r.destAddress,
+          stop1: '', stop2: '', stop3: '', estDate: '', packingDate: '', loadingDate: r.jobDate || '', deliveryDate: '', unpackingDate: '', otherServiceDate: '', estimateSummary: r.estimateSummary || '', captainName: r.captainName || '' };
+        generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote, sortKey: r.sortKey, jobData });
       }
 
       pwClearFormFields();
@@ -23184,6 +23289,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return;
     }
     wrap.style.display = 'block';
+    if(!renderPwBatchPackages.__loaded){ renderPwBatchPackages.__loaded = true; loadDigitalWP().then(() => renderPwBatchPackages()); }
     const captainOptions = '<option value="">Select Captain...</option>' + (pwBatchRosterCache || []).map(n => `<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
     container.innerHTML = pwBatchPackages.map((pkg, i) => `
       <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:8px; flex-wrap:wrap; gap:8px; ${!pkg.captainName ? 'background:#fdf6e3;' : ''}">
@@ -23196,6 +23302,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
+          ${(() => { const w = (pwDigitalWP || []).find(x => x.jobKey === pwJobKey(pkg.jobNumber)); return w ? `<span style="font-size:12px; font-weight:700; color:${w.status === 'completed' ? 'var(--brand-green-dark)' : '#1f4f87'};">${w.status === 'completed' ? '\u2713 Completed in the app' : '\ud83d\udcf1 Pushed to ' + pwBatchEsc(w.captainName)}</span>` : ''; })()}
+          <button type="button" class="pwpkg-push" data-index="${i}" style="background:#2f6db5; border:none; color:#fff; font-weight:600; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:13px;">\ud83d\udcf1 Push Digital Work Package</button>
           <button type="button" class="pwpkg-print" data-index="${i}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Print</button>
           <button type="button" class="pwpkg-remove" data-index="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:8px 10px; border-radius:4px; cursor:pointer;">Remove</button>
         </div>
@@ -23228,6 +23336,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       });
     });
 
+    container.querySelectorAll('.pwpkg-push').forEach(btn => btn.addEventListener('click', e => pushDigitalWorkPackage(parseInt(e.currentTarget.dataset.index, 10))));
+    if(window.applyWorkPackageMode) window.applyWorkPackageMode();
     container.querySelectorAll('.pwpkg-print').forEach(btn => btn.addEventListener('click', async (e)=>{
       const idx = parseInt(e.currentTarget.dataset.index, 10);
       const pkg = pwBatchPackages[idx];
@@ -23372,11 +23482,26 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   let signingState = null;
 
-  function startDigitalSigning(){
+  // From the HUNK Portal: load the pushed job into the paperwork fields and
+  // open the same signing screens, raised above the portal.
+  window.startPortalWorkPackage = function(jobKey, jobData){
+    const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = v || ''; };
+    document.getElementById('pw_jobType').value = jobData.jobType || 'move';
+    updatePWJobTypeUI();
+    ['jobNumber','clientName','clientPhone','clientEmail','originAddress','destAddress','stop1','stop2','stop3','estDate','packingDate','loadingDate','deliveryDate','unpackingDate','otherServiceDate','estimateSummary']
+      .forEach(k => set('pw_' + k, jobData[k]));
+    const cap = document.getElementById('pw_captainSelect'); if(cap) cap.value = jobData.captainName || '';
+    const view = document.getElementById('signingView');
+    if(view.parentElement !== document.body) document.body.appendChild(view);   // the Paperwork page is hidden in the portal
+    view.style.zIndex = '10050';
+    window.__portalWorkPackage = jobKey;
+    startDigitalSigning({ fromPortal: true });
+  };
+  function startDigitalSigning(opts){
     const jobType = document.getElementById('pw_jobType').value;
     const docKeys = SIGN_JOB_TYPE_DOCS[jobType] || [];
     if(docKeys.length === 0) return;
-    archiveJobData();
+    if(!(opts && opts.fromPortal)){ window.__portalWorkPackage = null; archiveJobData(); }
     signingState = { docKeys, currentIndex: 0, capturedSignatures: {}, pads: [], inlineFieldMap: null };
     document.getElementById('signingView').style.display = 'block';
     renderSigningStep();
@@ -23568,6 +23693,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     };
 
     let ok = false;
+    const portalJob = window.__portalWorkPackage;
+    if(portalJob){
+      // Signed in the Captain's HUNK Portal: saved through his sign-in.
+      try{
+        const res = await fetch(`${API_BASE_AUTH}/api/driver/work-packages/${encodeURIComponent(portalJob)}/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('henson_driver_token') || '') }, body: JSON.stringify({ record }) });
+        ok = res.ok;
+      }catch(err){ console.error('Portal work package save failed:', err); }
+      window.__portalWorkPackage = null;
+      signingState = null;
+      document.getElementById('signingView').style.display = 'none';
+      if(window.onPortalWorkPackageDone) window.onPortalWorkPackageDone(ok, record.clientName);
+      return;
+    }
     try{
       const records = await window.dashboardApi.get(SIGNED_RECORDS_KEY, []);
       records.push(record);
@@ -23583,6 +23721,40 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
 
   document.getElementById('pw_digitalBtn').addEventListener('click', ()=>{ startDigitalSigning(); });
+
+  // ---- Work Package Process: Analog (print) or Digital (sign on device) ----
+  // Set by the Administrator in Configuration -> Operations -> Job Paperwork.
+  const wpMode = () => { const m = ((window.appSettings || {}).paperwork || {}).workPackageMode; return m === 'analog' || m === 'digital' ? m : 'both'; };
+  window.applyWorkPackageMode = function(){
+    const mode = wpMode(), print = mode !== 'digital', digital = mode !== 'analog';
+    const show = (id, on) => { const el = document.getElementById(id); if(el) el.style.display = on ? '' : 'none'; };
+    show('pw_printBtn', print);
+    show('pw_digitalBtn', digital);
+    show('pw_copyLinkBtn', digital);
+    document.querySelectorAll('.pwpkg-print').forEach(b => { b.style.display = print ? '' : 'none'; });
+    document.querySelectorAll('.pwpkg-push').forEach(b => { b.style.display = digital ? '' : 'none'; });
+    const head = document.querySelector('#pwBatch_packagesWrap h4'); if(head) head.textContent = mode === 'digital' ? 'Work Packages Ready to Push' : mode === 'analog' ? 'Work Packages Ready to Print' : 'Work Packages Ready';
+    document.querySelectorAll('.wp-mode-btn').forEach(b => {
+      const on = b.dataset.mode === wpMode();
+      b.style.border = on ? '2px solid var(--brand-green)' : '1px solid var(--line)';
+      b.style.background = on ? '#EAF6EE' : '#fff';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  };
+  document.querySelectorAll('.wp-mode-btn').forEach(b => b.addEventListener('click', async () => {
+    const mode = b.dataset.mode, st = document.getElementById('appset_wpModeStatus');
+    if(mode === wpMode()) return;
+    st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { paperwork: { workPackageMode: mode } } }) });
+      if(handleAuthFailure(res)) return;
+      const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not save.');
+      window.appSettings = d.settings || window.appSettings;
+      window.appSettings.paperwork = Object.assign({}, window.appSettings.paperwork, { workPackageMode: mode });
+      window.applyWorkPackageMode();
+      st.textContent = `\u2713 Work Package Generator now shows: ${mode === 'digital' ? 'Push only' : mode === 'analog' ? 'Print only' : 'Print and Push'}.`; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  }));
 
 
   // ---------- Completed Paperwork Storage ----------
