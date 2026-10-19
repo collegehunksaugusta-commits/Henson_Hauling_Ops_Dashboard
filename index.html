@@ -500,7 +500,7 @@
       <h3 id="hiringPlacementTitle" style="margin:0; font-size:17px;">Place Fields</h3>
       <button type="button" id="hiringPlacementCloseBtn" aria-label="Close" style="background:none; border:none; font-size:22px; cursor:pointer; line-height:1; color:var(--muted);">&times;</button>
     </div>
-    <p class="form-note" style="margin-top:0;">Tap a field below, then tap the spot on the document where it belongs. Drag a box to move it, drag its <strong>corner</strong> to resize it, or tap its &times; to remove it. Boxes outlined in <strong style="color:#b3261e;">red</strong> overlap another box. Boxes are see-through for the new hire, so keep them on the line, not over the printed words.</p>
+    <p class="form-note" style="margin-top:0;">Tap a field below, then tap the spot on the document where it belongs. Drag a box to move it, drag its <strong>corner</strong> to resize it, or tap its &times; to remove it. Boxes outlined in <strong style="color:#b3261e;">red</strong> overlap another box. <span id="hpSeeThroughNote">Boxes are see-through for the new hire, so keep them on the line, not over the printed words.</span></p>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; padding:8px 10px; background:var(--offwhite); border-radius:6px;">
       <input type="text" id="hpAddLabel" placeholder="New box label, e.g. Worksheet line 1" style="flex:1; min-width:200px; padding:7px;">
       <select id="hpAddType" style="padding:7px;"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="checkbox">Checkbox</option><optgroup label="Auto-fill (locked)"><option value="auto:employer_name_address">Employer name &amp; address</option><option value="auto:employer_ein">Employer EIN</option><option value="auto:start_date">First date of employment</option></optgroup></select>
@@ -508,7 +508,7 @@
       <button type="button" id="hpFindBtn" title="Adds an optional box after every $ answer line (and numbered lines in the answer column) on this page that doesn't have one" style="background:#fff; border:1px solid var(--line); padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#128269; Find blank lines</button>
       <button type="button" id="hpEmpSigBtn" title="Where the employer signs -- the Administrator signs it in Manager Review \u2192 New Hires" style="background:#2f6db5; color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#9997;&#65039; Place Employer Signature</button>
       <button type="button" id="hpSigBtn" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">&#9997;&#65039; Place Signature</button>
-      <span style="font-size:11.5px; color:var(--muted); width:100%;">Added boxes are optional for the new hire. After clicking a button, tap the spot on the page.</span>
+      <span id="hpAddNote" style="font-size:11.5px; color:var(--muted); width:100%;">Added boxes are optional for the new hire. After clicking a button, tap the spot on the page.</span>
     </div>
     <div id="hiringPlacementPageNav" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
       <button type="button" id="hiringPlacementPrevPage" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer;">&larr;</button>
@@ -8998,6 +8998,16 @@
             </div>
             <span class="status-msg" id="appset_wpModeStatus"></span>
             <p class="form-note" style="margin:6px 0 0;">Applies to everyone using Paperwork. Signing links already handed out keep working either way.</p>
+          </div>
+          <div style="border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:14px;">
+            <div style="font-weight:700; font-size:14px;">Work Package Documents</div>
+            <p class="form-note" style="margin:4px 0 10px;">Upload a document (PDF), tick the job types whose work packages it belongs in, then <strong>&#128205; Place Signing Blocks</strong> wherever the client or Captain signs, initials or fills something in.</p>
+            <div id="wpDocs_rows"></div>
+            <p class="form-note" id="wpDocs_empty" style="margin:0 0 8px;">No documents uploaded yet.</p>
+            <label style="display:inline-flex; align-items:center; gap:8px; margin-top:4px; cursor:pointer; background:#fff; border:1px dashed var(--brand-green); color:var(--brand-green-dark); font-weight:700; padding:9px 14px; border-radius:6px;">&#11014;&#65039; Upload Document (PDF)
+              <input type="file" id="wpDocs_file" accept=".pdf,application/pdf" style="display:none;"></label>
+            <input type="file" id="wpDocs_replaceFile" accept=".pdf,application/pdf" style="display:none;">
+            <span class="status-msg" id="wpDocs_status"></span>
           </div>
           <label>Completed Paperwork Email CC List <input type="text" id="appset_completedPaperworkCc" placeholder="email1@example.com, email2@example.com"></label>
           <p class="form-note">Comma-separated. These addresses get CC'd whenever the "Email Client" button is used after uploading completed paperwork.</p>
@@ -18408,6 +18418,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_redfinAugusta').value = marketing.redfinAugusta || '';
     document.getElementById('appset_completedPaperworkCc').value = paperwork.completedPaperworkCc || '';
     window.applyWorkPackageMode && window.applyWorkPackageMode();
+    window.loadWpDocs && window.loadWpDocs();
     document.getElementById('appset_googleReviewLink').value = paperwork.googleReviewLink || '';
     document.getElementById('appset_paperworkEmailHappy').value = paperwork.emailBodyHappy || '';
     document.getElementById('appset_paperworkEmailSad').value = paperwork.emailBodySad || '';
@@ -19606,7 +19617,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     number: { widthPct: 12, heightPct: 3.2 },
     text: { widthPct: 30, heightPct: 3.2 },
     signature: { widthPct: 34, heightPct: 4.5 },
-    employer_signature: { widthPct: 34, heightPct: 4.5 }
+    employer_signature: { widthPct: 34, heightPct: 4.5 },
+    client_signature: { widthPct: 34, heightPct: 4.5 },
+    captain_signature: { widthPct: 34, heightPct: 4.5 },
+    client_initials: { widthPct: 9, heightPct: 3.2 }
   };
 
   let hiringPlacementDoc = null;
@@ -19617,14 +19631,38 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let hiringPlacementDragFieldId = null;
   let hiringPlacementDragStart = null;
 
-  async function openHiringPlacementModal(docId){
-    const doc = hiringDocuments.find(d => d.id === docId);
+  // Place Fields is shared: Hiring documents, and Work Package documents
+  // (Configuration -> Job Paperwork). Whoever opens it says how to save.
+  let hiringPlacementSaveFn = () => saveHiringDocsConfig();
+  let hiringPlacementRowsFn = () => renderHiringDocRows();
+  let hiringPlacementMode = 'hiring';
+  const HP_HIRING_TYPES = '<option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="checkbox">Checkbox</option><optgroup label="Auto-fill (locked)"><option value="auto:employer_name_address">Employer name &amp; address</option><option value="auto:employer_ein">Employer EIN</option><option value="auto:start_date">First date of employment</option></optgroup>';
+  const HP_WP_TYPES = '<optgroup label="Signatures"><option value="client_signature">Client Signature</option><option value="client_initials">Client Initials</option><option value="captain_signature">Captain Signature</option></optgroup><optgroup label="Filled in automatically"><option value="wpauto:signed_date">Date Signed</option><option value="wpauto:client_name">Client Name</option><option value="wpauto:job_number">Job #</option><option value="wpauto:job_date">Job Date</option><option value="wpauto:origin_address">Origin Address</option><option value="wpauto:dest_address">Destination Address</option></optgroup><optgroup label="Captain fills in"><option value="text">Text</option><option value="checkbox">Checkbox</option></optgroup>';
+  const HP_WP_LABELS = { client_signature: 'Client Signature', client_initials: 'Client Initials', captain_signature: 'Captain Signature', 'wpauto:signed_date': 'Date Signed', 'wpauto:client_name': 'Client Name', 'wpauto:job_number': 'Job #', 'wpauto:job_date': 'Job Date', 'wpauto:origin_address': 'Origin Address', 'wpauto:dest_address': 'Destination Address', text: 'Text', checkbox: 'Checkbox' };
+  function setPlacementMode(mode){
+    hiringPlacementMode = mode;
+    const wp = mode === 'workpackage';
+    document.getElementById('hpAddType').innerHTML = wp ? HP_WP_TYPES : HP_HIRING_TYPES;
+    document.getElementById('hpAddLabel').placeholder = wp ? 'Label (optional) \u2014 e.g. Client initials, page 2' : 'New box label, e.g. Worksheet line 1';
+    ['hpSigBtn', 'hpEmpSigBtn'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = wp ? 'none' : ''; });
+    document.getElementById('hpAddBtn').textContent = wp ? '+ Add Signing Block' : '+ Add Box';
+    document.getElementById('hpSeeThroughNote').textContent = wp ? 'Keep blocks on the signature line or blank, not over the printed words.' : 'Boxes are see-through for the new hire, so keep them on the line, not over the printed words.';
+    document.getElementById('hpAddNote').textContent = wp ? 'Signatures and initials are required; gray blocks fill in automatically from the job. After clicking + Add Signing Block, tap the spot on the page.' : 'Added boxes are optional for the new hire. After clicking a button, tap the spot on the page.';
+  }
+  window.openDocPlacement = async function(doc, opts){
+    hiringPlacementSaveFn = opts.save; hiringPlacementRowsFn = opts.refresh || (() => {});
+    setPlacementMode('workpackage');
+    await openHiringPlacementModal(null, doc, opts.title);
+  };
+  async function openHiringPlacementModal(docId, givenDoc, givenTitle){
+    if(!givenDoc){ hiringPlacementSaveFn = () => saveHiringDocsConfig(); hiringPlacementRowsFn = () => renderHiringDocRows(); setPlacementMode('hiring'); }
+    const doc = givenDoc || hiringDocuments.find(d => d.id === docId);
     if(!doc || !doc.fileKey) return;
     hiringPlacementDoc = doc;
     hiringPlacementCurrentPage = 0;
     hiringPlacementArmedFieldId = null;
 
-    document.getElementById('hiringPlacementTitle').textContent = `Place Fields \u2014 ${doc.name}`;
+    document.getElementById('hiringPlacementTitle').textContent = `${givenTitle || 'Place Fields'} \u2014 ${doc.name}`;
     document.getElementById('hiringPlacementModal').style.display = 'block';
     document.getElementById('hiringPlacementPageWrap').innerHTML = '<p style="padding:30px; text-align:center; color:var(--muted);">Loading document\u2026</p>';
     document.getElementById('hiringPlacementUnplacedList').innerHTML = '';
@@ -19652,7 +19690,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     hiringPlacementPages = [];
     hiringPlacementArmedFieldId = null;
     hiringPlacementDragFieldId = null;
-    renderHiringDocRows(); // refresh the placement badges on the card behind the modal
+    hiringPlacementRowsFn(); // refresh the placement badges on the card behind the modal
   }
 
   function renderHiringPlacementPage(){
@@ -19680,6 +19718,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(overlaps(field)){ box.style.borderColor = '#b3261e'; box.style.background = 'rgba(179,38,30,0.16)'; box.title = 'Overlaps another box'; }
       if(field.type === 'signature'){ box.style.background = 'rgba(0,132,61,0.22)'; box.style.borderStyle = 'dashed'; }
       if(field.type === 'employer_signature'){ box.style.background = 'rgba(47,109,181,0.22)'; box.style.borderColor = '#2f6db5'; box.style.borderStyle = 'dashed'; }
+      if(field.type === 'client_signature' || field.type === 'client_initials'){ box.style.background = 'rgba(0,132,61,0.22)'; box.style.borderStyle = 'dashed'; }
+      if(field.type === 'captain_signature'){ box.style.background = 'rgba(247,148,29,0.25)'; box.style.borderColor = '#c06a00'; box.style.borderStyle = 'dashed'; }
+      if(field.autoKey && hiringPlacementMode === 'workpackage'){ box.style.background = 'rgba(160,160,160,0.25)'; }
       if(field.type === 'select' && (field.options || []).length > 1){
         // Guide lines: the new hire gets one check row per option -- size this
         // box so each row sits on its printed checkbox.
@@ -19715,10 +19756,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const yPct = Math.max(0, Math.min(100 - size.heightPct, clickYPct - size.heightPct / 2));
       field.position = { page: hiringPlacementCurrentPage, xPct, yPct, widthPct: size.widthPct, heightPct: size.heightPct };
       hiringPlacementArmedFieldId = null;
-      saveHiringDocsConfig();
+      hiringPlacementSaveFn();
       renderHiringPlacementPage();
       renderHiringPlacementUnplacedList();
-      renderHiringDocRows();
+      hiringPlacementRowsFn();
     });
 
     canvasWrap.querySelectorAll('.hiring-placement-box').forEach(box => {
@@ -19740,10 +19781,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       box.querySelector('.hiring-placement-unplace').addEventListener('click', (e)=>{
         e.stopPropagation();
         field.position = null;
-        saveHiringDocsConfig();
+        hiringPlacementSaveFn();
         renderHiringPlacementPage();
         renderHiringPlacementUnplacedList();
-        renderHiringDocRows();
+        hiringPlacementRowsFn();
       });
     });
   }
@@ -19779,7 +19820,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const wasResize = hiringPlacementDragStart && hiringPlacementDragStart.resize;
       hiringPlacementDragFieldId = null;
       hiringPlacementDragStart = null;
-      saveHiringDocsConfig();
+      hiringPlacementSaveFn();
       renderHiringPlacementPage();   // refresh overlap outlines
     }
     window.addEventListener('mousemove', move);
@@ -19804,7 +19845,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!chip) return;
       const del = document.createElement('button'); del.type = 'button'; del.textContent = '\u2715'; del.title = 'Delete this added box';
       del.style.cssText = 'margin-left:-4px; background:#fff; border:1px solid var(--line); border-radius:4px; color:#b3261e; cursor:pointer; padding:2px 6px;';
-      del.onclick = () => { hiringPlacementDoc.fields = hiringPlacementDoc.fields.filter(x => x !== f); saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage(); renderHiringDocRows(); };
+      del.onclick = () => { hiringPlacementDoc.fields = hiringPlacementDoc.fields.filter(x => x !== f); hiringPlacementSaveFn(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage(); hiringPlacementRowsFn(); };
       chip.insertAdjacentElement('afterend', del);
     });
     listEl.querySelectorAll('.hiring-placement-chip').forEach(chip => {
@@ -19857,7 +19898,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const f = { id: 'custom_' + Date.now() + '_' + added, label, type: isDollar ? 'number' : 'text', required: false, custom: true, position: { page: hiringPlacementCurrentPage, xPct: x, yPct: y, widthPct: w, heightPct: hgt } };
         hiringPlacementDoc.fields.push(f); placed.push(f); added++;
       });
-      saveHiringDocsConfig(); renderHiringPlacementPage(); renderHiringPlacementUnplacedList(); renderHiringDocRows();
+      hiringPlacementSaveFn(); renderHiringPlacementPage(); renderHiringPlacementUnplacedList(); hiringPlacementRowsFn();
       alert(added ? `Added ${added} optional box${added === 1 ? '' : 'es'} on this page. Remove any you don't want with their \u00d7.` : 'No new blank answer lines found on this page.');
     }catch(err){ console.error('Find blank lines failed:', err); alert('Could not read this page.'); }
     btn.disabled = false; btn.innerHTML = '&#128269; Find blank lines';
@@ -19867,6 +19908,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('hpAddBtn').addEventListener('click', () => {
     if(!hiringPlacementDoc) return;
     const chosen = document.getElementById('hpAddType').value;
+    if(hiringPlacementMode === 'workpackage'){
+      const typed = document.getElementById('hpAddLabel').value.trim();
+      const f = { id: 'wpf_' + Date.now(), label: typed || HP_WP_LABELS[chosen] || 'Field', type: chosen.startsWith('wpauto:') ? 'text' : chosen, required: /signature|initials/.test(chosen), custom: true };
+      if(chosen.startsWith('wpauto:')) f.autoKey = chosen.slice(7);
+      hiringPlacementDoc.fields = (hiringPlacementDoc.fields || []).concat([f]);
+      hiringPlacementArmedFieldId = f.id;
+      document.getElementById('hpAddLabel').value = '';
+      hiringPlacementSaveFn(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
+      return;
+    }
     const AUTO_LABELS = { 'auto:employer_name_address': 'Employer\u2019s name and address', 'auto:employer_ein': 'Employer identification number (EIN)', 'auto:start_date': 'First date of employment' };
     const label = document.getElementById('hpAddLabel').value.trim() || AUTO_LABELS[chosen] || '';
     if(!label){ alert('Give the new box a label first (what goes in it).'); return; }
@@ -19875,7 +19926,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     hiringPlacementDoc.fields = (hiringPlacementDoc.fields || []).concat([f]);
     hiringPlacementArmedFieldId = f.id;
     document.getElementById('hpAddLabel').value = '';
-    saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
+    hiringPlacementSaveFn(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
   });
   document.getElementById('hpEmpSigBtn').addEventListener('click', () => {
     if(!hiringPlacementDoc) return;
@@ -19884,7 +19935,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     hiringPlacementDoc.requiresEmployerSignature = true;
     f.position = null;
     hiringPlacementArmedFieldId = f.id;
-    saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage(); renderHiringDocRows();
+    hiringPlacementSaveFn(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage(); hiringPlacementRowsFn();
   });
   document.getElementById('hpSigBtn').addEventListener('click', () => {
     if(!hiringPlacementDoc) return;
@@ -19893,10 +19944,123 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     hiringPlacementDoc.requiresSignature = true;
     f.position = null;
     hiringPlacementArmedFieldId = f.id;
-    saveHiringDocsConfig(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
+    hiringPlacementSaveFn(); renderHiringPlacementUnplacedList(); renderHiringPlacementPage();
   });
   document.getElementById('hiringPlacementCloseBtn').addEventListener('click', closeHiringPlacementModal);
   document.getElementById('hiringPlacementDoneBtn').addEventListener('click', closeHiringPlacementModal);
+
+  // ---- Work Package Documents (Configuration -> Job Paperwork) ----
+  const WP_DOCS_KEY = 'work-package-documents';
+  const WP_JOB_TYPES = [['move', 'Move'], ['movelabor', 'Move Labor'], ['longdistance', 'Long Distance Move']];
+  let wpDocs = [], wpReplaceId = null;
+  const wpEsc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  async function loadWpDocs(){
+    let stored = null;
+    try{ stored = await window.dashboardApi.get(WP_DOCS_KEY, []); }catch(err){ wpDocs = []; renderWpDocs(); return; }
+    const seeded = window.wpWithBuiltins ? window.wpWithBuiltins(stored || []) : { list: stored || [], changed: false };
+    wpDocs = seeded.list;
+    if(seeded.changed) await saveWpDocs();   // first time: the six built-in documents become the foundation
+    renderWpDocs();
+  }
+  window.loadWpDocs = loadWpDocs;
+  async function saveWpDocs(){
+    const st = document.getElementById('wpDocs_status');
+    const ok = await window.dashboardApi.set(WP_DOCS_KEY, wpDocs);
+    if(!ok && st){ st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; }
+    return ok;
+  }
+  function renderWpDocs(){
+    const rows = document.getElementById('wpDocs_rows'); if(!rows) return;
+    wpDocs.sort((a, b) => (a.order || 0) - (b.order || 0));
+    document.getElementById('wpDocs_empty').style.display = wpDocs.length ? 'none' : 'block';
+    rows.innerHTML = wpDocs.map((d, i) => {
+      if(d.builtin){
+        const noneB = !(d.jobTypes || []).length;
+        return `<div class="wpdoc-card" data-id="${d.id}" style="border:1px solid ${noneB ? '#b3261e' : 'var(--line)'}; border-radius:8px; padding:10px 12px; margin-bottom:10px; background:var(--offwhite);">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span style="font-weight:800; color:var(--muted); min-width:18px;">${i + 1}.</span>
+          <input type="text" class="wpdoc-name" value="${wpEsc(d.name)}" style="flex:1; min-width:180px; padding:7px; font-weight:700;">
+          <span style="font-size:11px; font-weight:800; color:#1f4f87; background:#E8F0FB; padding:2px 8px; border-radius:10px;">BUILT-IN</span>
+          <button type="button" class="wpdoc-up" title="Move up" ${i === 0 ? 'disabled' : ''} style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:5px 9px; cursor:pointer;">\u25b2</button>
+          <button type="button" class="wpdoc-down" title="Move down" ${i === wpDocs.length - 1 ? 'disabled' : ''} style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:5px 9px; cursor:pointer;">\u25bc</button>
+        </div>
+        <div style="display:flex; gap:14px; flex-wrap:wrap; margin:8px 0 4px 26px; font-size:13px;">
+          <span style="color:var(--muted);">Include in:</span>
+          ${WP_JOB_TYPES.map(([k, l]) => `<label style="display:inline-flex; align-items:center; gap:5px; margin:0; font-size:13px; text-transform:none; letter-spacing:normal; font-family:inherit; color:var(--charcoal);"><input type="checkbox" class="wpdoc-type" data-type="${k}" ${(d.jobTypes || []).includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}
+        </div>
+        <div style="margin-left:26px; font-size:12px; color:var(--muted);">Written fresh for each job with its details and built-in signature spots.${d.builtin === 'billOfLading' ? ' Long Distance uses the Bill of Lading from its saved estimate (printed; signed on paper for now).' : ''}${noneB ? ' <span style="color:#b3261e;">\u2014 currently off for every job type.</span>' : ''}</div>
+      </div>`;
+      }
+      const placed = (d.fields || []).filter(f => f.position).length;
+      const sigs = (d.fields || []).filter(f => f.position && /signature|initials/.test(f.type)).length;
+      const none = !(d.jobTypes || []).length;
+      return `<div class="wpdoc-card" data-id="${d.id}" style="border:1px solid ${none ? '#b3261e' : 'var(--line)'}; border-radius:8px; padding:10px 12px; margin-bottom:10px; background:#fff;">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span style="font-weight:800; color:var(--muted); min-width:18px;">${i + 1}.</span>
+          <input type="text" class="wpdoc-name" value="${wpEsc(d.name)}" style="flex:1; min-width:180px; padding:7px; font-weight:700;">
+          <button type="button" class="wpdoc-up" title="Move up" ${i === 0 ? 'disabled' : ''} style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:5px 9px; cursor:pointer;">\u25b2</button>
+          <button type="button" class="wpdoc-down" title="Move down" ${i === wpDocs.length - 1 ? 'disabled' : ''} style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:5px 9px; cursor:pointer;">\u25bc</button>
+        </div>
+        <div style="display:flex; gap:14px; flex-wrap:wrap; margin:8px 0 4px 26px; font-size:13px;">
+          <span style="color:var(--muted);">Include in:</span>
+          ${WP_JOB_TYPES.map(([k, l]) => `<label style="display:inline-flex; align-items:center; gap:5px; margin:0; font-size:13px; text-transform:none; letter-spacing:normal; font-family:inherit; color:var(--charcoal);"><input type="checkbox" class="wpdoc-type" data-type="${k}" ${(d.jobTypes || []).includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}
+        </div>
+        ${none ? '<div style="margin-left:26px; font-size:12.5px; color:#b3261e;">\u26a0 Not included in any work package yet \u2014 tick at least one job type.</div>' : ''}
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0 0 26px; font-size:12.5px;">
+          <button type="button" class="wpdoc-place" style="background:var(--brand-green); color:#fff; border:none; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer;">\ud83d\udccd Place Signing Blocks</button>
+          <span style="color:${sigs ? 'var(--brand-green-dark)' : '#8a6100'};">${placed ? `${placed} block${placed === 1 ? '' : 's'} placed${sigs ? ` (${sigs} signature/initial)` : ' \u2014 no signature yet'}` : 'No signing blocks placed yet'}</span>
+          <span style="color:var(--muted);">\u00b7 ${wpEsc(d.fileName || '')}</span>
+          <button type="button" class="wpdoc-replace" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:12.5px;">Replace File</button>
+          <button type="button" class="wpdoc-remove" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; font-size:12.5px;">Remove</button>
+        </div>
+      </div>`;
+    }).join('');
+    const docOf = el => wpDocs.find(x => x.id === el.closest('.wpdoc-card').dataset.id);
+    rows.querySelectorAll('.wpdoc-name').forEach(inp => inp.addEventListener('change', () => { const d = docOf(inp); d.name = inp.value.trim() || d.name; saveWpDocs(); }));
+    rows.querySelectorAll('.wpdoc-type').forEach(cb => cb.addEventListener('change', () => {
+      const d = docOf(cb); const set = new Set(d.jobTypes || []); cb.checked ? set.add(cb.dataset.type) : set.delete(cb.dataset.type);
+      d.jobTypes = WP_JOB_TYPES.map(([k]) => k).filter(k => set.has(k)); saveWpDocs(); renderWpDocs();
+    }));
+    const move = (el, dir) => { const i = wpDocs.indexOf(docOf(el)), j = i + dir; if(j < 0 || j >= wpDocs.length) return; [wpDocs[i], wpDocs[j]] = [wpDocs[j], wpDocs[i]]; wpDocs.forEach((x, k) => x.order = k + 1); saveWpDocs(); renderWpDocs(); };
+    rows.querySelectorAll('.wpdoc-up').forEach(b => b.onclick = () => move(b, -1));
+    rows.querySelectorAll('.wpdoc-down').forEach(b => b.onclick = () => move(b, 1));
+    rows.querySelectorAll('.wpdoc-place').forEach(b => b.onclick = () => { const d = docOf(b); d.fields = d.fields || []; window.openDocPlacement(d, { title: 'Place Signing Blocks', save: () => saveWpDocs(), refresh: () => renderWpDocs() }); });
+    rows.querySelectorAll('.wpdoc-replace').forEach(b => b.onclick = () => { wpReplaceId = docOf(b).id; document.getElementById('wpDocs_replaceFile').click(); });
+    rows.querySelectorAll('.wpdoc-remove').forEach(b => b.onclick = async () => {
+      const d = docOf(b); if(!confirm(`Remove \u201c${d.name}\u201d from work packages?`)) return;
+      wpDocs = wpDocs.filter(x => x !== d); wpDocs.forEach((x, k) => x.order = k + 1);
+      await saveWpDocs(); window.dashboardApi.delete && window.dashboardApi.delete(d.fileKey); renderWpDocs();
+    });
+  }
+  async function wpReadPdf(file){
+    if(!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') throw new Error('Upload the document as a PDF.');
+    if(file.size > 10 * 1024 * 1024) throw new Error('That file is over 10MB.');
+    return await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(file); });
+  }
+  document.getElementById('wpDocs_file').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = ''; if(!f) return;
+    const st = document.getElementById('wpDocs_status'); st.textContent = 'Uploading\u2026'; st.className = 'status-msg';
+    try{
+      const dataUri = await wpReadPdf(f);
+      const id = 'wpdoc_' + Date.now(), fileKey = 'wp-doc-file-' + id;
+      if(!(await window.dashboardApi.set(fileKey, dataUri))) throw new Error('Could not upload \u2014 check your connection.');
+      wpDocs.push({ id, name: f.name.replace(/\.pdf$/i, ''), fileName: f.name, fileKey, jobTypes: [], fields: [], order: wpDocs.length + 1, uploadedAt: new Date().toISOString() });
+      await saveWpDocs(); renderWpDocs();
+      st.textContent = '\u2713 Uploaded \u2014 now tick its job types and place its signing blocks.'; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  });
+  document.getElementById('wpDocs_replaceFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = ''; const d = wpDocs.find(x => x.id === wpReplaceId); if(!f || !d) return;
+    const st = document.getElementById('wpDocs_status');
+    if((d.fields || []).some(x => x.position) && !confirm('Keep the signing blocks where they are on the new file? (You can move them afterward.)')) d.fields = [];
+    st.textContent = 'Uploading\u2026'; st.className = 'status-msg';
+    try{
+      const dataUri = await wpReadPdf(f);
+      if(!(await window.dashboardApi.set(d.fileKey, dataUri))) throw new Error('Could not upload \u2014 check your connection.');
+      d.fileName = f.name; d.uploadedAt = new Date().toISOString(); await saveWpDocs(); renderWpDocs();
+      st.textContent = '\u2713 File replaced.'; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  });
 
   // ---- Captain Metrics: Excluded From Captain Metrics ----
   // Independent of the Compliance tile's Driver checkbox by design -- this
@@ -22148,6 +22312,28 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`).join('');
     const woOffset = woPages.length; // shifts every "Page N" label so the whole printed packet numbers consistently
     let extraNote = '';
+    // Follows Configuration -> Job Paperwork -> Work Package Documents.
+    const docs = await wpDocsForJob(jobType);
+    if(docs.length){
+      let pageNo = woOffset;
+      for(const d of docs){
+        if(d.builtin === 'billOfLading' && jobType === 'longdistance'){
+          const clientName = pwVal('pw_clientName');
+          const bolHtml = await pullLongDistanceBOL(clientName);
+          if(bolHtml){ html += bolHtml; pageNo += 3; extraNote += ` Included the matching Long Distance Bill of Lading for "${clientName}".`; }
+          else extraNote += clientName ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name exactly) to include it.` : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
+          continue;
+        }
+        if(d.builtin === 'billOfLading') html += buildPWBillOfLading(++pageNo);
+        else if(d.builtin === 'liabilityWaiver') html += buildPWLiabilityWaiver(++pageNo, true);
+        else if(d.builtin === 'shipperDeclaration') html += buildPWShipperDeclaration(++pageNo);
+        else if(d.builtin === 'gaGuide') html += buildPWGAGuide(++pageNo);
+        else if(d.builtin === 'addendum') html += buildPWAddendum(++pageNo);
+        else if(d.builtin === 'preExistingDamages') html += buildPWPreExistingDamages(++pageNo);
+        else if(d.fileKey){ try{ html += await wpUploadedPrintHtml(d); }catch(err){ console.error('Uploaded work package document failed to print:', err); extraNote += ` Could not add "${d.name}".`; } }
+      }
+      return { html, extraNote };
+    }
     if(jobType === 'move'){
       html += buildPWBillOfLading(woOffset + 1);
       html += buildPWLiabilityWaiver(woOffset + 2, true);
@@ -23430,6 +23616,74 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     preExistingDamages: { title: 'Pre-existing Damages', builder: (n) => buildPWPreExistingDamages(n, true), inlineFields: true }
   };
 
+  // ---- Work Package Documents: the configured list drives Print and Push ----
+  // The six built-in documents are the foundation (written fresh for each
+  // job); uploaded PDFs can be mixed in. Order and job types come from
+  // Configuration -> Job Paperwork -> Work Package Documents.
+  const WP_BUILTINS = [
+    { builtin: 'billOfLading', name: 'Bill of Lading', jobTypes: ['move', 'longdistance'] },
+    { builtin: 'liabilityWaiver', name: 'Liability Waiver', jobTypes: ['move', 'movelabor', 'longdistance'] },
+    { builtin: 'shipperDeclaration', name: 'Shipper Declaration of Value', jobTypes: ['move', 'movelabor'] },
+    { builtin: 'gaGuide', name: 'GA HHG Move Guide', jobTypes: ['move', 'longdistance'] },
+    { builtin: 'addendum', name: 'Addendum to Estimate', jobTypes: ['move', 'longdistance'] },
+    { builtin: 'preExistingDamages', name: 'Pre-existing Damages', jobTypes: ['move', 'movelabor', 'longdistance'] }
+  ];
+  // Adds any built-in not yet in the list (first time: all six, in their
+  // usual order, ahead of uploads). Returns { list, changed }.
+  function wpWithBuiltins(list){
+    list = Array.isArray(list) ? list.slice() : [];
+    let changed = false;
+    WP_BUILTINS.forEach((b, i) => {
+      if(list.some(x => x.builtin === b.builtin)) return;
+      list.push({ id: 'builtin_' + b.builtin, builtin: b.builtin, name: b.name, jobTypes: b.jobTypes.slice(), order: i + 0.5 - 100 });
+      changed = true;
+    });
+    list.sort((a, b) => (a.order || 0) - (b.order || 0)).forEach((x, k) => { if(x.order !== k + 1){ x.order = k + 1; } });
+    return { list, changed };
+  }
+  window.wpWithBuiltins = wpWithBuiltins;
+  // The documents for one job type, in order. Dashboard: from storage;
+  // Captain's portal: from the read-only server copy.
+  async function wpDocsForJob(jobType){
+    let list = null;
+    try{
+      if(window.__portalWorkPackage){
+        const r = await fetch(`${API_BASE_AUTH}/api/driver/work-package-docs`, { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('henson_driver_token') || '') } });
+        if(r.ok) list = (await r.json()).documents;
+      } else list = await window.dashboardApi.get('work-package-documents', null);
+    }catch(err){}
+    return wpWithBuiltins(list || []).list.filter(d => (d.jobTypes || []).includes(jobType) && (d.builtin || d.fileKey));
+  }
+  window.wpDocsForJob = wpDocsForJob;
+  const wpFileCache = {};
+  async function wpDocFile(doc){
+    if(wpFileCache[doc.id]) return wpFileCache[doc.id];
+    let uri = null;
+    if(window.__portalWorkPackage){
+      const r = await fetch(`${API_BASE_AUTH}/api/driver/work-package-docs/${encodeURIComponent(doc.id)}/file`, { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('henson_driver_token') || '') } });
+      if(r.ok) uri = (await r.json()).dataUri;
+    } else uri = await window.dashboardApi.get(doc.fileKey, null);
+    if(uri) wpFileCache[doc.id] = uri;
+    return uri;
+  }
+  // Auto-filled block values from the job on the Paperwork form.
+  function wpAutoValue(key){
+    const v = id => (document.getElementById(id) || {}).value || '';
+    const fmt = d => d ? new Date(d + 'T12:00:00').toLocaleDateString() : '';
+    return { signed_date: new Date().toLocaleDateString(), client_name: v('pw_clientName'), job_number: v('pw_jobNumber'), job_date: fmt(v('pw_loadingDate')),
+      origin_address: v('pw_originAddress'), dest_address: v('pw_destAddress') }[key] || '';
+  }
+  const wpEscS = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // An uploaded PDF as print pages: page images with the job's details filled in.
+  async function wpUploadedPrintHtml(doc){
+    const uri = await wpDocFile(doc); if(!uri) return '';
+    const pages = await window.hiringRenderPdfPages(uri, 2);
+    return pages.map((pg, i) => `<div class="print-page" style="position:relative; height:11in; overflow:hidden; display:flex; align-items:flex-start; justify-content:center;">
+        <div style="position:relative; width:100%; aspect-ratio:${pg.width}/${pg.height}; max-height:11in;"><img src="${pg.canvas.toDataURL('image/png')}" style="width:100%; height:100%; display:block;">
+        ${(doc.fields || []).filter(f => f.position && f.position.page === i && f.autoKey).map(f => `<div style="position:absolute; left:${f.position.xPct}%; top:${f.position.yPct}%; width:${f.position.widthPct}%; height:${f.position.heightPct}%; font:11pt Helvetica,Arial,sans-serif; display:flex; align-items:flex-end; overflow:hidden; white-space:nowrap;">${wpEscS(wpAutoValue(f.autoKey))}</div>`).join('')}
+        </div></div>`).join('');
+  }
+
   const SIGN_JOB_TYPE_DOCS = {
     move: ['billOfLading','liabilityWaiver','shipperDeclaration','gaGuide','addendum','preExistingDamages'],
     movelabor: ['liabilityWaiver','preExistingDamages','shipperDeclaration'],
@@ -23497,9 +23751,23 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     window.__portalWorkPackage = jobKey;
     startDigitalSigning({ fromPortal: true });
   };
-  function startDigitalSigning(opts){
+  async function startDigitalSigning(opts){
+    if(!(opts && opts.fromPortal)) window.__portalWorkPackage = null;
     const jobType = document.getElementById('pw_jobType').value;
-    const docKeys = SIGN_JOB_TYPE_DOCS[jobType] || [];
+    // Follows Configuration -> Job Paperwork -> Work Package Documents. (The
+    // Long Distance Bill of Lading comes from its saved estimate and is
+    // signed on paper for now, so it's left out of digital signing.)
+    let docKeys = SIGN_JOB_TYPE_DOCS[jobType] || [];
+    try{
+      const docs = await wpDocsForJob(jobType);
+      if(docs.length){
+        window.__wpSignDocs = {};
+        docKeys = docs.filter(d => !(d.builtin === 'billOfLading' && jobType === 'longdistance')).map(d => {
+          if(d.builtin) { window.__wpSignDocs[d.builtin] = d; return d.builtin; }
+          window.__wpSignDocs['wp:' + d.id] = d; return 'wp:' + d.id;
+        });
+      }
+    }catch(err){ console.error('Work package document list unavailable; using the defaults.', err); }
     if(docKeys.length === 0) return;
     if(!(opts && opts.fromPortal)){ window.__portalWorkPackage = null; archiveJobData(); }
     signingState = { docKeys, currentIndex: 0, capturedSignatures: {}, pads: [], inlineFieldMap: null };
@@ -23533,12 +23801,73 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return fields;
   }
 
+  // An uploaded PDF as a signing step: its pages, with the auto-filled job
+  // details, text/checkbox blocks, and tap-to-sign signature/initial blocks.
+  async function renderUploadedSigningStep(doc, docKey){
+    const content = document.getElementById('signingDocContent');
+    const padsArea = document.getElementById('sign_padsArea');
+    content.innerHTML = '<p class="form-note">Loading document\u2026</p>';
+    padsArea.innerHTML = '<p class="form-note" style="margin-top:0;">Tap each signature or initial box on the document to sign it.</p>';
+    const captured = signingState.capturedSignatures[docKey] = signingState.capturedSignatures[docKey] || {};
+    let pages = [];
+    try{ const uri = await wpDocFile(doc); pages = uri ? await window.hiringRenderPdfPages(uri, 1.5) : []; }catch(err){ console.error(err); }
+    if(!pages.length){ content.innerHTML = '<p class="status-msg err">This document couldn\u2019t be loaded \u2014 check your connection and go Back, then Next.</p>'; return; }
+    content.innerHTML = '';
+    pages.forEach((pg, i) => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = `position:relative; width:100%; max-width:${pg.width}px; aspect-ratio:${pg.width}/${pg.height}; margin:0 auto 8px; background:#fff;`;
+      pg.canvas.style.cssText = 'display:block; width:100%; height:100%;';
+      wrap.appendChild(pg.canvas);
+      (doc.fields || []).filter(f => f.position && f.position.page === i).forEach(f => {
+        const el = document.createElement(f.type === 'text' && !f.autoKey ? 'input' : f.type === 'checkbox' ? 'input' : 'div');
+        el.style.cssText = `position:absolute; left:${f.position.xPct}%; top:${f.position.yPct}%; width:${f.position.widthPct}%; height:${f.position.heightPct}%; box-sizing:border-box;`;
+        el.dataset.fieldId = f.id;
+        if(f.autoKey){ el.textContent = wpAutoValue(f.autoKey); el.style.cssText += 'font-size:clamp(9px,1.6vw,14px); display:flex; align-items:flex-end; overflow:hidden; white-space:nowrap; color:#1a237e;'; captured[f.id] = el.textContent; }
+        else if(f.type === 'checkbox'){ el.type = 'checkbox'; el.className = 'wp-sign-input'; el.checked = !!captured[f.id]; el.style.cssText += 'margin:0;'; }
+        else if(f.type === 'text'){ el.type = 'text'; el.className = 'wp-sign-input'; el.value = captured[f.id] || ''; el.style.cssText += 'background:rgba(255,235,59,0.22); border:1.5px solid rgba(230,160,0,0.85); font-size:clamp(10px,1.8vw,15px); padding:0 4px;'; }
+        else {
+          el.className = 'wp-sign-spot';
+          const isInit = f.type === 'client_initials', who = f.type === 'captain_signature' ? 'Captain' : 'Client';
+          const draw = () => { el.innerHTML = captured[f.id] ? `<img src="${captured[f.id]}" style="height:100%; max-width:100%; object-fit:contain;">` : `\u270d\ufe0f ${who} ${isInit ? 'initials' : 'sign'}`; };
+          el.style.cssText += `display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; font-size:clamp(9px,1.6vw,13px); border:1.5px dashed ${who === 'Captain' ? '#c06a00' : 'var(--brand-green)'}; background:${who === 'Captain' ? 'rgba(247,148,29,0.14)' : 'rgba(0,132,61,0.12)'}; color:var(--charcoal); overflow:hidden;`;
+          draw();
+          el.onclick = () => wpSignModal(`${who} ${isInit ? 'Initials' : 'Signature'}`, dataUri => { captured[f.id] = dataUri; draw(); });
+        }
+        wrap.appendChild(el);
+      });
+      content.appendChild(wrap);
+    });
+  }
+  // A full-size signature pad for one block.
+  function wpSignModal(title, onDone){
+    let ov = document.getElementById('wpSignModal');
+    if(!ov){ ov = document.createElement('div'); ov.id = 'wpSignModal'; document.body.appendChild(ov); }
+    ov.style.cssText = 'position:fixed; inset:0; z-index:10100; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:16px;';
+    ov.innerHTML = `<div style="background:#fff; width:100%; max-width:620px; border-radius:12px; padding:16px 18px;"><div style="font-weight:800; font-size:17px; margin-bottom:8px;">${title}</div>
+      <canvas id="wpSignCanvas" style="width:100%; height:180px; border:1px solid var(--line); border-radius:8px; touch-action:none; display:block;"></canvas>
+      <div style="display:flex; justify-content:space-between; margin-top:10px;"><button type="button" id="wpSignClear" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer;">Clear</button>
+      <div style="display:flex; gap:8px;"><button type="button" id="wpSignCancel" style="background:#fff; border:1px solid var(--line); padding:10px 14px; border-radius:8px; cursor:pointer;">Cancel</button><button type="button" id="wpSignDone" style="background:var(--brand-green); color:#fff; border:none; padding:10px 18px; border-radius:8px; font-weight:800; cursor:pointer;">Done</button></div></div></div>`;
+    const pad = createSignaturePad(document.getElementById('wpSignCanvas'));
+    document.getElementById('wpSignClear').onclick = () => pad.clear();
+    document.getElementById('wpSignCancel').onclick = () => { ov.style.display = 'none'; };
+    document.getElementById('wpSignDone').onclick = () => { if(pad.isEmpty()){ alert('Draw it first.'); return; } onDone(pad.toDataURL()); ov.style.display = 'none'; };
+  }
   function renderSigningStep(){
     const { docKeys, currentIndex, capturedSignatures } = signingState;
     const docKey = docKeys[currentIndex];
-    const config = SIGN_DOC_CONFIG[docKey];
+    const wpDoc = (window.__wpSignDocs || {})[docKey];
     document.getElementById('sign_progress').textContent = `Document ${currentIndex+1} of ${docKeys.length}`;
-    document.getElementById('sign_docTitle').textContent = config.title;
+    document.getElementById('sign_backBtn').style.visibility = currentIndex === 0 ? 'hidden' : 'visible';
+    document.getElementById('sign_nextBtn').textContent = currentIndex === docKeys.length - 1 ? 'Finish & Save' : 'Next \u2192';
+    if(docKey.startsWith('wp:')){
+      document.getElementById('sign_docTitle').textContent = wpDoc ? wpDoc.name : 'Document';
+      const statusEl0 = document.getElementById('sign_status'); statusEl0.textContent = ''; statusEl0.className = 'status-msg';
+      signingState.pads = null; signingState.inlineFieldMap = null;
+      renderUploadedSigningStep(wpDoc, docKey);
+      return;
+    }
+    const config = SIGN_DOC_CONFIG[docKey];
+    document.getElementById('sign_docTitle').textContent = (wpDoc && wpDoc.name) || config.title;
     document.getElementById('signingDocContent').innerHTML = config.builder(currentIndex+1);
     const statusEl = document.getElementById('sign_status');
     statusEl.textContent = '';
@@ -23585,6 +23914,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function captureCurrentStep(){
     const { docKeys, currentIndex, capturedSignatures } = signingState;
     const docKey = docKeys[currentIndex];
+    if(docKey.startsWith('wp:')){
+      const doc = (window.__wpSignDocs || {})[docKey] || { fields: [] };
+      const cap = capturedSignatures[docKey] = capturedSignatures[docKey] || {};
+      document.querySelectorAll('#signingDocContent .wp-sign-input').forEach(i => { cap[i.dataset.fieldId] = i.type === 'checkbox' ? i.checked : i.value; });
+      const miss = (doc.fields || []).find(f => f.position && /signature|initials/.test(f.type) && !cap[f.id]);
+      return { ok: !miss, missingLabel: miss ? miss.label : null };
+    }
     const config = SIGN_DOC_CONFIG[docKey];
 
     if(config.inlineFields){
@@ -23676,6 +24012,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       destAddress: pwVal('pw_destAddress'),
       signedAt: new Date().toISOString(),
       documents: signingState.docKeys.map(docKey => {
+        if(docKey.startsWith('wp:')){
+          const doc = (window.__wpSignDocs || {})[docKey] || { name: 'Document', fields: [] };
+          const cap = signingState.capturedSignatures[docKey] || {};
+          return { docKey, title: doc.name, uploaded: true, fields: (doc.fields || []).filter(f => f.position).map(f => ({ label: f.label, type: /signature/.test(f.type) ? 'signature' : f.type === 'client_initials' ? 'initial' : f.type, value: cap[f.id] != null ? cap[f.id] : null })) };
+        }
         const config = SIGN_DOC_CONFIG[docKey];
         const captured = signingState.capturedSignatures[docKey];
         let fields;
@@ -23688,7 +24029,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         } else {
           fields = config.signatures.map((label, i) => ({ label, type: 'signature', value: (captured || [])[i] || null }));
         }
-        return { docKey, title: config.title, fields };
+        return { docKey, title: ((window.__wpSignDocs || {})[docKey] || {}).name || config.title, fields };
       })
     };
 
