@@ -48,6 +48,7 @@ const ALLOWED_KEYS = new Set([
   'fleet-maintenance-logs',
   'paperwork-signed-records',
   'digital-work-packages',
+  'work-package-documents',
   'attendance-records',
   'paperwork-uploads',
   'paperwork-job-archive',
@@ -105,7 +106,7 @@ const ALLOWED_KEYS = new Set([
   'hiring-reveal-log',
   'ops-manager-metrics-monthly-locks'
 ]);
-const ALLOWED_KEY_PREFIXES = ['interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
+const ALLOWED_KEY_PREFIXES = ['wp-doc-file-', 'interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
@@ -2099,6 +2100,20 @@ async function myExpenses(personName) {
 // in his HUNK Portal, he completes the signing with the client there, and the
 // signed record is saved with the others (paperwork-signed-records).
 const DIGITAL_WP_KEY = 'digital-work-packages';
+// The work package document list (Configuration -> Job Paperwork) and its
+// uploaded PDFs, read-only for Captains signing a pushed package.
+app.get('/api/driver/work-package-docs', requireDriverAuth, async (req, res) => {
+  try { res.json({ documents: JSON.parse(await redis.get('work-package-documents') || '[]') }); }
+  catch (err) { res.status(500).json({ error: 'Could not load the documents.' }); }
+});
+app.get('/api/driver/work-package-docs/:id/file', requireDriverAuth, async (req, res) => {
+  try {
+    const d = JSON.parse(await redis.get('work-package-documents') || '[]').find(x => x.id === req.params.id);
+    if (!d || !d.fileKey || !/^wp-doc-file-/.test(d.fileKey)) return res.status(404).json({ error: 'Not found.' });
+    const raw = await redis.get(d.fileKey);
+    res.json({ dataUri: raw ? JSON.parse(raw) : null });
+  } catch (err) { res.status(500).json({ error: 'Could not load the document.' }); }
+});
 app.get('/api/driver/work-packages', requireDriverAuth, async (req, res) => {
   try {
     const me = nameCoreKey(req.driverName);
@@ -6169,14 +6184,32 @@ app.post('/api/hiring/package/:token/submit', async (req, res) => {
     const missing = [];
     documents.forEach(doc => {
       const prog = (candidate.documentProgress || {})[doc.id] || { fieldValues: {} };
+      // Same rules as the onboarding page:
+      //  - checkboxes sharing a label ("Filing Status" x3) are ONE choose-one
+      //    question: if any of them is Required, one of them must be checked;
+      //  - a lone checkbox's Required just means it's on the form;
+      //  - employer signature spots are the Administrator's, not the new hire's.
+      const cbKey = f => String(f.label || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const valueOf = f => f.canonicalKey ? (candidate.sharedFieldValues || {})[f.canonicalKey] : (prog.fieldValues || {})[f.id];
+      const filled = v => !(v === undefined || v === null || v === false || String(v).trim() === '' || String(v) === 'false');
+      const isEmployerSig = f => f.type === 'employer_signature' || /\b(employer|company|supervisor|manager|authorized|representative|hr)\b.*\bsignature\b|\bsignature\b.*\b(employer|company|supervisor|manager|authorized|representative)\b/i.test(f.label || '');
+      const groupsDone = new Set();
       (doc.fields || []).forEach(f => {
+        if (isEmployerSig(f)) return;
+        if (f.type === 'checkbox') {
+          const group = (doc.fields || []).filter(x => x.type === 'checkbox' && cbKey(x) === cbKey(f));
+          if (group.length < 2) return;
+          const k = cbKey(f); if (groupsDone.has(k)) return; groupsDone.add(k);
+          if (group.some(x => x.required) && !group.some(x => filled(valueOf(x)))) missing.push(`${doc.name}: ${f.label} (choose one)`);
+          return;
+        }
         if (!f.required) return;
-        const value = f.canonicalKey ? (candidate.sharedFieldValues || {})[f.canonicalKey] : (prog.fieldValues || {})[f.id];
-        if (value === undefined || value === null || String(value).trim() === '') missing.push(`${doc.name}: ${f.label}`);
+        if (!filled(valueOf(f)) && String(valueOf(f)) !== 'false') missing.push(`${doc.name}: ${f.label}`);
       });
       if (doc.requiresSignature && !prog.signatureKey) missing.push(`${doc.name}: signature`);
     });
     if (missing.length > 0) {
+      console.log(`[hiring-submit-blocked] ${candidate.firstName} ${candidate.lastName}: ${missing.join('; ')}`);
       return res.status(400).json({ error: 'A few things still need to be filled in before this can be submitted.', missing });
     }
 
