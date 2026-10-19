@@ -25880,7 +25880,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { key: 'netIncome', label: 'Net Income', where: 'Tables' },
     { key: 'totalEquity', label: 'Total Equity', where: 'Chart & tables' },
     { key: 'depreciationAmortization', label: 'Depreciation & Amortization', where: 'Tables' },
-    { key: 'businessValue', label: 'Estimated Business Value', where: 'Chart line (from valuations)' }
+    { key: 'businessValue', label: 'Estimated Business Value', where: 'Chart line (from valuations)' },
+    { key: 'cogs', label: 'COGS (monthly)', where: 'Chart line (Revenue \u2212 Gross Profit)' },
+    { key: 'fixedExpenses', label: 'Fixed Expenses (monthly)', where: 'Chart line (Gross Profit \u2212 Operating Profit)' }
   ];
   window.MF_METRICS = MF_METRICS;
   const mfShown = key => !((((window.appSettings || {}).financials || {}).hiddenMetrics) || []).includes(key);
@@ -26628,6 +26630,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // revenue. Dotted (not dashed) to visually mark it as a different
       // kind of figure again from the derived SDE line.
       { key: 'totalEquity', label: 'Total Equity', data: monthsOfYear.map(r => r ? r.totalEquity : null), borderColor: '#8A8A8A', backgroundColor: '#8A8A8A', borderDash: [1,3] },
+      // Each month's OWN amount (not year-to-date), on the right-hand scale --
+      // the goal is for these to stay mostly flat month to month.
+      //   COGS           = Total Revenue - Gross Profit
+      //   Fixed Expenses = Gross Profit - Operating Profit (the operating expenses)
+      { key: 'cogs', label: 'COGS', monthly: true, yAxisID: 'yMonthly', data: monthsOfYear.map(r => r && Number(r.revenue) ? (Number(r.revenue) || 0) - (Number(r.grossProfit) || 0) : null),
+        borderColor: '#8B4513', backgroundColor: '#8B4513', borderWidth: 2.5, pointRadius: 4, pointStyle: 'triangle' },
+      { key: 'fixedExpenses', label: 'Fixed Expenses', monthly: true, yAxisID: 'yMonthly', data: monthsOfYear.map(r => r && Number(r.grossProfit) ? (Number(r.grossProfit) || 0) - (Number(r.operatingProfit) || 0) : null),
+        borderColor: '#5D6D7E', backgroundColor: '#5D6D7E', borderWidth: 2.5, pointRadius: 4, pointStyle: 'rect' },
       // Estimated business value from the AI valuations: a point-in-time
       // figure (not a running total), plotted in the month each estimate was
       // run -- the latest one if there were several.
@@ -26692,11 +26702,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             legend: { labels: { boxWidth: 16, font: { size: 11 } } },
             tooltip: { callbacks: { label: c => {
               if(c.dataset.key === 'businessValue'){ const v = (c.dataset.valuations || {})[c.dataIndex]; return v ? `Estimated Business Value: ${mfMoney(v.value.mid)} (range ${mfMoney(v.value.low)}\u2013${mfMoney(v.value.high)}, ${new Date(v.createdAt).toLocaleDateString()})` : ''; }
-              return `${c.dataset.label}${c.dataset.label === 'Total Equity' ? ' (as of month-end)' : ' (YTD)'}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}`;
+              return `${c.dataset.label}${c.dataset.monthly ? ' (this month)' : c.dataset.label === 'Total Equity' ? ' (as of month-end)' : ' (YTD)'}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}`;
             } } }
           },
           scales: {
-            y: { ticks: { callback: v => '$' + Number(v).toLocaleString() }, grid: { color: '#E4E0D6' } },
+            y: { ticks: { callback: v => '$' + Number(v).toLocaleString() }, grid: { color: '#E4E0D6' }, title: { display: datasets.some(d => d.monthly), text: 'Year to date' } },
+            // Right-hand scale for the monthly lines (COGS, Fixed Expenses).
+            yMonthly: { display: datasets.some(d => d.monthly), position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, ticks: { callback: v => '$' + Number(v).toLocaleString() }, title: { display: true, text: 'Monthly' } },
             x: { grid: { display: false } }
           }
         }
