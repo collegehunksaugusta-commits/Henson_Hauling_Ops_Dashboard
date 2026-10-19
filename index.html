@@ -8998,7 +8998,7 @@
           <label>CC Recipients <input type="text" id="appset_ldQuoteCc" placeholder="name@chhj.com, name2@chhj.com"></label>
           <p class="form-note" style="margin-top:0;">Comma-separated. Every quote email sent from the Long Distance Estimates tile CC's these addresses.</p>
           <label>Email Body <textarea id="appset_ldQuoteEmailBody" rows="7" style="font-family:inherit; font-size:13px; padding:8px; width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:4px;"></textarea></label>
-          <p class="form-note">Sent from the "Email Quote to Client" button, with the estimate PDF downloaded and ready to attach. Available merge fields: <span class="mono">{{clientName}}</span>, <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{weight}}</span>, <span class="mono">{{miles}}</span>, <span class="mono">{{total}}</span>, <span class="mono">{{valuationCost}}</span> (the Full Value Protection charge &mdash; what the total would drop by if the client chose the free 60&cent;/lb option instead) &mdash; each is swapped in automatically from the estimate on screen. Subject line is always fixed to "College Hunks - Weight and Distance Quote".</p>
+          <p class="form-note">Sent from the "Email Quote to Client" button, with the estimate PDF downloaded and ready to attach. Available merge fields: <span class="mono">{{clientName}}</span>, <span class="mono">{{clientFirstName}}</span>, <span class="mono">{{weight}}</span>, <span class="mono">{{miles}}</span>, <span class="mono">{{total}}</span>, <span class="mono">{{valuationCost}}</span> (the charge for the valuation option selected on the quote &mdash; what the total would drop by if the client chose the free 60&cent;/lb option instead), <span class="mono">{{valuationOption}}</span> (which option, e.g. &ldquo;Option 2(b) (Full Value, $300 deductible)&rdquo;) &mdash; each is swapped in automatically from the estimate on screen. Subject line is always fixed to "College Hunks - Weight and Distance Quote".</p>
           <div class="form-actions">
             <button class="btn-primary" id="appset_ldQuoteSaveBtn" type="button">Save</button>
             <span class="status-msg" id="appset_ldQuoteStatus"></span>
@@ -20780,11 +20780,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     el.addEventListener('input', recalc);
     el.addEventListener('change', recalc);
   });
+  window.__valOptChosen = false;   // true once someone actually picks an option
   document.querySelectorAll('.valopt').forEach(el => {
     el.addEventListener('click', () => {
       document.querySelectorAll('.valopt').forEach(v => v.classList.remove('selected'));
       el.classList.add('selected');
       el.querySelector('input').checked = true;
+      window.__valOptChosen = true;
       recalc();
     });
   });
@@ -20993,15 +20995,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const fullName = document.getElementById('shipperName').value.trim();
     const clientName = fullName || 'there';
     const clientFirstName = fullName ? fullName.split(/\s+/)[0] : 'there';
-    const { val2a } = computeEstimateFigures();
+    const { valSel, estOpt, estimateTotal } = computeEstimateFigures();   // same figures as the attached Estimate
     const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
     const template = ldQuote.emailBodyTemplate || '';
     const body = mergeEmailTemplate(template, {
       clientName, clientFirstName,
       weight: Math.round(window.__calc.weight).toLocaleString(),
       miles: Math.round(window.__calc.miles).toLocaleString(),
-      total: money(window.__calc.total),
-      valuationCost: money(val2a)
+      total: money(estimateTotal),
+      valuationCost: money(valSel),
+      valuationOption: estOpt === '1' ? 'Option 1 (Released Value)' : estOpt === '2b' ? 'Option 2(b) (Full Value, $300 deductible)' : 'Option 2(a) (Full Value, no deductible)'
     });
     const subject = 'College Hunks - Weight and Distance Quote';
     const cc = ldQuote.ccEmails || '';
@@ -21086,15 +21089,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // two are always guaranteed to show identical figures.
   function computeEstimateFigures(){
     const calc = window.__calc || {items:[], total:0, isLocal:false, isLong:false, discountAmt:0};
-    // Estimate always assumes Option 2(a) valuation by default, regardless of the
-    // Valuation Selected radio elsewhere on the page (that reflects the actual BOL choice).
+    // The Estimate uses the valuation option selected on the quote (2(a), 2(b),
+    // or a deliberately chosen Option 1). A quote nobody has touched still
+    // defaults to Option 2(a), as before.
     const declared = calc.declared || 0;
     const val2a = declared > 0 ? (declared/1000)*15.73 : 0;
     const val2b = declared > 0 ? (declared/1000)*5.17 : 0;
+    const estOpt = (calc.valOpt === '2a' || calc.valOpt === '2b') ? calc.valOpt : (calc.valOpt === '1' && window.__valOptChosen ? '1' : '2a');
+    const valSel = estOpt === '2b' ? val2b : estOpt === '1' ? 0 : val2a;
+    const estOptDefault = estOpt === '2a' && calc.valOpt !== '2a';
+    const estOptLabel = estOpt === '1' ? 'Released Value Protection (Option 1)' : estOpt === '2b' ? 'Full Value Protection, $300 Deductible (Option 2(b))' : `Full Value Protection (Option 2(a)${estOptDefault ? ', included by default' : ''})`;
 
     const baseItems = calc.items.filter(([label]) => !String(label).startsWith('Valuation'));
     const baseSubtotal = baseItems.reduce((s,[,amt]) => s+amt, 0);
-    const subtotalWithVal = baseSubtotal + val2a;
+    const subtotalWithVal = baseSubtotal + valSel;
 
     let discountAmt = 0;
     if(calc.discountType === 'percent'){
@@ -21104,12 +21112,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     discountAmt = Math.max(0, Math.min(discountAmt, subtotalWithVal));
     const estimateTotal = subtotalWithVal - discountAmt;
-    return { calc, declared, val2a, val2b, baseItems, baseSubtotal, subtotalWithVal, discountAmt, estimateTotal };
+    return { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, baseItems, baseSubtotal, subtotalWithVal, discountAmt, estimateTotal };
   }
 
   function buildEstimateView(){
-    const { calc, declared, val2a, val2b, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
-    const val1 = 0; // Option 1 (Released Value Protection) is always free
+    const { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
+    const val1 = 0;
+    const rowSel = o => o === estOpt ? ' background:#F3FBF6;' : '';
+    const tagSel = o => o === estOpt ? ' <span style="font-weight:normal; font-size:8.5pt;">(included above)</span>' : ''; // Option 1 (Released Value Protection) is always free
     const val = (id) => document.getElementById(id).value || '';
     const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
     const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
@@ -21158,8 +21168,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <h3 style="font-family:Georgia,serif; font-size:13pt; color:#00612C; border-bottom:1px solid #ccc; padding-bottom:6px; margin:20px 0 8px;">Estimated Charges</h3>
         <table style="width:100%; border-collapse:collapse; font-size:10pt;">
           ${itemRows}
-          <tr><td style="padding-top:8px; border-top:1px solid #999;">Full Value Protection (Option 2(a), included by default)</td>
-              <td style="padding-top:8px; border-top:1px solid #999; text-align:right;">${money(val2a)}</td></tr>
+          <tr><td style="padding-top:8px; border-top:1px solid #999;">${estOptLabel}</td>
+              <td style="padding-top:8px; border-top:1px solid #999; text-align:right;">${money(valSel)}</td></tr>
           ${discountRow}
           <tr><td style="padding-top:10px; border-top:2px solid #00843D; font-weight:bold; font-size:13pt;">Estimated Total</td>
               <td style="padding-top:10px; border-top:2px solid #00843D; font-weight:bold; font-size:13pt; text-align:right; color:#00612C;">${money(estimateTotal)}</td></tr>
@@ -21169,20 +21179,20 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <p style="font-size:8pt; color:#666; margin:6px 0 0;">This is a Not-to-Exceed Estimate under GA DPS Maximum Rate Tariff No. 7. Final charges are determined after all services have been completed based on actual weight, distance, and services rendered, but total charges due shall not exceed 110% of this estimate, at the carrier's sole discretion.</p>
 
         <h3 style="font-family:Georgia,serif; font-size:13pt; color:#00612C; border-bottom:1px solid #ccc; padding-bottom:6px; margin:26px 0 8px;">Protecting Your Belongings</h3>
-        <p style="font-size:9.5pt; text-align:justify; margin:0 0 10px;">Every move includes valuation coverage in case of loss or damage. There are three levels to choose from. Unless you tell us otherwise, we include <b>Option 2(a)</b> in this estimate.</p>
+        <p style="font-size:9.5pt; text-align:justify; margin:0 0 10px;">Every move includes valuation coverage in case of loss or damage. There are three levels to choose from. ${estOptDefault ? 'Unless you tell us otherwise, we include <b>Option 2(a)</b> in this estimate.' : `This estimate includes <b>${estOpt === '1' ? 'Option 1' : estOpt === '2b' ? 'Option 2(b)' : 'Option 2(a)'}</b>, the coverage you selected.`}</p>
         <table style="width:100%; border-collapse:collapse; font-size:9.5pt; margin-bottom:8px;">
-          <tr style="border-bottom:1px solid #ccc;">
-            <td style="padding:6px 4px; font-weight:bold;">Option 1 &mdash; Released Value</td>
+          <tr style="border-bottom:1px solid #ccc;${rowSel('1')}">
+            <td style="padding:6px 4px; font-weight:bold;">Option 1 &mdash; Released Value${tagSel('1')}</td>
             <td style="padding:6px 4px;">Basic coverage at $0.60 per pound per article. No additional cost, but minimal protection for valuable items.</td>
             <td style="padding:6px 4px; text-align:right; white-space:nowrap;">${money(val1)}</td>
           </tr>
-          <tr style="border-bottom:1px solid #ccc; background:#F3FBF6;">
-            <td style="padding:6px 4px; font-weight:bold;">Option 2(a) &mdash; Full Value <span style="font-weight:normal; font-size:8.5pt;">(included above)</span></td>
+          <tr style="border-bottom:1px solid #ccc;${rowSel('2a')}">
+            <td style="padding:6px 4px; font-weight:bold;">Option 2(a) &mdash; Full Value${tagSel('2a')}</td>
             <td style="padding:6px 4px;">Full replacement value coverage, no deductible.</td>
             <td style="padding:6px 4px; text-align:right; white-space:nowrap;">${money(val2a)}</td>
           </tr>
-          <tr>
-            <td style="padding:6px 4px; font-weight:bold;">Option 2(b) &mdash; Full Value, $300 Deductible</td>
+          <tr style="${rowSel('2b')}">
+            <td style="padding:6px 4px; font-weight:bold;">Option 2(b) &mdash; Full Value, $300 Deductible${tagSel('2b')}</td>
             <td style="padding:6px 4px;">Full replacement value coverage with a $300 deductible, at a lower cost than 2(a).</td>
             <td style="padding:6px 4px; text-align:right; white-space:nowrap;">${money(val2b)}</td>
           </tr>
@@ -21206,7 +21216,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // the person to attach -- returns the jsPDF doc; caller decides whether
   // to .save() (download) or read a blob from it.
   function buildEstimatePDF(){
-    const { calc, declared, val2a, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
+    const { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
     const val = (id) => document.getElementById(id).value || '';
     const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
     const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
@@ -21271,8 +21281,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       doc.text(money(amt), rightX, y, { align: 'right' });
       y += 16;
     });
-    doc.text('Full Value Protection (Option 2(a), included by default)', marginX, y);
-    doc.text(money(val2a), rightX, y, { align: 'right' });
+    doc.text(estOptLabel, marginX, y);
+    doc.text(money(valSel), rightX, y, { align: 'right' });
     y += 16;
     if(discountAmt > 0){
       doc.text('Discount', marginX, y);
@@ -21289,7 +21299,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(102,102,102);
     const valNote = declared > 0
-      ? `Based on a declared value of ${money(declared)}. This quote includes Full Value Protection (Option 2(a)) by default. A free option (Released Value Protection, $0.60/lb per article) is also available and would reduce the total by ${money(val2a)}.`
+      ? `Based on a declared value of ${money(declared)}. This quote includes ${estOptDefault ? 'Full Value Protection (Option 2(a)) by default' : estOptLabel + ', the coverage selected'}. Other options: Option 1, Released Value ($0.60/lb per article, free); Option 2(a), Full Value, no deductible (${money(val2a)}); Option 2(b), Full Value, $300 deductible (${money(val2b)}).`
       : 'Valuation costs shown are based on the declared value entered for this move.';
     doc.text(doc.splitTextToSize(valNote, rightX - marginX), marginX, y);
     y += 40;
@@ -21738,12 +21748,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     });
     const checkedVal = document.querySelector('input[name="valOpt"]:checked');
     data.valOptRadio = checkedVal ? checkedVal.value : '1';
+    data.valOptChosen = !!window.__valOptChosen;
     return data;
   }
 
   function restoreFormData(data){
     Object.keys(data).forEach(key => {
-      if(key === 'valOptRadio') return;
+      if(key === 'valOptRadio' || key === 'valOptChosen') return;
       if(EXCLUDED_IDS.has(key)) return;
       if(key.startsWith('pack_') || key.startsWith('bulky_')){
         const cls = key.startsWith('pack_') ? '.packQty' : '.bulkyQty';
@@ -21760,6 +21771,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         el.value = data[key];
       }
     });
+    // Older saved quotes: 2(a)/2(b) were always deliberate choices.
+    window.__valOptChosen = !!data.valOptChosen || data.valOptRadio === '2a' || data.valOptRadio === '2b';
     if(data.valOptRadio){
       const radio = document.querySelector(`input[name="valOpt"][value="${data.valOptRadio}"]`);
       if(radio){
@@ -21948,6 +21961,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     const radio = document.querySelector('input[name="valOpt"][value="1"]');
     if(radio) radio.checked = true;
+    window.__valOptChosen = false;
     document.querySelectorAll('.valopt').forEach(v => v.classList.remove('selected'));
     const opt1 = document.querySelector('.valopt[data-val="1"]');
     if(opt1) opt1.classList.add('selected');
