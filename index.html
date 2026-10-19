@@ -9262,6 +9262,7 @@
         <div class="panel" id="set_commissionPanel" data-collapsible="true">
           <h3>Commission Rates</h3>
           <p class="form-note" style="margin-top:0;">A commission rate for each role below. Driver applies to anyone currently checked as a driver on the Compliance tile's Driver List. Ops Manager applies to whoever is assigned that role here, independent of the Driver checkbox &mdash; someone can be both. Wingman isn't a fixed role like the other two &mdash; it applies to whoever was actually rated as a wingman that week, using their Wingman Score for that week; someone not rated at all that week simply earns no wingman commission.</p>
+          <p class="form-note" style="margin:0 0 8px;"><strong>Graded on a curve:</strong> Captain and Wingman commission = last week&rsquo;s revenue &times; rate &times; score &times; (his hours &divide; the most hours any commission earner worked that week). Whoever worked the most hours gets 100% of target; everyone else is in proportion &mdash; no one can ever go over 100%.</p>
           <div class="form-grid" style="grid-template-columns:auto auto auto; align-items:end;">
             <label>Driver Commission Rate (%) <input type="number" min="0" max="100" step="0.1" id="appset_commissionDriverRate" style="max-width:120px;"></label>
             <label title="Ops Manager commission = converted revenue (entered each week in his Extra Pay row) x this rate x his score x his hours/40">Ops Manager Commission Rate (% of converted revenue) <input type="number" min="0" max="100" step="0.1" id="appset_commissionOpsManagerRate" style="max-width:120px;"></label>
@@ -13066,6 +13067,12 @@
           }
           const wingmanScores = wingmanScoresByWeek[w.weekStart] || {};
 
+          // "Graded on a curve": each person's hours share is his hours divided
+          // by the MOST hours any commission earner worked that week -- the top
+          // person gets 100% of target and no one can ever exceed it (overtime
+          // isn't rewarded a second time on top of the overtime rate).
+          // First pass: each person's base (revenue x rate x score) and hours.
+          const curveBase = {}, curveHours = {};
           w.names.forEach(name => {
             const key = nameDedupKey(name);
             const hours = hoursByKey[key] || 0;
@@ -13085,7 +13092,7 @@
               const captainEntry = Object.keys(captainScores).find(cn => nameDedupKey(cn) === key);
               const captainScore = captainEntry ? captainScores[captainEntry].overall : null;
               if(captainScore !== null && captainScore !== undefined){
-                total += revenue * ((Number(commission.driverRate)||0)/100) * (captainScore/100) * (hours/40);
+                total += revenue * ((Number(commission.driverRate)||0)/100) * (captainScore/100);
               }
             }
             // The Ops Manager is paid on estimate conversions instead -- set
@@ -13099,10 +13106,17 @@
             const wingmanEntry = Object.keys(wingmanScores).find(wn => nameDedupKey(wn) === key);
             const wingmanScore = wingmanEntry ? wingmanScores[wingmanEntry].overall : null;
             if(wingmanScore !== null && wingmanScore !== undefined){
-              total += revenue * ((Number(commission.wingmanRate)||0)/100) * (wingmanScore/100) * (hours/40);
+              total += revenue * ((Number(commission.wingmanRate)||0)/100) * (wingmanScore/100);
             }
-            if(total > 0) commissionCalc[name] = total;
+            if(total > 0 && hours > 0){ curveBase[name] = total; curveHours[name] = hours; }
           });
+          // Second pass: the ceiling is the most hours among those earning crew commission.
+          const curveTop = Math.max(0, ...Object.values(curveHours));
+          Object.keys(curveBase).forEach(name => {
+            const amt = curveTop > 0 ? curveBase[name] * (curveHours[name] / curveTop) : 0;
+            if(amt > 0) commissionCalc[name] = amt;
+          });
+          w.curveTopHours = curveTop;
         }
         // Efficiency cap: the commission pool can't exceed a share of what
         // labor came in under target for the revenue week:
