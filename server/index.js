@@ -47,6 +47,7 @@ const ALLOWED_KEYS = new Set([
   'fleet-trucks',
   'fleet-maintenance-logs',
   'paperwork-signed-records',
+  'digital-work-packages',
   'attendance-records',
   'paperwork-uploads',
   'paperwork-job-archive',
@@ -2093,6 +2094,50 @@ async function myExpenses(personName) {
       status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
 }
 
+// ============ Digital Work Packages (Work Package Generator -> Captain's app) ============
+// The office pushes a generated work package to the job's Captain; it shows
+// in his HUNK Portal, he completes the signing with the client there, and the
+// signed record is saved with the others (paperwork-signed-records).
+const DIGITAL_WP_KEY = 'digital-work-packages';
+app.get('/api/driver/work-packages', requireDriverAuth, async (req, res) => {
+  try {
+    const me = nameCoreKey(req.driverName);
+    const cutoff = new Date(Date.now() - 7 * 864e5).toISOString();
+    const list = JSON.parse(await redis.get(DIGITAL_WP_KEY) || '[]')
+      .filter(w => nameCoreKey(w.captainName || '') === me && (w.status !== 'completed' || (w.completedAt || '') >= cutoff))
+      .sort((a, b) => (a.status === 'completed') - (b.status === 'completed') || String(a.jobDate || '').localeCompare(String(b.jobDate || '')))
+      .map(w => ({ jobKey: w.jobKey, jobNumber: w.jobNumber, clientName: w.clientName, jobType: w.jobType, jobDate: w.jobDate || '', status: w.status, pushedAt: w.pushedAt, completedAt: w.completedAt || null }));
+    res.json({ packages: list });
+  } catch (err) { res.status(500).json({ error: 'Could not load your work packages.' }); }
+});
+app.get('/api/driver/work-packages/:jobKey', requireDriverAuth, async (req, res) => {
+  try {
+    const w = JSON.parse(await redis.get(DIGITAL_WP_KEY) || '[]').find(x => x.jobKey === req.params.jobKey);
+    if (!w || nameCoreKey(w.captainName || '') !== nameCoreKey(req.driverName)) return res.status(404).json({ error: 'That work package isn\u2019t assigned to you.' });
+    const jobData = JSON.parse(await redis.get('paperwork-job-link-' + w.jobKey) || 'null');
+    if (!jobData) return res.status(404).json({ error: 'That work package could not be found \u2014 ask the office to push it again.' });
+    res.json({ jobData, status: w.status });
+  } catch (err) { res.status(500).json({ error: 'Could not load the work package.' }); }
+});
+app.post('/api/driver/work-packages/:jobKey/complete', requireDriverAuth, async (req, res) => {
+  try {
+    const list = JSON.parse(await redis.get(DIGITAL_WP_KEY) || '[]');
+    const w = list.find(x => x.jobKey === req.params.jobKey);
+    if (!w || nameCoreKey(w.captainName || '') !== nameCoreKey(req.driverName)) return res.status(404).json({ error: 'That work package isn\u2019t assigned to you.' });
+    const record = (req.body || {}).record;
+    if (!record || !Array.isArray(record.documents)) return res.status(400).json({ error: 'Nothing was signed.' });
+    record.id = record.id || ('signed_' + Date.now());
+    record.signedVia = 'hunk-portal'; record.captainName = req.driverName; record.digitalWorkPackage = w.jobKey;
+    const records = JSON.parse(await redis.get('paperwork-signed-records') || '[]');
+    records.push(record);
+    await redis.set('paperwork-signed-records', JSON.stringify(records));
+    w.status = 'completed'; w.completedAt = new Date().toISOString(); w.signedRecordId = record.id;
+    await redis.set(DIGITAL_WP_KEY, JSON.stringify(list));
+    console.log(`[digital-wp] ${req.driverName} completed job ${w.jobNumber} (${w.clientName})`);
+    res.json({ ok: true });
+  } catch (err) { console.error('Digital work package complete failed:', err.message); res.status(500).json({ error: 'Could not save the signed paperwork.' }); }
+});
+
 // ============ Time-off requests (HUNK Portal -> Manager Review) ============
 const TIME_OFF_KEY = 'time-off-requests';
 async function submitTimeOff(personName, role, body) {
@@ -3859,7 +3904,8 @@ const DEFAULT_APP_SETTINGS = {
   },
   paperwork: {
     completedPaperworkCc: LOCATION.completedPaperworkCc,
-    googleReviewLink: LOCATION.googleReviewLink
+    googleReviewLink: LOCATION.googleReviewLink,
+    workPackageMode: 'both'   // 'both', 'analog' (print only) or 'digital' (push to the Captain's app only)
   },
   materials: {
     supplierPhone: '',
@@ -3969,6 +4015,7 @@ app.post('/api/admin/app-settings', requireAuth, requireAdmin, async (req, res) 
     const existing = raw ? JSON.parse(raw) : {};
     // Merge group-by-group so saving one group's fields never wipes another group's saved values.
     const updated = Object.assign({}, existing);
+    if (settings.paperwork && 'workPackageMode' in settings.paperwork && !['both', 'analog', 'digital'].includes(settings.paperwork.workPackageMode)) delete settings.paperwork.workPackageMode;
     for (const group of Object.keys(settings)) {
       if (!DEFAULT_APP_SETTINGS[group]) continue; // ignore unknown groups
       updated[group] = Object.assign({}, existing[group] || {}, settings[group]);
