@@ -34128,7 +34128,12 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const baseStyle = `position:absolute; left:${pos.xPct}%; top:${pos.yPct}%; width:${pos.widthPct}%; height:${pos.heightPct}%; box-sizing:border-box; font-size:clamp(9px, 1.6vw, 13px); font-family:inherit;`;
 
       if(field.type === 'checkbox'){
-        return `<input type="checkbox" class="ho-field-input ho-placed-field" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" title="${hoEsc(field.label)}" ${value ? 'checked' : ''} style="${baseStyle} width:auto; height:auto; accent-color:#f9a825;">`;
+        // A finger-friendly tap zone above any overlapping box: it reaches right
+        // across the printed words, and its height stops halfway to the next
+        // checkbox so stacked choices never overlap.
+        const hit = field._hit || { hPct: 3, wPct: 12 };
+        const cy = pos.yPct + pos.heightPct / 2;
+        return `<label class="ho-placed-field ho-cb-hit" title="${hoEsc(field.label)}" style="position:absolute; left:${Math.max(0, pos.xPct - 0.6)}%; top:calc(${cy}% - min(17px, ${hit.hPct / 2}%)); width:${hit.wPct}%; height:min(34px, ${hit.hPct}%); display:flex; align-items:center; justify-content:flex-start; z-index:6; cursor:pointer; margin:0; -webkit-tap-highlight-color:rgba(249,168,37,0.3);"><input type="checkbox" class="ho-field-input" data-field-id="${field.id}" data-canonical="${field.canonicalKey||''}" ${value ? 'checked' : ''} style="height:min(20px, 92%); width:auto; aspect-ratio:1; margin:0; accent-color:#f9a825; cursor:pointer;"></label>`;
       }
       if(field.type === 'select' && (field.options || []).length && (field.options || []).length <= 8){
         // Tap-to-check choices: one row per option over the printed boxes.
@@ -34161,6 +34166,22 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(!hoPdfPages.length) return;
       contentEl.innerHTML = '';
       contentEl.style.padding = '0';
+      if((placedFields || []).length){
+        const tip = document.createElement('div');
+        tip.style.cssText = 'font-size:12.5px; color:#1f4f87; background:#E8F0FB; border-radius:6px; padding:6px 10px; margin:0 0 8px;';
+        tip.textContent = '\ud83d\udd0d Tip: pinch with two fingers to zoom in on small boxes and checkboxes.';
+        contentEl.appendChild(tip);
+      }
+      // Tap zones for checkboxes: as tall as the gap to the nearest stacked
+      // checkbox allows (max 34px), and wide enough to cover the printed choice.
+      const cbs = (placedFields || []).filter(f => f.type === 'checkbox' && f.position);
+      cbs.forEach(f => {
+        const p = f.position, cy = p.yPct + p.heightPct / 2, cx = p.xPct + p.widthPct / 2;
+        const same = cbs.filter(g => g !== f && g.position.page === p.page);
+        const vGap = Math.min(6, ...same.filter(g => Math.abs((g.position.xPct + g.position.widthPct / 2) - cx) < 20).map(g => Math.abs((g.position.yPct + g.position.heightPct / 2) - cy)));
+        const right = same.filter(g => Math.abs((g.position.yPct + g.position.heightPct / 2) - cy) < vGap / 2 + 0.5 && g.position.xPct > p.xPct).map(g => g.position.xPct - p.xPct);
+        f._hit = { hPct: Math.max(0.8, vGap * 0.95), wPct: Math.max(p.widthPct + 1.2, Math.min(32, ...right.map(d => d - 0.8), 100 - p.xPct)) };
+      });
       hoPdfPages.forEach((pageData, pageIndex) => {
         const wrap = document.createElement('div');
         wrap.style.cssText = `position:relative; width:100%; max-width:${pageData.width}px; aspect-ratio:${pageData.width}/${pageData.height}; margin:0 auto;${pageIndex ? ' border-top:8px solid var(--offwhite);' : ''}`;
@@ -34174,6 +34195,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           const el = holder.firstElementChild;
           wrap.appendChild(el);
           if(field.type === 'signature'){ el.addEventListener('click', () => hoOpenSignatureModal(doc, placedFields)); return; }
+          if(el.classList.contains('ho-cb-hit')){ hoWireFieldInput(el.querySelector('input'), field); return; }
           if(el.classList.contains('ho-check-group')){
             el.querySelectorAll('.ho-check-opt').forEach(b => b.addEventListener('click', () => {
               const v = b.dataset.v, now = hoFieldValue(field) === v ? '' : v;   // tap again to clear
