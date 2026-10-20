@@ -32235,14 +32235,66 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(im){ newPage(); const sc = Math.min((W - 24) / im.width, (H - 24) / im.height); pdf.addImage(uri, 'JPEG', (W - im.width * sc) / 2, 12, im.width * sc, im.height * sc); drewPages = true; }
         (d.fields || []).forEach(f => { const v = valueOf(f); if(!['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false) leftover.push([f.label, fmt(v)]); });
       } else {
-        (d.fields || []).forEach(f => { const v = valueOf(f); if(!['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmt(v)]); });
+        // A Word document: its FULL text, with his answers filled into the
+        // blanks in place ("Name: ____" -> "Name: Daylan Logan").
+        let wroteText = false;
+        if(uri && window.mammoth && !/^data:(application\/pdf|image\/)/.test(uri)){
+          try{
+            const buf = await (await fetch(uri)).arrayBuffer();
+            const box = document.createElement('div');
+            box.innerHTML = (await window.mammoth.convertToHtml({ arrayBuffer: buf })).value || '';
+            const norm = t => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+            const answerable = (d.fields || []).filter(f => !['signature', 'employer_signature'].includes(f.type));
+            const fieldFor = label => { const k = norm(label); if(k.length < 2) return null; return answerable.find(f => norm(f.label) === k) || answerable.find(f => { const n = norm(f.label); return n.length > 2 && (n.startsWith(k) || k.startsWith(n)); }) || null; };
+            const used = new Set();
+            const signedOn = prog.completedAt ? new Date(prog.completedAt) : (c.completedAt ? new Date(c.completedAt) : new Date());
+            const ord = n => n + (['th','st','nd','rd'][(n % 100 - 20) % 10] || ['th','st','nd','rd'][n % 100] || 'th');
+            const fill = t => String(t || '')
+              .replace(/this\s+_{2,}\s+day\s+of\s+_{2,}\s*,?\s*(?:20)?_{2,}/gi, `this ${ord(signedOn.getDate())} day of ${signedOn.toLocaleString('en-US', { month: 'long' })}, ${signedOn.getFullYear()}`)
+              .replace(/([A-Za-z][A-Za-z0-9 '\u2019()\/#&.-]{0,48}?)\s*:\s*_{3,}/g, (m, lab) => {
+                if(/signature|signed|\bsign\b/i.test(lab)) return `${lab}: (signed electronically \u2014 see below)`;
+                if(/^\s*(today'?s\s+)?date\b/i.test(lab)) return `${lab}: ${signedOn.toLocaleDateString()}`;
+                const f = fieldFor(lab), v = f ? valueOf(f) : null;
+                if(f && v != null && v !== '' && v !== false && v !== 'false'){ used.add(f.id); return `${lab}: ${fmt(v)}`; }
+                return m;
+              })
+              .replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u00FF\u2018\u2019\u201C\u201D\u2013\u2014\u2022\u2026\u20AC]/g, '');
+            newPage();
+            line(d.name || 'Document', { size: 15, bold: true });
+            line(`${c.firstName} ${c.lastName} - completed ${signedOn.toLocaleDateString()}`, { gray: true });
+            y += 6;
+            const walk = el => {
+              for(const node of el.children){
+                const tag = node.tagName, txt = fill((node.textContent || '').trim());
+                if(/^H[1-6]$/.test(tag)){ if(txt){ y += 4; line(txt, { bold: true, size: tag === 'H1' ? 14 : 12 }); } }
+                else if(tag === 'P'){ if(txt){ const strong = node.querySelector('strong'); line(txt, { bold: !!strong && strong.textContent.trim() === node.textContent.trim() }); } else y += 6; }
+                else if(tag === 'UL' || tag === 'OL'){ [...node.children].forEach((li, i) => { const t = fill(li.textContent.trim()); if(t) line(`${tag === 'OL' ? (i + 1) + '.' : '\u2022'} ${t}`, { indent: 14 }); }); y += 2; }
+                else if(tag === 'TABLE'){ node.querySelectorAll('tr').forEach(tr => { const t = fill([...tr.children].map(td => td.textContent.trim()).filter(Boolean).join('   |   ')); if(t) line(t); }); y += 4; }
+                else if(node.children.length) walk(node);
+                else if(txt) line(txt);
+              }
+            };
+            walk(box);
+            wroteText = true; drewPages = true;
+            answerable.forEach(f => { if(used.has(f.id)) return; const v = valueOf(f); if(v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmt(v)]); });
+            d._continueFlow = true;   // answers + signature follow on the same pages
+          }catch(err){ console.error('Word document text failed; using the answers page', err); }
+        }
+        if(!wroteText) (d.fields || []).forEach(f => { const v = valueOf(f); if(!['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmt(v)]); });
       }
       if(leftover.length || (sigImg && !sigPlaced) || (empImg && !empPlaced) || !drewPages){
+        if(d._continueFlow){
+          delete d._continueFlow;
+          y += 8;
+          if(leftover.length){ line('Answers', { bold: true, size: 12 }); leftover.forEach(([l, v]) => line(v ? `${l}: ${v}` : l)); }
+          if(sigImg && !sigPlaced) line(`Signed electronically by ${c.firstName} ${c.lastName} on ${prog.completedAt ? new Date(prog.completedAt).toLocaleDateString() : ''}`, { gray: true });
+        } else {
         newPage();
         line(d.name || 'Document', { size: 15, bold: true });
         line(`${c.firstName} ${c.lastName} - completed ${prog.completedAt ? new Date(prog.completedAt).toLocaleDateString() : ''}`, { gray: true });
         y += 4;
         leftover.forEach(([l, v]) => line(v ? `${l}: ${v}` : l));
+        }
         for(const [im, placed, who] of [[sigImg, sigPlaced, 'Employee signature'], [empImg, empPlaced, 'Employer signature']]){
           if(!im || placed) continue;
           if(y > H - M - 90) newPage();
