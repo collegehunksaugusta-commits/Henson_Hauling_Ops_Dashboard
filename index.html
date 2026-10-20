@@ -7121,6 +7121,7 @@
     <div class="panel" id="rosterListPanel">
       <h3>Current Roster (<span id="rosterListCount">0</span>)</h3>
       <div style="margin:0 0 10px;"><input type="text" id="rosterListSearch" placeholder="Search names..." style="max-width:260px;"></div>
+      <div id="rosterRemovedWrap" style="display:none; margin:0 0 12px; font-size:13px; background:var(--offwhite); border:1px solid var(--line); border-radius:8px; padding:8px 12px;"></div>
       <div style="overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
         <thead><tr>
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Name</th>
@@ -7131,6 +7132,7 @@
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Source</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">HUNK Portal sign-in</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);" title="First payroll week on file, and when commission starts under the New Employee waiting period">Started &middot; Commission</th>
+                  <th class="roster-admin-col" style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
         </tr></thead>
         <tbody id="rosterListRows"></tbody>
       </table></div>
@@ -10279,6 +10281,7 @@
     renderEmployeeRosterView();
     loadRosterPackages();
     loadRosterContacts();
+    loadRosterRemovedList();
   }
   window.loadEmployeeRosterView = loadEmployeeRosterView;
   // Completed onboarding packages, matched to roster names (same name rules:
@@ -10322,7 +10325,7 @@
         : (rosterManualAccess.has(n) ? '<span style="color:var(--brand-green-dark);">&#128273; last 4 added</span>' : '<span style="color:#8a6d00;">Not yet \u2014 add their last 4 below</span>');
       const pkg = rosterPackages[rosterPkgKey(n)];
       return `<tr>
-        <td style="${cell} font-weight:600;">${pkg ? `<button type="button" class="roster-pkg" data-cand="${rosterManualEsc(pkg.id)}" title="Completed onboarding package (${pkg.completedAt ? new Date(pkg.completedAt).toLocaleDateString() : ''})" style="float:right; background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:5px; padding:2px 8px; font-size:12px; font-weight:700; cursor:pointer; margin-left:6px;">\ud83d\udcc4 Onboarding Package</button>` : ''}${rosterManualEsc(n)}${role.driver ? ' <span title="A driver in Regulatory Compliance" style="font-size:11px; color:var(--muted); font-weight:400;">\u00b7 driver</span>' : ''}</td>
+        <td style="${cell} font-weight:600; white-space:nowrap;">${rosterManualEsc(n)}${pkg ? ` <button type="button" class="roster-pkg" data-cand="${rosterManualEsc(pkg.id)}" title="Open the completed onboarding package (${pkg.completedAt ? new Date(pkg.completedAt).toLocaleDateString() : ''})" style="background:none; border:none; padding:0 0 0 4px; color:var(--brand-green-dark); font-size:12px; font-weight:600; cursor:pointer; text-decoration:underline; vertical-align:baseline;">\ud83d\udcc4 Onboarding</button>` : ''}${role.driver ? ' <span title="A driver in Regulatory Compliance" style="font-size:11px; color:var(--muted); font-weight:400;">\u00b7 driver</span>' : ''}</td>
         ${(() => {
           const ct = rosterContacts[rosterPkgKey(n)] || {};
           const hint = ct.source === 'package' ? ' title="From their onboarding package"' : '';
@@ -10344,7 +10347,8 @@
           const pay = new Date(from + 'T00:00:00'); pay.setDate(pay.getDate() + 7);
           const payStr = pay.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
           return started + ` \u00b7 <span style="color:${pay <= new Date() ? 'var(--brand-green-dark)' : '#8a6d00'};">commission ${pay <= new Date() ? 'since' : 'starts'} wk of ${payStr}</span>`;
-        })()}</td>` : ''}
+        })()}</td>
+        <td style="${cell} text-align:right;"><button type="button" class="roster-remove" data-name="${rosterManualEsc(n)}" title="Remove from the roster (terminated)" style="background:#fff; border:1px solid var(--line); color:#b3261e; border-radius:5px; padding:3px 9px; font-size:12px; cursor:pointer;">Remove</button></td>` : ''}
       </tr>`;
     }).join('');
   }
@@ -10362,6 +10366,32 @@
       rosterContacts[rosterPkgKey(name)] = Object.assign({}, rosterContacts[rosterPkgKey(name)], { phone: d.phone, email: d.email, source: 'manual' });
       row.style.background = '#f1f8f3'; setTimeout(() => { row.style.background = ''; }, 900);
     }catch(err){ inp.style.borderColor = '#b3261e'; inp.title = err.message; alert(err.message); }
+  });
+  // Remove (terminated) / Undo -- Administrator.
+  async function loadRosterRemovedList(){
+    const wrap = document.getElementById('rosterRemovedWrap');
+    if(!isCurrentUserAdmin()){ wrap.style.display = 'none'; return; }
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/roster/removed`, { headers: authHeaders() });
+      const list = r.ok ? ((await r.json()).removed || []).filter(x => x.active) : [];
+      wrap.style.display = list.length ? 'block' : 'none';
+      wrap.innerHTML = `<strong>Removed from the roster</strong> <span style="color:var(--muted);">(no HUNK Portal sign-in; they come back automatically if they show up on a newer payroll week)</span><div style="margin-top:4px;">${list.map(x => `<span style="display:inline-block; margin:2px 12px 2px 0;">${rosterManualEsc(x.name)} <span style="color:var(--muted); font-size:12px;">${new Date(x.removedAt).toLocaleDateString()}</span> <button type="button" class="roster-restore" data-name="${rosterManualEsc(x.name)}" style="background:none; border:none; color:var(--brand-green-dark); text-decoration:underline; cursor:pointer; font-size:12px; padding:0;">Undo</button></span>`).join('')}</div>`;
+    }catch(err){ wrap.style.display = 'none'; }
+  }
+  async function rosterRemoveAction(path, name){
+    const r = await fetch(`${API_BASE}/api/admin/roster/${path}`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name }) });
+    if(!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save.');
+    if(window.invalidateRosterCache) window.invalidateRosterCache();
+    await loadEmployeeRosterView();
+  }
+  document.getElementById('rosterListPanel').addEventListener('click', async e => {
+    const rm = e.target.closest && e.target.closest('.roster-remove'), un = e.target.closest && e.target.closest('.roster-restore');
+    try{
+      if(rm){
+        if(!confirm(`Remove ${rm.dataset.name} from the roster?\n\nUse this when someone is terminated. They'll drop off the roster and every employee list, and lose HUNK Portal sign-in. Their records stay on file, and you can Undo this.`)) return;
+        rm.disabled = true; await rosterRemoveAction('remove', rm.dataset.name);
+      } else if(un){ un.disabled = true; await rosterRemoveAction('restore', un.dataset.name); }
+    }catch(err){ alert(err.message); if(rm) rm.disabled = false; if(un) un.disabled = false; }
   });
   document.getElementById('rosterListRows').addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('.roster-pkg'); if(!b) return;
@@ -13713,6 +13743,19 @@
     return out.sort((a, b) => a.localeCompare(b));
   }
 
+  // Employees removed from the roster (terminated) -- same rule as the server.
+  const rosterCoreKey = n => String(n || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ');
+  let rosterRemovedCache = null, rosterRemovedAt = 0;
+  async function rosterRemovedKeys(){
+    if(rosterRemovedCache && Date.now() - rosterRemovedAt < 60000) return rosterRemovedCache;
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/roster/removed`, { headers: authHeaders() });
+      rosterRemovedCache = new Set(r.ok ? ((await r.json()).removed || []).filter(x => x.active).map(x => x.key) : []);
+    }catch(err){ rosterRemovedCache = rosterRemovedCache || new Set(); }
+    rosterRemovedAt = Date.now();
+    return rosterRemovedCache;
+  }
+  window.invalidateRosterCache = () => { rosterRemovedCache = null; };
   async function getCurrentEmployeeRoster(){
     let manualAdditions = [];
     try{ manualAdditions = await window.dashboardApi.get('roster-manual-additions', []) || []; }
@@ -13727,7 +13770,8 @@
       const recentTwo = sorted.slice(0, 2);
       const fromPayroll = recentTwo.flatMap(w => (w.employees || []).map(e => e.name)).filter(Boolean);
       if(fromPayroll.length > 0 || manualAdditions.length > 0){
-        return dedupeAndSortNames([...fromPayroll, ...manualAdditions]);
+        const removed = await rosterRemovedKeys();
+        return dedupeAndSortNames([...fromPayroll, ...manualAdditions]).filter(n => !removed.has(rosterCoreKey(n)));   // terminated employees stay off
       }
     }
     // Otherwise (and for non-admins, who can't read labor-weeks directly), use the
