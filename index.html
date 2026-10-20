@@ -29861,6 +29861,13 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(first) first.textContent = `\u2713 Count saved. Markdown ${matRecvMoney(markdown)} \u00b7 Markup ${matRecvMoney(markup)}.`;
   });
 
+  // A shipment saved without invoice prices: its value at today's inventory prices.
+  function matRecvEstimate(r){
+    return Math.round((r.invoiceLines || []).reduce((t, l) => {
+      const item = materialsItems.find(i => (l.supplierItemNumber && i.supplierItemNumber === l.supplierItemNumber) || String(i.description || '').toLowerCase() === String(l.description || '').toLowerCase());
+      return t + (Number(l.quantity) || 0) * (Number(l.priceEach) || Number(item && item.priceEach) || 0);
+    }, 0) * 100) / 100;
+  }
   function renderMatReceivingHistory(){
     const wrap = document.getElementById('mat_recvHistory');
     const done = materialsReceivings.filter(r => r.status === 'complete');
@@ -29868,7 +29875,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     wrap.innerHTML = '<p class="status-msg ok mat-recv-done-msg" style="margin:0 0 8px;"></p>' + done.slice(0, 30).map(r => `
       <div style="border:1px solid var(--line); border-left:5px solid ${r.markdownValue > 0 ? '#b3261e' : 'var(--brand-green)'}; border-radius:8px; padding:10px 12px; margin-bottom:8px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
         <div>
-          <strong>${new Date(r.createdAt).toLocaleDateString()}</strong> \u00b7 invoice ${matRecvMoney(r.invoiceTotal)} \u00b7 ${r.countLines.length} items counted
+          <strong>${new Date(r.createdAt).toLocaleDateString()}</strong> \u00b7 ${Number(r.invoiceTotal) > 0 ? 'supplier invoice ' + matRecvMoney(r.invoiceTotal) : `supplier invoice: <span title="The shipment's invoice lines were saved without prices">no prices recorded</span>${matRecvEstimate(r) > 0 ? ` (\u2248 ${matRecvMoney(matRecvEstimate(r))} at inventory prices)` : ''}`} \u00b7 ${r.countLines.length} items counted
           <div style="font-size:12px; color:var(--muted);">Counted ${new Date(r.countedAt).toLocaleString()}${r.countedBy ? ' by ' + matEsc(r.countedBy) : ''}${r.notes ? ' \u00b7 ' + matEsc(r.notes) : ''}</div>
         </div>
         <div style="display:flex; gap:12px; align-items:center;">
@@ -29884,10 +29891,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   function matPrintShrinkage(r){
     if(!r) return;
     const short = r.countLines.filter(l => l.diff < 0).sort((a, b) => a.value - b.value);
-    const w = window.open('', '_blank');
-    if(!w){ alert('Allow pop-ups to print the report.'); return; }
     const P = window.LOCATION_PROFILE || {};
-    w.document.write(`<title>Materials Shrinkage Report</title><body style="font-family:Arial,sans-serif; padding:28px; color:#222;">
+    const reportHtml = (`<div style="font-family:Arial,sans-serif; color:#222;">
       <div style="font-weight:bold; color:#00612C;">${matEsc(P.displayName || 'College Hunks')}</div>
       <h2 style="margin:4px 0;">Materials Shrinkage Report</h2>
       <div style="color:#555; font-size:13px;">Shipment received ${new Date(r.createdAt).toLocaleDateString()} \u00b7 counted ${new Date(r.countedAt).toLocaleDateString()}${r.countedBy ? ' by ' + matEsc(r.countedBy) : ''}</div>
@@ -29898,8 +29903,25 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         <tr><td colspan="5" style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold;">Total markdown</td><td style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold; color:#b3261e; font-size:15px;">${matRecvMoney(r.markdownValue)}</td></tr>
       </table>
       ${r.notes ? `<p style="font-size:13px; margin-top:12px;"><strong>Notes:</strong> ${matEsc(r.notes)}</p>` : ''}
-    </body>`);
-    w.document.close(); w.print();
+    </div>`);
+    // Shown on screen first; printed only if asked.
+    let ov = document.getElementById('matShrinkModal');
+    if(!ov){ ov = document.createElement('div'); ov.id = 'matShrinkModal'; document.body.appendChild(ov); }
+    ov.style.cssText = 'position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.5); display:flex; align-items:flex-start; justify-content:center; padding:24px 12px; overflow:auto;';
+    ov.innerHTML = `<div style="background:#fff; width:100%; max-width:860px; border-radius:12px; padding:20px 24px;">
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px;">
+        <button type="button" id="matShrinkPrint" class="btn-primary">\ud83d\udda8 Print</button>
+        <button type="button" id="matShrinkClose" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 14px; cursor:pointer;">Close</button>
+      </div>
+      <div style="overflow-x:auto;">${reportHtml}</div></div>`;
+    document.getElementById('matShrinkClose').onclick = () => { ov.style.display = 'none'; };
+    ov.onclick = e => { if(e.target === ov) ov.style.display = 'none'; };
+    document.getElementById('matShrinkPrint').onclick = () => {
+      const w = window.open('', '_blank');
+      if(!w){ alert('Allow pop-ups to print the report.'); return; }
+      w.document.write(`<title>Materials Shrinkage Report</title><body style="padding:28px;">${reportHtml}</body>`);
+      w.document.close(); w.focus(); w.print();
+    };
   }
 
   function renderMatInvoiceReview(){
