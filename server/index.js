@@ -1154,8 +1154,9 @@ app.get('/api/driver/today-jobs', requireDriverOrTaskWingman(null), async (req, 
     const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
     const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
     const todayStr = new Date().toISOString().slice(0, 10);
+    const rules = await loadRoleRules();
     const jobs = archive
-      .filter(j => j.captainName === req.driverName && j.assignmentDate === todayStr && j.jobNumber)
+      .filter(j => j.assignmentDate === todayStr && j.jobNumber && (j.captainName === req.driverName || captainJobAccess(j, req.driverName, rules) === 'unassigned'))
       .map(j => ({ jobNumber: j.jobNumber, clientName: j.clientName || '' }));
     res.json({ jobs });
   } catch (err) {
@@ -2854,6 +2855,19 @@ function sanitizeMovingJobKey(jobNumber) {
 // already exists for each one. Photo blobs themselves are never included
 // here, only counts -- the list stays lightweight, and photos are fetched
 // per-job only when a driver actually opens that job's detail view.
+// Which jobs a Captain can work on (photos, materials):
+//  - his own (he's the recorded Captain);
+//  - "unassigned" ones: no Captain recorded, or the recorded name isn't a
+//    Captain on the Employee Roster (e.g. the owner testing a work
+//    package) -- the first Captain to add photos becomes its Captain;
+//  - another Captain's job dated yesterday..tomorrow (last-minute swaps).
+const isoDay = offset => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); };
+function captainJobAccess(job, driverName, rules) {
+  if (job.captainName === driverName) return 'mine';
+  if (!job.captainName || !rules.isCaptain(job.captainName)) return 'unassigned';
+  if (job.assignmentDate && job.assignmentDate >= isoDay(-1) && job.assignmentDate <= isoDay(1)) return 'covering';
+  return null;
+}
 app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisting', 'moving-caused']), async (req, res) => {
   const driverName = req.driverName;
   try {
@@ -2871,16 +2885,20 @@ app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisti
     const windowEnd = new Date(today); windowEnd.setDate(windowEnd.getDate() + MOVING_JOB_LOOKAHEAD_DAYS);
     const windowEndStr = windowEnd.toISOString().slice(0, 10);
 
+    const rules = await loadRoleRules();
     const mine = archive
-      .filter(j => j.captainName === driverName && MOVING_JOB_TYPES.includes(j.jobType)
-        && j.assignmentDate && j.assignmentDate >= windowStartStr && j.assignmentDate <= windowEndStr)
-      .map(j => {
+      .filter(j => MOVING_JOB_TYPES.includes(j.jobType) && j.assignmentDate && j.assignmentDate >= windowStartStr && j.assignmentDate <= windowEndStr)
+      .map(j => ({ j, access: captainJobAccess(j, driverName, rules) }))
+      // His own across the whole window; unassigned / covering only around today.
+      .filter(x => x.access === 'mine' || (x.access && x.j.assignmentDate >= isoDay(-1) && x.j.assignmentDate <= isoDay(1)))
+      .map(({ j, access }) => {
         const report = reportsByJobNumber.get(j.jobNumber);
         return {
           jobNumber: j.jobNumber,
           clientName: j.clientName,
           jobType: j.jobType,
           assignmentDate: j.assignmentDate,
+          access, assignedTo: access === 'covering' ? j.captainName : '',
           preExistingPhotoCount: (report && report.preExistingPhotoKeys && report.preExistingPhotoKeys.length) || 0,
           preExistingSubmittedAt: (report && report.preExistingSubmittedAt) || null,
           causedPhotoCount: (report && report.causedPhotoKeys && report.causedPhotoKeys.length) || 0,
@@ -2963,7 +2981,14 @@ app.post('/api/driver/moving/:jobNumber/photos', requireDriverOrTaskWingman(['mo
     const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
     const archivedJob = archive.find(j => j.jobNumber === jobNumber && MOVING_JOB_TYPES.includes(j.jobType));
     if (!archivedJob) return res.status(404).json({ error: 'Job not found.' });
-    if (archivedJob.captainName !== driverName) return res.status(403).json({ error: 'This job isn\'t assigned to you.' });
+    const access = req.wingmanTask ? 'mine' : captainJobAccess(archivedJob, driverName, await loadRoleRules());
+    if (!access) return res.status(403).json({ error: `This job is assigned to ${archivedJob.captainName || 'another Captain'} in the app \u2014 ask the office to change the Captain.` });
+    if (access === 'unassigned') {
+      // He's working it: record him as the job's Captain (Captain Metrics reads this).
+      console.log(`[moving] job ${jobNumber}: Captain set to ${driverName} (was "${archivedJob.captainName || ''}") when he added photos`);
+      archivedJob.captainName = driverName;
+      await redis.set(JOB_ARCHIVE_KEY, JSON.stringify(archive));
+    } else if (access === 'covering') console.log(`[moving] job ${jobNumber}: photos added by ${driverName}, covering for ${archivedJob.captainName}`);
 
     const raw = await redis.get(MOVING_DAMAGE_REPORTS_KEY);
     const reports = raw ? JSON.parse(raw) : [];
