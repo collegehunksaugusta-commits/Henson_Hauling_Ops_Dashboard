@@ -2125,7 +2125,7 @@ app.get('/api/driver/work-packages', requireDriverAuth, async (req, res) => {
     const me = nameCoreKey(req.driverName);
     const cutoff = new Date(Date.now() - 7 * 864e5).toISOString();
     const list = JSON.parse(await redis.get(DIGITAL_WP_KEY) || '[]')
-      .filter(w => nameCoreKey(w.captainName || '') === me && (w.status !== 'completed' || (w.completedAt || '') >= cutoff))
+      .filter(w => nameCoreKey(w.captainName || '') === me && w.status !== 'paper' && (w.status !== 'completed' || (w.completedAt || '') >= cutoff))
       .sort((a, b) => (a.status === 'completed') - (b.status === 'completed') || String(a.jobDate || '').localeCompare(String(b.jobDate || '')))
       .map(w => ({ jobKey: w.jobKey, jobNumber: w.jobNumber, clientName: w.clientName, jobType: w.jobType, jobDate: w.jobDate || '', status: w.status, pushedAt: w.pushedAt, completedAt: w.completedAt || null }));
     res.json({ packages: list });
@@ -2139,6 +2139,19 @@ app.get('/api/driver/work-packages/:jobKey', requireDriverAuth, async (req, res)
     if (!jobData) return res.status(404).json({ error: 'That work package could not be found \u2014 ask the office to push it again.' });
     res.json({ jobData, status: w.status });
   } catch (err) { res.status(500).json({ error: 'Could not load the work package.' }); }
+});
+// The Captain decides on site to do this job's paperwork on paper instead.
+app.post('/api/driver/work-packages/:jobKey/paper', requireDriverAuth, async (req, res) => {
+  try {
+    const list = JSON.parse(await redis.get(DIGITAL_WP_KEY) || '[]');
+    const w = list.find(x => x.jobKey === req.params.jobKey);
+    if (!w || nameCoreKey(w.captainName || '') !== nameCoreKey(req.driverName)) return res.status(404).json({ error: 'That work package isn\u2019t assigned to you.' });
+    if (w.status === 'completed') return res.status(400).json({ error: 'This one was already completed in the app.' });
+    w.status = 'paper'; w.paperAt = new Date().toISOString(); w.paperBy = req.driverName;
+    await redis.set(DIGITAL_WP_KEY, JSON.stringify(list));
+    console.log(`[digital-wp] ${req.driverName} switched job ${w.jobNumber} (${w.clientName}) to paper`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
 app.post('/api/driver/work-packages/:jobKey/complete', requireDriverAuth, async (req, res) => {
   try {
@@ -2843,7 +2856,7 @@ const MOVING_DAMAGE_REPORTS_KEY = 'moving-damage-reports';
 const MOVING_JOB_LOOKBACK_DAYS = 14; // how far back an assignment date can be and still show as active for the driver
 const MOVING_JOB_LOOKAHEAD_DAYS = 7; // lets a job entered a few days ahead of the move already show up
 const MAX_MOVING_PHOTOS = 20;
-const MOVING_JOB_TYPES = ['move', 'movelabor']; // Moves and Move Labors are treated identically throughout
+const MOVING_JOB_TYPES = ['move', 'movelabor', 'longdistance']; // Moves, Move Labors and Long Distance Moves all get moving photos
 
 function sanitizeMovingJobKey(jobNumber) {
   return String(jobNumber).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -2871,10 +2884,13 @@ function captainJobAccess(job, driverName, rules) {
 app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisting', 'moving-caused']), async (req, res) => {
   const driverName = req.driverName;
   try {
-    const [archiveRaw, reportsRaw] = await Promise.all([
+    const [archiveRaw, reportsRaw, uploadsRaw] = await Promise.all([
       redis.get(JOB_ARCHIVE_KEY),
-      redis.get(MOVING_DAMAGE_REPORTS_KEY)
+      redis.get(MOVING_DAMAGE_REPORTS_KEY),
+      redis.get('paperwork-uploads')
     ]);
+    // Closed out = its invoice is on file with the completed paperwork.
+    const closedOut = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
     const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
     const reports = reportsRaw ? JSON.parse(reportsRaw) : [];
     const reportsByJobNumber = new Map(reports.map(r => [r.jobNumber, r]));
@@ -2888,9 +2904,11 @@ app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisti
     const rules = await loadRoleRules();
     const mine = archive
       .filter(j => MOVING_JOB_TYPES.includes(j.jobType) && j.assignmentDate && j.assignmentDate >= windowStartStr && j.assignmentDate <= windowEndStr)
+      .filter(j => !closedOut.has(j.jobNumber))
       .map(j => ({ j, access: captainJobAccess(j, driverName, rules) }))
-      // His own across the whole window; unassigned / covering only around today.
-      .filter(x => x.access === 'mine' || (x.access && x.j.assignmentDate >= isoDay(-1) && x.j.assignmentDate <= isoDay(1)))
+      // Only his own jobs, plus a job for TODAY with no real Captain set.
+      // Other Captains' jobs never show here.
+      .filter(x => x.access === 'mine' || (x.access === 'unassigned' && x.j.assignmentDate === isoDay(0)))
       .map(({ j, access }) => {
         const report = reportsByJobNumber.get(j.jobNumber);
         return {
