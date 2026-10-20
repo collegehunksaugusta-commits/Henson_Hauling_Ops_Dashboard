@@ -2635,9 +2635,20 @@
         <div style="display:flex; justify-content:space-between; gap:8px;"><strong style="font-size:15px;">${driverEsc(w.clientName || '')}</strong><span style="font-size:12px; color:var(--muted);">Job ${driverEsc(w.jobNumber || '')}</span></div>
         <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${fmt(w.jobDate)}</div>
         ${w.status === 'completed' ? `<div style="margin-top:8px; color:var(--brand-green-dark); font-weight:700; font-size:13.5px;">\u2713 Completed ${new Date(w.completedAt).toLocaleDateString()}</div>`
-          : `<button type="button" class="dwp-open" data-key="${driverEsc(w.jobKey)}" style="width:100%; margin-top:10px; padding:12px; font-size:15px; font-weight:800; background:#2f6db5; color:#fff; border:none; border-radius:8px; cursor:pointer;">Start with Client</button>`}
+          : `<button type="button" class="dwp-open" data-key="${driverEsc(w.jobKey)}" style="width:100%; margin-top:10px; padding:12px; font-size:15px; font-weight:800; background:#2f6db5; color:#fff; border:none; border-radius:8px; cursor:pointer;">Start with Client</button>
+             <button type="button" class="dwp-paper" data-key="${driverEsc(w.jobKey)}" style="width:100%; margin-top:8px; padding:9px; font-size:13.5px; background:#fff; color:var(--muted); border:1px solid var(--line); border-radius:8px; cursor:pointer;">\ud83d\udda8\ufe0f Use paper instead</button>`}
       </div>`).join('') : '<p class="form-note">No work packages right now.</p>';
     document.querySelectorAll('.dwp-open').forEach(b => b.onclick = () => openMyWorkPackage(b.dataset.key));
+    document.querySelectorAll('.dwp-paper').forEach(b => b.onclick = async () => {
+      if(!confirm('Do this job\u2019s paperwork on paper instead? It will come off your list and the office will see it.')) return;
+      const st = document.getElementById('dwpStatus');
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/driver/work-packages/' + encodeURIComponent(b.dataset.key) + '/paper', { method: 'POST', headers: { 'Authorization': 'Bearer ' + driverToken } });
+        const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not save.');
+        st.textContent = '\u2713 Switched to paper \u2014 use the printed work package.'; st.className = 'status-msg ok';
+        loadMyWorkPackages();
+      }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+    });
   }
   async function openMyWorkPackage(jobKey){
     const st = document.getElementById('dwpStatus');
@@ -5010,7 +5021,7 @@
   }
 
   function mvJobTypeLabel(jobType){
-    return jobType === 'movelabor' ? 'Move Labor' : 'Move';
+    return jobType === 'movelabor' ? 'Move Labor' : jobType === 'longdistance' ? 'Long Distance Move' : 'Move';
   }
 
   function mvSectionHtml(job, category, title, instructions){
@@ -6813,6 +6824,12 @@
         <div id="pwBatch_packagesWrap" style="display:none; margin-top:20px;">
           <h4 style="margin-bottom:6px;">Work Packages Ready to Print</h4>
           <div id="pwBatch_packagesRows"></div>
+        </div>
+
+        <div id="pwDigital_wrap" style="display:none; margin-top:20px;">
+          <h4 style="margin-bottom:4px;">&#128241; Digital Work Packages</h4>
+          <p class="form-note" style="margin:0 0 8px;">Packages pushed to a Captain&rsquo;s HUNK Portal (last 14 days). <strong>Switch to paper</strong> takes one back off his phone; <strong>Print</strong> prints its paper work package.</p>
+          <div id="pwDigital_rows"></div>
         </div>
 
         <details style="margin-top:20px;">
@@ -9909,6 +9926,7 @@
       })();
     }
     if(view === 'paperwork'){
+      if(window.renderDigitalWP) window.renderDigitalWP();
       if(window.applyWorkPackageMode){ window.applyWorkPackageMode(); (typeof ensureAppSettingsLoaded === 'function' ? ensureAppSettingsLoaded() : Promise.resolve()).then(() => window.applyWorkPackageMode()).catch(() => {}); }
       window.loadPwBatchJunkRemovalPersistent();
     }
@@ -22617,6 +22635,59 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   let pwDigitalWP = [];
   const pwJobKey = n => String(n || '').replace(/[^a-zA-Z0-9_-]/g, '_');
   async function loadDigitalWP(){ try{ pwDigitalWP = await window.dashboardApi.get(DIGITAL_WP_KEY, []) || []; }catch(err){} }
+  // ---- Pushed packages: switch back to paper, or print ----
+  function pwFillFromJobData(jobData){
+    const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = v || ''; };
+    document.getElementById('pw_jobType').value = jobData.jobType || 'move';
+    updatePWJobTypeUI();
+    ['jobNumber','clientName','clientPhone','clientEmail','originAddress','destAddress','stop1','stop2','stop3','estDate','packingDate','loadingDate','deliveryDate','unpackingDate','otherServiceDate','estimateSummary'].forEach(k => set('pw_' + k, jobData[k]));
+    const cap = document.getElementById('pw_captainSelect'); if(cap && jobData.captainName) cap.value = jobData.captainName;
+  }
+  async function renderDigitalWP(){
+    const wrap = document.getElementById('pwDigital_wrap'), rows = document.getElementById('pwDigital_rows');
+    if(!wrap) return;
+    await loadDigitalWP();
+    const cutoff = new Date(Date.now() - 14 * 864e5).toISOString();
+    const list = (pwDigitalWP || []).filter(w => (w.pushedAt || '') >= cutoff).sort((a, b) => String(b.pushedAt).localeCompare(String(a.pushedAt)));
+    wrap.style.display = list.length ? 'block' : 'none';
+    const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const when = t => t ? new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    rows.innerHTML = list.map(w => {
+      const st = w.status === 'completed' ? `<span style="color:var(--brand-green-dark); font-weight:700;">\u2713 Completed in the app ${when(w.completedAt)}</span>`
+        : w.status === 'paper' ? `<span style="color:#8a6100; font-weight:700;">\ud83d\udda8\ufe0f Switched to paper${w.paperBy ? ' by ' + esc(w.paperBy) : ''} ${when(w.paperAt)}</span>`
+        : `<span style="color:#1f4f87; font-weight:700;">\ud83d\udcf1 On ${esc(w.captainName)}\u2019s phone</span>`;
+      return `<div class="pwdig-row" data-key="${esc(w.jobKey)}" style="border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px; background:#fff; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
+        <div><strong>${esc(w.jobNumber)}</strong> \u2014 ${esc(w.clientName)} <span style="font-size:12px; color:var(--muted);">\u00b7 ${esc(w.captainName)} \u00b7 pushed ${when(w.pushedAt)}</span><div style="font-size:12.5px; margin-top:2px;">${st}</div></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          ${w.status === 'pushed' ? '<button type="button" class="pwdig-paper" style="background:#fff; border:1px solid #c06a00; color:#8a4b00; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer; font-size:13px;">\u21a9 Switch to paper</button>' : ''}
+          ${w.status !== 'completed' ? '<button type="button" class="pwdig-print" style="background:var(--brand-green); border:none; color:#fff; padding:7px 14px; border-radius:6px; font-weight:700; cursor:pointer; font-size:13px;">\ud83d\udda8 Print</button>' : ''}
+          <span class="status-msg pwdig-status" style="font-size:12px;"></span>
+        </div></div>`;
+    }).join('');
+    rows.querySelectorAll('.pwdig-paper').forEach(b => b.onclick = async () => {
+      const key = b.closest('.pwdig-row').dataset.key, w = pwDigitalWP.find(x => x.jobKey === key); if(!w) return;
+      if(!confirm(`Take ${w.jobNumber} (${w.clientName}) off ${w.captainName}\u2019s phone and do it on paper?`)) return;
+      w.status = 'paper'; w.paperAt = new Date().toISOString(); w.paperBy = localStorage.getItem('henson_auth_email') || 'the office';
+      if(!(await window.dashboardApi.set(DIGITAL_WP_KEY, pwDigitalWP))){ alert('Could not save \u2014 check your connection.'); return; }
+      renderDigitalWP(); if(pwBatchPackages.length) renderPwBatchPackages();
+    });
+    rows.querySelectorAll('.pwdig-print').forEach(b => b.onclick = async () => {
+      const row = b.closest('.pwdig-row'), key = row.dataset.key, st = row.querySelector('.pwdig-status');
+      st.textContent = 'Preparing\u2026'; st.className = 'status-msg pwdig-status';
+      try{
+        const jobData = await window.dashboardApi.get('paperwork-job-link-' + key, null);
+        if(!jobData) throw new Error('This job\u2019s saved details couldn\u2019t be found \u2014 print it from the work order instead.');
+        pwFillFromJobData(jobData);
+        const { html, extraNote } = await buildWorkPackageHtml(jobData.jobType || 'move');
+        document.getElementById('printPaperwork').innerHTML = html;
+        document.getElementById('printBOL').innerHTML = '';
+        document.getElementById('printEstimate').innerHTML = '';
+        st.textContent = 'Opening print dialog.' + (extraNote || ''); st.className = 'status-msg pwdig-status ok';
+        await waitForPrintImagesAndPrint();
+      }catch(err){ st.textContent = err.message || String(err); st.className = 'status-msg pwdig-status err'; }
+    });
+  }
+  window.renderDigitalWP = renderDigitalWP;
   async function pushDigitalWorkPackage(idx){
     const pkg = pwBatchPackages[idx]; if(!pkg) return;
     const st = document.getElementById('pwpkg_status_' + idx);
@@ -22636,6 +22707,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!(await window.dashboardApi.set(DIGITAL_WP_KEY, list))) throw new Error('save');
       pwDigitalWP = list;
       renderPwBatchPackages();
+      renderDigitalWP();
       const st2 = document.getElementById('pwpkg_status_' + idx); if(st2){ st2.textContent = `\u2713 Sent to ${pkg.captainName}\u2019s HUNK Portal.`; st2.className = 'status-msg ok'; }
     }catch(err){ say('Could not push \u2014 check your connection.', false); }
   }
@@ -23728,7 +23800,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           </div>
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
-          ${(() => { const w = (pwDigitalWP || []).find(x => x.jobKey === pwJobKey(pkg.jobNumber)); return w ? `<span style="font-size:12px; font-weight:700; color:${w.status === 'completed' ? 'var(--brand-green-dark)' : '#1f4f87'};">${w.status === 'completed' ? '\u2713 Completed in the app' : '\ud83d\udcf1 Pushed to ' + pwBatchEsc(w.captainName)}</span>` : ''; })()}
+          ${(() => { const w = (pwDigitalWP || []).find(x => x.jobKey === pwJobKey(pkg.jobNumber)); return w ? `<span style="font-size:12px; font-weight:700; color:${w.status === 'completed' ? 'var(--brand-green-dark)' : w.status === 'paper' ? '#8a6100' : '#1f4f87'};">${w.status === 'completed' ? '\u2713 Completed in the app' : w.status === 'paper' ? '\ud83d\udda8\ufe0f Switched to paper' : '\ud83d\udcf1 Pushed to ' + pwBatchEsc(w.captainName)}</span>` : ''; })()}
           <button type="button" class="pwpkg-push" data-index="${i}" style="background:#2f6db5; border:none; color:#fff; font-weight:600; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:13px;">\ud83d\udcf1 Push Digital Work Package</button>
           <button type="button" class="pwpkg-print" data-index="${i}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px;">Print</button>
           <button type="button" class="pwpkg-remove" data-index="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:8px 10px; border-radius:4px; cursor:pointer;">Remove</button>
