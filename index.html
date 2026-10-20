@@ -29755,7 +29755,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
 
       const beforeCount = reviewItems.length;
       reviewItems = reviewItems.filter(item => {
-        if(item.source !== 'materials' || item.type !== 'underbilled') return true;
+        // (Cards from before the source label existed are Materials cards too.)
+        if((item.source && item.source !== 'materials') || item.type !== 'underbilled') return true;
         if(item.reviewedAt) return true;
         return currentJobNumbers.has(item.jobNumber);
       });
@@ -29766,7 +29767,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         // this job still counts as "existing", so its data gets updated in
         // place (never its reviewedAt/reviewedBy) instead of spawning a
         // second, unreviewed duplicate every time this sync re-runs.
-        const existing = reviewItems.find(item => item.source === 'materials' && item.type === 'underbilled' && item.jobNumber === jobNumber);
+        const existing = reviewItems.find(item => (!item.source || item.source === 'materials') && item.type === 'underbilled' && item.jobNumber === jobNumber);
+        if(existing && !existing.source){ existing.source = 'materials'; changed = true; }
         const itemsDetail = byJob[jobNumber].map(p => {
           const item = materialsItems.find(mi => mi.id === p.itemId);
           return {
@@ -33107,8 +33109,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${item.jobDate ? `<div style="font-size:12.5px; color:var(--muted);">Job Date: ${window.fmtDate(item.jobDate)}</div>` : ''}
         ${item.captainName ? `<div style="font-size:12.5px; color:var(--muted);">Captain: ${mgrReviewEsc(item.captainName)}</div>` : ''}
         ${detailHtml}
-        ${item.source === 'materials' && (item.unmatchedLines || []).length ? `<div style="font-size:12.5px; color:#8a6100; margin-top:4px;">\u26a0 Invoice lines not matched to any inventory item: ${item.unmatchedLines.map(l => '\u201c' + mgrReviewEsc(l) + '\u201d').join(', ')} \u2014 add or fix that item\u2019s HunkWare Nickname in Inventory Management.</div>` : ''}
-        ${item.source === 'materials' && showButtons ? `<div style="margin-top:6px;"><button type="button" class="ub-recheck" data-job="${mgrReviewEsc(item.jobNumber)}" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">\u21bb Re-check invoice</button> <span class="status-msg ub-recheck-status" style="font-size:12px;"></span></div>` : ''}
+        ${(!item.source || item.source === 'materials') && (item.unmatchedLines || []).length ? `<div style="font-size:12.5px; color:#8a6100; margin-top:4px;">\u26a0 Invoice lines not matched to any inventory item: ${item.unmatchedLines.map(l => '\u201c' + mgrReviewEsc(l) + '\u201d').join(', ')} \u2014 add or fix that item\u2019s HunkWare Nickname in Inventory Management.</div>` : ''}
+        ${(!item.source || item.source === 'materials') && showButtons ? `<div style="margin-top:6px;"><button type="button" class="ub-recheck" data-job="${mgrReviewEsc(item.jobNumber)}" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">\u21bb Re-check invoice</button> <span class="status-msg ub-recheck-status" style="font-size:12px;"></span></div>` : ''}
         ${showButtons ? `<div style="display:flex; gap:8px; margin-top:8px;">${mgrReviewOutcomeButtonsHtml(item.id)}</div>` : mgrReviewReviewedNoteHtml(item)}
       </div>`;
   }
