@@ -5990,6 +5990,8 @@ app.delete('/api/admin/hiring/candidates/:id', requireAuth, async (req, res) => 
     const candidates = raw ? JSON.parse(raw) : [];
     const filtered = candidates.filter(c => c.id !== req.params.id);
     await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(filtered));
+    await redis.del(HIRING_COMPLETED_PDF_KEY(req.params.id));   // the stored package goes with them
+    console.log(`[hiring] candidate ${req.params.id} removed by ${req.userEmail || ''}`);
     res.json({ ok: true });
   } catch (err) {
     console.error('DELETE /api/admin/hiring/candidates/:id failed:', err.message);
@@ -6217,10 +6219,159 @@ app.post('/api/hiring/package/:token/submit', async (req, res) => {
     candidate.completedAt = new Date().toISOString();
     await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
     res.json({ ok: true });
+    // The finished PDF, stored for good (after replying, so it never slows the new hire down).
+    setImmediate(() => storeCompletedPackagePdf(candidate.id).catch(err => console.error('Completed package PDF failed:', err.message)));
   } catch (err) {
     console.error('POST /api/hiring/package/:token/submit failed:', err.message);
     res.status(500).json({ error: 'Could not submit \u2014 please check your connection and try again.' });
   }
+});
+
+// ============ Completed onboarding package -> one stored PDF ============
+// Built when the new hire submits (and again after the employer signs): a
+// cover page with every detail needed for HunkWare / ADP, then each document
+// filled in as completed -- answers, checkmarks and signatures drawn on PDF
+// forms; an answers page for Word documents. Stored for good under
+// hiring-completed-pdf-<candidate id>, so later edits to the Hiring documents
+// never change a completed package.
+let pdfLib = null;
+try { pdfLib = require('pdf-lib'); } catch (e) { console.log('[hiring] pdf-lib not installed -- completed-package PDFs unavailable'); }
+const HIRING_COMPLETED_PDF_KEY = id => `hiring-completed-pdf-${id}`;
+const HIRING_FIELD_TITLES = {
+  employee_full_name: 'Full name', employee_first_name: 'First name', employee_last_name: 'Last name', employee_address: 'Street address',
+  employee_city: 'City', employee_state: 'State', employee_zip: 'ZIP', employee_phone: 'Phone', employee_email: 'Email', employee_dob: 'Date of birth',
+  ssn: 'Social Security number', bank_name: 'Bank name', account_number: 'Account number', routing_number: 'Routing number', account_type: 'Account type',
+  start_date: 'Start date', starting_pay: 'Starting pay', position_title: 'Position', work_location: 'Work location'
+};
+const pdfSafe = t => String(t == null ? '' : t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, '-').replace(/\u2026/g, '...').replace(/[^\x20-\x7E\u00A0-\u00FF]/g, '');
+function dataUriBytes(uri) { const m = /^data:([^;,]+)?(?:;[^,]*)?;base64,(.*)$/.exec(uri || ''); return m ? { mime: m[1] || '', bytes: Buffer.from(m[2], 'base64') } : null; }
+async function buildCompletedPackagePdf(candidate) {
+  if (!pdfLib) throw new Error('PDF builder not installed on the server.');
+  const { PDFDocument, StandardFonts, rgb } = pdfLib;
+  const docs = (await getHiringDocumentsList()).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const out = await PDFDocument.create();
+  const font = await out.embedFont(StandardFonts.Helvetica), bold = await out.embedFont(StandardFonts.HelveticaBold);
+  const shared = candidate.sharedFieldValues || {};
+  const fmtVal = v => v === true ? 'Yes' : v === false ? '' : pdfSafe(v);
+  // A simple text page writer that flows onto new pages.
+  const W = 612, H = 792, M = 50;
+  let page = null, y = 0;
+  const newPage = () => { page = out.addPage([W, H]); y = H - M; };
+  const line = (text, opts = {}) => {
+    const size = opts.size || 10.5, f = opts.bold ? bold : font, words = pdfSafe(text).split(' '), maxW = W - 2 * M - (opts.indent || 0);
+    let cur = '';
+    const flush = () => { if (y < M + 20) newPage(); page.drawText(cur, { x: M + (opts.indent || 0), y, size, font: f, color: opts.color || rgb(0.1, 0.1, 0.1) }); y -= size + 5; cur = ''; };
+    words.forEach(w => { const t = cur ? cur + ' ' + w : w; if (f.widthOfTextAtSize(t, size) > maxW && cur) { flush(); cur = w; } else cur = t; });
+    flush();
+  };
+  const embedImg = async uri => { const d = dataUriBytes(uri); if (!d) return null; try { return /png/i.test(d.mime) ? await out.embedPng(d.bytes) : await out.embedJpg(d.bytes); } catch (e) { return null; } };
+  // ---- cover page ----
+  newPage();
+  line('College Hunks Augusta - Onboarding Package', { size: 18, bold: true }); y -= 6;
+  line(`${candidate.firstName} ${candidate.lastName}`, { size: 15, bold: true });
+  line(`Position: ${candidate.positionTitle || ''}    Start date: ${candidate.startingDate || ''}    Starting pay: ${candidate.startingPay || ''}`);
+  line(`Email on file: ${candidate.email || ''}    Package completed: ${candidate.completedAt ? new Date(candidate.completedAt).toLocaleString('en-US', { timeZone: 'America/New_York' }) : ''}`);
+  y -= 8; line('Details for HunkWare / ADP', { size: 13, bold: true });
+  const titleOf = {};
+  docs.forEach(d => (d.fields || []).forEach(f => { if (f.canonicalKey && !titleOf[f.canonicalKey]) titleOf[f.canonicalKey] = f.label; }));
+  Object.keys(HIRING_FIELD_TITLES).forEach(k => { const v = k === 'start_date' ? (shared[k] || candidate.startingDate) : k === 'starting_pay' ? (shared[k] || candidate.startingPay) : k === 'position_title' ? (shared[k] || candidate.positionTitle) : shared[k];
+    if (v) line(`${HIRING_FIELD_TITLES[k]}: ${fmtVal(v)}`, { indent: 10 }); });
+  // Other answers that repeat across documents (emergency contact etc.), once each.
+  const seen = new Set();
+  docs.forEach(d => { const fv = ((candidate.documentProgress || {})[d.id] || {}).fieldValues || {};
+    (d.fields || []).forEach(f => { if (f.canonicalKey || f.type === 'checkbox' || f.type === 'signature' || f.type === 'employer_signature') return;
+      const label = String(f.label || '').trim(), v = fv[f.id]; if (!label || !v || /signature|date signed|^date$/i.test(label)) return;
+      const k = label.toLowerCase(); if (seen.has(k) || !/emergency|contact|relationship|t-?shirt|shirt size|license|dependents|marital|filing/i.test(label)) return;
+      seen.add(k); line(`${label}: ${fmtVal(v)}`, { indent: 10 }); }); });
+  // ---- each document ----
+  for (const doc of docs) {
+    const prog = (candidate.documentProgress || {})[doc.id] || {};
+    const fv = prog.fieldValues || {};
+    const valueOf = f => f.canonicalKey ? (f.canonicalKey === 'start_date' ? (shared.start_date || candidate.startingDate) : shared[f.canonicalKey]) : fv[f.id];
+    const sigRaw = await redis.get(`hiring-signature-${candidate.id}-${doc.id}`); const sigUri = sigRaw ? JSON.parse(sigRaw) : null;
+    const empRaw = await redis.get(`hiring-employer-signature-${candidate.id}-${doc.id}`); const empUri = empRaw ? JSON.parse(empRaw) : null;
+    const fileRaw = doc.fileKey ? await redis.get(doc.fileKey) : null;
+    const file = fileRaw ? dataUriBytes(JSON.parse(fileRaw)) : null;
+    const leftover = []; let sigPlaced = false, empPlaced = false;
+    if (file && /pdf/i.test(file.mime)) {
+      let src = null; try { src = await PDFDocument.load(file.bytes, { ignoreEncryption: true }); } catch (e) { src = null; }
+      if (src) {
+        const pages = await out.copyPages(src, src.getPageIndices());
+        pages.forEach(pg => out.addPage(pg));
+        for (const f of (doc.fields || [])) {
+          const pos = f.position, v = valueOf(f);
+          if (!pos || pos.page >= pages.length) { if (f.type !== 'employer_signature' && f.type !== 'signature' && v != null && v !== '' && v !== false) leftover.push([f.label, fmtVal(v)]); continue; }
+          const pg = pages[pos.page], { width: pw, height: ph } = pg.getSize();
+          const x = pos.xPct / 100 * pw, top = pos.yPct / 100 * ph, w = pos.widthPct / 100 * pw, h = pos.heightPct / 100 * ph, yb = ph - top - h;
+          if (f.type === 'signature' || f.type === 'employer_signature') {
+            const img = await embedImg(f.type === 'signature' ? sigUri : empUri); if (!img) continue;
+            const sc = Math.min(w / img.width, h / img.height); pg.drawImage(img, { x, y: yb, width: img.width * sc, height: img.height * sc });
+            if (f.type === 'signature') sigPlaced = true; else empPlaced = true; continue;
+          }
+          if (v == null || v === '' || v === false || v === 'false') continue;
+          if (f.type === 'checkbox' || v === true) { pg.drawText('X', { x: x + Math.max(0, w / 2 - 4), y: yb + Math.max(1, h / 2 - 4), size: Math.min(11, Math.max(7, h)), font: bold, color: rgb(0, 0, 0) }); continue; }
+          let size = Math.max(6, Math.min(11, h * 0.75)); const t = fmtVal(v);
+          while (size > 6 && font.widthOfTextAtSize(t, size) > w) size -= 0.5;
+          pg.drawText(t, { x: x + 2, y: yb + Math.max(1, (h - size) / 2), size, font, color: rgb(0.05, 0.1, 0.45) });
+        }
+      } else leftover.push(['(The original document could not be attached)', '']);
+    } else if (file && /^image\//i.test(file.mime)) {
+      const img = await embedImg(JSON.parse(fileRaw));
+      if (img) { const pg = out.addPage([W, H]); const sc = Math.min((W - 40) / img.width, (H - 40) / img.height); pg.drawImage(img, { x: 20, y: H - 20 - img.height * sc, width: img.width * sc, height: img.height * sc }); }
+      (doc.fields || []).forEach(f => { const v = valueOf(f); if (f.type !== 'signature' && f.type !== 'employer_signature' && v != null && v !== '' && v !== false) leftover.push([f.label, fmtVal(v)]); });
+    } else {
+      (doc.fields || []).forEach(f => { const v = valueOf(f); if (f.type !== 'signature' && f.type !== 'employer_signature' && v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmtVal(v)]); });
+    }
+    // Answers / signatures that had no spot on the form.
+    const needSigPage = leftover.length || (sigUri && !sigPlaced) || (empUri && !empPlaced) || !(file && /pdf|image/i.test(file.mime));
+    if (needSigPage) {
+      newPage();
+      line(doc.name || 'Document', { size: 15, bold: true });
+      line(`${candidate.firstName} ${candidate.lastName} - completed ${prog.completedAt ? new Date(prog.completedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) : ''}`, { color: rgb(0.4, 0.4, 0.4) });
+      y -= 6;
+      leftover.forEach(([l, v]) => line(`${l}: ${v}`));
+      for (const [uri, placed, who] of [[sigUri, sigPlaced, 'Employee signature'], [empUri, empPlaced, 'Employer signature']]) {
+        if (!uri || placed) continue;
+        const img = await embedImg(uri); if (!img) continue;
+        if (y < M + 90) newPage();
+        y -= 6; line(who, { bold: true });
+        const sc = Math.min(220 / img.width, 70 / img.height); page.drawImage(img, { x: M, y: y - img.height * sc, width: img.width * sc, height: img.height * sc }); y -= img.height * sc + 10;
+      }
+    }
+  }
+  return 'data:application/pdf;base64,' + Buffer.from(await out.save()).toString('base64');
+}
+async function storeCompletedPackagePdf(candidateId) {
+  const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+  const c = candidates.find(x => x.id === candidateId);
+  if (!c || c.status !== 'completed') return null;
+  const uri = await buildCompletedPackagePdf(c);
+  await redis.set(HIRING_COMPLETED_PDF_KEY(c.id), JSON.stringify(uri));
+  const fresh = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
+  console.log(`[hiring] completed package PDF stored for ${c.firstName} ${c.lastName} (${Math.round(uri.length / 1024)} KB)`);
+  return uri;
+}
+// Opening it: the Administrator directly; anyone else with the Override PIN.
+// Every opening is logged (it holds the SSN and bank details).
+app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async (req, res) => {
+  try {
+    const role = (JSON.parse(await redis.get(USERS_KEY) || '{}')[req.userEmail] || {}).role;
+    if (role !== 'admin') {
+      const saved = await redis.get(MATERIALS_OVERRIDE_PIN_KEY);
+      if (!saved || String(req.headers['x-override-pin'] || '') !== saved) return res.status(403).json({ error: 'Enter the Administrator Override PIN to open this package.', needPin: true });
+    }
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const c = candidates.find(x => x.id === req.params.id);
+    if (!c || c.status !== 'completed') return res.status(404).json({ error: 'This package hasn\u2019t been submitted yet.' });
+    let raw = await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
+    let uri = raw ? JSON.parse(raw) : await storeCompletedPackagePdf(c.id);   // packages completed before this existed
+    const log = JSON.parse(await redis.get('hiring-reveal-log') || '[]');
+    log.push({ candidateId: c.id, candidateName: `${c.firstName} ${c.lastName}`, scope: 'completed-package', fieldKey: 'package-pdf', revealedBy: req.userEmail || '', revealedAt: new Date().toISOString() });
+    await redis.set('hiring-reveal-log', JSON.stringify(log.slice(-1000)));
+    console.log(`[hiring] completed package for ${c.firstName} ${c.lastName} opened by ${req.userEmail || ''}`);
+    res.json({ dataUri: uri, fileName: `Onboarding Package - ${c.lastName}, ${c.firstName}.pdf` });
+  } catch (err) { console.error('Completed package open failed:', err.message); res.status(500).json({ error: 'Could not build the package \u2014 ' + err.message }); }
 });
 
 // ============ Hiring -> Interviews: read an Indeed screenshot / email ============
@@ -6340,6 +6491,7 @@ app.post('/api/admin/new-hires/:id/employer-sign', requireAuth, requireAdmin, as
     await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
     console.log(`[new-hires] employer signed ${documentId} for ${c.firstName} ${c.lastName} (${req.userEmail || ''})`);
     res.json({ ok: true });
+    setImmediate(() => storeCompletedPackagePdf(c.id).catch(err => console.error('Completed package PDF rebuild failed:', err.message)));
   } catch (err) { res.status(500).json({ error: 'Could not save the signature.' }); }
 });
 app.post('/api/admin/new-hires/:id/hunkware', requireAuth, async (req, res) => {
