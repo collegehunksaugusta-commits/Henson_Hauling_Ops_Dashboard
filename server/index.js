@@ -361,6 +361,7 @@ async function rebuildDriverAuthLookup() {
       redis.get('compliance-drivers')
     ]);
     const weeks = weeksRaw ? JSON.parse(weeksRaw) : [];
+    await loadRosterRemoved(weeks);
     const compDrivers = driversRaw ? JSON.parse(driversRaw) : [];
     // Only names actively checkmarked as a driver on the Compliance tile --
     // an office employee who happens to be on payroll never gets Driver
@@ -379,6 +380,7 @@ async function rebuildDriverAuthLookup() {
     const wingmanLookup = {};
     employees.forEach(e => {
       if (!(e && e.name && e.ssnLast4 && /^\d{4}$/.test(e.ssnLast4))) return;
+      if (isRosterRemoved(e.name)) return;   // terminated: no sign-in
       // A given last-4 maps to exactly one person and one portal.
       delete lookup[e.ssnLast4];
       delete wingmanLookup[e.ssnLast4];
@@ -401,7 +403,7 @@ async function rebuildDriverAuthLookup() {
         // Removed from the list, or now on payroll: forget the manual digits.
         if (!onManualList.has(nameCoreKey(name)) || onPayroll.has(nameCoreKey(name))) { delete manualSsn[name]; pruned = true; return; }
         const last4 = manualSsn[name];
-        if (!/^\d{4}$/.test(last4) || lookup[last4] || wingmanLookup[last4]) return;
+        if (!/^\d{4}$/.test(last4) || lookup[last4] || wingmanLookup[last4] || isRosterRemoved(name)) return;
         if (roleRules.isCaptain(name)) lookup[last4] = name; else wingmanLookup[last4] = name;
       });
       if (pruned) await redis.set(MANUAL_SSN_KEY, JSON.stringify(manualSsn));
@@ -676,7 +678,7 @@ async function requireDriverAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Not logged in.' });
   try {
     const valid = await redis.get(DRIVER_SESSION_PREFIX + token);
-    if (!valid) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    if (!valid || isRosterRemoved(valid)) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
     req.driverName = valid;
     next();
   } catch (err) {
@@ -692,7 +694,7 @@ async function requireWingmanAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Not logged in.' });
   try {
     const name = await redis.get(WINGMAN_SESSION_PREFIX + token);
-    if (!name) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    if (!name || isRosterRemoved(name)) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
     req.wingmanName = name;
     next();
   } catch (err) {
@@ -748,8 +750,9 @@ function requireDriverOrTaskWingman(allowedTypes, completesType, opts) {
     if (!token) return res.status(401).json({ error: 'Not logged in.' });
     try {
       const driverName = await redis.get(DRIVER_SESSION_PREFIX + token);
-      if (driverName) { req.driverName = driverName; return next(); }
-      const wingmanName = await redis.get(WINGMAN_SESSION_PREFIX + token);
+      if (driverName && !isRosterRemoved(driverName)) { req.driverName = driverName; return next(); }
+      const wingmanName0 = await redis.get(WINGMAN_SESSION_PREFIX + token);
+      const wingmanName = wingmanName0 && !isRosterRemoved(wingmanName0) ? wingmanName0 : null;
       if (!wingmanName) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
       const taskId = String(req.headers['x-wingman-task-id'] || '');
       if (!taskId) return res.status(403).json({ error: 'This needs a task assigned to you by a Captain.' });
@@ -7011,6 +7014,26 @@ function nameCoreKey(name){
   return String(name || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ');
 }
 
+// ---- Employees removed from the roster (terminated) ----
+// { coreKey: { name, removedAt (ISO), by } }. Someone removed drops off the
+// roster everywhere and loses HUNK Portal sign-in -- unless they show up
+// again on a payroll week that starts AFTER the removal (rehired).
+const ROSTER_REMOVED_KEY = 'roster-removed';
+let rosterRemoved = {}, rosterRemovedActive = new Set();
+async function loadRosterRemoved(weeks){
+  try {
+    rosterRemoved = JSON.parse(await redis.get(ROSTER_REMOVED_KEY) || '{}');
+    if (!weeks) weeks = JSON.parse(await redis.get('labor-weeks') || '[]');
+    const active = new Set();
+    Object.entries(rosterRemoved).forEach(([k, r]) => {
+      const day = String(r.removedAt || '').slice(0, 10);
+      const rehired = (weeks || []).some(w => (w.weekStart || '') > day && (w.employees || []).some(e => nameCoreKey(e.name) === k));
+      if (!rehired) active.add(k);
+    });
+    rosterRemovedActive = active;
+  } catch (err) { console.error('Roster removals load failed:', err.message); }
+}
+const isRosterRemoved = name => rosterRemovedActive.has(nameCoreKey(name));
 function computeRosterNames(weeks, manualAdditions){
   const sorted = [...(weeks || [])].sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
   const recentTwo = sorted.slice(0, 2);
@@ -7024,11 +7047,52 @@ function computeRosterNames(weeks, manualAdditions){
     const key = nameCoreKey(trimmed);
     if(seen.has(key)) return;
     seen.add(key);
+    if(rosterRemovedActive.has(key)) return;   // removed (terminated)
     deduped.push(trimmed);
   });
   return deduped.sort((a, b) => a.localeCompare(b));
 }
 
+// Employee Roster -> Remove (terminated) / Undo.
+app.get('/api/admin/roster/removed', requireAuth, requireAdmin, async (req, res) => {
+  try { await loadRosterRemoved(); res.json({ removed: Object.entries(rosterRemoved).map(([k, r]) => Object.assign({ key: k, active: rosterRemovedActive.has(k) }, r)).sort((a, b) => String(b.removedAt).localeCompare(String(a.removedAt))) }); }
+  catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/roster/remove', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const name = String((req.body || {}).name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Which employee?' });
+    const removed = JSON.parse(await redis.get(ROSTER_REMOVED_KEY) || '{}');
+    removed[nameCoreKey(name)] = { name, removedAt: new Date().toISOString(), by: req.userEmail || '' };
+    await redis.set(ROSTER_REMOVED_KEY, JSON.stringify(removed));
+    // A manual addition is taken off Roster Additions too.
+    const manual = JSON.parse(await redis.get('roster-manual-additions') || '[]');
+    const kept = manual.filter(n => nameCoreKey(n) !== nameCoreKey(name));
+    if (kept.length !== manual.length) await redis.set('roster-manual-additions', JSON.stringify(kept));
+    await rebuildDriverAuthLookup();   // also refreshes the removed list
+    console.log(`[roster] ${name} removed (terminated) by ${req.userEmail || ''}`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not remove.' }); }
+});
+app.post('/api/admin/roster/restore', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const name = String((req.body || {}).name || '').trim();
+    const removed = JSON.parse(await redis.get(ROSTER_REMOVED_KEY) || '{}');
+    const entry = removed[nameCoreKey(name)];
+    delete removed[nameCoreKey(name)];
+    await redis.set(ROSTER_REMOVED_KEY, JSON.stringify(removed));
+    // Someone who was only on Roster Additions goes back on it.
+    if (entry) {
+      const weeks = JSON.parse(await redis.get('labor-weeks') || '[]');
+      const recent = weeks.slice().sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || '')).slice(0, 2);
+      const onPayroll = recent.some(w => (w.employees || []).some(e => nameCoreKey(e.name) === nameCoreKey(entry.name)));
+      if (!onPayroll) { const manual = JSON.parse(await redis.get('roster-manual-additions') || '[]'); if (!manual.some(n => nameCoreKey(n) === nameCoreKey(entry.name))) { manual.push(entry.name); await redis.set('roster-manual-additions', JSON.stringify(manual)); } }
+    }
+    await rebuildDriverAuthLookup();
+    console.log(`[roster] ${name} restored by ${req.userEmail || ''}`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not restore.' }); }
+});
 app.get('/api/roster', requireAuth, async (req, res) => {
   try {
     const [weeksRaw, manualRaw] = await Promise.all([
@@ -9301,6 +9365,7 @@ app.get('/api/admin/storage-audit', requireAuth, async (req, res) => {
 
 app.listen(PORT, async () => {
   console.log(`${LOCATION.name} dashboard backend listening on port ${PORT}`);
+  await loadRosterRemoved();   // terminated employees stay off the roster from the first request
   console.log(process.env.LOB_API_KEY
     ? `LOB_API_KEY is set (starts with "${process.env.LOB_API_KEY.slice(0, 5)}...")`
     : 'LOB_API_KEY is NOT set \u2014 zip lookup will not work until it is added.');
