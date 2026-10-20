@@ -7063,6 +7063,8 @@
       <div style="overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
         <thead><tr>
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Name</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Phone</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Email</th>
           <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Signs in to Driver Tools, and is scored in Captain Metrics">Captain</th>
           <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Can be reviewed as a wingman, handed tasks, and is scored in Wingman Metrics">Wingman</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Source</th>
@@ -10211,12 +10213,19 @@
     await loadRosterRoles();
     renderEmployeeRosterView();
     loadRosterPackages();
+    loadRosterContacts();
   }
   window.loadEmployeeRosterView = loadEmployeeRosterView;
   // Completed onboarding packages, matched to roster names (same name rules:
   // case, punctuation, order and middle initials don't matter).
   let rosterPackages = {};
-  const rosterPkgKey = n => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(w => w.length > 1).sort().join(' ');
+  let rosterContacts = {};   // phone & email by name (packages + typed in)
+  async function loadRosterContacts(){
+    try{ const r = await fetch(`${API_BASE}/api/employee-contacts`, { headers: authHeaders() }); rosterContacts = r.ok ? ((await r.json()).contacts || {}) : {}; }catch(err){ rosterContacts = {}; }
+    renderEmployeeRosterView();
+  }
+  // Same rule as the server's nameCoreKey, so names always line up.
+  const rosterPkgKey = n => String(n || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ');
   async function loadRosterPackages(){
     try{
       const r = await fetch(`${API_BASE}/api/admin/hiring/candidates`, { headers: authHeaders() });
@@ -10249,6 +10258,14 @@
       const pkg = rosterPackages[rosterPkgKey(n)];
       return `<tr>
         <td style="${cell} font-weight:600;">${pkg ? `<button type="button" class="roster-pkg" data-cand="${rosterManualEsc(pkg.id)}" title="Completed onboarding package (${pkg.completedAt ? new Date(pkg.completedAt).toLocaleDateString() : ''})" style="float:right; background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:5px; padding:2px 8px; font-size:12px; font-weight:700; cursor:pointer; margin-left:6px;">\ud83d\udcc4 Onboarding Package</button>` : ''}${rosterManualEsc(n)}${role.driver ? ' <span title="A driver in Regulatory Compliance" style="font-size:11px; color:var(--muted); font-weight:400;">\u00b7 driver</span>' : ''}</td>
+        ${(() => {
+          const ct = rosterContacts[rosterPkgKey(n)] || {};
+          const hint = ct.source === 'package' ? ' title="From their onboarding package"' : '';
+          if(admin) return `<td style="${cell}"><input type="tel" class="roster-contact" data-name="${rosterManualEsc(n)}" data-k="phone" value="${rosterManualEsc(ct.phone || '')}"${hint} placeholder="Phone" style="width:130px; padding:5px; font-size:13px;"></td>
+            <td style="${cell}"><input type="email" class="roster-contact" data-name="${rosterManualEsc(n)}" data-k="email" value="${rosterManualEsc(ct.email || '')}"${hint} placeholder="Email" style="width:190px; padding:5px; font-size:13px;"></td>`;
+          return `<td style="${cell}">${ct.phone ? `<a href="tel:${rosterManualEsc(ct.phone.replace(/[^0-9+]/g, ''))}" style="color:var(--charcoal);">${rosterManualEsc(ct.phone)}</a>` : ''}</td>
+            <td style="${cell}">${ct.email ? `<a href="mailto:${rosterManualEsc(ct.email)}" style="color:var(--charcoal);">${rosterManualEsc(ct.email)}</a>` : ''}</td>`;
+        })()}
         <td style="${cell} text-align:center;">${box('captain', role.captain)}</td>
         <td style="${cell} text-align:center;">${box('wingman', role.wingman)}</td>
         ${admin ? `<td style="${cell}">${isManual ? 'Added manually' : 'Payroll'}</td>
@@ -10267,6 +10284,20 @@
     }).join('');
   }
   document.getElementById('rosterListSearch').addEventListener('input', renderEmployeeRosterView);
+  // Typing in a phone / email (Administrator): saved when you leave the box.
+  document.getElementById('rosterListRows').addEventListener('change', async e => {
+    const inp = e.target.closest && e.target.closest('.roster-contact'); if(!inp) return;
+    const row = inp.closest('tr'), name = inp.dataset.name;
+    const phoneEl = row.querySelector('.roster-contact[data-k=phone]'), emailEl = row.querySelector('.roster-contact[data-k=email]');
+    inp.style.borderColor = '';
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/employee-contacts`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name, phone: phoneEl.value, email: emailEl.value }) });
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not save.');
+      phoneEl.value = d.phone; emailEl.value = d.email;
+      rosterContacts[rosterPkgKey(name)] = Object.assign({}, rosterContacts[rosterPkgKey(name)], { phone: d.phone, email: d.email, source: 'manual' });
+      row.style.background = '#f1f8f3'; setTimeout(() => { row.style.background = ''; }, 900);
+    }catch(err){ inp.style.borderColor = '#b3261e'; inp.title = err.message; alert(err.message); }
+  });
   document.getElementById('rosterListRows').addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('.roster-pkg'); if(!b) return;
     if(window.openCompletedPackage) window.openCompletedPackage(b.dataset.cand, null);
@@ -31895,7 +31926,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const sigs = n.employerSignatures || [], needSig = sigs.filter(x => !x.signed).length;
       return `<div class="nh-card" data-id="${mgrReviewEsc(n.id)}" style="border:2px solid ${n.done ? 'var(--line)' : 'var(--brand-orange)'}; border-radius:10px; padding:12px 14px; margin-bottom:12px; background:${n.done ? 'var(--offwhite)' : '#fff'};">
         <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-          <div><strong style="font-size:15px;">${mgrReviewEsc(n.name)}</strong><div style="font-size:12.5px; color:var(--muted);">${mgrReviewEsc(n.positionTitle || '')}${n.startingDate ? ' \u00b7 starts ' + window.fmtDate(n.startingDate) : ''} \u00b7 package completed ${when(n.completedAt)}</div></div>
+          <div><strong style="font-size:15px;">${mgrReviewEsc(n.name)}</strong>
+            ${n.phone || n.email ? `<div style="font-size:13.5px; margin:2px 0; display:flex; gap:14px; flex-wrap:wrap;">${n.phone ? `<a href="tel:${mgrReviewEsc(n.phone.replace(/[^0-9+]/g, ''))}" style="color:var(--charcoal); text-decoration:none;">\ud83d\udcde ${mgrReviewEsc(n.phone)}</a>` : ''}${n.email ? `<a href="mailto:${mgrReviewEsc(n.email)}" style="color:var(--charcoal); text-decoration:none;">\u2709\ufe0f ${mgrReviewEsc(n.email)}</a>` : ''}</div>` : ''}
+            <div style="font-size:12.5px; color:var(--muted);">${mgrReviewEsc(n.positionTitle || '')}${n.startingDate ? ' \u00b7 starts ' + window.fmtDate(n.startingDate) : ''} \u00b7 package completed ${when(n.completedAt)}</div></div>
           <div style="display:flex; gap:8px; align-items:center;"><button type="button" class="nh-package" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); padding:6px 12px; border-radius:6px; font-weight:700; cursor:pointer;">\ud83d\udcc4 Completed Package</button>${n.done ? '<span style="color:var(--brand-green-dark); font-weight:800;">\u2713 Done</span>' : ''}</div>
         </div>
         ${sigs.length ? `<div style="margin-top:10px;"><div style="font-weight:700; font-size:13px;">Employer signature${sigs.length === 1 ? '' : 's'} (Administrator)</div>
