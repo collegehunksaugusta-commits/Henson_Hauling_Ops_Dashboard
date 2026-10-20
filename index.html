@@ -35527,3 +35527,50 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   }
 })();
 </script>
+<script>
+// ---- Daily jingle: the College Hunks jingle on the first open of the day ----
+// Once per device per day. Browsers only allow sound after a tap/click, so if
+// it can't start right away it plays on the first tap of the day instead.
+// Not on the onboarding / damage-claim links new hires and clients open.
+(function(){
+  const KEY = 'chhj_jingle_last';
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+  function due(){
+    try{ if(localStorage.getItem(KEY) === today()) return false; }catch(e){ return false; }
+    if(window.__publicLinkOnly) return false;
+    if(/^#(hiring-|claim-)/.test(location.hash || '')) return false;
+    return true;
+  }
+  let audio = null, pill = null, started = false;
+  function showPill(){
+    pill = document.createElement('div');
+    pill.style.cssText = 'position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom, 0px)); z-index:200000; background:#00612C; color:#fff; border-radius:22px; padding:8px 12px; font:600 13px Inter,system-ui,sans-serif; box-shadow:0 4px 14px rgba(0,0,0,.25); display:flex; gap:10px; align-items:center;';
+    pill.innerHTML = '<button type="button" id="jingleStop" style="background:none; border:none; color:#fff; font:inherit; cursor:pointer; padding:0;">\ud83c\udfb5 Tap to stop</button>';
+    document.body.appendChild(pill);
+    document.getElementById('jingleStop').onclick = e => { e.stopPropagation(); stop(); };
+  }
+  function stop(){ if(audio){ audio.pause(); audio.currentTime = 0; } if(pill){ pill.remove(); pill = null; } }
+  async function play(){
+    if(started || !due()) return true;
+    audio = audio || new Audio('jingle.mp3');
+    audio.volume = 0.8;
+    try{
+      await audio.play();
+      started = true;
+      try{ localStorage.setItem(KEY, today()); }catch(e){}
+      showPill();
+      audio.onended = () => { if(pill){ pill.remove(); pill = null; } };
+      return true;
+    }catch(err){ return false; }   // blocked until a tap
+  }
+  const TAP_EVENTS = ['pointerdown', 'keydown', 'touchend'];
+  function onFirstTap(){
+    play().then(ok => { if(ok) TAP_EVENTS.forEach(ev => document.removeEventListener(ev, onFirstTap, true)); });
+  }
+  function begin(){
+    if(!due()) return;
+    play().then(ok => { if(!ok) TAP_EVENTS.forEach(ev => document.addEventListener(ev, onFirstTap, true)); });
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(begin, 600)); else setTimeout(begin, 600);
+})();
+</script>
