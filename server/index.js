@@ -1187,6 +1187,51 @@ app.get('/api/driver/materials-checkout-status', requireDriverOrTaskWingman(null
   }
 });
 
+// ---- Materials reminder for the Captain (HUNK Portal pop-up) ----
+// open:    his jobs (last 7 days) with materials pulled and no invoice yet --
+//          "make sure these are billed when the job is finished";
+// missing: his invoiced jobs flagged in Underbilled Jobs (not yet reviewed).
+app.get('/api/driver/materials-reminders', requireDriverAuth, async (req, res) => {
+  try {
+    const me = req.driverName, meKey = nameCoreKey(me);
+    const [archiveRaw, checkoutsRaw, itemsRaw, uploadsRaw, reviewRaw] = await Promise.all([
+      redis.get(JOB_ARCHIVE_KEY), redis.get('materials-checkouts'), redis.get('materials-items'), redis.get('paperwork-uploads'), redis.get('manager-review-items')
+    ]);
+    const archive = JSON.parse(archiveRaw || '[]'), checkouts = JSON.parse(checkoutsRaw || '[]');
+    const items = new Map(JSON.parse(itemsRaw || '[]').map(i => [i.id, i]));
+    const invoiced = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
+    const from = isoDay(-7), to = isoDay(0);
+    const jobsByNumber = new Map(archive.filter(j => j.jobNumber).map(j => [j.jobNumber, j]));
+    const mine = j => j && nameCoreKey(j.captainName || '') === meKey;
+    const open = new Map();
+    checkouts.filter(c => (c.date || '') >= from && (c.date || '') <= to).forEach(c => {
+      const jobs = (c.jobNumbers || []).filter(Boolean);
+      const forMe = jobs.filter(n => mine(jobsByNumber.get(n)) || (!jobsByNumber.get(n) && nameCoreKey(c.driverName || '') === meKey));
+      // One entry per pull: a pull shared by several of his jobs shows once.
+      const group = forMe.filter(n => !invoiced.has(n)).sort();
+      if (!group.length) return;
+      [group.join(',')].forEach(key => {
+        const js = group.map(n => jobsByNumber.get(n) || {});
+        const e = open.get(key) || { jobNumber: group.join(', '), clientName: js.map(j => j.clientName).filter(Boolean).join(' & '), date: js.map(j => j.assignmentDate).filter(Boolean).sort().pop() || c.date, items: {}, sharedWith: new Set() };
+        if (group.length > 1) e.sharedWith.add('split');
+        (c.items || []).forEach(it => {
+          const def = items.get(it.itemId) || {};
+          if (def.neverBilled || !(Number(it.quantity) > 0)) return;
+          const row = e.items[it.itemId] || { name: def.description || it.description || 'Item', billAs: def.nickname || '', quantity: 0 };
+          row.quantity += Number(it.quantity) || 0;
+          e.items[it.itemId] = row;
+        });
+        open.set(key, e);
+      });
+    });
+    const openList = [...open.values()].map(e => ({ jobNumber: e.jobNumber, clientName: e.clientName, date: e.date, sharedWith: [...e.sharedWith], items: Object.values(e.items) }))
+      .filter(e => e.items.length).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const missing = JSON.parse(reviewRaw || '[]')
+      .filter(i => i.type === 'underbilled' && (!i.source || i.source === 'materials') && !i.reviewedAt && mine(jobsByNumber.get(i.jobNumber)))
+      .map(i => ({ jobNumber: i.jobNumber, clientName: (jobsByNumber.get(i.jobNumber) || {}).clientName || i.clientName || '', items: (i.items || []).map(x => ({ name: x.description, used: x.netUsed != null ? x.netUsed : x.checkedOut, billed: x.billed || 0 })) }));
+    res.json({ open: openList, missing });
+  } catch (err) { console.error('Materials reminders failed:', err.message); res.status(500).json({ error: 'Could not load reminders.' }); }
+});
 app.post('/api/driver/materials-checkout', requireDriverOrTaskWingman(['pretrip', 'materials-checkout']), async (req, res) => {
   const { jobNumbers, items, date } = req.body || {};
   const driverName = req.driverName;
