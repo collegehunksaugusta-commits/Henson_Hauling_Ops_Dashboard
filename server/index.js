@@ -6494,6 +6494,48 @@ app.post('/api/admin/hiring/build-interview-form', requireAuth, async (req, res)
   } catch (err) { console.error('Build interview form failed:', err.message); res.status(500).json({ error: 'Could not build the form.' }); }
 });
 
+// ============ Employee Roster -> phone & email ============
+// From completed onboarding packages automatically; anyone else (or a
+// correction) typed in by the Administrator. Visible to every manager.
+const EMPLOYEE_CONTACTS_KEY = 'employee-contacts';
+app.get('/api/employee-contacts', requireAuth, async (req, res) => {
+  try {
+    const out = {};
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]').filter(c => c.status === 'completed')
+      .sort((a, b) => String(a.completedAt || '').localeCompare(String(b.completedAt || '')));
+    candidates.forEach(c => {
+      const sv = c.sharedFieldValues || {};
+      const phone = String(sv.employee_phone || '').trim(), email = String(sv.employee_email || c.email || '').trim();
+      if (phone || email) out[nameCoreKey(`${c.firstName} ${c.lastName}`)] = { phone, email, source: 'package' };
+    });
+    const manual = JSON.parse(await redis.get(EMPLOYEE_CONTACTS_KEY) || '{}');
+    Object.entries(manual).forEach(([k, m]) => {
+      const base = out[k] || {};
+      out[k] = { phone: m.phone || base.phone || '', email: m.email || base.email || '', source: 'manual', packagePhone: base.phone || '', packageEmail: base.email || '' };
+    });
+    res.json({ contacts: out });
+  } catch (err) { res.status(500).json({ error: 'Could not load contacts.' }); }
+});
+app.post('/api/admin/employee-contacts', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const name = String((req.body || {}).name || '').trim();
+    let phone = String((req.body || {}).phone || '').trim(), email = String((req.body || {}).email || '').trim();
+    if (!name) return res.status(400).json({ error: 'Missing name.' });
+    if (phone) {
+      const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+      if (digits.length !== 10) return res.status(400).json({ error: 'Enter a 10-digit phone number.' });
+      phone = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'That email address doesn\u2019t look right.' });
+    const manual = JSON.parse(await redis.get(EMPLOYEE_CONTACTS_KEY) || '{}');
+    const k = nameCoreKey(name);
+    if (!phone && !email) delete manual[k];
+    else manual[k] = { name, phone, email: email.toLowerCase(), updatedAt: new Date().toISOString(), by: req.userEmail || '' };
+    await redis.set(EMPLOYEE_CONTACTS_KEY, JSON.stringify(manual));
+    res.json({ ok: true, phone, email: email.toLowerCase() });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
 // ============ Manager Review -> New Hires ============
 // A completed onboarding package waits here until (1) the Administrator has
 // signed every spot that calls for the employer's signature and (2) a
@@ -6515,7 +6557,9 @@ app.get('/api/admin/new-hires', requireAuth, async (req, res) => {
       const sigs = c.employerSignatures || {};
       const needs = signDocs.map(d => ({ id: d.id, name: d.name, signed: !!sigs[d.id], signedBy: (sigs[d.id] || {}).by || '', signedAt: (sigs[d.id] || {}).at || '' }));
       const done = needs.every(n => n.signed) && !!c.hunkwareAddedAt;
-      return { id: c.id, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(), rosterName: newHireRosterName(c), completedAt: c.completedAt, startingDate: c.startingDate,
+      const sv = c.sharedFieldValues || {};
+      return { id: c.id, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(), rosterName: newHireRosterName(c),
+        phone: String(sv.employee_phone || '').trim(), email: String(sv.employee_email || c.email || '').trim(),   // basic contact info: visible to every manager completedAt: c.completedAt, startingDate: c.startingDate,
         positionTitle: c.positionTitle, employerSignatures: needs, hunkware: c.hunkwareAddedAt ? { at: c.hunkwareAddedAt, by: c.hunkwareAddedBy, roster: c.rosterResult || null } : null, done };
     }).filter(x => !x.done || (x.hunkware && x.hunkware.at >= cutoff)).sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
     res.json({ newHires: out });
