@@ -6435,13 +6435,15 @@
       </div>
     </div>
     <div class="row">
-      <label>Save Current Entry As
-        <input type="text" id="saveClientName" placeholder="e.g. Jane Customer 8/12/26">
+      <label>Estimate name (optional)
+        <input type="text" id="saveClientName" placeholder="e.g. Jane Customer — with packing">
       </label>
-      <div style="display:flex; align-items:flex-end;">
-        <button class="btn" id="saveClientBtn" type="button">Save Current Entry</button>
+      <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
+        <button class="btn" id="saveClientBtn" type="button">Save</button>
+        <button class="btn secondary" id="saveClientNewBtn" type="button" title="Keep the open estimate and save this as a separate one (e.g. with / without packing)">Save as New Estimate</button>
       </div>
     </div>
+    <div id="ldSaveState" style="font-size:13px; margin:-2px 0 6px;"></div>
     <div class="status" id="clientStatus"></div>
     <div class="hint">Saves everything on this page &mdash; move details, charges, carrier/shipper info, and valuation &mdash; so you can pull up a past client and have all fields repopulate. Saved on this device only.</div>
   </div>
@@ -21426,7 +21428,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(ppEl) ppEl.innerHTML = '';
   }
 
-  document.getElementById('genBolBtn').addEventListener('click', () => genBOL());
+  document.getElementById('genBolBtn').addEventListener('click', async () => { await ldAutoSaveBeforeOutput(); genBOL(); });
 
   document.getElementById('emailQuoteBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('emailQuoteStatus');
@@ -21436,6 +21438,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'hint err';
       return;
     }
+    await (window.ldAutoSaveBeforeOutput ? window.ldAutoSaveBeforeOutput() : Promise.resolve());   // what's emailed is always on file
     if(!window.__calc){
       statusEl.textContent = 'Enter the move details above first so there\u2019s a total to quote.';
       statusEl.className = 'hint err';
@@ -21761,7 +21764,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return doc;
   }
 
-  document.getElementById('genEstimateBtn').addEventListener('click', () => genEstimate());
+  document.getElementById('genEstimateBtn').addEventListener('click', async () => { await ldAutoSaveBeforeOutput(); genEstimate(); });
 
   // ---------- Paperwork (Job Data Entry documents) ----------
   function pwVal(id){ return (document.getElementById(id).value || '').trim(); }
@@ -22335,31 +22338,73 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   window.getLdClientsAsync = getClientsAsync;
   window.setLdClientsAsync = setClientsAsync;
 
-  document.getElementById('saveClientBtn').addEventListener('click', async () => {
-    const statusEl = document.getElementById('clientStatus');
-    const nameInput = document.getElementById('saveClientName');
-    let label = nameInput.value.trim();
-    if(!label){
-      const shipper = document.getElementById('shipperName').value.trim();
-      label = shipper ? `${shipper} \u2014 ${document.getElementById('issueDate').value || ''}`.trim() : `Client \u2014 ${new Date().toLocaleDateString()}`;
-    }
-    statusEl.textContent = 'Saving...';
-    statusEl.className = 'status';
+  // ---- Saving estimates ----
+  // The open estimate (loaded, or saved once) is UPDATED in place by Save and
+  // automatically whenever a quote / estimate / Bill of Lading goes out --
+  // no duplicates, nothing to remember. "Save as New Estimate" makes a
+  // separate copy (e.g. with / without packing).
+  let ldCurrentId = null, ldCurrentLabel = '', ldDirty = false, ldSavedAt = null;
+  function ldShowState(){
+    const el = document.getElementById('ldSaveState'); if(!el) return;
+    if(!ldCurrentId){ el.innerHTML = ldDirty ? '<span style="color:#8a6100;">\u25cf Not saved yet \u2014 it saves automatically when you email or print it.</span>' : ''; return; }
+    const t = ldSavedAt ? new Date(ldSavedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    el.innerHTML = `Open estimate: <strong>${String(ldCurrentLabel).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))}</strong> \u00b7 ` + (ldDirty ? '<span style="color:#8a6100;">\u25cf Unsaved changes</span>' : `<span style="color:var(--brand-green-dark);">\u2713 Saved${t ? ' at ' + t : ''}</span>`);
+  }
+  function ldDefaultLabel(){
+    const typed = document.getElementById('saveClientName').value.trim();
+    if(typed) return typed;
+    const shipper = document.getElementById('shipperName').value.trim();
+    return shipper ? `${shipper} \u2014 ${document.getElementById('issueDate').value || new Date().toLocaleDateString()}`.trim() : `Client \u2014 ${new Date().toLocaleDateString()}`;
+  }
+  // Returns the saved entry, or null if there was nothing to save / it failed.
+  async function ldSaveEstimate(opts){
+    opts = opts || {};
+    const shipper = document.getElementById('shipperName').value.trim();
+    if(!shipper && !(Number(document.getElementById('weight').value) > 0)) return null;   // empty form: nothing to save
     const clients = await getClientsAsync();
-    const entry = { id: Date.now(), label, savedAt: new Date().toISOString(), data: collectFormData() };
-    clients.push(entry);
-    const ok = await setClientsAsync(clients);
-    await refreshClientSelect();
-    if(ok){
-      document.getElementById('savedClientSelect').value = entry.id;
-      nameInput.value = '';
-      statusEl.textContent = `Saved "${label}".`;
-      statusEl.className = 'status ok';
+    const data = collectFormData(), now = new Date().toISOString(), typed = document.getElementById('saveClientName').value.trim();
+    let entry = (!opts.asNew && ldCurrentId) ? clients.find(c => String(c.id) === String(ldCurrentId)) : null;
+    if(entry){
+      entry.data = data; entry.savedAt = now; delete entry.draft;
+      if(typed && !opts.auto) entry.label = typed;
     } else {
-      statusEl.textContent = 'Could not save \u2014 the shared server may be unreachable. Check your connection and try again.';
-      statusEl.className = 'status err';
+      let label = ldDefaultLabel();
+      if(clients.some(c => c.label === label)){ let n = 2; while(clients.some(c => c.label === `${label} (${n})`)) n++; label = `${label} (${n})`; }
+      entry = { id: Date.now(), label, savedAt: now, data };
+      clients.push(entry);
     }
-  });
+    if(!(await setClientsAsync(clients))) return null;
+    await refreshClientSelect();
+    document.getElementById('savedClientSelect').value = entry.id;
+    document.getElementById('saveClientName').value = '';
+    ldCurrentId = entry.id; ldCurrentLabel = entry.label; ldSavedAt = now; ldDirty = false;
+    ldShowState();
+    return entry;
+  }
+  window.ldSaveEstimate = ldSaveEstimate;
+  async function ldManualSave(asNew){
+    const statusEl = document.getElementById('clientStatus');
+    statusEl.textContent = 'Saving...'; statusEl.className = 'status';
+    const wasOpen = !!ldCurrentId && !asNew;
+    const entry = await ldSaveEstimate({ asNew });
+    if(entry){ statusEl.textContent = wasOpen ? `Updated "${entry.label}".` : `Saved "${entry.label}".`; statusEl.className = 'status ok'; }
+    else { statusEl.textContent = !document.getElementById('shipperName').value.trim() && !(Number(document.getElementById('weight').value) > 0) ? 'Nothing to save yet \u2014 enter the shipper or the move details first.' : 'Could not save \u2014 the shared server may be unreachable. Check your connection and try again.'; statusEl.className = 'status err'; }
+  }
+  document.getElementById('saveClientBtn').addEventListener('click', () => ldManualSave(false));
+  document.getElementById('saveClientNewBtn').addEventListener('click', () => ldManualSave(true));
+  // Any edit to the estimate marks it unsaved.
+  ['input', 'change'].forEach(ev => document.getElementById('calcDetail').addEventListener(ev, e => {
+    if(!e.target || ['savedClientSelect', 'saveClientName'].includes(e.target.id)) return;
+    if(!ldDirty){ ldDirty = true; ldShowState(); }
+  }));
+  // Saves automatically before anything goes to a client.
+  async function ldAutoSaveBeforeOutput(){
+    try{
+      const entry = await ldSaveEstimate({ auto: true });
+      if(entry){ const st = document.getElementById('clientStatus'); st.textContent = `Saved automatically as "${entry.label}".`; st.className = 'status ok'; }
+    }catch(err){ console.error('Estimate auto-save failed:', err); }
+  }
+  window.ldAutoSaveBeforeOutput = ldAutoSaveBeforeOutput;
 
   document.getElementById('loadClientBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('clientStatus');
@@ -22377,6 +22422,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       return;
     }
     restoreFormData(entry.data);
+    ldCurrentId = entry.id; ldCurrentLabel = entry.label; ldSavedAt = entry.savedAt || null; ldDirty = false; ldShowState();
     statusEl.textContent = `Loaded "${entry.label}".`;
     statusEl.className = 'status ok';
   });
@@ -22384,6 +22430,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('clearAllBtn').addEventListener('click', () => {
     const statusEl = document.getElementById('clientStatus');
     if(!confirm('Clear all entered fields? Carrier info and today\'s date will stay filled in.')) return;
+    ldCurrentId = null; ldCurrentLabel = ''; ldSavedAt = null; ldDirty = false; setTimeout(ldShowState, 0);
 
     const RESET_DEFAULTS = {
       weight: '', dayType: 'weekday', miles: '',
