@@ -24671,6 +24671,34 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // Nickname. Shared by processInvoiceUpload (going forward) and
   // backfillStateTaxData (historical jobs) -- both need this to compute the
   // materials-only dollar total for State Taxes reporting.
+  // Invoice line -> inventory item, forgivingly: spaces, punctuation, case
+  // and a trailing plural don't matter ("TV Crate" = "TV-Crate" = "tv crates"),
+  // and an item's description counts as well as its HunkWare nickname. If
+  // no exact match, one item whose name clearly contains (or is contained
+  // in) the line is used -- but never a guess between several.
+  const invNorm = t => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(x|s|z|ch|sh)es$/, '$1').replace(/s$/, '');
+  function findInventoryItemForLine(description, items){
+    const d = invNorm(description); if(!d) return null;
+    const exact = items.filter(mi => invNorm(mi.nickname) === d);
+    if(exact.length === 1) return exact[0];
+    const byDesc = items.filter(mi => invNorm(mi.description) === d);
+    if(!exact.length && byDesc.length === 1) return byDesc[0];
+    if(exact.length > 1) return exact[0];
+    const near = items.filter(mi => [mi.nickname, mi.description].some(n => { const k = invNorm(n); return k.length >= 4 && d.length >= 4 && (k.includes(d) || d.includes(k)); }));
+    return near.length === 1 ? near[0] : null;
+  }
+  // Sync version (items already loaded): { matched, unmatchedDescriptions }.
+  function matchInvoiceLines(lineItems, items){
+    const matched = [], unmatchedDescriptions = [];
+    (lineItems || []).forEach(li => {
+      if(!String(li.description || '').trim()) return;
+      const it = findInventoryItemForLine(li.description, items || []);
+      if(!it){ unmatchedDescriptions.push(li.description); return; }
+      matched.push({ itemId: it.id, quantity: Number(li.quantity) || 0, lineTotal: Number(li.lineTotal) || 0 });
+    });
+    return { matched, unmatchedDescriptions };
+  }
+  window.matchInvoiceLines = matchInvoiceLines;
   async function matchLineItemsToMaterials(lineItems){
     let materialsItems = [];
     try{ materialsItems = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
@@ -24680,7 +24708,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     (lineItems || []).forEach(li => {
       const normalizedDesc = (li.description || '').trim().toLowerCase();
       if(!normalizedDesc) return;
-      const matchedItem = materialsItems.find(mi => (mi.nickname || '').trim().toLowerCase() === normalizedDesc);
+      const matchedItem = findInventoryItemForLine(li.description, materialsItems);
       if(!matchedItem){ unmatchedDescriptions.push(li.description); return; }
       // lineTotal is what was actually billed to the client for this item,
       // per the invoice itself (already grounded server-side) -- the
@@ -24850,6 +24878,33 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(travelFlagsUpdated) await savePaperworkUploadsList();
     return { checked, total, recorded, skipped, failed };
   }
+
+  // Re-reads ONE job's invoice and re-matches its materials (Underbilled
+  // Jobs -> "Re-check invoice"). Returns { ok, matched, unmatched, error }.
+  window.recheckInvoiceForJob = async function(jobNumber){
+    await loadPaperworkUploads();
+    const upload = paperworkUploads.filter(u => u.jobNumber === jobNumber && u.invoiceUploadedAt).sort((a, b) => String(b.invoiceUploadedAt).localeCompare(String(a.invoiceUploadedAt)))[0];
+    if(!upload) return { ok: false, error: 'No invoice is on file for this job.' };
+    const dataUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
+    if(!dataUri) return { ok: false, error: 'The invoice file could not be loaded.' };
+    const file = window.dataUriToFile(dataUri, upload.fileName);
+    const images = await window.getImagesForAssessment(file);
+    let pageTexts = [];
+    if(file.type === 'application/pdf'){
+      const preserved = await window.dashboardApi.get('paperwork-upload-invoicetext-' + upload.id, null);
+      pageTexts = Array.isArray(preserved) && preserved.length && preserved.length <= images.length ? [...Array(images.length - preserved.length).fill(''), ...preserved] : await window.extractPdfPageTextsSafe(file);
+    }
+    let materialsNicknames = [];
+    try{ materialsNicknames = ((await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [])).map(mi => mi.nickname).filter(Boolean); }catch(err){}
+    const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ images, pageTexts, jobNumber, materialsNicknames }) });
+    const data = await res.json();
+    if(!res.ok || !data.invoicePageFound) return { ok: false, error: data.error || 'The invoice couldn\u2019t be read.' };
+    const { matched, unmatchedDescriptions } = await matchLineItemsToMaterials(data.lineItems);
+    upload.invoiceLineItems = (data.lineItems || []).map(li => ({ description: li.description, quantity: Number(li.quantity) || 0, lineTotal: Number(li.lineTotal) || 0 }));
+    if(matched.length){ upload.materialsBilled = matched; upload.requiresMaterials = true; }
+    await savePaperworkUploadsList();
+    return { ok: true, matched: matched.length, unmatched: unmatchedDescriptions };
+  };
 
   document.getElementById('st_backfillBtn').addEventListener('click', async ()=>{
     const btn = document.getElementById('st_backfillBtn');
@@ -25186,6 +25241,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // jobs -- independent of materials, so stored here regardless of
       // whether any materials were matched below.
       upload.hasTravelLineItem = !!extractData.hasTravelLineItem;
+      // Kept so Underbilled Jobs can re-match them whenever inventory
+      // nicknames change -- no need to re-read the invoice.
+      upload.invoiceLineItems = (extractData.lineItems || []).map(li => ({ description: li.description, quantity: Number(li.quantity) || 0, lineTotal: Number(li.lineTotal) || 0 }));
       await recordStateTaxData(upload.jobNumber, extractData, matchedMaterialsBilled, unmatchedDescriptions);
       // Invoice-derived data replaces manual entry once available -- it's
       // the concrete source of truth this whole feature is built around.
@@ -29626,11 +29684,18 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // yet, so a job checked out at this morning's Pre-Trip isn't flagged.
     const invoicedJobs = new Set(uploads.filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
 
-    const billedByJob = {};
+    const billedByJob = {}, unmatchedByJob = {}, canRecheck = {};
     uploads.forEach(u => {
-      if(!u.jobNumber || !Array.isArray(u.materialsBilled)) return;
+      if(!u.jobNumber) return;
+      let billed = u.materialsBilled;
+      if(Array.isArray(u.invoiceLineItems) && window.matchInvoiceLines){
+        const m = window.matchInvoiceLines(u.invoiceLineItems, materialsItems);
+        billed = u.materialsBilledOverridden && Array.isArray(u.materialsBilled) ? u.materialsBilled : m.matched;
+        if(m.unmatchedDescriptions.length) unmatchedByJob[u.jobNumber] = (unmatchedByJob[u.jobNumber] || []).concat(m.unmatchedDescriptions);
+      } else if(u.invoiceUploadedAt) canRecheck[u.jobNumber] = true;   // read before line items were kept
+      if(!Array.isArray(billed)) return;
       if(!billedByJob[u.jobNumber]) billedByJob[u.jobNumber] = {};
-      u.materialsBilled.forEach(b => {
+      billed.forEach(b => {
         billedByJob[u.jobNumber][b.itemId] = (billedByJob[u.jobNumber][b.itemId] || 0) + Number(b.quantity || 0);
       });
     });
@@ -29668,7 +29733,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         const netUsed = Math.max(0, checkedOut - returned);
         const billed = billedItems ? (billedItems[itemId] || 0) : 0;
         const quoted = quotedItems ? (quotedItems[itemId] || 0) : null;
-        if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems, jobDate: jobDateByNumber[jobNumber] || null });
+        if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems, jobDate: jobDateByNumber[jobNumber] || null, unmatchedLines: unmatchedByJob[jobNumber] || [], canRecheck: !!canRecheck[jobNumber] });
       });
     });
     return problems;
@@ -29711,10 +29776,12 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           };
         });
         const jobDate = byJob[jobNumber][0].jobDate || null;
+        const unmatchedLines = byJob[jobNumber][0].unmatchedLines || [], canRecheck = !!byJob[jobNumber][0].canRecheck;
         if(existing){
-          if(JSON.stringify(existing.items) !== JSON.stringify(itemsDetail) || existing.jobDate !== jobDate){
+          if(JSON.stringify(existing.items) !== JSON.stringify(itemsDetail) || existing.jobDate !== jobDate || JSON.stringify(existing.unmatchedLines || []) !== JSON.stringify(unmatchedLines) || !!existing.canRecheck !== canRecheck){
             existing.items = itemsDetail;
             existing.jobDate = jobDate;
+            existing.unmatchedLines = unmatchedLines; existing.canRecheck = canRecheck;
             changed = true;
           }
         } else {
@@ -29722,7 +29789,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
             id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + jobNumber,
             type: 'underbilled', source: 'materials',
             createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, outcome: null,
-            jobNumber, jobDate, items: itemsDetail
+            jobNumber, jobDate, items: itemsDetail, unmatchedLines, canRecheck
           });
           changed = true;
         }
@@ -33040,10 +33107,23 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${item.jobDate ? `<div style="font-size:12.5px; color:var(--muted);">Job Date: ${window.fmtDate(item.jobDate)}</div>` : ''}
         ${item.captainName ? `<div style="font-size:12.5px; color:var(--muted);">Captain: ${mgrReviewEsc(item.captainName)}</div>` : ''}
         ${detailHtml}
+        ${item.source === 'materials' && (item.unmatchedLines || []).length ? `<div style="font-size:12.5px; color:#8a6100; margin-top:4px;">\u26a0 Invoice lines not matched to any inventory item: ${item.unmatchedLines.map(l => '\u201c' + mgrReviewEsc(l) + '\u201d').join(', ')} \u2014 add or fix that item\u2019s HunkWare Nickname in Inventory Management.</div>` : ''}
+        ${item.source === 'materials' && showButtons ? `<div style="margin-top:6px;"><button type="button" class="ub-recheck" data-job="${mgrReviewEsc(item.jobNumber)}" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">\u21bb Re-check invoice</button> <span class="status-msg ub-recheck-status" style="font-size:12px;"></span></div>` : ''}
         ${showButtons ? `<div style="display:flex; gap:8px; margin-top:8px;">${mgrReviewOutcomeButtonsHtml(item.id)}</div>` : mgrReviewReviewedNoteHtml(item)}
       </div>`;
   }
 
+  document.addEventListener('click', async e => {
+    const b = e.target.closest && e.target.closest('.ub-recheck'); if(!b) return;
+    const st = b.parentElement.querySelector('.ub-recheck-status');
+    b.disabled = true; st.textContent = 'Re-reading the invoice\u2026'; st.className = 'status-msg ub-recheck-status';
+    try{
+      const r = await window.recheckInvoiceForJob(b.dataset.job);
+      if(!r.ok) throw new Error(r.error);
+      st.textContent = `Matched ${r.matched} item${r.matched === 1 ? '' : 's'}${r.unmatched.length ? '; not matched: ' + r.unmatched.join(', ') : ''}. Refreshing\u2026`; st.className = 'status-msg ub-recheck-status ok';
+      if(window.loadManagerReviewData) await window.loadManagerReviewData();
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg ub-recheck-status err'; b.disabled = false; }
+  });
   function renderMgrReviewUnderbilled(){
     const openRowsEl = document.getElementById('mgrreview_underbilledOpenRows');
     const emptyNote = document.getElementById('mgrreview_underbilledEmptyNote');
