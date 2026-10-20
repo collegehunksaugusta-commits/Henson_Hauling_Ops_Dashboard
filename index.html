@@ -35559,7 +35559,13 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       started = true;
       try{ localStorage.setItem(KEY, today()); }catch(e){}
       showPill();
-      audio.onended = () => { if(pill){ pill.remove(); pill = null; } };
+      // Some phones don't reliably send "ended" -- take the button away on
+      // any sign the jingle has stopped, with a backup timer as well.
+      const hide = () => { if(pill){ pill.remove(); pill = null; } };
+      audio.addEventListener('ended', hide);
+      audio.addEventListener('pause', hide);
+      audio.addEventListener('timeupdate', () => { if(audio.duration && audio.currentTime >= audio.duration - 0.25) hide(); });
+      setTimeout(hide, ((isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 23) + 2) * 1000);
       return true;
     }catch(err){ return false; }   // blocked until a tap
   }
