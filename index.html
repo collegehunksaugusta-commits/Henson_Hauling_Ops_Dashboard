@@ -24677,24 +24677,45 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // no exact match, one item whose name clearly contains (or is contained
   // in) the line is used -- but never a guess between several.
   const invNorm = t => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(x|s|z|ch|sh)es$/, '$1').replace(/s$/, '');
-  function findInventoryItemForLine(description, items){
+  // preferIds: items pulled for this job -- when a line could be more than
+  // one inventory item (e.g. two items share the nickname), the one the crew
+  // actually pulled gets the credit.
+  function findInventoryItemForLine(description, items, preferIds){
     const d = invNorm(description); if(!d) return null;
+    const pick = list => { if(!list.length) return null; const pref = preferIds ? list.find(mi => preferIds.has(mi.id)) : null; return pref || (list.length === 1 || list === exact ? list[0] : null); };
     const exact = items.filter(mi => invNorm(mi.nickname) === d);
-    if(exact.length === 1) return exact[0];
+    if(exact.length) return pick(exact);
     const byDesc = items.filter(mi => invNorm(mi.description) === d);
-    if(!exact.length && byDesc.length === 1) return byDesc[0];
-    if(exact.length > 1) return exact[0];
+    if(byDesc.length) return pick(byDesc);
     const near = items.filter(mi => [mi.nickname, mi.description].some(n => { const k = invNorm(n); return k.length >= 4 && d.length >= 4 && (k.includes(d) || d.includes(k)); }));
-    return near.length === 1 ? near[0] : null;
+    return pick(near);
   }
   // Sync version (items already loaded): { matched, unmatchedDescriptions }.
-  function matchInvoiceLines(lineItems, items){
-    const matched = [], unmatchedDescriptions = [];
+  // pulledQty (optional): { itemId: quantity pulled for this job }. When one
+  // invoice line could be several items that were all pulled (two TV box
+  // sizes both nicknamed "TV Crate"), its quantity is split across them, up
+  // to what each one used; anything left goes to the first.
+  function matchInvoiceLines(lineItems, items, preferIds, pulledQty){
+    const matched = [], unmatchedDescriptions = [], left = Object.assign({}, pulledQty || {});
     (lineItems || []).forEach(li => {
       if(!String(li.description || '').trim()) return;
-      const it = findInventoryItemForLine(li.description, items || []);
+      const it = findInventoryItemForLine(li.description, items || [], preferIds);
       if(!it){ unmatchedDescriptions.push(li.description); return; }
-      matched.push({ itemId: it.id, quantity: Number(li.quantity) || 0, lineTotal: Number(li.lineTotal) || 0 });
+      const qty = Number(li.quantity) || 0, total = Number(li.lineTotal) || 0;
+      const k = invNorm(it.nickname) || invNorm(it.description);
+      const twins = pulledQty ? (items || []).filter(mi => (invNorm(mi.nickname) === k || invNorm(mi.description) === k) && (left[mi.id] || 0) > 0) : [];
+      if(twins.length > 1){
+        let rest = qty;
+        twins.forEach((mi, i) => {
+          const give = i === twins.length - 1 ? rest : Math.min(rest, left[mi.id]);
+          if(give <= 0) return;
+          left[mi.id] -= give; rest -= give;
+          matched.push({ itemId: mi.id, quantity: give, lineTotal: qty ? total * give / qty : 0, line: li.description });
+        });
+        return;
+      }
+      if(pulledQty && left[it.id]) left[it.id] = Math.max(0, left[it.id] - qty);
+      matched.push({ itemId: it.id, quantity: qty, lineTotal: total, line: li.description });
     });
     return { matched, unmatchedDescriptions };
   }
@@ -29684,12 +29705,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // yet, so a job checked out at this morning's Pre-Trip isn't flagged.
     const invoicedJobs = new Set(uploads.filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
 
-    const billedByJob = {}, unmatchedByJob = {}, canRecheck = {};
+    const billedByJob = {}, unmatchedByJob = {}, canRecheck = {}, linesByJob = {};
     uploads.forEach(u => {
       if(!u.jobNumber) return;
       let billed = u.materialsBilled;
       if(Array.isArray(u.invoiceLineItems) && window.matchInvoiceLines){
-        const m = window.matchInvoiceLines(u.invoiceLineItems, materialsItems);
+        const pulled = checkedOutByJob[u.jobNumber] || {}, back = returnedByJob[u.jobNumber] || {}, used = {};
+        Object.keys(pulled).forEach(id => { used[id] = Math.max(0, pulled[id] - (back[id] || 0)); });
+        const m = window.matchInvoiceLines(u.invoiceLineItems, materialsItems, new Set(Object.keys(pulled)), used);
+        (linesByJob[u.jobNumber] = linesByJob[u.jobNumber] || []).push(...m.matched.map(x => ({ line: x.line, quantity: x.quantity, item: (materialsItems.find(mi => mi.id === x.itemId) || {}).description || '' })));
         billed = u.materialsBilledOverridden && Array.isArray(u.materialsBilled) ? u.materialsBilled : m.matched;
         if(m.unmatchedDescriptions.length) unmatchedByJob[u.jobNumber] = (unmatchedByJob[u.jobNumber] || []).concat(m.unmatchedDescriptions);
       } else if(u.invoiceUploadedAt) canRecheck[u.jobNumber] = true;   // read before line items were kept
@@ -29733,7 +29757,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         const netUsed = Math.max(0, checkedOut - returned);
         const billed = billedItems ? (billedItems[itemId] || 0) : 0;
         const quoted = quotedItems ? (quotedItems[itemId] || 0) : null;
-        if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems, jobDate: jobDateByNumber[jobNumber] || null, unmatchedLines: unmatchedByJob[jobNumber] || [], canRecheck: !!canRecheck[jobNumber] });
+        if(netUsed > billed) problems.push({ jobNumber, itemId, checkedOut, returned, netUsed, billed, quoted, hasBillingRecord: !!billedItems, jobDate: jobDateByNumber[jobNumber] || null, unmatchedLines: unmatchedByJob[jobNumber] || [], canRecheck: !!canRecheck[jobNumber], invoiceLines: linesByJob[jobNumber] || [] });
       });
     });
     return problems;
@@ -29778,12 +29802,12 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           };
         });
         const jobDate = byJob[jobNumber][0].jobDate || null;
-        const unmatchedLines = byJob[jobNumber][0].unmatchedLines || [], canRecheck = !!byJob[jobNumber][0].canRecheck;
+        const unmatchedLines = byJob[jobNumber][0].unmatchedLines || [], canRecheck = !!byJob[jobNumber][0].canRecheck, invoiceLines = byJob[jobNumber][0].invoiceLines || [];
         if(existing){
-          if(JSON.stringify(existing.items) !== JSON.stringify(itemsDetail) || existing.jobDate !== jobDate || JSON.stringify(existing.unmatchedLines || []) !== JSON.stringify(unmatchedLines) || !!existing.canRecheck !== canRecheck){
+          if(JSON.stringify(existing.items) !== JSON.stringify(itemsDetail) || existing.jobDate !== jobDate || JSON.stringify(existing.unmatchedLines || []) !== JSON.stringify(unmatchedLines) || !!existing.canRecheck !== canRecheck || JSON.stringify(existing.invoiceLines || []) !== JSON.stringify(invoiceLines)){
             existing.items = itemsDetail;
             existing.jobDate = jobDate;
-            existing.unmatchedLines = unmatchedLines; existing.canRecheck = canRecheck;
+            existing.unmatchedLines = unmatchedLines; existing.canRecheck = canRecheck; existing.invoiceLines = invoiceLines;
             changed = true;
           }
         } else {
@@ -29791,7 +29815,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
             id: 'mgrreview_' + Date.now() + '_' + Math.floor(Math.random()*1000) + '_' + jobNumber,
             type: 'underbilled', source: 'materials',
             createdAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, outcome: null,
-            jobNumber, jobDate, items: itemsDetail, unmatchedLines, canRecheck
+            jobNumber, jobDate, items: itemsDetail, unmatchedLines, canRecheck, invoiceLines
           });
           changed = true;
         }
@@ -33109,6 +33133,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${item.jobDate ? `<div style="font-size:12.5px; color:var(--muted);">Job Date: ${window.fmtDate(item.jobDate)}</div>` : ''}
         ${item.captainName ? `<div style="font-size:12.5px; color:var(--muted);">Captain: ${mgrReviewEsc(item.captainName)}</div>` : ''}
         ${detailHtml}
+        ${(!item.source || item.source === 'materials') && (item.invoiceLines || []).length ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">Invoice: ${item.invoiceLines.map(l => `\u201c${mgrReviewEsc(l.line)}\u201d \u00d7${l.quantity} \u2192 counted as \u201c${mgrReviewEsc(l.item)}\u201d`).join('; ')}</div>` : ''}
         ${(!item.source || item.source === 'materials') && (item.unmatchedLines || []).length ? `<div style="font-size:12.5px; color:#8a6100; margin-top:4px;">\u26a0 Invoice lines not matched to any inventory item: ${item.unmatchedLines.map(l => '\u201c' + mgrReviewEsc(l) + '\u201d').join(', ')} \u2014 add or fix that item\u2019s HunkWare Nickname in Inventory Management.</div>` : ''}
         ${(!item.source || item.source === 'materials') && showButtons ? `<div style="margin-top:6px;"><button type="button" class="ub-recheck" data-job="${mgrReviewEsc(item.jobNumber)}" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">\u21bb Re-check invoice</button> <span class="status-msg ub-recheck-status" style="font-size:12px;"></span></div>` : ''}
         ${showButtons ? `<div style="display:flex; gap:8px; margin-top:8px;">${mgrReviewOutcomeButtonsHtml(item.id)}</div>` : mgrReviewReviewedNoteHtml(item)}
