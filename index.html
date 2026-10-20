@@ -31789,7 +31789,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const leftover = []; let sigPlaced = false, empPlaced = false, drewPages = false;
       if(/^data:application\/pdf/.test(uri)){
         let pages = [];
-        try{ pages = await window.hiringRenderPdfPages(uri, 1.6); }catch(err){ pages = []; }
+        try{ pages = await window.hiringRenderPdfPages(uri, 1.25); }catch(err){ pages = []; }   // ~95 dpi: crisp to read and print, small to store
         for(let i = 0; i < pages.length; i++){
           const cv = pages[i].canvas, ctx = cv.getContext('2d'), cw = cv.width, ch = cv.height;
           for(const f of (d.fields || [])){
@@ -31809,7 +31809,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           }
           newPage();
           const sc = Math.min((W - 24) / cw, (H - 24) / ch);
-          pdf.addImage(cv.toDataURL('image/jpeg', 0.82), 'JPEG', (W - cw * sc) / 2, (H - ch * sc) / 2, cw * sc, ch * sc);
+          pdf.addImage(cv.toDataURL('image/jpeg', 0.6), 'JPEG', (W - cw * sc) / 2, (H - ch * sc) / 2, cw * sc, ch * sc, undefined, 'FAST');
           drewPages = true;
         }
         (d.fields || []).forEach(f => { const v = valueOf(f); if((!f.position || f.position.page >= pages.length) && !['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmt(v)]); });
@@ -31857,8 +31857,11 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           // Built here, then stored on the server for next time.
           say('Building the package (first time only)…');
           d.dataUri = await buildPackagePdfInDashboard(d.build, t => say(t));
-          const st = await fetch(`${API_BASE}/api/admin/hiring/candidates/${encodeURIComponent(candId)}/completed-package`, { method: 'POST', headers: authHeaders(Object.assign({'Content-Type': 'application/json'}, pin ? { 'X-Override-Pin': pin } : {})), body: JSON.stringify({ dataUri: d.dataUri }) });
-          if(!st.ok) console.error('Could not store the built package');
+          say(`Saving the package (${Math.round(d.dataUri.length * 0.75 / 1024 / 1024 * 10) / 10} MB)\u2026`);
+          try{
+            const st = await fetch(`${API_BASE}/api/admin/hiring/candidates/${encodeURIComponent(candId)}/completed-package`, { method: 'POST', headers: authHeaders(Object.assign({'Content-Type': 'application/json'}, pin ? { 'X-Override-Pin': pin } : {})), body: JSON.stringify({ dataUri: d.dataUri }) });
+            if(!st.ok) console.error('Could not store the built package', st.status);
+          }catch(err){ console.error('Could not store the built package:', err); }   // still hand over the download
         }
         const bin = atob(d.dataUri.split(',')[1]), bytes = new Uint8Array(bin.length);
         for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
