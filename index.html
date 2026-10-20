@@ -31744,6 +31744,100 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       inp.onkeydown = e => { if(e.key === 'Enter') done(inp.value.trim() || null); };
     });
   }
+  // Builds the completed-package PDF here (pdf.js draws each form page --
+  // it handles encrypted government forms the server can't copy), then the
+  // server stores it. Cover page with the HunkWare/ADP details, then each
+  // document with answers, checkmarks and signatures in place.
+  async function buildPackagePdfInDashboard(b, onStep){
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
+    const W = 612, H = 792, M = 50;
+    const c = b.candidate, shared = c.sharedFieldValues || {};
+    const fmt = v => v === true ? 'Yes' : (v === false || v == null) ? '' : String(v);
+    let y = M, first = true;
+    const newPage = () => { if(!first) pdf.addPage('letter', 'portrait'); first = false; y = M; };
+    const line = (t, o = {}) => {
+      pdf.setFont('helvetica', o.bold ? 'bold' : 'normal'); pdf.setFontSize(o.size || 10.5); pdf.setTextColor(o.gray ? 110 : 25);
+      pdf.splitTextToSize(String(t), W - 2 * M - (o.indent || 0)).forEach(l => { if(y > H - M){ newPage(); } pdf.text(l, M + (o.indent || 0), y); y += (o.size || 10.5) + 5; });
+    };
+    const loadImg = uri => new Promise(ok => { if(!uri) return ok(null); const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = uri; });
+    // ---- cover ----
+    newPage();
+    line('College Hunks Augusta - Onboarding Package', { size: 18, bold: true }); y += 4;
+    line(`${c.firstName} ${c.lastName}`, { size: 15, bold: true });
+    line(`Position: ${c.positionTitle || ''}    Start date: ${c.startingDate || ''}    Starting pay: ${c.startingPay || ''}`);
+    line(`Email on file: ${c.email || ''}    Package completed: ${c.completedAt ? new Date(c.completedAt).toLocaleString() : ''}`);
+    y += 8; line('Details for HunkWare / ADP', { size: 13, bold: true });
+    Object.entries(b.fieldTitles || {}).forEach(([k, title]) => {
+      const v = k === 'start_date' ? (shared[k] || c.startingDate) : k === 'starting_pay' ? (shared[k] || c.startingPay) : k === 'position_title' ? (shared[k] || c.positionTitle) : shared[k];
+      if(v) line(`${title}: ${fmt(v)}`, { indent: 10 });
+    });
+    const docs = (b.documents || []).slice().sort((a, x) => (a.order || 0) - (x.order || 0));
+    const seen = new Set();
+    docs.forEach(d => { const fv = ((c.documentProgress || {})[d.id] || {}).fieldValues || {};
+      (d.fields || []).forEach(f => { if(f.canonicalKey || ['checkbox', 'signature', 'employer_signature'].includes(f.type)) return;
+        const label = String(f.label || '').trim(), v = fv[f.id]; if(!label || !v || /signature|date signed|^date$/i.test(label)) return;
+        const k = label.toLowerCase(); if(seen.has(k) || !/emergency|contact|relationship|t-?shirt|shirt size|license|dependents|marital|filing/i.test(label)) return;
+        seen.add(k); line(`${label}: ${fmt(v)}`, { indent: 10 }); }); });
+    // ---- each document ----
+    for(const d of docs){
+      if(onStep) onStep(`Adding ${d.name}\u2026`);
+      const prog = (c.documentProgress || {})[d.id] || {}, fv = prog.fieldValues || {};
+      const valueOf = f => f.canonicalKey ? (f.canonicalKey === 'start_date' ? (shared.start_date || c.startingDate) : shared[f.canonicalKey]) : fv[f.id];
+      const sigImg = await loadImg((b.signatures || {})[d.id]), empImg = await loadImg((b.employerSignatures || {})[d.id]);
+      const uri = (b.files || {})[d.id] || '';
+      const leftover = []; let sigPlaced = false, empPlaced = false, drewPages = false;
+      if(/^data:application\/pdf/.test(uri)){
+        let pages = [];
+        try{ pages = await window.hiringRenderPdfPages(uri, 1.6); }catch(err){ pages = []; }
+        for(let i = 0; i < pages.length; i++){
+          const cv = pages[i].canvas, ctx = cv.getContext('2d'), cw = cv.width, ch = cv.height;
+          for(const f of (d.fields || [])){
+            const pos = f.position; if(!pos || pos.page !== i) continue;
+            const x = pos.xPct / 100 * cw, top = pos.yPct / 100 * ch, w = pos.widthPct / 100 * cw, h = pos.heightPct / 100 * ch;
+            if(f.type === 'signature' || f.type === 'employer_signature'){
+              const im = f.type === 'signature' ? sigImg : empImg; if(!im) continue;
+              const sc = Math.min(w / im.width, h / im.height); ctx.drawImage(im, x, top + (h - im.height * sc) / 2, im.width * sc, im.height * sc);
+              if(f.type === 'signature') sigPlaced = true; else empPlaced = true; continue;
+            }
+            const v = valueOf(f); if(v == null || v === '' || v === false || v === 'false') continue;
+            if(f.type === 'checkbox' || v === true){ const sz = Math.max(10, Math.min(h * 1.1, 22)); ctx.font = `bold ${sz}px Helvetica, Arial, sans-serif`; ctx.fillStyle = '#000'; ctx.textBaseline = 'middle'; ctx.fillText('X', x + w / 2 - sz * 0.3, top + h / 2); continue; }
+            let sz = Math.max(9, Math.min(h * 0.72, 26)); const t = fmt(v);
+            ctx.font = `${sz}px Helvetica, Arial, sans-serif`;
+            while(sz > 8 && ctx.measureText(t).width > w - 4){ sz -= 0.5; ctx.font = `${sz}px Helvetica, Arial, sans-serif`; }
+            ctx.fillStyle = '#0d1a73'; ctx.textBaseline = 'middle'; ctx.fillText(t, x + 3, top + h / 2);
+          }
+          newPage();
+          const sc = Math.min((W - 24) / cw, (H - 24) / ch);
+          pdf.addImage(cv.toDataURL('image/jpeg', 0.82), 'JPEG', (W - cw * sc) / 2, (H - ch * sc) / 2, cw * sc, ch * sc);
+          drewPages = true;
+        }
+        (d.fields || []).forEach(f => { const v = valueOf(f); if((!f.position || f.position.page >= pages.length) && !['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmt(v)]); });
+        if(!pages.length) leftover.unshift(['(The original form could not be drawn)', '']);
+      } else if(/^data:image\//.test(uri)){
+        const im = await loadImg(uri);
+        if(im){ newPage(); const sc = Math.min((W - 24) / im.width, (H - 24) / im.height); pdf.addImage(uri, 'JPEG', (W - im.width * sc) / 2, 12, im.width * sc, im.height * sc); drewPages = true; }
+        (d.fields || []).forEach(f => { const v = valueOf(f); if(!['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false) leftover.push([f.label, fmt(v)]); });
+      } else {
+        (d.fields || []).forEach(f => { const v = valueOf(f); if(!['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmt(v)]); });
+      }
+      if(leftover.length || (sigImg && !sigPlaced) || (empImg && !empPlaced) || !drewPages){
+        newPage();
+        line(d.name || 'Document', { size: 15, bold: true });
+        line(`${c.firstName} ${c.lastName} - completed ${prog.completedAt ? new Date(prog.completedAt).toLocaleDateString() : ''}`, { gray: true });
+        y += 4;
+        leftover.forEach(([l, v]) => line(v ? `${l}: ${v}` : l));
+        for(const [im, placed, who] of [[sigImg, sigPlaced, 'Employee signature'], [empImg, empPlaced, 'Employer signature']]){
+          if(!im || placed) continue;
+          if(y > H - M - 90) newPage();
+          y += 6; line(who, { bold: true });
+          const sc = Math.min(220 / im.width, 70 / im.height);
+          pdf.addImage(im, 'PNG', M, y - 4, im.width * sc, im.height * sc); y += im.height * sc + 10;
+        }
+      }
+    }
+    return pdf.output('datauristring').replace(/^data:application\/pdf;[^,]*,/, 'data:application/pdf;base64,');
+  }
   window.openCompletedPackage = async function(candId, statusEl){
     const say = (t, ok) => { if(statusEl){ statusEl.textContent = t; statusEl.className = statusEl.className.replace(/\b(ok|err)\b/g, '').trim() + (ok === true ? ' ok' : ok === false ? ' err' : ''); } };
     say('Opening the completed package\u2026');
@@ -31759,6 +31853,13 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           continue;
         }
         if(!res.ok) throw new Error(d.error || 'Could not open the package.');
+        if(d.needsBuild){
+          // Built here, then stored on the server for next time.
+          say('Building the package (first time only)…');
+          d.dataUri = await buildPackagePdfInDashboard(d.build, t => say(t));
+          const st = await fetch(`${API_BASE}/api/admin/hiring/candidates/${encodeURIComponent(candId)}/completed-package`, { method: 'POST', headers: authHeaders(Object.assign({'Content-Type': 'application/json'}, pin ? { 'X-Override-Pin': pin } : {})), body: JSON.stringify({ dataUri: d.dataUri }) });
+          if(!st.ok) console.error('Could not store the built package');
+        }
         const bin = atob(d.dataUri.split(',')[1]), bytes = new Uint8Array(bin.length);
         for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
