@@ -2616,6 +2616,39 @@
   }
   document.querySelectorAll('.my-money-tile').forEach(t => t.addEventListener('click', showMyMoney));
 
+  // ---- Materials reminder pop-up (Captains) ----
+  // Once per app open: materials pulled for his jobs that still need billing.
+  let matNagShown = false;
+  async function showMaterialsReminder(){
+    if(matNagShown || driverRole === 'wingman') return;
+    matNagShown = true;
+    let d;
+    try{
+      const r = await fetch(API_BASE_AUTH + '/api/driver/materials-reminders', { headers: { 'Authorization': 'Bearer ' + driverToken } });
+      if(!r.ok) return; d = await r.json();
+    }catch(err){ return; }
+    const open = d.open || [], missing = d.missing || [];
+    if(!open.length && !missing.length) return;
+    const fmtDate = x => x ? new Date(x + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+    const job = j => `<strong>${driverEsc(j.clientName || 'Job')}</strong> <span style="color:var(--muted); font-size:12.5px;">Job ${driverEsc(j.jobNumber)}${j.date ? ' \u00b7 ' + fmtDate(j.date) : ''}</span>`;
+    const ov = document.createElement('div');
+    ov.id = 'matNag';
+    ov.style.cssText = 'position:fixed; inset:0; z-index:10060; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:16px;';
+    ov.innerHTML = `<div style="background:#fff; width:100%; max-width:480px; max-height:85vh; overflow:auto; border-radius:14px; padding:18px 18px 14px;">
+      <div style="font-size:19px; font-weight:800; margin-bottom:4px;">\ud83d\udce6 Bill your materials</div>
+      ${missing.length ? `<div style="background:#FDECEA; border:1px solid #E6A8A2; border-radius:10px; padding:10px 12px; margin:10px 0;">
+        <div style="font-weight:800; color:#b3261e; margin-bottom:4px;">\u26a0 Not billed on the invoice</div>
+        ${missing.map(j => `<div style="margin:6px 0;">${job(j)}<div style="font-size:14px; margin-top:2px;">${j.items.map(x => `${driverEsc(x.name)} \u2014 used ${x.used}, billed ${x.billed}`).join('<br>')}</div></div>`).join('')}
+        <div style="font-size:13px; margin-top:6px;">Get these added to the client\u2019s invoice in HunkWare.</div></div>` : ''}
+      ${open.length ? `<div style="font-size:14px; margin:8px 0 6px;">You pulled these materials. Make sure they\u2019re <strong>billed on the invoice when the job is finished</strong>:</div>
+        ${open.map(j => `<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px;">${job(j)}
+          <div style="font-size:14.5px; margin-top:4px;">${j.items.map(x => `\u2022 ${x.quantity} \u00d7 ${driverEsc(x.name)}${x.billAs && x.billAs.toLowerCase() !== String(x.name).toLowerCase() ? ` <span style="color:var(--muted); font-size:12.5px;">(bill as \u201c${driverEsc(x.billAs)}\u201d)</span>` : ''}`).join('<br>')}</div>
+          ${j.sharedWith.length ? '<div style="font-size:12px; color:var(--muted); margin-top:4px;">Pulled together for these jobs \u2014 split them between the invoices as used.</div>' : ''}</div>`).join('')}` : ''}
+      <button type="button" id="matNagOk" style="width:100%; margin-top:6px; padding:13px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer;">Got it</button></div>`;
+    document.body.appendChild(ov);
+    document.getElementById('matNagOk').onclick = () => ov.remove();
+  }
+
   // ---- Digital Work Packages (pushed by the office) ----
   let dwpList = [];
   async function loadMyWorkPackages(){
@@ -2862,6 +2895,7 @@
   function showDriverMenu(){
     setTimeout(() => { try{ hunkResumeAfterReload(); }catch(e){} }, 400);   // back from a reload mid-photo?
     setTimeout(() => { try{ loadMyWorkPackages(); }catch(e){} }, 300);
+    setTimeout(() => { try{ showMaterialsReminder(); }catch(e){} }, 900);
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     document.getElementById('loginGate').style.display = 'none';
     document.getElementById('driverGate').style.display = 'block'; document.title = 'HUNK Portal';
