@@ -8,7 +8,8 @@ const app = express();
 // (several drawn form pages can run larger).
 const jsonNormal = express.json({ limit: '15mb', verify: (req, res, buf) => { req.rawBody = buf; } });
 const jsonLarge = express.json({ limit: '40mb' });
-app.use((req, res, next) => (req.method === 'POST' && /^\/api\/admin\/hiring\/candidates\/[^/]+\/completed-package$/.test(req.path) ? jsonLarge : jsonNormal)(req, res, next));
+const formTwilio = express.urlencoded({ extended: false, limit: '1mb' });
+app.use((req, res, next) => (req.method === 'POST' && /^\/api\/twilio\//.test(req.path) ? formTwilio : req.method === 'POST' && /^\/api\/admin\/hiring\/candidates\/[^/]+\/completed-package$/.test(req.path) ? jsonLarge : jsonNormal)(req, res, next));
 app.use(cors());
 
 function hashPassword(password) {
@@ -3943,6 +3944,10 @@ const DEFAULT_APP_SETTINGS = {
     finalEmailCc: '',
     finalEmailBody: 'Hi {{clientFirstName}},\n\nThank you for your patience while we reviewed your damage claim for job {{jobNumber}}. We\u2019ve completed our review using the photos provided and the valuation coverage you selected on your Bill of Lading: {{valuationOption}}.\n\nUnder Georgia Department of Public Safety Maximum Rate Tariff No. 7, the settlement amount for your claim is {{settlementAmount}}. The attached Settlement Summary explains how that amount was determined, item by item.\n\nThis will be refunded via the payment method you used for final billing. Please allow 5-7 business days for the refund to process.\n\nIf you have any questions, just reply to this email.\n\nThanks,\n' + LOCATION.emailSignature
   },
+  teamTexts: {
+    forwardRepliesTo: '',      // a cell number that also gets every crew reply
+    optOutNote: true           // "Reply STOP to opt out." on each person's first text
+  },
   hiring: {
     emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
     emailBody: 'Hi {{firstName}},\n\nWelcome aboard! Please complete your onboarding paperwork using the secure link below \u2014 it works great from your phone.\n\n{{link}}\n\nIf you have any questions, just reach out.\n\nThanks,\n' + LOCATION.emailSignature,
@@ -6498,8 +6503,7 @@ app.post('/api/admin/hiring/build-interview-form', requireAuth, async (req, res)
 // From completed onboarding packages automatically; anyone else (or a
 // correction) typed in by the Administrator. Visible to every manager.
 const EMPLOYEE_CONTACTS_KEY = 'employee-contacts';
-app.get('/api/employee-contacts', requireAuth, async (req, res) => {
-  try {
+async function getEmployeeContactsMap() {
     const out = {};
     const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]').filter(c => c.status === 'completed')
       .sort((a, b) => String(a.completedAt || '').localeCompare(String(b.completedAt || '')));
@@ -6513,8 +6517,11 @@ app.get('/api/employee-contacts', requireAuth, async (req, res) => {
       const base = out[k] || {};
       out[k] = { phone: m.phone || base.phone || '', email: m.email || base.email || '', source: 'manual', packagePhone: base.phone || '', packageEmail: base.email || '' };
     });
-    res.json({ contacts: out });
-  } catch (err) { res.status(500).json({ error: 'Could not load contacts.' }); }
+    return out;
+}
+app.get('/api/employee-contacts', requireAuth, async (req, res) => {
+  try { res.json({ contacts: await getEmployeeContactsMap() }); }
+  catch (err) { res.status(500).json({ error: 'Could not load contacts.' }); }
 });
 app.post('/api/admin/employee-contacts', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -6534,6 +6541,133 @@ app.post('/api/admin/employee-contacts', requireAuth, requireAdmin, async (req, 
     await redis.set(EMPLOYEE_CONTACTS_KEY, JSON.stringify(manual));
     res.json({ ok: true, phone, email: email.toLowerCase() });
   } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
+// ============ Team Messages: texts to the crew through Twilio ============
+// Recipients come from the Employee Roster + its phone numbers. Twilio
+// settings live in Render's environment (never in the app's data):
+//   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_MESSAGING_SERVICE_SID
+//   (preferred) or TWILIO_FROM_NUMBER.
+const getAppSettings = async () => mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+const TT_LOG_KEY = 'team-text-log', TT_INBOX_KEY = 'team-text-inbox', TT_OPTOUT_KEY = 'team-text-optouts', TT_NOTICED_KEY = 'team-text-noticed';
+const twilioCfg = () => ({ sid: process.env.TWILIO_ACCOUNT_SID || '', token: process.env.TWILIO_AUTH_TOKEN || '', svc: process.env.TWILIO_MESSAGING_SERVICE_SID || '', from: process.env.TWILIO_FROM_NUMBER || '' });
+const twilioReady = () => { const c = twilioCfg(); return !!(c.sid && c.token && (c.svc || c.from)); };
+function toE164(phone) { const d = String(phone || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? '+1' + d : ''; }
+const prettyPhone = e => { const d = String(e || '').replace(/\D/g, '').slice(-10); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(e || ''); };
+const publicBase = req => `${(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0]}://${req.get('host')}`;
+async function twilioSend(to, body, statusCallback) {
+  const c = twilioCfg();
+  const params = new URLSearchParams({ To: to, Body: body });
+  if (c.svc) params.set('MessagingServiceSid', c.svc); else params.set('From', c.from);
+  if (statusCallback) params.set('StatusCallback', statusCallback);
+  const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${c.sid}/Messages.json`, { method: 'POST', headers: { Authorization: 'Basic ' + Buffer.from(c.sid + ':' + c.token).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.message || `Twilio error ${r.status}`); e.code = d.code; throw e; }
+  return d;   // { sid, status, ... }
+}
+// Only accept webhook calls genuinely signed by Twilio with our Auth Token.
+function twilioSignatureOk(req) {
+  const token = twilioCfg().token, sig = String(req.headers['x-twilio-signature'] || '');
+  if (!token || !sig) return false;
+  const url = publicBase(req) + req.originalUrl;
+  const data = url + Object.keys(req.body || {}).sort().map(k => k + req.body[k]).join('');
+  const expected = crypto.createHmac('sha1', token).update(Buffer.from(data, 'utf-8')).digest('base64');
+  try { return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig)); } catch (e) { return false; }
+}
+// Everyone on the roster, with phone, role and opt-out status.
+async function teamTextPeople() {
+  const rules = await loadRoleRules();
+  const [weeksRaw, manualRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions')]);
+  const contacts = await getEmployeeContactsMap();
+  const optouts = new Set(JSON.parse(await redis.get(TT_OPTOUT_KEY) || '[]'));
+  return computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')).map(name => {
+    const phone = toE164((contacts[nameCoreKey(name)] || {}).phone);
+    return { name, phone, phoneDisplay: phone ? prettyPhone(phone) : '', captain: rules.isCaptain(name), wingman: rules.isWingman(name), optedOut: !!phone && optouts.has(phone) };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+app.get('/api/admin/team-texts/people', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ configured: twilioReady(), people: await teamTextPeople() }); }
+  catch (err) { res.status(500).json({ error: 'Could not load the roster.' }); }
+});
+app.get('/api/admin/team-texts', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sent = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').slice(-60).reverse();
+    const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]').slice(-200).reverse();
+    res.json({ configured: twilioReady(), sent, inbox, unread: inbox.filter(m => !m.read).length });
+  } catch (err) { res.status(500).json({ error: 'Could not load messages.' }); }
+});
+app.post('/api/admin/team-texts/read', requireAuth, requireAdmin, async (req, res) => {
+  try { const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]'); inbox.forEach(m => { m.read = true; }); await redis.set(TT_INBOX_KEY, JSON.stringify(inbox)); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    if (!twilioReady()) return res.status(400).json({ error: 'Texting isn\u2019t connected yet \u2014 the Twilio account details still need to be added.' });
+    const message = String((req.body || {}).message || '').trim();
+    const audience = String((req.body || {}).audience || 'everyone');
+    const picked = new Set(((req.body || {}).names || []).map(String));
+    if (!message) return res.status(400).json({ error: 'Type a message first.' });
+    if (message.length > 1200) return res.status(400).json({ error: 'That message is too long (1,200 characters max).' });
+    const people = (await teamTextPeople()).filter(p => audience === 'captains' ? p.captain : audience === 'wingmen' ? p.wingman : audience === 'custom' ? picked.has(p.name) : true);
+    const sendable = people.filter(p => p.phone && !p.optedOut);
+    if (!sendable.length) return res.status(400).json({ error: 'No one in that group has a phone number on the Employee Roster.' });
+    const settings = await getAppSettings();
+    const noted = new Set(JSON.parse(await redis.get(TT_NOTICED_KEY) || '[]'));
+    const cb = publicBase(req) + '/api/twilio/status';
+    const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, recipients: [] };
+    for (const p of sendable) {
+      const firstTime = !noted.has(p.phone);
+      const body = message + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
+      try {
+        const d = await twilioSend(p.phone, body, cb);
+        entry.recipients.push({ name: p.name, phone: p.phone, sid: d.sid, status: d.status || 'queued' });
+        noted.add(p.phone);
+      } catch (e) {
+        entry.recipients.push({ name: p.name, phone: p.phone, status: 'failed', error: e.message });
+        if (e.code === 21610) { const o = new Set(JSON.parse(await redis.get(TT_OPTOUT_KEY) || '[]')); o.add(p.phone); await redis.set(TT_OPTOUT_KEY, JSON.stringify([...o])); }
+      }
+      await new Promise(r => setTimeout(r, 120));
+    }
+    entry.skipped = people.filter(p => !p.phone || p.optedOut).map(p => ({ name: p.name, reason: p.optedOut ? 'opted out' : 'no phone number' }));
+    const log = JSON.parse(await redis.get(TT_LOG_KEY) || '[]'); log.push(entry);
+    await redis.set(TT_LOG_KEY, JSON.stringify(log.slice(-300)));
+    await redis.set(TT_NOTICED_KEY, JSON.stringify([...noted]));
+    const failed = entry.recipients.filter(r => r.status === 'failed').length;
+    console.log(`[team-texts] ${req.userEmail || ''} sent to ${entry.recipients.length - failed} (${failed} failed, ${entry.skipped.length} skipped)`);
+    res.json({ ok: true, sent: entry.recipients.length - failed, failed, skipped: entry.skipped });
+  } catch (err) { console.error('Team text send failed:', err.message); res.status(500).json({ error: 'Could not send \u2014 ' + err.message }); }
+});
+// Twilio -> us: delivery updates for sent texts.
+app.post('/api/twilio/status', async (req, res) => {
+  if (!twilioSignatureOk(req)) return res.status(403).end();
+  try {
+    const sid = req.body.MessageSid, status = req.body.MessageStatus;
+    const log = JSON.parse(await redis.get(TT_LOG_KEY) || '[]');
+    for (let i = log.length - 1; i >= 0 && i >= log.length - 40; i--) {
+      const r = (log[i].recipients || []).find(x => x.sid === sid);
+      if (r) { r.status = status; if (req.body.ErrorCode) r.error = 'Error ' + req.body.ErrorCode; await redis.set(TT_LOG_KEY, JSON.stringify(log)); break; }
+    }
+    res.status(204).end();
+  } catch (err) { res.status(500).end(); }
+});
+// Twilio -> us: a reply from someone on the crew.
+app.post('/api/twilio/inbound', async (req, res) => {
+  if (!twilioSignatureOk(req)) return res.status(403).end();
+  res.type('text/xml').send('<Response></Response>');
+  try {
+    const from = toE164(req.body.From), text = String(req.body.Body || '').trim();
+    const person = (await teamTextPeople()).find(p => p.phone === from);
+    const word = text.toUpperCase();
+    const o = new Set(JSON.parse(await redis.get(TT_OPTOUT_KEY) || '[]'));
+    if (/^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT)$/.test(word)) o.add(from);
+    if (/^(START|UNSTOP|YES)$/.test(word)) o.delete(from);
+    await redis.set(TT_OPTOUT_KEY, JSON.stringify([...o]));
+    const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
+    inbox.push({ id: 'in_' + Date.now(), at: new Date().toISOString(), from, fromDisplay: prettyPhone(from), name: person ? person.name : '', text, read: false });
+    await redis.set(TT_INBOX_KEY, JSON.stringify(inbox.slice(-1000)));
+    const fwd = toE164(((await getAppSettings()).teamTexts || {}).forwardRepliesTo);
+    if (fwd && fwd !== from && twilioReady()) await twilioSend(fwd, `Team reply from ${person ? person.name : prettyPhone(from)}: ${text}`.slice(0, 600)).catch(e => console.error('Reply forward failed:', e.message));
+  } catch (err) { console.error('Team text inbound failed:', err.message); }
 });
 
 // ============ Manager Review -> New Hires ============
