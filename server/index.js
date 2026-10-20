@@ -6375,6 +6375,9 @@ async function buildCompletedPackagePdf(candidate) {
       if (img) { const pg = out.addPage([W, H]); const sc = Math.min((W - 40) / img.width, (H - 40) / img.height); pg.drawImage(img, { x: 20, y: H - 20 - img.height * sc, width: img.width * sc, height: img.height * sc }); }
       (doc.fields || []).forEach(f => { const v = valueOf(f); if (f.type !== 'signature' && f.type !== 'employer_signature' && v != null && v !== '' && v !== false) leftover.push([f.label, fmtVal(v)]); });
     } else {
+      // Word documents are written out in full by the dashboard (it can read
+      // them; the server can't) -- hand the whole package over to it.
+      if (file) throw new Error('Word documents are built in the dashboard');
       (doc.fields || []).forEach(f => { const v = valueOf(f); if (f.type !== 'signature' && f.type !== 'employer_signature' && v != null && v !== '' && v !== false && v !== 'false') leftover.push([f.label, fmtVal(v)]); });
     }
     // Answers / signatures that had no spot on the form.
@@ -6403,7 +6406,7 @@ async function storeCompletedPackagePdf(candidateId) {
   const uri = await buildCompletedPackagePdf(c);
   await redis.set(HIRING_COMPLETED_PDF_KEY(c.id), JSON.stringify(uri));
   const fresh = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
-  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); fc.completedPdfStale = false; await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
+  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); fc.completedPdfStale = false; fc.completedPdfV2 = true; await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
   console.log(`[hiring] completed package PDF stored for ${c.firstName} ${c.lastName} (${Math.round(uri.length / 1024)} KB)`);
   return uri;
 }
@@ -6421,7 +6424,7 @@ app.post('/api/admin/hiring/candidates/:id/completed-package', requireAuth, asyn
     const c = candidates.find(x => x.id === req.params.id);
     if (!c || c.status !== 'completed') return res.status(404).json({ error: 'Not found.' });
     await redis.set(HIRING_COMPLETED_PDF_KEY(c.id), JSON.stringify(uri));
-    c.completedPdfAt = new Date().toISOString(); c.completedPdfStale = false; c.completedPdfBuiltBy = req.userEmail || '';
+    c.completedPdfAt = new Date().toISOString(); c.completedPdfStale = false; c.completedPdfV2 = true; c.completedPdfBuiltBy = req.userEmail || '';
     await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
     console.log(`[hiring] completed package PDF for ${c.firstName} ${c.lastName} built in the dashboard and stored (${Math.round(uri.length / 1024)} KB)`);
     res.json({ ok: true });
@@ -6440,7 +6443,8 @@ app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async
     const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
     const c = candidates.find(x => x.id === req.params.id);
     if (!c || c.status !== 'completed') return res.status(404).json({ error: 'This package hasn\u2019t been submitted yet.' });
-    let raw = c.completedPdfStale ? null : await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
+    // Rebuilt if out of date, or built before Word documents were written out in full.
+    let raw = (c.completedPdfStale || !c.completedPdfV2) ? null : await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
     if (raw && raw.length > 8 * 1024 * 1024) { console.log(`[hiring] stored package for ${c.firstName} ${c.lastName} is oversized (${Math.round(raw.length / 1024)} KB) -- rebuilding smaller`); raw = null; }
     let uri = raw ? JSON.parse(raw) : null;
     if (!uri) { try { uri = await storeCompletedPackagePdf(c.id); } catch (e) { console.log(`[hiring] server PDF build failed for ${c.firstName} ${c.lastName} (${e.message}) -- the dashboard will build it`); } }
