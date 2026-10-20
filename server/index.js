@@ -6348,10 +6348,31 @@ async function storeCompletedPackagePdf(candidateId) {
   const uri = await buildCompletedPackagePdf(c);
   await redis.set(HIRING_COMPLETED_PDF_KEY(c.id), JSON.stringify(uri));
   const fresh = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
-  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
+  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); fc.completedPdfStale = false; await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
   console.log(`[hiring] completed package PDF stored for ${c.firstName} ${c.lastName} (${Math.round(uri.length / 1024)} KB)`);
   return uri;
 }
+// The dashboard-built PDF, stored (same Administrator / PIN rule).
+app.post('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async (req, res) => {
+  try {
+    const role = (JSON.parse(await redis.get(USERS_KEY) || '{}')[req.userEmail] || {}).role;
+    if (role !== 'admin') {
+      const saved = await redis.get(MATERIALS_OVERRIDE_PIN_KEY);
+      if (!saved || String(req.headers['x-override-pin'] || '') !== saved) return res.status(403).json({ error: 'Enter the Administrator Override PIN.', needPin: true });
+    }
+    const uri = String((req.body || {}).dataUri || '');
+    if (!/^data:application\/pdf;base64,/.test(uri)) return res.status(400).json({ error: 'No PDF was sent.' });
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const c = candidates.find(x => x.id === req.params.id);
+    if (!c || c.status !== 'completed') return res.status(404).json({ error: 'Not found.' });
+    await redis.set(HIRING_COMPLETED_PDF_KEY(c.id), JSON.stringify(uri));
+    c.completedPdfAt = new Date().toISOString(); c.completedPdfStale = false; c.completedPdfBuiltBy = req.userEmail || '';
+    await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
+    console.log(`[hiring] completed package PDF for ${c.firstName} ${c.lastName} built in the dashboard and stored (${Math.round(uri.length / 1024)} KB)`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not store the package.' }); }
+});
+
 // Opening it: the Administrator directly; anyone else with the Override PIN.
 // Every opening is logged (it holds the SSN and bank details).
 app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async (req, res) => {
@@ -6364,8 +6385,25 @@ app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async
     const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
     const c = candidates.find(x => x.id === req.params.id);
     if (!c || c.status !== 'completed') return res.status(404).json({ error: 'This package hasn\u2019t been submitted yet.' });
-    let raw = await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
-    let uri = raw ? JSON.parse(raw) : await storeCompletedPackagePdf(c.id);   // packages completed before this existed
+    const raw = c.completedPdfStale ? null : await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
+    let uri = raw ? JSON.parse(raw) : null;
+    if (!uri) { try { uri = await storeCompletedPackagePdf(c.id); } catch (e) { console.log(`[hiring] server PDF build failed for ${c.firstName} ${c.lastName} (${e.message}) -- the dashboard will build it`); } }
+    if (!uri) {
+      // Some forms (e.g. encrypted government PDFs) can't be copied here, so the
+      // dashboard draws the package with pdf.js and sends it back to be stored.
+      const docs = await getHiringDocumentsList(), files = {}, signatures = {}, employerSignatures = {};
+      for (const d of docs) {
+        if (d.fileKey) { const f = await redis.get(d.fileKey); if (f) files[d.id] = JSON.parse(f); }
+        const sg = await redis.get(`hiring-signature-${c.id}-${d.id}`); if (sg) signatures[d.id] = JSON.parse(sg);
+        const es = await redis.get(`hiring-employer-signature-${c.id}-${d.id}`); if (es) employerSignatures[d.id] = JSON.parse(es);
+      }
+      const build = { candidate: { id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, positionTitle: c.positionTitle, startingDate: c.startingDate, startingPay: c.startingPay, completedAt: c.completedAt, sharedFieldValues: c.sharedFieldValues || {}, documentProgress: c.documentProgress || {} },
+        documents: docs.map(d => ({ id: d.id, name: d.name, order: d.order, fields: d.fields || [], requiresSignature: !!d.requiresSignature })), files, signatures, employerSignatures, fieldTitles: HIRING_FIELD_TITLES };
+      const log0 = JSON.parse(await redis.get('hiring-reveal-log') || '[]');
+      log0.push({ candidateId: c.id, candidateName: `${c.firstName} ${c.lastName}`, scope: 'completed-package', fieldKey: 'package-build', revealedBy: req.userEmail || '', revealedAt: new Date().toISOString() });
+      await redis.set('hiring-reveal-log', JSON.stringify(log0.slice(-1000)));
+      return res.json({ needsBuild: true, build, fileName: `Onboarding Package - ${c.lastName}, ${c.firstName}.pdf` });
+    }
     const log = JSON.parse(await redis.get('hiring-reveal-log') || '[]');
     log.push({ candidateId: c.id, candidateName: `${c.firstName} ${c.lastName}`, scope: 'completed-package', fieldKey: 'package-pdf', revealedBy: req.userEmail || '', revealedAt: new Date().toISOString() });
     await redis.set('hiring-reveal-log', JSON.stringify(log.slice(-1000)));
@@ -6488,6 +6526,7 @@ app.post('/api/admin/new-hires/:id/employer-sign', requireAuth, requireAdmin, as
     await redis.set(`hiring-employer-signature-${c.id}-${documentId}`, JSON.stringify(signatureDataUri));
     c.employerSignatures = c.employerSignatures || {};
     c.employerSignatures[documentId] = { by: req.userEmail || '', at: new Date().toISOString() };
+    c.completedPdfStale = true;   // rebuilt with the employer's signature
     await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(candidates));
     console.log(`[new-hires] employer signed ${documentId} for ${c.firstName} ${c.lastName} (${req.userEmail || ''})`);
     res.json({ ok: true });
