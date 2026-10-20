@@ -4,7 +4,11 @@ const Redis = require('ioredis');
 const crypto = require('crypto');
 
 const app = express();
-app.use(express.json({ limit: '15mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+// 15MB for everything, except storing a completed onboarding package PDF
+// (several drawn form pages can run larger).
+const jsonNormal = express.json({ limit: '15mb', verify: (req, res, buf) => { req.rawBody = buf; } });
+const jsonLarge = express.json({ limit: '40mb' });
+app.use((req, res, next) => (req.method === 'POST' && /^\/api\/admin\/hiring\/candidates\/[^/]+\/completed-package$/.test(req.path) ? jsonLarge : jsonNormal)(req, res, next));
 app.use(cors());
 
 function hashPassword(password) {
@@ -6385,7 +6389,8 @@ app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async
     const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
     const c = candidates.find(x => x.id === req.params.id);
     if (!c || c.status !== 'completed') return res.status(404).json({ error: 'This package hasn\u2019t been submitted yet.' });
-    const raw = c.completedPdfStale ? null : await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
+    let raw = c.completedPdfStale ? null : await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
+    if (raw && raw.length > 8 * 1024 * 1024) { console.log(`[hiring] stored package for ${c.firstName} ${c.lastName} is oversized (${Math.round(raw.length / 1024)} KB) -- rebuilding smaller`); raw = null; }
     let uri = raw ? JSON.parse(raw) : null;
     if (!uri) { try { uri = await storeCompletedPackagePdf(c.id); } catch (e) { console.log(`[hiring] server PDF build failed for ${c.firstName} ${c.lastName} (${e.message}) -- the dashboard will build it`); } }
     if (!uri) {
