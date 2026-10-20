@@ -22234,21 +22234,62 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   refreshClientSelect();
 
   // ---------- Paperwork: job type toggle + print ----------
-  async function findMatchingSavedClient(clientName){
-    const target = (clientName || '').trim().toLowerCase();
-    if(!target) return null;
+  // Name words, ignoring capitalization, punctuation, order and single
+  // letters ("Long, Carolyne" = "Carolyne Long").
+  const ldNameWords = t => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(w => w.length > 1);
+  // Every saved (non-draft) estimate for this client: matched on the
+  // estimate's Shipper Name OR its saved label ("Carolyne Long - with packing").
+  async function findMatchingSavedClients(clientName){
+    const want = ldNameWords(clientName);
+    if(!want.length) return { matches: [], similar: [] };
     const clients = await getClientsAsync();
     // Drafts (auto-created from a work order, before weight/charges are
-    // filled in) are deliberately excluded here -- only a complete,
-    // manager-saved estimate should ever get pulled into a printed BOL.
-    const matches = clients.filter(c => !c.draft && ((c.data && c.data.shipperName) || '').trim().toLowerCase() === target);
-    if(matches.length === 0) return null;
-    return matches.reduce((a, b) => (a.id > b.id ? a : b)); // most recently saved
+    // filled in) are deliberately excluded -- only a complete, manager-saved
+    // estimate should ever get pulled into a printed BOL.
+    const has = (c, words) => { const pool = new Set([...ldNameWords(c.data && c.data.shipperName), ...ldNameWords(c.label)]); return words.every(w => pool.has(w)); };
+    const matches = clients.filter(c => !c.draft && has(c, want)).sort((a, b) => b.id - a.id);
+    // Near misses to point out a typo / different spelling.
+    const similar = matches.length ? [] : clients.filter(c => !c.draft && want.some(w => w.length > 2 && new Set([...ldNameWords(c.data && c.data.shipperName), ...ldNameWords(c.label)]).has(w)))
+      .slice(0, 4).map(c => c.label || (c.data && c.data.shipperName) || '');
+    return { matches, similar };
   }
-
+  async function findMatchingSavedClient(clientName){
+    const { matches } = await findMatchingSavedClients(clientName);
+    return matches[0] || null;   // most recently saved
+  }
+  // Several estimates for one client (e.g. with and without packing): ask
+  // which one -- never guess. Shows each one's label, saved date and total.
+  function ldChooseEstimate(clientName, matches){
+    const snapshot = collectFormData();
+    const rows = matches.map(c => {
+      let total = null;
+      try{ restoreFormData(c.data); total = (window.__calc || {}).total; }catch(err){}
+      return { c, total };
+    });
+    restoreFormData(snapshot);
+    return new Promise(resolve => {
+      let ov = document.getElementById('ldPickModal');
+      if(!ov){ ov = document.createElement('div'); ov.id = 'ldPickModal'; document.body.appendChild(ov); }
+      ov.style.cssText = 'position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; padding:16px;';
+      const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+      ov.innerHTML = `<div style="background:#fff; max-width:560px; width:100%; border-radius:12px; padding:18px 20px;">
+        <div style="font-weight:800; font-size:17px;">Which Long Distance Estimate?</div>
+        <p class="form-note" style="margin:4px 0 12px;">${esc(clientName)} has ${matches.length} saved estimates. Pick the one to include in this work package.</p>
+        ${rows.map((r, i) => `<button type="button" class="ld-pick" data-i="${i}" style="display:block; width:100%; text-align:left; background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px; cursor:pointer; font-family:inherit;">
+          <strong>${esc(r.c.label || (r.c.data && r.c.data.shipperName) || 'Estimate')}</strong><br>
+          <span style="font-size:12.5px; color:var(--muted);">Saved ${r.c.savedAt ? new Date(r.c.savedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''}${r.total != null ? ' \u00b7 total $' + Number(r.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}${i === 0 ? ' \u00b7 most recent' : ''}</span></button>`).join('')}
+        <button type="button" id="ldPickNone" style="background:none; border:none; color:var(--muted); text-decoration:underline; cursor:pointer; margin-top:4px;">Leave the Bill of Lading out</button>
+      </div>`;
+      ov.querySelectorAll('.ld-pick').forEach(b => b.onclick = () => { ov.style.display = 'none'; resolve(matches[+b.dataset.i]); });
+      document.getElementById('ldPickNone').onclick = () => { ov.style.display = 'none'; resolve(null); };
+    });
+  }
+  // Returns { html, label, savedAt, similar } -- html null if none was used.
   async function pullLongDistanceBOL(clientName){
-    const match = await findMatchingSavedClient(clientName);
-    if(!match) return null;
+    const { matches, similar } = await findMatchingSavedClients(clientName);
+    if(!matches.length) return { html: null, similar };
+    const match = matches.length > 1 ? await ldChooseEstimate(clientName, matches) : matches[0];
+    if(!match) return { html: null, skipped: true, similar: [] };
     const snapshot = collectFormData(); // preserve whatever's currently in the calculator
     try{
       restoreFormData(match.data);
@@ -22256,10 +22297,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const bolEl = document.getElementById('printBOL');
       const html = bolEl.innerHTML;
       bolEl.innerHTML = '';
-      return html;
+      return { html, label: match.label || (match.data && match.data.shipperName) || clientName, savedAt: match.savedAt };
     } finally {
       restoreFormData(snapshot); // never leave the live calculator altered
     }
+  }
+  // The work package's note about the Long Distance Bill of Lading.
+  function ldBolNote(clientName, r){
+    const when = r.savedAt ? ` (saved ${new Date(r.savedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})` : '';
+    if(r.html) return ` Included the Long Distance Bill of Lading from "${r.label}"${when}.`;
+    if(r.skipped) return ' Left out the Long Distance Bill of Lading, as chosen.';
+    if(!clientName) return ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
+    return ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading.${(r.similar || []).length ? ' Saved estimates with similar names: ' + r.similar.map(x => '"' + x + '"').join(', ') + '.' : ' Save one from the Long Distance Estimates tile with this client\u2019s name to include it.'}`;
   }
 
   function updatePWJobTypeUI(){
@@ -22333,9 +22382,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       for(const d of docs){
         if(d.builtin === 'billOfLading' && jobType === 'longdistance'){
           const clientName = pwVal('pw_clientName');
-          const bolHtml = await pullLongDistanceBOL(clientName);
-          if(bolHtml){ html += bolHtml; pageNo += 3; extraNote += ` Included the matching Long Distance Bill of Lading for "${clientName}".`; }
-          else extraNote += clientName ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name exactly) to include it.` : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
+          const ld = await pullLongDistanceBOL(clientName);
+          if(ld.html){ html += ld.html; pageNo += 3; }
+          extraNote += ldBolNote(clientName, ld);
           continue;
         }
         if(d.builtin === 'billOfLading') html += buildPWBillOfLading(++pageNo);
@@ -22357,22 +22406,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       html += buildPWPreExistingDamages(woOffset + 6);
     } else if(jobType === 'longdistance'){
       const clientName = pwVal('pw_clientName');
-      const bolHtml = await pullLongDistanceBOL(clientName);
-      if(bolHtml){
-        html += bolHtml;
+      const ld = await pullLongDistanceBOL(clientName);
+      extraNote = ldBolNote(clientName, ld);
+      if(ld.html){
+        html += ld.html;
         html += buildPWLiabilityWaiver(woOffset + 4, true);
         html += buildPWGAGuide(woOffset + 5);
         html += buildPWAddendum(woOffset + 6);
         html += buildPWPreExistingDamages(woOffset + 7);
-        extraNote = ` Included the matching Long Distance Bill of Lading for "${clientName}".`;
       } else {
         html += buildPWLiabilityWaiver(woOffset + 1, true);
         html += buildPWGAGuide(woOffset + 2);
         html += buildPWAddendum(woOffset + 3);
         html += buildPWPreExistingDamages(woOffset + 4);
-        extraNote = clientName
-          ? ` No saved Long Distance Estimate found for "${clientName}" \u2014 printed without the Bill of Lading. Save one from the Long Distance Estimates tile (matching this Client Name) first if you need it included.`
-          : ' Enter a Client Name and save a matching estimate on the Long Distance Estimates tile to auto-include its Bill of Lading.';
       }
     } else {
       html += buildPWLiabilityWaiver(woOffset + 1, true);
@@ -26635,9 +26681,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       //   COGS           = Total Revenue - Gross Profit
       //   Fixed Expenses = Gross Profit - Operating Profit (the operating expenses)
       { key: 'cogs', label: 'COGS', monthly: true, yAxisID: 'yMonthly', data: monthsOfYear.map(r => r && Number(r.revenue) ? (Number(r.revenue) || 0) - (Number(r.grossProfit) || 0) : null),
-        borderColor: '#8B4513', backgroundColor: '#8B4513', borderWidth: 2.5, pointRadius: 4, pointStyle: 'triangle' },
+        borderColor: 'rgba(139,69,19,0.5)', backgroundColor: 'rgba(139,69,19,0.5)', borderWidth: 2.5, pointRadius: 4, pointStyle: 'triangle' },   // 50% see-through
       { key: 'fixedExpenses', label: 'Fixed Expenses', monthly: true, yAxisID: 'yMonthly', data: monthsOfYear.map(r => r && Number(r.grossProfit) ? (Number(r.grossProfit) || 0) - (Number(r.operatingProfit) || 0) : null),
-        borderColor: '#5D6D7E', backgroundColor: '#5D6D7E', borderWidth: 2.5, pointRadius: 4, pointStyle: 'rect' },
+        borderColor: 'rgba(93,109,126,0.5)', backgroundColor: 'rgba(93,109,126,0.5)', borderWidth: 2.5, pointRadius: 4, pointStyle: 'rect' },   // 50% see-through
       // Estimated business value from the AI valuations: a point-in-time
       // figure (not a running total), plotted in the month each estimate was
       // run -- the latest one if there were several.
