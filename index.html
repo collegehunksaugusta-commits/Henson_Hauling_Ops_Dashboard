@@ -6066,7 +6066,7 @@
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(6)</span>
+            <span class="dashSectionCount">(7)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
           <div class="dashSectionTileList">Ops Manager Metrics, Captain Metrics, Wingman Metrics, Attendance Tracking, Employee Roster, Hiring</div>
@@ -6098,6 +6098,12 @@
         <span class="icon">&#128101;</span>
         <h3>Employee Roster</h3>
         <p>Everyone on the last two payroll weeks plus manual additions &mdash; who&rsquo;s a Captain, and who can sign in to the HUNK Portal.</p>
+      </div>
+      <div class="tile" id="tile-teamtexts" tabindex="0" role="button" aria-label="Open Team Messages" style="display:none; position:relative;">
+        <span class="icon">&#128227;</span>
+        <h3>Team Messages</h3>
+        <p>Text the whole crew, Captains, Wingmen or anyone you pick &mdash; straight to their phones from the Employee Roster, with replies here.</p>
+        <span id="tile-teamtexts-badge" style="display:none; position:absolute; top:10px; right:10px; background:#b3261e; color:#fff; border-radius:12px; padding:2px 8px; font-size:12px; font-weight:800;"></span>
       </div>
       <div class="tile" id="tile-hiring" tabindex="0" role="button" aria-label="Open Hiring">
         <span class="icon">📋</span>
@@ -7048,6 +7054,42 @@
 
     <div id="extraPay_weeksList"></div>
     <p class="form-note" id="extraPay_emptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
+  </div>
+
+  <div id="teamTextsDetail" style="display:none;">
+    <button class="backlink" id="teamTextsBackBtn">&larr; Dispatch</button>
+    <div class="detail-head"><h2 class="display">Team Messages</h2></div>
+    <p class="form-note">Texts go to each person&rsquo;s phone from your team texting number. Who gets them comes from the <strong>Employee Roster</strong> and its phone numbers &mdash; new hires are included automatically and people who leave drop off. Replies come back here.</p>
+    <div id="tt_notConnected" style="display:none; background:#FFF6E0; border:1px solid #E7C66B; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:13.5px;"><strong>Texting isn&rsquo;t connected yet.</strong> Once the Twilio account is approved and its details are added to the server, the Send button turns on. You can still look around and preview who&rsquo;d receive a message.</div>
+    <div class="panel">
+      <h3>New Message</h3>
+      <textarea id="tt_message" rows="4" maxlength="1200" placeholder="e.g. Reminder: team meeting Saturday at 8am at the shop." style="width:100%; box-sizing:border-box; font-size:15px; padding:10px;"></textarea>
+      <div id="tt_count" style="font-size:12px; color:var(--muted); margin:2px 0 10px;"></div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px; font-size:14px;">
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_aud" value="everyone" checked> Everyone</label>
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_aud" value="captains"> Captains</label>
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_aud" value="wingmen"> Wingmen</label>
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_aud" value="custom"> Choose people</label>
+      </div>
+      <div id="tt_pick" style="display:none; max-height:240px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:8px;"></div>
+      <div id="tt_preview" style="font-size:13px; margin-bottom:10px;"></div>
+      <style>#tt_send:disabled{opacity:.45; cursor:not-allowed;}</style>
+      <button type="button" id="tt_send" class="btn-primary">Send Text</button> <span class="status-msg" id="tt_status"></span>
+    </div>
+    <div class="panel">
+      <div style="display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">Replies <span id="tt_unread" style="font-size:13px; color:#b3261e;"></span></h3><button type="button" id="tt_markRead" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12.5px;">Mark all read</button></div>
+      <div id="tt_inbox" style="margin-top:10px;"></div>
+    </div>
+    <div class="panel">
+      <h3>Sent</h3>
+      <div id="tt_sent"></div>
+    </div>
+    <div class="panel">
+      <h3>Settings</h3>
+      <label>Also forward every reply to this cell (optional) <input type="tel" id="tt_forward" placeholder="(706) 555-0100" style="max-width:200px;"></label>
+      <label style="display:flex; gap:8px; align-items:center; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="checkbox" id="tt_optNote"> Add &ldquo;Reply STOP to opt out.&rdquo; to each person&rsquo;s first text (recommended by the carriers)</label>
+      <button type="button" id="tt_saveSettings" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Save Settings</button> <span class="status-msg" id="tt_settingsStatus"></span>
+    </div>
   </div>
 
   <div id="rosterDetail" style="display:none;">
@@ -9802,6 +9844,8 @@
     kidsDriveDetail.style.display = view === 'kidsdrive' ? 'block' : 'none';
     if(view === 'kidsdrive') setTimeout(() => window.startKidsDrive && window.startKidsDrive(), 50);
     rosterDetail.style.display = view === 'roster' ? 'block' : 'none';
+    document.getElementById('teamTextsDetail').style.display = view === 'teamtexts' ? 'block' : 'none';
+    if(view === 'teamtexts') window.loadTeamTexts && window.loadTeamTexts();
     if(view === 'roster') window.loadEmployeeRosterView && window.loadEmployeeRosterView();
     extraPayDetail.style.display = view === 'extrapay' ? 'block' : 'none';
     materialsDetail.style.display = view === 'materials' ? 'block' : 'none';
@@ -9835,6 +9879,7 @@
       renderMailAptRoute(mailCurrentRouteSource || 'apartments', mailCurrentRouteTier || 'all');
     }
     if(view === 'home' && window.refreshManagerReviewBadge) window.refreshManagerReviewBadge();
+    if(view === 'home' && window.refreshTeamTextsBadge) window.refreshTeamTextsBadge();
     if(view === 'materials'){
       window.loadMaterialsData();
       window.renderMaterialsSupplierContact();
@@ -10469,6 +10514,90 @@
   document.getElementById('tile-kidsdrive').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('kidsdrive'); }});
   document.getElementById('kidsDriveBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-roster').addEventListener('click', ()=> navigateTo('roster'));
+  // ---- Team Messages (Administrator) ----
+  document.getElementById('tile-teamtexts').addEventListener('click', ()=> navigateTo('teamtexts'));
+  document.getElementById('tile-teamtexts').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('teamtexts'); }});
+  document.getElementById('teamTextsBackBtn').addEventListener('click', ()=> history.back());
+  (function(){
+    const $ = id => document.getElementById(id);
+    const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    let people = [], configured = false;
+    const aud = () => (document.querySelector('input[name=tt_aud]:checked') || {}).value || 'everyone';
+    const chosen = () => new Set([...document.querySelectorAll('.tt-person:checked')].map(c => c.value));
+    function group(){ const a = aud(), c = chosen(); return people.filter(p => a === 'captains' ? p.captain : a === 'wingmen' ? p.wingman : a === 'custom' ? c.has(p.name) : true); }
+    function renderPreview(){
+      const g = group(), ok = g.filter(p => p.phone && !p.optedOut), noPhone = g.filter(p => !p.phone), out = g.filter(p => p.optedOut);
+      $('tt_preview').innerHTML = `<strong>Goes to ${ok.length} ${ok.length === 1 ? 'person' : 'people'}.</strong>`
+        + (noPhone.length ? ` <span style="color:#8a6100;">No phone number on the Employee Roster: ${noPhone.map(p => esc(p.name)).join(', ')}.</span>` : '')
+        + (out.length ? ` <span style="color:var(--muted);">Opted out (texted STOP): ${out.map(p => esc(p.name)).join(', ')}.</span>` : '');
+      $('tt_send').disabled = !configured || !ok.length;
+    }
+    function renderCount(){
+      const t = $('tt_message').value, gsm = /^[\x20-\x7E\n\r£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¡ÄÖÑÜ§¿äöñüà€]*$/.test(t);
+      const per = gsm ? (t.length > 160 ? 153 : 160) : (t.length > 70 ? 67 : 70), parts = t.length ? Math.ceil(t.length / per) : 0;
+      $('tt_count').textContent = t.length ? `${t.length} characters \u00b7 ${parts} text${parts === 1 ? '' : 's'} per person${gsm ? '' : ' (emoji or special characters shorten each text)'}` : '';
+    }
+    async function load(){
+      try{
+        const [pr, mr] = await Promise.all([fetch(`${API_BASE}/api/admin/team-texts/people`, { headers: authHeaders() }), fetch(`${API_BASE}/api/admin/team-texts`, { headers: authHeaders() })]);
+        if(handleAuthFailure(pr) || handleAuthFailure(mr)) return;
+        const pd = await pr.json(), md = await mr.json();
+        people = pd.people || []; configured = !!pd.configured;
+        $('tt_notConnected').style.display = configured ? 'none' : 'block';
+        $('tt_pick').innerHTML = people.map(p => `<label style="display:flex; gap:8px; align-items:center; margin:3px 0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:13.5px; color:${p.phone && !p.optedOut ? 'var(--charcoal)' : 'var(--muted)'};"><input type="checkbox" class="tt-person" value="${esc(p.name)}" ${p.phone && !p.optedOut ? '' : 'disabled'}> ${esc(p.name)} <span style="font-size:12px; color:var(--muted);">${p.phone ? esc(p.phoneDisplay) + (p.optedOut ? ' \u00b7 opted out' : '') : 'no phone number'}</span></label>`).join('');
+        renderPreview();
+        $('tt_unread').textContent = md.unread ? `(${md.unread} new)` : '';
+        $('tt_inbox').innerHTML = (md.inbox || []).length ? md.inbox.map(m => `<div style="border-bottom:1px solid var(--line); padding:8px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div><div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div></div>`).join('') : '<p class="form-note" style="margin:0;">No replies yet.</p>';
+        const audLabel = { everyone: 'Everyone', captains: 'Captains', wingmen: 'Wingmen', custom: 'Chosen people' };
+        $('tt_sent').innerHTML = (md.sent || []).length ? md.sent.map(e => {
+          const rs = e.recipients || [], del = rs.filter(r => r.status === 'delivered').length, fail = rs.filter(r => /failed|undelivered/.test(r.status)).length;
+          return `<details style="border-bottom:1px solid var(--line); padding:8px 0;"><summary style="cursor:pointer; font-size:13.5px;"><strong>${new Date(e.at).toLocaleString()}</strong> \u00b7 ${audLabel[e.audience] || ''} \u00b7 ${rs.length} sent${del ? `, ${del} delivered` : ''}${fail ? `, <span style="color:#b3261e;">${fail} failed</span>` : ''}<div style="font-size:13.5px; white-space:pre-wrap; margin:4px 0 0 14px;">${esc(e.message)}</div></summary>
+            <div style="font-size:12.5px; margin:6px 0 0 14px;">${rs.map(r => `${esc(r.name)}: ${esc(r.status)}${r.error ? ' \u2014 ' + esc(r.error) : ''}`).join('<br>')}${(e.skipped || []).length ? '<br><span style="color:var(--muted);">Skipped: ' + e.skipped.map(x => `${esc(x.name)} (${esc(x.reason)})`).join(', ') + '</span>' : ''}</div></details>`;
+        }).join('') : '<p class="form-note" style="margin:0;">Nothing sent yet.</p>';
+        await (window.ensureAppSettingsLoaded ? window.ensureAppSettingsLoaded() : Promise.resolve());
+        const ts = (window.appSettings || {}).teamTexts || {};
+        $('tt_forward').value = ts.forwardRepliesTo || ''; $('tt_optNote').checked = ts.optOutNote !== false;
+        updateBadge(md.unread || 0);
+      }catch(err){ $('tt_preview').textContent = 'Could not load \u2014 check your connection.'; }
+    }
+    window.loadTeamTexts = load;
+    function updateBadge(n){ const b = $('tile-teamtexts-badge'); b.textContent = n; b.style.display = n ? 'inline-block' : 'none'; }
+    let badgeAt = 0;
+    window.refreshTeamTextsBadge = async function(){
+      const admin = localStorage.getItem('henson_auth_role') === 'admin';
+      $('tile-teamtexts').style.display = admin ? '' : 'none';
+      if(!admin || Date.now() - badgeAt < 120000) return; badgeAt = Date.now();
+      try{ const r = await fetch(`${API_BASE}/api/admin/team-texts`, { headers: authHeaders() }); if(r.ok) updateBadge((await r.json()).unread || 0); }catch(err){}
+    };
+    document.querySelectorAll('input[name=tt_aud]').forEach(r => r.addEventListener('change', () => { $('tt_pick').style.display = aud() === 'custom' ? 'block' : 'none'; renderPreview(); }));
+    $('tt_pick').addEventListener('change', renderPreview);
+    $('tt_message').addEventListener('input', renderCount);
+    $('tt_send').addEventListener('click', async () => {
+      const msg = $('tt_message').value.trim(), st = $('tt_status');
+      if(!msg){ st.textContent = 'Type a message first.'; st.className = 'status-msg err'; return; }
+      const n = group().filter(p => p.phone && !p.optedOut).length;
+      if(!confirm(`Send this text to ${n} ${n === 1 ? 'person' : 'people'}?\n\n${msg}`)) return;
+      $('tt_send').disabled = true; st.textContent = 'Sending\u2026'; st.className = 'status-msg';
+      try{
+        const r = await fetch(`${API_BASE}/api/admin/team-texts/send`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ message: msg, audience: aud(), names: [...chosen()] }) });
+        if(handleAuthFailure(r)) return;
+        const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not send.');
+        st.textContent = `\u2713 Sent to ${d.sent}${d.failed ? ` \u2014 ${d.failed} failed (see Sent below)` : ''}.`; st.className = 'status-msg ' + (d.failed ? 'err' : 'ok');
+        $('tt_message').value = ''; renderCount(); await load();
+      }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; renderPreview(); }
+    });
+    $('tt_markRead').addEventListener('click', async () => { await fetch(`${API_BASE}/api/admin/team-texts/read`, { method: 'POST', headers: authHeaders() }).catch(() => {}); load(); });
+    $('tt_saveSettings').addEventListener('click', async () => {
+      const st = $('tt_settingsStatus'), raw = $('tt_forward').value.trim(), d = raw.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+      if(raw && d.length !== 10){ st.textContent = 'Enter a 10-digit phone number (or leave it blank).'; st.className = 'status-msg err'; return; }
+      try{
+        const r = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { teamTexts: { forwardRepliesTo: d ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : '', optOutNote: $('tt_optNote').checked } } }) });
+        const j = await r.json(); if(!r.ok) throw new Error(j.error || 'Could not save.');
+        window.appSettings = j.settings || window.appSettings;
+        st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; load();
+      }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+    });
+  })();
   document.getElementById('tile-roster').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('roster'); }});
   document.getElementById('rosterBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-hiring').addEventListener('click', ()=> navigateTo('hiring'));
@@ -35166,6 +35295,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     window.loadDamageClaimsData();
     window.checkMaterialsOrderDeadline();
     if(window.refreshManagerReviewBadge) window.refreshManagerReviewBadge();   // tile badge current from the start
+    if(window.refreshTeamTextsBadge) window.refreshTeamTextsBadge();
   }
 
   recalc();
