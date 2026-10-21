@@ -7536,7 +7536,7 @@
 
     <div class="panel" id="matReceivingHistoryPanel" data-collapsible="true">
       <h3>Shipment History</h3>
-      <p class="form-note" style="margin-top:0;">Every shipment received, with its count. <strong>Shrinkage Report</strong> prints the short items and their cost &mdash; share it with Captains as evidence of materials used but not billed.</p>
+      <p class="form-note" style="margin-top:0;">Every shipment received, with its count. <strong>Count Report</strong> shows the short items (markdown) and the over items (markup), with their cost &mdash; share it with Captains as evidence of materials used but not billed.</p>
       <div id="mat_recvHistory"></div>
     </div>
 
@@ -29881,7 +29881,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         <div style="display:flex; gap:12px; align-items:center;">
           <span class="${r.markdownValue > 0 ? 'mat-recv-diff-down' : ''}" style="${r.markdownValue > 0 ? '' : 'color:var(--muted);'}">Markdown ${matRecvMoney(r.markdownValue)}</span>
           <span class="${r.markupValue > 0 ? 'mat-recv-diff-up' : ''}" style="${r.markupValue > 0 ? '' : 'color:var(--muted);'}">Markup ${matRecvMoney(r.markupValue)}</span>
-          <button type="button" class="mat-recv-report" data-id="${matEsc(r.id)}" style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:5px 10px; cursor:pointer; font-size:12px; font-weight:600;">Shrinkage Report</button>
+          <button type="button" class="mat-recv-report" data-id="${matEsc(r.id)}" style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:5px 10px; cursor:pointer; font-size:12px; font-weight:600;">Count Report</button>
         </div>
       </div>`).join('');
     wrap.querySelectorAll('.mat-recv-report').forEach(b => b.addEventListener('click', () => matPrintShrinkage(materialsReceivings.find(r => r.id === b.dataset.id))));
@@ -29902,6 +29902,21 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${short.map(l => `<tr><td style="padding:6px; border:1px solid #ccc;">${matEsc(l.description)}</td><td style="text-align:right; padding:6px; border:1px solid #ccc;">${l.expected}</td><td style="text-align:right; padding:6px; border:1px solid #ccc;">${l.counted}</td><td style="text-align:right; padding:6px; border:1px solid #ccc; color:#b3261e; font-weight:bold;">${-l.diff}</td><td style="text-align:right; padding:6px; border:1px solid #ccc;">${matRecvMoney(l.priceEach)}</td><td style="text-align:right; padding:6px; border:1px solid #ccc; color:#b3261e; font-weight:bold;">${matRecvMoney(-l.value)}</td></tr>`).join('') || '<tr><td colspan="6" style="padding:8px; border:1px solid #ccc;">Nothing was short on this count.</td></tr>'}
         <tr><td colspan="5" style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold;">Total markdown</td><td style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold; color:#b3261e; font-size:15px;">${matRecvMoney(r.markdownValue)}</td></tr>
       </table>
+      ${(() => {
+        // Over (markup): counted MORE than expected -- usually materials put back
+        // without a check-in, or on-hand numbers that started out low.
+        const over = r.countLines.filter(l => l.diff > 0).sort((a, b) => b.value - a.value);
+        if(!over.length) return '';
+        const td = 'style="text-align:right; padding:6px; border:1px solid #ccc;"';
+        return `<h3 style="margin:22px 0 6px; font-size:16px;">Over (markup)</h3>
+        <p style="font-size:13px; margin:0 0 8px; color:#555;">The shelf had <strong>more</strong> of these than expected &mdash; usually materials put back without being checked in, or on-hand numbers that started out low. Worth a quick look if the same item keeps showing up here.</p>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <tr style="background:#f2f2f2;"><th style="text-align:left; padding:6px; border:1px solid #ccc;">Item</th><th ${td}>Should Have</th><th ${td}>Counted</th><th ${td}>Over</th><th ${td}>Cost Each</th><th ${td}>Cost</th></tr>
+          ${over.map(l => `<tr><td style="padding:6px; border:1px solid #ccc;">${matEsc(l.description)}</td><td ${td}>${l.expected}</td><td ${td}>${l.counted}</td><td style="text-align:right; padding:6px; border:1px solid #ccc; color:#00612C; font-weight:bold;">+${l.diff}</td><td ${td}>${matRecvMoney(l.priceEach)}</td><td style="text-align:right; padding:6px; border:1px solid #ccc; color:#00612C; font-weight:bold;">${matRecvMoney(l.value)}</td></tr>`).join('')}
+          <tr><td colspan="5" style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold;">Total markup</td><td style="text-align:right; padding:8px; border:1px solid #ccc; font-weight:bold; color:#00612C; font-size:15px;">${matRecvMoney(r.markupValue)}</td></tr>
+        </table>
+        <p style="font-size:14px; margin:14px 0 0; text-align:right;"><strong>Net: ${(r.markdownValue || 0) >= (r.markupValue || 0) ? 'short ' + matRecvMoney((r.markdownValue || 0) - (r.markupValue || 0)) : 'over ' + matRecvMoney((r.markupValue || 0) - (r.markdownValue || 0))}</strong></p>`;
+      })()}
       ${r.notes ? `<p style="font-size:13px; margin-top:12px;"><strong>Notes:</strong> ${matEsc(r.notes)}</p>` : ''}
     </div>`);
     // Shown on screen first; printed only if asked.
