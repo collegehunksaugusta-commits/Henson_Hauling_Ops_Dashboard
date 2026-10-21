@@ -5115,7 +5115,7 @@
     return `
     <div class="mv-job-card" data-jobnumber="${driverEsc(job.jobNumber)}" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap;">
-        <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}${job.access === 'covering' ? `<div style="font-size:12.5px; font-weight:600; color:#8a6100;">Assigned to ${driverEsc(job.assignedTo)} \u2014 add photos if you\u2019re working this job</div>` : job.access === 'unassigned' ? '<div style="font-size:12.5px; font-weight:600; color:var(--muted);">No Captain set yet \u2014 adding photos makes it yours</div>' : ''}</div>
+        <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}${job.jobDays > 1 ? ` <span style="font-size:12px; font-weight:700; color:#fff; background:var(--brand-green); border-radius:10px; padding:1px 8px; vertical-align:middle;">${job.jobDays}-day move</span>` : ''}${job.access === 'covering' ? `<div style="font-size:12.5px; font-weight:600; color:#8a6100;">Assigned to ${driverEsc(job.assignedTo)} \u2014 add photos if you\u2019re working this job</div>` : job.access === 'unassigned' ? '<div style="font-size:12.5px; font-weight:600; color:var(--muted);">No Captain set yet \u2014 adding photos makes it yours</div>' : ''}</div>
         <span style="font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">${mvJobTypeLabel(job.jobType)}</span>
       </div>
       ${mvOnly() !== 'caused' ? mvSectionHtml(job, 'preexisting', 'Pre-Existing Damage', 'Before starting, photograph any damage already at the property so the crew isn\u2019t blamed for it later.') : ''}
@@ -6836,6 +6836,7 @@
           </div>
           <div id="pw_localLaborArea" style="margin-top:2px;">
             <label>Estimate Summary (paste the estimate text; used on the Bill of Lading)
+              <input type="hidden" id="pw_jobDays" value="">
               <textarea id="pw_estimateSummary" rows="5" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit; font-size:13px; box-sizing:border-box;"></textarea>
             </label>
           </div>
@@ -23753,6 +23754,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           <label style="font-size:11px;">Origin Address <input type="text" class="pwrev-field" data-field="originAddress" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.originAddress)}" style="font-size:13px;"></label>
           <label style="font-size:11px;">Destination Address <input type="text" class="pwrev-field" data-field="destAddress" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.destAddress)}" style="font-size:13px;"></label>
           <label style="font-size:11px;">Job Date <input type="date" class="pwrev-field" data-field="jobDate" data-review-id="${r.reviewId}" value="${pwBatchEsc(r.jobDate)}" style="font-size:13px;"></label>
+          <label class="pwrev-days-wrap" data-review-id="${r.reviewId}" style="font-size:11px; display:${r.jobType === 'move' ? '' : 'none'};" title="A multi-day move stays in the Captain's queue every day of the job">Days <input type="number" min="1" max="14" step="1" class="pwrev-field" data-field="jobDays" data-review-id="${r.reviewId}" value="${Number(r.jobDays) > 1 ? Number(r.jobDays) : 1}" style="font-size:13px; width:70px;"></label>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
           <select class="pwrev-jobtype" data-review-id="${r.reviewId}" style="font-size:12.5px;">
@@ -23789,6 +23791,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       sel.addEventListener('change', (e)=>{
         const rev = pwBatchReview.find(x => x.reviewId === e.target.dataset.reviewId);
         if(rev) rev.jobType = e.target.value;
+        const wrap = container.querySelector(`.pwrev-days-wrap[data-review-id="${e.target.dataset.reviewId}"]`);
+        if(wrap) wrap.style.display = e.target.value === 'move' ? '' : 'none';
       });
     });
     container.querySelectorAll('.pwrev-captain').forEach(sel => {
@@ -23964,6 +23968,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         document.getElementById('pw_unpackingDate').value = '';
         document.getElementById('pw_otherServiceDate').value = '';
         document.getElementById('pw_estimateSummary').value = r.estimateSummary || '';
+        document.getElementById('pw_jobDays').value = r.jobType === 'move' ? String(Math.max(1, Math.min(14, parseInt(r.jobDays, 10) || 1))) : '1';
         document.getElementById('pw_jobType').value = r.jobType;
         document.getElementById('pw_captainSelect').value = r.captainName || '';
         document.getElementById('pw_captainOther').value = '';
@@ -23971,6 +23976,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         updatePWJobTypeUI();
 
         await archiveJobData(r.packingMaterials);
+        document.getElementById('pw_jobDays').value = '';
         const { html, extraNote } = await buildWorkPackageHtml(r.jobType, r.workOrderPages);
         const jobData = { jobType: r.jobType, jobNumber: r.jobNumber, clientName: r.clientName, clientPhone: r.clientPhone, clientEmail: r.clientEmail, originAddress: r.originAddress, destAddress: r.destAddress,
           stop1: '', stop2: '', stop3: '', estDate: '', packingDate: '', loadingDate: r.jobDate || '', deliveryDate: '', unpackingDate: '', otherServiceDate: '', estimateSummary: r.estimateSummary || '', captainName: r.captainName || '' };
@@ -27757,8 +27763,11 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       // supply it -- re-archiving via a different path (Print, Digital
       // Signing, Copy Link) shouldn't erase what was already known.
       const resolvedPackingMaterials = packingMaterials !== undefined ? packingMaterials : ((existing && existing.packingMaterials) || []);
+      // Multi-day Move: set by the generator; reprints / pushes keep it.
+      const daysTyped = parseInt(pwVal('pw_jobDays'), 10);
+      const jobDays = daysTyped > 0 ? Math.min(14, daysTyped) : ((existing && existing.jobDays) || 1);
       archive = archive.filter(j => j.savedAt >= cutoff && j.jobNumber !== jobNumber);
-      archive.push({ jobNumber, clientName, clientEmail, clientPhone, captainName, assignmentDate, jobType, originAddress, destAddress, packingMaterials: resolvedPackingMaterials, savedAt: new Date().toISOString() });
+      archive.push({ jobDays, jobNumber, clientName, clientEmail, clientPhone, captainName, assignmentDate, jobType, originAddress, destAddress, packingMaterials: resolvedPackingMaterials, savedAt: new Date().toISOString() });
       await window.dashboardApi.set(JOB_ARCHIVE_KEY, archive);
     }catch(err){ console.error('Job archive save failed:', err); }
   }
