@@ -1159,7 +1159,7 @@ app.get('/api/driver/today-jobs', requireDriverOrTaskWingman(null), async (req, 
     const todayStr = new Date().toISOString().slice(0, 10);
     const rules = await loadRoleRules();
     const jobs = archive
-      .filter(j => j.assignmentDate === todayStr && j.jobNumber && (j.captainName === req.driverName || captainJobAccess(j, req.driverName, rules) === 'unassigned'))
+      .filter(j => jobCoversDay(j, todayStr) && j.jobNumber && (j.captainName === req.driverName || captainJobAccess(j, req.driverName, rules) === 'unassigned'))
       .map(j => ({ jobNumber: j.jobNumber, clientName: j.clientName || '' }));
     res.json({ jobs });
   } catch (err) {
@@ -2923,6 +2923,13 @@ function sanitizeMovingJobKey(jobNumber) {
 //    package) -- the first Captain to add photos becomes its Captain;
 //  - another Captain's job dated yesterday..tomorrow (last-minute swaps).
 const isoDay = offset => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); };
+// A job "is on" a date from its start through its last day (multi-day Moves).
+function jobCoversDay(job, day) {
+  if (!job || !job.assignmentDate) return false;
+  const days = Math.max(1, Math.min(14, parseInt(job.jobDays, 10) || 1));
+  const end = new Date(job.assignmentDate + 'T12:00:00Z'); end.setUTCDate(end.getUTCDate() + days - 1);
+  return day >= job.assignmentDate && day <= end.toISOString().slice(0, 10);
+}
 function captainJobAccess(job, driverName, rules) {
   if (job.captainName === driverName) return 'mine';
   if (!job.captainName || !rules.isCaptain(job.captainName)) return 'unassigned';
@@ -2956,7 +2963,7 @@ app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisti
       .map(j => ({ j, access: captainJobAccess(j, driverName, rules) }))
       // Only his own jobs, plus a job for TODAY with no real Captain set.
       // Other Captains' jobs never show here.
-      .filter(x => x.access === 'mine' || (x.access === 'unassigned' && x.j.assignmentDate === isoDay(0)))
+      .filter(x => x.access === 'mine' || (x.access === 'unassigned' && jobCoversDay(x.j, isoDay(0))))
       .map(({ j, access }) => {
         const report = reportsByJobNumber.get(j.jobNumber);
         return {
@@ -2964,7 +2971,7 @@ app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisti
           clientName: j.clientName,
           jobType: j.jobType,
           assignmentDate: j.assignmentDate,
-          access, assignedTo: access === 'covering' ? j.captainName : '',
+          access, assignedTo: access === 'covering' ? j.captainName : '', jobDays: parseInt(j.jobDays, 10) || 1,
           preExistingPhotoCount: (report && report.preExistingPhotoKeys && report.preExistingPhotoKeys.length) || 0,
           preExistingSubmittedAt: (report && report.preExistingSubmittedAt) || null,
           causedPhotoCount: (report && report.causedPhotoKeys && report.causedPhotoKeys.length) || 0,
