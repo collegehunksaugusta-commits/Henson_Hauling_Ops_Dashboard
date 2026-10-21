@@ -2146,7 +2146,7 @@ async function myExpenses(personName) {
       miles: c.miles, purpose: c.purpose, approvedMiles: c.approvedMiles, approvedRate: c.approvedRate,
       reimbursedVia: c.reimbursedOutside ? c.reimbursedOutside.method : null,
       wants: c.reimburseVia || { method: 'paycheck' },
-      status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '' }));
+      status: c.status, payWeek: c.payWeek || null, denyReason: c.denyReason || '', charge: c.type === 'charge' ? (c.charge || {}) : undefined }));
 }
 
 // ============ Digital Work Packages (Work Package Generator -> Captain's app) ============
