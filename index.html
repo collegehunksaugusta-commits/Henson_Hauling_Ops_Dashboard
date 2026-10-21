@@ -626,6 +626,10 @@
       </span>
       <span style="font-size:22px; color:#1f4f87;">&rsaquo;</span>
     </button>
+    <button type="button" class="charge-notice-tile" style="display:none; width:100%; text-align:left; background:#fff; color:var(--charcoal); border:2px solid #b3261e; border-radius:10px; padding:12px 14px; margin-bottom:16px; cursor:default; font-family:inherit;">
+      <div style="font-size:12px; color:#b3261e; font-weight:800; letter-spacing:.04em;">&#128178; PAYCHECK CHARGE</div>
+      <div class="charge-notice-body" style="font-size:14px; margin-top:4px;"></div>
+    </button>
     <button type="button" class="damage-notice-tile" style="display:none; width:100%; text-align:left; background:#b3261e; color:#fff; border:none; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; box-shadow:0 2px 6px rgba(179,38,30,.3);">
       <div style="font-size:17px; font-weight:800;">&#9888; Damage Claim Closed on Your Job</div>
       <div class="damage-notice-sub" style="font-size:13px; margin-top:4px; opacity:.95;"></div>
@@ -778,6 +782,10 @@
         <span class="time-off-sub" style="display:block; font-size:13px; color:var(--muted); margin-top:2px;">Request day(s) off &middot; tap to open</span>
       </span>
       <span style="font-size:22px; color:#1f4f87;">&rsaquo;</span>
+    </button>
+    <button type="button" class="charge-notice-tile" style="display:none; width:100%; text-align:left; background:#fff; color:var(--charcoal); border:2px solid #b3261e; border-radius:10px; padding:12px 14px; margin-bottom:16px; cursor:default; font-family:inherit;">
+      <div style="font-size:12px; color:#b3261e; font-weight:800; letter-spacing:.04em;">&#128178; PAYCHECK CHARGE</div>
+      <div class="charge-notice-body" style="font-size:14px; margin-top:4px;"></div>
     </button>
     <button type="button" class="damage-notice-tile" style="display:none; width:100%; text-align:left; background:#b3261e; color:#fff; border:none; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; box-shadow:0 2px 6px rgba(179,38,30,.3);">
       <div style="font-size:17px; font-weight:800;">&#9888; Damage Claim Closed on Your Job</div>
@@ -2410,7 +2418,7 @@
   // paid in that week's Extra Pay.
   let expPhoto = null, expAiRead = null;
   const expBase = () => API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman' : '/api/driver');
-  const expMoney = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const expMoney = n => (Number(n) < 0 ? '\u2212' : '') + '$' + Math.abs(Number(n || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   async function loadMyExpenses(){
     try{
       const res = await fetch(expBase() + '/expenses', { headers: {'Authorization': 'Bearer ' + driverToken} });
@@ -2428,7 +2436,7 @@
       const receipts = (d.expenses || []).filter(e => e.type !== 'mileage');
       document.getElementById('expList').innerHTML = receipts.length ? receipts.map(e => `
         <div style="display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:14px;">
-          <div><strong>${driverEsc(e.merchant || 'Receipt')}</strong> \u00b7 ${short(e.date) || short(e.submittedAt.slice(0,10))}
+          <div><strong>${e.type === 'charge' ? '<span style="color:#b3261e;">CHARGE</span> \u00b7 ' : ''}${driverEsc(e.merchant || 'Receipt')}</strong> \u00b7 ${short(e.date) || short(e.submittedAt.slice(0,10))}
             <div style="font-size:12px; color:var(--muted);">${driverEsc(e.category)}${e.description ? ' \u2014 ' + driverEsc(e.description) : ''}</div>
             <div style="margin-top:3px;">${pill(e)}</div>
             ${e.status === 'denied' && e.denyReason ? `<div style="font-size:12px; color:#b3261e; margin-top:3px;">${driverEsc(e.denyReason)}</div>` : ''}
@@ -2772,7 +2780,27 @@
   let damageNotices = [];
   function damageNoticeBase(){ return API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman/damage-notices' : '/api/driver/damage-notices'); }
   function dnMoney(n){ return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  // Materials charges coming out of his upcoming paycheck.
+  async function loadChargeNotices(){
+    let list = [];
+    try{
+      const r = await fetch(expBase() + '/expenses', { headers: { 'Authorization': 'Bearer ' + driverToken } });
+      if(!r.ok) return;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      list = ((await r.json()).expenses || []).filter(e => e.type === 'charge' && e.status === 'approved' && e.payWeek && (() => { const p = new Date(e.payWeek + 'T12:00:00'); p.setDate(p.getDate() + 10); return p >= today; })());
+    }catch(err){ return; }
+    const money = n => '$' + (Number(n) || 0).toFixed(2);
+    const payday = w => { const p = new Date(w + 'T12:00:00'); p.setDate(p.getDate() + 10); return p.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); };
+    document.querySelectorAll('.charge-notice-tile').forEach(tile => {
+      tile.style.display = list.length ? 'block' : 'none';
+      tile.querySelector('.charge-notice-body').innerHTML = list.map(e => {
+        const c = e.charge || {};
+        return `<div style="margin-top:4px;"><strong>${money(-e.approvedAmount)}</strong> will come out of your paycheck on <strong>${payday(e.payWeek)}</strong>: ${(c.items || []).map(x => `${x.qty} \u00d7 ${driverEsc(x.description)}`).join(', ') || 'materials'} not billed on job ${driverEsc(c.jobNumber || '')}${c.clientName ? ' (' + driverEsc(c.clientName) + ')' : ''}.</div>`;
+      }).join('') + '<div style="font-size:12px; color:var(--muted); margin-top:6px;">Materials you pull must be billed on the client\u2019s invoice. Questions? Talk to the office.</div>';
+    });
+  }
   async function loadDamageNotices(){
+    loadChargeNotices();
     try{
       const res = await fetch(damageNoticeBase(), { headers: {'Authorization': 'Bearer ' + driverToken} });
       if(res.status === 401){ driverSessionExpired(); return; }
@@ -13253,6 +13281,7 @@
           e.total += Number(c.approvedAmount) || 0;
           e.lines.push(c.type === 'mileage'
             ? `${extraPayFmtDateShort(c.date)}: ${c.approvedMiles} mi \u00d7 ${extraPayMoney(c.approvedRate)} = ${extraPayMoney(c.approvedAmount)}`
+            : c.type === 'charge' ? `CHARGE \u2014 ${c.merchant}: \u2212${extraPayMoney(-c.approvedAmount)}`
             : `${c.merchant || 'Receipt'} (${c.category}): ${extraPayMoney(c.approvedAmount)}`);
         });
         (window.__epClaims = window.__epClaims || {})[weekStart] = { expenses: expensesByName, mileage: mileageByName };
@@ -13569,7 +13598,7 @@
     weekPanel.querySelector('.extraPay-totalReviewBonus').textContent = extraPayMoney(sums.reviewBonus);
     weekPanel.querySelector('.extraPay-totalCommission').textContent = extraPayMoney(sums.commission);
     weekPanel.querySelector('.extraPay-totalDamage').textContent = sums.damage > 0 ? '\u2212' + extraPayMoney(sums.damage) : '';
-    weekPanel.querySelector('.extraPay-totalExpenses').textContent = sums.expenses > 0 ? extraPayMoney(sums.expenses) : '';
+    weekPanel.querySelector('.extraPay-totalExpenses').textContent = sums.expenses ? (sums.expenses < 0 ? '\u2212' + extraPayMoney(-sums.expenses) : extraPayMoney(sums.expenses)) : '';
     weekPanel.querySelector('.extraPay-totalMileage').textContent = sums.mileage > 0 ? extraPayMoney(sums.mileage) : '';
     weekPanel.querySelector('.extraPay-totalMisc').textContent = extraPayMoney(sums.misc);
     weekPanel.querySelector('.extraPay-totalGrand').textContent = extraPayMoney(sums.total);
@@ -13616,7 +13645,7 @@
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-reviewBonus" data-auto="${reviewAuto}" value="${reviewBonusValue.toFixed(2)}" style="${reviewBonusStyle}"${reviewBonusTitle}></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" data-auto="${autoCommission.toFixed(2)}" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
-        <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${expenses ? `<button type="button" class="ep-claims" data-kind="expenses" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change these expenses" style="background:none; border:none; padding:0; cursor:pointer; color:var(--brand-green-dark); font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${extraPayMoney(expenses.total)}${expenses.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
+        <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${expenses ? `<button type="button" class="ep-claims" data-kind="expenses" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change these expenses" style="background:none; border:none; padding:0; cursor:pointer; color:${expenses.total < 0 ? '#b3261e' : 'var(--brand-green-dark)'}; font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${expenses.total < 0 ? '\u2212' + extraPayMoney(-expenses.total) : extraPayMoney(expenses.total)}${expenses.claims.some(c => c.type === 'charge') ? '<div style="font-size:10.5px; font-weight:600;">incl. charge</div>' : ''}${expenses.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td class="extraPay-mileage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${mileage ? `<button type="button" class="ep-claims" data-kind="mileage" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change this mileage" style="background:none; border:none; padding:0; cursor:pointer; color:#1f4f87; font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${extraPayMoney(mileage.total)}${mileage.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
@@ -30205,6 +30234,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         const itemsDetail = byJob[jobNumber].map(p => {
           const item = materialsItems.find(mi => mi.id === p.itemId);
           return {
+            itemId: p.itemId,
             description: item ? item.description : '(item no longer on file)',
             quoted: p.quoted, checkedOut: p.checkedOut, returned: p.returned,
             netUsed: p.netUsed, billed: p.billed, hasBillingRecord: p.hasBillingRecord
@@ -31959,6 +31989,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const eodRecords = eodRaw || [];
 
       const problems = computeMaterialsUnderbilledProblems(uploadsRaw || [], archiveRaw || [], eodRecords.concat(checkinRaw || []));
+      window.__mrMatItems = matItemsRaw || [];
+      try{ window.__rosterNamesCache = await getCurrentEmployeeRoster() || []; }catch(err){}
+      window.__mrJobs = new Map((archiveRaw || []).filter(j => j.jobNumber).map(j => [j.jobNumber, j]));
+      await loadExpPaidWeeks();
       await syncMaterialsUnderbilledToManagerReview(problems);
 
       const travelLineProblems = computeTravelLineUnderbilledProblems(archiveRaw || [], uploadsRaw || [], travelLineCheckStartDate);
@@ -32707,13 +32741,30 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   const EXPENSE_CLAIMS_KEY = 'expense-claims';
   let expenseClaims = [];
   const expMoneyFmt = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Approved expenses and charges go on the upcoming paycheck -- the one for
+  // the PREVIOUS pay week (approved Tue 10/21 -> paid Wed 10/22 for 10/12-10/18)
+  // -- unless that week has already been paid (its payroll is in Labor Cost),
+  // then the next one.
+  let expPaidWeeks = new Set();
+  async function loadExpPaidWeeks(){
+    try{ expPaidWeeks = new Set(((await window.dashboardApi.get('labor-weeks', [])) || []).map(w => w.weekStart)); }catch(err){}
+  }
+  window.loadExpPaidWeeks = loadExpPaidWeeks;
   function expPayWeekStart(){
     const d = new Date(); const dow = d.getDay();
     d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
-    return d.toLocaleDateString('en-CA');
+    const thisWeek = d.toLocaleDateString('en-CA');
+    d.setDate(d.getDate() - 7);
+    const lastWeek = d.toLocaleDateString('en-CA');
+    return expPaidWeeks.has(lastWeek) ? thisWeek : lastWeek;
   }
+  window.expPayWeekStart = expPayWeekStart;
+  // The Wednesday paycheck for a pay week (Monday + 10 days).
+  window.expPayday = weekStart => { const x = new Date(weekStart + 'T12:00:00'); x.setDate(x.getDate() + 10); return x; };
+  window.expIsWeekPaid = w => expPaidWeeks.has(w);
   async function loadExpenseClaims(){
     try{ await ensureAppSettingsLoaded(); }catch(err){}
+    await loadExpPaidWeeks();
     try{ expenseClaims = await window.dashboardApi.get(EXPENSE_CLAIMS_KEY, []) || []; }catch(err){ expenseClaims = []; }
     renderExpenseClaims();
   }
@@ -33596,11 +33647,76 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${detailHtml}
         ${(!item.source || item.source === 'materials') && (item.invoiceLines || []).length ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">Invoice: ${item.invoiceLines.map(l => `\u201c${mgrReviewEsc(l.line)}\u201d \u00d7${l.quantity} \u2192 counted as \u201c${mgrReviewEsc(l.item)}\u201d`).join('; ')}</div>` : ''}
         ${(!item.source || item.source === 'materials') && (item.unmatchedLines || []).length ? `<div style="font-size:12.5px; color:#8a6100; margin-top:4px;">\u26a0 Invoice lines not matched to any inventory item: ${item.unmatchedLines.map(l => '\u201c' + mgrReviewEsc(l) + '\u201d').join(', ')} \u2014 add or fix that item\u2019s HunkWare Nickname in Inventory Management.</div>` : ''}
+        ${(!item.source || item.source === 'materials') ? ubChargeHtml(item, showButtons) : ''}
         ${(!item.source || item.source === 'materials') && showButtons ? `<div style="margin-top:6px;"><button type="button" class="ub-recheck" data-job="${mgrReviewEsc(item.jobNumber)}" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">\u21bb Re-check invoice</button> <span class="status-msg ub-recheck-status" style="font-size:12px;"></span></div>` : ''}
         ${showButtons ? `<div style="display:flex; gap:8px; margin-top:8px;">${mgrReviewOutcomeButtonsHtml(item.id)}</div>` : mgrReviewReviewedNoteHtml(item)}
       </div>`;
   }
 
+  // ---- Underbilled materials: charge the employee (paycheck) ----
+  const ubMoney = n => '$' + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function ubChargeLines(item){
+    const mats = window.__mrMatItems || [];
+    return (item.items || []).map(x => {
+      const mi = mats.find(m => m.id === x.itemId) || mats.find(m => String(m.description || '').toLowerCase() === String(x.description || '').toLowerCase());
+      const qty = Math.max(0, (Number(x.netUsed) || 0) - (Number(x.billed) || 0));
+      const price = mi ? (Number(mi.hunkwarePrice) || 0) : 0;
+      return { description: x.description, billAs: mi && mi.nickname ? mi.nickname : '', qty, price, total: Math.round(qty * price * 100) / 100 };
+    }).filter(l => l.qty > 0);
+  }
+  function ubChargeHtml(item, open){
+    const lines = ubChargeLines(item);
+    if(item.charge){
+      const c = item.charge, paid = window.expIsWeekPaid && window.expIsWeekPaid(c.payWeek);
+      return `<div style="margin-top:8px; padding:8px 10px; background:#FDECEA; border-radius:6px; font-size:13px;">\ud83d\udcb2 <strong>${ubMoney(c.amount)}</strong> charged to <strong>${mgrReviewEsc(c.employeeName)}</strong> \u2014 paycheck ${window.expPayday(c.payWeek).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} (pay week of ${new Date(c.payWeek + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})${paid ? '' : ` <button type="button" class="ub-charge-cancel" data-id="${mgrReviewEsc(item.id)}" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; font-size:12.5px;">Cancel charge</button>`}</div>`;
+    }
+    if(!open || !lines.length) return '';
+    const total = Math.round(lines.reduce((t, l) => t + l.total, 0) * 100) / 100;
+    const job = (window.__mrJobs || new Map()).get(item.jobNumber) || {};
+    const names = Array.from(new Set([job.captainName, ...((window.__rosterNamesCache) || [])].filter(Boolean)));
+    return `<div class="ub-charge" data-id="${mgrReviewEsc(item.id)}" style="margin-top:8px; padding:10px 12px; border:1px dashed #b3261e; border-radius:8px; font-size:13px;">
+      <div style="font-weight:700; margin-bottom:4px;">What the client would have paid</div>
+      ${lines.map(l => `<div>${l.qty} \u00d7 ${mgrReviewEsc(l.description)}${l.billAs && l.billAs.toLowerCase() !== String(l.description).toLowerCase() ? ` <span style="color:var(--muted);">(\u201c${mgrReviewEsc(l.billAs)}\u201d)</span>` : ''} @ ${l.price ? ubMoney(l.price) : '<span style="color:#b3261e;">no HunkWare price set</span>'} = <strong>${ubMoney(l.total)}</strong></div>`).join('')}
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+        <span>Charge</span>
+        <select class="ub-charge-who" style="padding:5px;">${names.map(n => `<option ${n === job.captainName ? 'selected' : ''}>${mgrReviewEsc(n)}</option>`).join('')}</select>
+        <span>$</span><input type="number" min="0" step="0.01" class="ub-charge-amt" value="${total.toFixed(2)}" style="width:90px; padding:5px;">
+        <button type="button" class="ub-charge-go" style="background:#b3261e; color:#fff; border:none; padding:6px 12px; border-radius:6px; font-weight:700; cursor:pointer;">Charge to paycheck</button>
+        <span class="status-msg ub-charge-status" style="font-size:12px;"></span>
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-top:4px;">Comes out of the upcoming paycheck (pay week of ${new Date(window.expPayWeekStart() + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}), shows in Extra Pay, and he\u2019s told in the HUNK Portal.</div>
+    </div>`;
+  }
+  document.addEventListener('click', async e => {
+    const go = e.target.closest && e.target.closest('.ub-charge-go'), cancel = e.target.closest && e.target.closest('.ub-charge-cancel');
+    if(!go && !cancel) return;
+    const id = go ? go.closest('.ub-charge').dataset.id : cancel.dataset.id;
+    const item = managerReviewItems.find(i => i.id === id); if(!item) return;
+    const claims = await window.dashboardApi.get('expense-claims', []) || [];
+    if(go){
+      const box = go.closest('.ub-charge'), st = box.querySelector('.ub-charge-status');
+      const who = box.querySelector('.ub-charge-who').value, amt = Math.round((Number(box.querySelector('.ub-charge-amt').value) || 0) * 100) / 100;
+      if(!who || !(amt > 0)){ st.textContent = 'Pick the employee and an amount.'; st.className = 'status-msg ub-charge-status err'; return; }
+      const job = (window.__mrJobs || new Map()).get(item.jobNumber) || {};
+      const payWeek = window.expPayWeekStart(), lines = ubChargeLines(item);
+      if(!confirm(`Charge ${who} ${ubMoney(amt)} on the paycheck of ${window.expPayday(payWeek).toLocaleDateString()} for materials not billed on job ${item.jobNumber}?`)) return;
+      const now = new Date().toISOString(), cid = 'chg_' + Date.now();
+      claims.push({ id: cid, type: 'charge', employeeName: who, submittedAt: now, date: item.jobDate || now.slice(0, 10),
+        merchant: `Unbilled materials \u2014 Job ${item.jobNumber}`, category: 'Materials charge', total: -amt, approvedAmount: -amt,
+        status: 'approved', decidedAt: now, decidedBy: localStorage.getItem('henson_auth_email') || '', payWeek, reimburseVia: { method: 'paycheck' },
+        charge: { jobNumber: item.jobNumber, clientName: job.clientName || item.clientName || '', items: lines.map(l => ({ description: l.description, qty: l.qty, price: l.price })), amount: amt, reviewItemId: item.id } });
+      if(!(await window.dashboardApi.set('expense-claims', claims))){ st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg ub-charge-status err'; return; }
+      item.charge = { claimId: cid, employeeName: who, amount: amt, payWeek, at: now };
+      item.reviewedAt = now; item.reviewedBy = localStorage.getItem('henson_auth_email') || ''; item.outcome = 'fail';
+    } else {
+      if(!confirm(`Cancel the ${ubMoney(item.charge.amount)} charge to ${item.charge.employeeName}?`)) return;
+      const kept = claims.filter(c => c.id !== item.charge.claimId);
+      if(!(await window.dashboardApi.set('expense-claims', kept))){ alert('Could not save \u2014 check your connection.'); return; }
+      delete item.charge; item.reviewedAt = null; item.reviewedBy = null; item.outcome = null;
+    }
+    await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
+    renderMgrReviewTabCounts(); renderMgrReviewUnderbilled(); updateManagerReviewTileBadge();
+  });
   document.addEventListener('click', async e => {
     const b = e.target.closest && e.target.closest('.ub-recheck'); if(!b) return;
     const st = b.parentElement.querySelector('.ub-recheck-status');
