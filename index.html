@@ -4399,13 +4399,18 @@
 
   function fmtLbs(n){ return Number(n || 0).toLocaleString() + ' lbs'; }
 
+  let weightTicketCaptains = [];
+  // A helper Captain sees only the truck(s) he was assigned.
+  const wtMyTrucks = job => { const all = job.trucks || [{ truck: 1, empty: job.empty, full: job.full, netWeight: job.netWeight }]; return job.lead === false ? all.filter(t => (job.myTrucks || []).includes(t.truck)) : all; };
   async function loadWeightTicketTile(){
     const tile = document.getElementById('driverWeightTicketTile');
     try{
       const res = await fetch(API_BASE_AUTH + '/api/driver/weight-tickets', { headers: {'Authorization': 'Bearer ' + driverToken} });
       if(res.status === 401){ driverSessionExpired(); return; }
       if(!res.ok) return;
-      weightTicketJobs = (await res.json()).jobs || [];
+      const wtData = await res.json();
+      weightTicketJobs = wtData.jobs || [];
+      weightTicketCaptains = wtData.captains || [];
     }catch(err){
       console.error('Weight tickets load failed:', err);
       return;
@@ -4449,9 +4454,16 @@
     const tile = document.getElementById('driverWeightTicketTile');
     const sub = document.getElementById('driverWeightTicketTileSub');
     if(weightTicketJobs.length === 0){ tile.style.display = 'none'; return; }
-    const trucksOf = j => j.trucks || [{ truck: 1, empty: j.empty, full: j.full }];
+    const trucksOf = j => wtMyTrucks(j);
     const missing = weightTicketJobs.reduce((n, j) => n + trucksOf(j).reduce((m, t) => m + (t.empty ? 0 : 1) + (t.full ? 0 : 1), 0), 0);
+    const helping = weightTicketJobs.filter(j => j.lead === false);
     tile.style.display = 'block';
+    if(missing > 0 && helping.length && helping.length === weightTicketJobs.length){
+      tile.style.background = '#FFF4CC';
+      tile.style.border = '2px solid #E3A008';
+      sub.textContent = 'Upload your weight tickets \u2014 ' + helping.map(j => `Truck ${(j.myTrucks || []).join(' & ')}, Job ${j.jobNumber}${j.clientName ? ' (' + j.clientName + ')' : ''}`).join('; ');
+      return;
+    }
     if(missing > 0){
       tile.style.background = '#FFF4CC';
       tile.style.border = '2px solid #E3A008';
@@ -4501,19 +4513,32 @@
         ${slot(job, tr, 'full')}
         ${many && tr.truck === (job.truckCount || 1) && tr.truck > 1 && !tr.empty && !tr.full ? `<button type="button" class="wt-remove-truck" data-job="${driverEsc(job.jobNumber)}" data-count="${tr.truck - 1}" style="background:none; border:none; color:#b3261e; text-decoration:underline; font-size:13px; cursor:pointer; padding:2px 0;">Remove Truck ${tr.truck}</button>` : ''}
       </div>`;
+    const driverPicker = (job, tr) => {
+      if(job.lead === false || tr.truck < 2) return '';
+      const cur = (job.drivers || {})[tr.truck] || '';
+      return `<label style="display:flex; align-items:center; gap:8px; margin:0 0 10px; font-size:13px; text-transform:none; letter-spacing:normal; font-family:inherit; color:var(--charcoal);">Driver:
+        <select class="wt-driver" data-job="${driverEsc(job.jobNumber)}" data-truck="${tr.truck}" style="flex:1; padding:8px; font-size:14px;">
+          <option value="">Me \u2014 I\u2019ll upload it</option>
+          ${weightTicketCaptains.map(n => `<option value="${driverEsc(n)}" ${n === cur ? 'selected' : ''}>${driverEsc(n)}</option>`).join('')}
+        </select></label>
+        ${cur ? `<p class="form-note" style="margin:-4px 0 10px;">${driverEsc(cur)} uploads this truck\u2019s tickets from his phone.</p>` : ''}
+        <p class="status-msg wt-driver-status" data-job="${driverEsc(job.jobNumber)}" data-truck="${tr.truck}" style="margin:-6px 0 8px;"></p>`;
+    };
     wrap.innerHTML = weightTicketJobs.map(job => {
-      const trucks = job.trucks || [{ truck: 1, empty: job.empty, full: job.full, netWeight: job.netWeight }];
-      const many = trucks.length > 1;
-      const total = job.netWeight;
+      const helper = job.lead === false;
+      const trucks = wtMyTrucks(job);
+      const many = (job.trucks || []).length > 1;
+      const total = helper ? (trucks.every(t => t.netWeight !== null && t.netWeight !== undefined) ? trucks.reduce((s2, t) => s2 + t.netWeight, 0) : null) : job.netWeight;
       return `
       <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px;">
         <h3 style="margin:0 0 4px;">Job ${driverEsc(job.jobNumber)}${job.clientName ? ' \u2014 ' + driverEsc(job.clientName) : ''}</h3>
         ${job.isToday ? '' : '<p class="form-note" style="margin:0 0 8px;">From yesterday \u2014 still missing a ticket.</p>'}
-        ${trucks.map(tr => truckBlock(job, tr, many)).join('')}
+        ${helper ? `<p style="margin:0 0 10px; padding:8px 10px; background:#FFF4CC; border-radius:8px; font-size:14px;">You\u2019re driving <strong>Truck ${(job.myTrucks || []).join(' & ')}</strong> on ${driverEsc(job.leadCaptain)}\u2019s job \u2014 upload your truck\u2019s empty and full tickets.</p>` : ''}
+        ${trucks.map(tr => driverPicker(job, tr) + truckBlock(job, tr, many)).join('')}
         <button type="button" class="wt-add-truck" data-job="${driverEsc(job.jobNumber)}" data-count="${trucks.length + 1}" style="${whiteBtn} margin-bottom:12px; border-style:dashed;">+ Add Another Truck</button>
         <p class="status-msg wt-truck-status" data-job="${driverEsc(job.jobNumber)}" style="margin:-6px 0 10px;"></p>
         <div style="text-align:center; padding:12px; border-radius:8px; background:${total !== null && total !== undefined ? '#e8f5e9' : 'var(--offwhite)'};">
-          <div class="form-note" style="margin:0;">${many ? `Total Load Weight (${trucks.length} trucks)` : 'Load Weight'}</div>
+          <div class="form-note" style="margin:0;">${helper ? `Truck ${(job.myTrucks || []).join(' & ')} load` : many ? `Total Load Weight (${trucks.length} trucks)` : 'Load Weight'}</div>
           <div style="font-size:26px; font-weight:800; color:${total !== null && total !== undefined ? 'var(--brand-green-dark)' : 'var(--muted)'};">${total !== null && total !== undefined ? fmtLbs(total) : '\u2014'}</div>
           ${total !== null && total !== undefined ? (many
             ? `<div class="form-note" style="margin:0;">${trucks.map(t => `Truck ${t.truck}: ${fmtLbs(t.netWeight)}`).join(' + ')}</div>`
@@ -4521,7 +4546,19 @@
         </div>
       </div>`;
     }).join('');
+    // Helpers don't add or remove trucks.
+    weightTicketJobs.filter(j => j.lead === false).forEach(j => wrap.querySelectorAll(`.wt-add-truck[data-job="${CSS.escape(j.jobNumber)}"], .wt-remove-truck[data-job="${CSS.escape(j.jobNumber)}"]`).forEach(b => b.remove()));
     wrap.querySelectorAll('.wt-add-truck, .wt-remove-truck').forEach(b => b.addEventListener('click', e => setWeightTicketTrucks(e.currentTarget.dataset.job, Number(e.currentTarget.dataset.count))));
+    wrap.querySelectorAll('.wt-driver').forEach(sel => sel.addEventListener('change', async e => {
+      const el = e.currentTarget, st = wrap.querySelector(`.wt-driver-status[data-job="${CSS.escape(el.dataset.job)}"][data-truck="${el.dataset.truck}"]`);
+      if(st){ st.textContent = 'Saving\u2026'; st.className = 'status-msg wt-driver-status'; }
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/driver/weight-ticket-truck-driver', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ jobNumber: el.dataset.job, truck: Number(el.dataset.truck), driverName: el.value }) });
+        const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not save.');
+        const i = weightTicketJobs.findIndex(j => j.jobNumber === el.dataset.job); if(i >= 0 && d.job) weightTicketJobs[i] = d.job;
+        renderWeightTicketJobs(); renderWeightTicketTile();
+      }catch(err){ if(st){ st.textContent = err.message; st.className = 'status-msg wt-driver-status err'; } }
+    }));
     wrap.querySelectorAll('.wt-take').forEach(b => b.addEventListener('click', e => openWeightTicketPicker(e.currentTarget, 'weightTicketCameraInput')));
     wrap.querySelectorAll('.wt-choose').forEach(b => b.addEventListener('click', e => openWeightTicketPicker(e.currentTarget, 'weightTicketFileInput')));
   }
