@@ -33050,7 +33050,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         </div>
         <div style="font-size:12.5px; color:var(--charcoal); margin:3px 0 8px;">${r.job.assignmentDate === today ? 'Today' : window.fmtDate(r.job.assignmentDate)}${r.job.captainName ? ' &middot; Captain: ' + mgrReviewEsc(r.job.captainName) : ''}${r.invoiced ? '' : ' &middot; invoice not uploaded yet'}</div>
         ${r.trucks.map(tr => `${many ? `<div style="font-size:12.5px; font-weight:700; margin:6px 0 4px;">&#128666; Truck ${tr.truck}</div>` : ''}<div style="display:flex; gap:8px; flex-wrap:wrap;">${slot(tr, 'empty', 'Empty Truck')}${slot(tr, 'full', 'Full Truck')}</div>`).join('')}
-        ${complete ? '' : `<button type="button" class="wtr-upload" data-idx="${idx}" style="margin-top:10px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Upload Paper Ticket</button>`}
+        <button type="button" class="wtr-upload" data-idx="${idx}" style="margin-top:10px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:13px;">${complete ? 'Add a Truck or Replace a Ticket' : 'Upload Ticket'}</button>
       </div>`;
     }).join('');
     list.querySelectorAll('.wtr-view').forEach(b => b.addEventListener('click', async e => {
