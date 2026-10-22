@@ -103,6 +103,7 @@ const ALLOWED_KEYS = new Set([
   'google-review-allocations',
   'weight-tickets',
   'weight-ticket-trucks',
+  'weight-ticket-truck-drivers',
   'expense-claims',
   'time-off-requests',
   'damage-claim-crew-acks',
@@ -1802,14 +1803,25 @@ async function readWeightTicketPhoto(photoDataUri) {
 
 // The Captain's Long Distance Moves for today (Eastern), plus yesterday's,
 // so a ticket from a late finish can still be added the next morning.
+// Includes jobs where he drives another truck: the lead Captain assigns
+// Truck 2, 3... to other Captains ('weight-ticket-truck-drivers'), who then
+// see that job -- just their own truck -- and upload its tickets.
+const WT_DRIVERS_KEY = 'weight-ticket-truck-drivers';
+async function weightTicketDrivers() { return JSON.parse(await redis.get(WT_DRIVERS_KEY) || '{}'); }
 async function captainLongDistanceJobs(captainName) {
   const archiveRaw = await redis.get(JOB_ARCHIVE_KEY);
   const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
+  const drivers = await weightTicketDrivers();
+  const me = nameDedupKey(captainName);
   const today = easternDateFromMs(Date.now());
   const yesterday = easternDateFromMs(Date.now() - 24 * 60 * 60 * 1000);
-  return archive.filter(j => j.jobNumber && j.jobType === 'longdistance' &&
-    nameDedupKey(j.captainName || '') === nameDedupKey(captainName) &&
-    (j.assignmentDate === today || j.assignmentDate === yesterday));
+  return archive.filter(j => j.jobNumber && j.jobType === 'longdistance' && (j.assignmentDate === today || j.assignmentDate === yesterday))
+    .map(j => {
+      const lead = nameDedupKey(j.captainName || '') === me;
+      const assigned = drivers[j.jobNumber] || {};
+      const myTrucks = Object.entries(assigned).filter(([, n]) => nameDedupKey(n) === me).map(([t]) => Number(t));
+      return (lead || myTrucks.length) ? Object.assign({}, j, { _lead: lead, _myTrucks: myTrucks, _drivers: assigned }) : null;
+    }).filter(Boolean);
 }
 
 function summarizeWeightTicketJob(job, tickets, today, truckCounts) {
@@ -1831,7 +1843,10 @@ function summarizeWeightTicketJob(job, tickets, today, truckCounts) {
     // Total load across every truck, once every truck has both tickets.
     netWeight: complete ? trucks.reduce((sum, t) => sum + t.netWeight, 0) : null,
     // Truck 1, for anything that still reads a single pair.
-    empty: trucks[0].empty, full: trucks[0].full
+    empty: trucks[0].empty, full: trucks[0].full,
+    // Who drives which truck (lead Captain = every truck not assigned).
+    lead: job._lead !== false, leadCaptain: job.captainName || '', drivers: job._drivers || {},
+    myTrucks: job._lead === false ? (job._myTrucks || []) : trucks.map(t => t.truck)
   };
 }
 
@@ -1843,7 +1858,14 @@ app.get('/api/driver/weight-tickets', requireDriverAuth, async (req, res) => {
     // Yesterday's job only stays on the list while it's still missing a ticket.
     const summaries = jobs.map(j => summarizeWeightTicketJob(j, tickets, today, counts))
       .filter(sm => sm.isToday || !sm.complete);
-    res.json({ jobs: summaries });
+    // Captains he can hand a truck to.
+    let captains = [];
+    if (summaries.some(sm => sm.lead)) {
+      const rules = await loadRoleRules();
+      const [weeksRaw, manualRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions')]);
+      captains = computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')).filter(n => rules.isCaptain(n) && nameDedupKey(n) !== nameDedupKey(req.driverName));
+    }
+    res.json({ jobs: summaries, captains });
   } catch (err) {
     console.error('Weight tickets fetch failed:', err.message);
     res.status(500).json({ error: 'Could not load weight tickets.' });
@@ -1898,6 +1920,8 @@ async function setWeightTicketTruckCount(job, countRaw) {
   const counts = await weightTicketTruckCounts();
   if (count === 1) delete counts[job.jobNumber]; else counts[job.jobNumber] = count;
   await redis.set(WEIGHT_TICKET_TRUCKS_KEY, JSON.stringify(counts));
+  const drivers = await weightTicketDrivers();
+  if (drivers[job.jobNumber]) { Object.keys(drivers[job.jobNumber]).forEach(t => { if (Number(t) > count) delete drivers[job.jobNumber][t]; }); await redis.set(WT_DRIVERS_KEY, JSON.stringify(drivers)); job._drivers = drivers[job.jobNumber]; }
   return { status: 200, body: { ok: true, job: summarizeWeightTicketJob(job, tickets, easternDateFromMs(Date.now()), counts) } };
 }
 
@@ -1906,6 +1930,7 @@ app.post('/api/driver/weight-ticket-trucks', requireDriverAuth, async (req, res)
   try {
     const job = (await captainLongDistanceJobs(req.driverName)).find(j => j.jobNumber === String(jobNumber));
     if (!job) return res.status(403).json({ error: 'That isn\u2019t one of your Long Distance Moves today.' });
+    if (!job._lead) return res.status(403).json({ error: 'Only the job\u2019s Captain can add or remove trucks.' });
     const r = await setWeightTicketTruckCount(job, count);
     res.status(r.status).json(r.body);
   } catch (err) {
@@ -1928,11 +1953,40 @@ app.post('/api/admin/weight-ticket-trucks', requireAuth, async (req, res) => {
   }
 });
 
+// The lead Captain hands Truck 2, 3... to another Captain ('' takes it back).
+app.post('/api/driver/weight-ticket-truck-driver', requireDriverAuth, async (req, res) => {
+  const { jobNumber, truck, driverName } = req.body || {};
+  try {
+    const job = (await captainLongDistanceJobs(req.driverName)).find(j => j.jobNumber === String(jobNumber));
+    if (!job || !job._lead) return res.status(403).json({ error: 'Only the job\u2019s Captain can assign trucks.' });
+    const n = Number(truck), counts = await weightTicketTruckCounts();
+    if (!(n >= 2 && n <= (Number(counts[job.jobNumber]) || 1))) return res.status(400).json({ error: 'Add that truck to the job first.' });
+    const drivers = await weightTicketDrivers();
+    const forJob = drivers[job.jobNumber] = drivers[job.jobNumber] || {};
+    const name = String(driverName || '').trim();
+    if (!name) delete forJob[n];
+    else {
+      const rules = await loadRoleRules();
+      const [weeksRaw, manualRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions')]);
+      const match = computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')).find(x => rules.isCaptain(x) && nameDedupKey(x) === nameDedupKey(name));
+      if (!match || nameDedupKey(match) === nameDedupKey(req.driverName)) return res.status(400).json({ error: 'Pick a Captain on the roster.' });
+      forJob[n] = match;
+    }
+    if (!Object.keys(forJob).length) delete drivers[job.jobNumber];
+    await redis.set(WT_DRIVERS_KEY, JSON.stringify(drivers));
+    console.log(`[weight-tickets] job ${job.jobNumber} truck ${n}: ${name ? 'assigned to ' + forJob[n] : 'taken back'} by ${req.driverName}`);
+    job._drivers = drivers[job.jobNumber] || {};
+    const tickets = JSON.parse(await redis.get(WEIGHT_TICKETS_KEY) || '[]');
+    res.json({ ok: true, job: summarizeWeightTicketJob(job, tickets, easternDateFromMs(Date.now()), counts) });
+  } catch (err) { console.error('Weight ticket truck driver failed:', err.message); res.status(500).json({ error: 'Could not assign the truck.' }); }
+});
+
 app.post('/api/driver/weight-ticket', requireDriverAuth, async (req, res) => {
   const { jobNumber, kind, photo, truck } = req.body || {};
   try {
     const jobs = await captainLongDistanceJobs(req.driverName);
     const job = jobs.find(j => j.jobNumber === String(jobNumber));
+    if (job && !job._lead && !(job._myTrucks || []).includes(Number(truck) || 1)) return res.status(403).json({ error: 'You can only upload the tickets for your own truck.' });
     if (!job) return res.status(403).json({ error: 'That isn\u2019t one of your Long Distance Moves today.' });
     const result = await saveWeightTicket(job, kind, photo, 'captain', req.driverName, truck);
     res.status(result.status).json(result.body);
