@@ -7498,6 +7498,33 @@ app.post('/api/lookup-zip', requireAuth, async (req, res) => {
 // verification endpoint wants. Finds state+zip from the end via regex
 // (robust to "City, ST ZIP" vs "City, ST, ZIP" formatting differences),
 // then treats whatever's left as "street, city".
+// Approximate driving miles between two places (cities are enough) -- the
+// fallback when an address can't be placed exactly. Returns a number or null.
+const DRIVING_MILES_TOOL = {
+  name: 'report_driving_distance',
+  description: 'Report the approximate road driving distance in miles between the two places.',
+  input_schema: { type: 'object', properties: {
+    drivingMiles: { type: 'number', description: 'Typical road driving distance in miles between the two places. Use the town/city if the street is unknown.' },
+    known: { type: 'boolean', description: 'False only if either place cannot be identified at all.' }
+  }, required: ['drivingMiles', 'known'] }
+};
+async function approximateDrivingMiles(from, to){
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !from || !to) return null;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 200, tools: [DRIVING_MILES_TOOL], tool_choice: { type: 'tool', name: 'report_driving_distance' },
+        messages: [{ role: 'user', content: `Approximate road driving distance in miles for a moving truck from "${String(from).slice(0, 200)}" to "${String(to).slice(0, 200)}" (both in or near the United States).` }] })
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const out = (d.content || []).find(c => c.type === 'tool_use');
+    const miles = out && out.input && out.input.known !== false ? Number(out.input.drivingMiles) : NaN;
+    return miles > 0 && miles < 4000 ? Math.round(miles) : null;
+  } catch (err) { return null; }
+}
 function parseAddressForLob(fullAddress){
   const stateZipMatch = fullAddress.match(/,?\s*([A-Za-z]{2})\s*,?\s*(\d{5})(?:-\d{4})?\s*$/);
   if (!stateZipMatch) return null;
@@ -7560,10 +7587,17 @@ app.post('/api/estimate-move-distance', requireAuth, async (req, res) => {
   try {
     const [originGeo, destGeo] = await Promise.all([geocode(originAddress), geocode(destAddress)]);
     if (!originGeo || !destGeo) {
-      return res.json({ ok: false, reason: 'Could not geocode one or both addresses.' });
+      // Estimates often list only a city ("Rome, GA") or no ZIP, which the
+      // exact address lookup can't place. Fall back to an approximate driving
+      // distance between the two places rather than quietly calling it local.
+      const approx = await approximateDrivingMiles(originAddress, destAddress);
+      console.log(`[distance] "${originAddress}" -> "${destAddress}": exact lookup failed; approx ${approx ? approx + ' mi' : 'unavailable'}`);
+      if (approx) return res.json({ ok: true, approximate: true, estimatedDrivingMiles: approx, straightLineMiles: null });
+      return res.json({ ok: false, reason: 'Could not place one or both addresses.' });
     }
     const straightLineMiles = haversineMiles(originGeo, destGeo);
     const estimatedDrivingMiles = straightLineMiles * 1.3; // conservative -- errs toward catching genuinely long moves, not missing them
+    console.log(`[distance] "${originAddress}" -> "${destAddress}": ~${Math.round(estimatedDrivingMiles)} mi`);
     res.json({
       ok: true,
       straightLineMiles: Math.round(straightLineMiles * 10) / 10,
