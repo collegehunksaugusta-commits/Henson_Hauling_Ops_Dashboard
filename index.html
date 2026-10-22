@@ -23402,7 +23402,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             jobDate: d.jobDate || '',
             distanceInfo: dist
           });
-          reason = `Estimate \u2014 ~${dist.estimatedDrivingMiles} mi, pre-filled on the Long Distance Estimates tile`;
+          reason = `Estimate \u2014 ~${dist.estimatedDrivingMiles} mi${dist.approximate ? ' (approximate)' : ''}, pre-filled on the Long Distance Estimates tile`;
+        } else if(!d.originAddress || !d.destAddress){
+          reason = `Estimate \u2014 couldn\u2019t check the distance (${!d.destAddress ? 'no destination' : 'no origin'} read from the work order)`;
+        } else if(!(dist && dist.ok)){
+          reason = `Estimate \u2014 couldn\u2019t check the distance (${d.originAddress} \u2192 ${d.destAddress}); if it\u2019s over 50 miles, start it on the Long Distance Estimates tile`;
+        } else {
+          reason = `Estimate \u2014 ~${dist.estimatedDrivingMiles} mi (local)`;
         }
         pwBatchExcluded.push({
           jobNumber: d.jobNumber || '(no job # read)',
