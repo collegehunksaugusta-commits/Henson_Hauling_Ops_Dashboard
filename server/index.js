@@ -6826,6 +6826,55 @@ app.post('/api/twilio/inbound', async (req, res) => {
   } catch (err) { console.error('Team text inbound failed:', err.message); }
 });
 
+// ============ Broker Info Packet: AI helpers ============
+async function brokerClaude(tool, content, maxTokens) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('AI is not configured on the server.');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens || 2000, tools: [tool], tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content }] })
+  });
+  if (!r.ok) throw new Error('AI request failed (' + r.status + ')');
+  const d = await r.json();
+  const out = (d.content || []).find(c => c.type === 'tool_use');
+  if (!out) throw new Error('AI returned nothing.');
+  return out.input;
+}
+// Typical used market value for each truck.
+app.post('/api/admin/broker/estimate-truck-values', requireAuth, async (req, res) => {
+  try {
+    const trucks = ((req.body || {}).trucks || []).slice(0, 20);
+    if (!trucks.length) return res.status(400).json({ error: 'No trucks.' });
+    const list = trucks.map((t, i) => `${i}. ${[t.year, t.make, t.model].filter(Boolean).join(' ') || 'unknown'}${t.style ? ', ' + t.style : ''}${t.length ? ', ' + t.length + ' ft box' : ''}${t.isDiesel ? ', diesel' : ''}`).join('\n');
+    const out = await brokerClaude({ name: 'report_truck_values', description: 'Estimated current used market value of each truck.',
+      input_schema: { type: 'object', properties: { values: { type: 'array', items: { type: 'object', properties: {
+        index: { type: 'integer' }, estimate: { type: 'number', description: 'Typical current US used retail value in dollars for this truck in average condition and mileage for its age.' },
+        basis: { type: 'string', description: 'A few words, e.g. "typical for a 2019 F-550 with a 16 ft box".' } }, required: ['index', 'estimate', 'basis'] } } }, required: ['values'] } },
+      `Estimate the current used market value (US dollars, average condition and typical mileage for the age) of each of these commercial moving trucks owned by a moving company. Use typical dealer/auction prices for comparable box trucks. If a truck's details are too vague, still give your best typical estimate.\n\n${list}`, 1500);
+    const values = (out.values || []).filter(v => Number.isInteger(v.index) && v.index >= 0 && v.index < trucks.length && v.estimate > 0)
+      .map(v => ({ index: v.index, estimate: Math.round(v.estimate / 500) * 500, basis: String(v.basis || '').slice(0, 160) }));
+    console.log(`[broker] estimated ${values.length} truck value(s) for ${req.userEmail || ''}`);
+    res.json({ values });
+  } catch (err) { console.error('Truck value estimate failed:', err.message); res.status(500).json({ error: 'Could not estimate values \u2014 ' + err.message }); }
+});
+// Coverages and limits read off the COIs (ACORD certificates).
+app.post('/api/admin/broker/read-cois', requireAuth, async (req, res) => {
+  try {
+    const images = ((req.body || {}).images || []).filter(u => /^data:image\/(png|jpe?g|webp);base64,/.test(u)).slice(0, 12);
+    if (!images.length) return res.status(400).json({ error: 'No COI pages to read.' });
+    const content = images.map(u => { const m = /^data:(image\/[a-z]+);base64,(.+)$/.exec(u); return { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } }; });
+    content.push({ type: 'text', text: 'These are Certificates of Insurance for a moving company. List every coverage shown with its limits, combining the same coverage across certificates. Write limits the way a broker would read them, e.g. "$1,000,000 each occurrence / $2,000,000 aggregate", "$1,000,000 combined single limit", "$100,000 per load". Include insurer, policy number and expiration when shown.' });
+    const out = await brokerClaude({ name: 'report_coverages', description: 'Coverages and limits from the certificates.',
+      input_schema: { type: 'object', properties: { coverages: { type: 'array', items: { type: 'object', properties: {
+        coverage: { type: 'string', description: 'e.g. Commercial General Liability, Automobile Liability, Motor Truck Cargo, Physical Damage, Umbrella Liability, Workers Compensation and Employers Liability' },
+        limit: { type: 'string' }, insurer: { type: 'string' }, policyNumber: { type: 'string' }, expires: { type: 'string', description: 'YYYY-MM-DD if shown' } }, required: ['coverage', 'limit'] } } }, required: ['coverages'] } },
+      content, 2500);
+    const coverages = (out.coverages || []).filter(c => c.coverage).map(c => ({ coverage: String(c.coverage).slice(0, 120), limit: String(c.limit || '').slice(0, 200), insurer: String(c.insurer || '').slice(0, 120), policyNumber: String(c.policyNumber || '').slice(0, 60), expires: String(c.expires || '').slice(0, 10) }));
+    console.log(`[broker] read ${coverages.length} coverage(s) from ${images.length} COI page(s) for ${req.userEmail || ''}`);
+    res.json({ coverages });
+  } catch (err) { console.error('COI read failed:', err.message); res.status(500).json({ error: 'Could not read the COIs \u2014 ' + err.message }); }
+});
+
 // ============ Manager Review -> New Hires ============
 // A completed onboarding package waits here until (1) the Administrator has
 // signed every spot that calls for the employer's signature and (2) a
