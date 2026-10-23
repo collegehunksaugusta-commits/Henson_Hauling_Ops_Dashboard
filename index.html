@@ -8312,6 +8312,36 @@
             </div>
           </div>
         </div>
+        <div class="panel" id="comp_w9Panel">
+          <h3>W-9 (Request for Taxpayer ID)</h3>
+          <p class="form-note" style="margin-top:0;">Keep your signed W-9 here so it&rsquo;s ready whenever a client or vendor asks for it.</p>
+          <div id="comp_w9_current" style="margin:6px 0 12px;"></div>
+          <details id="comp_w9_how" style="margin-bottom:12px; font-size:13px;">
+            <summary style="cursor:pointer; font-weight:600;">How to fill it in (about 2 minutes)</summary>
+            <ol style="margin:8px 0 0 18px; padding:0; line-height:1.6;">
+              <li>Download the current blank form from the IRS: <a href="https://www.irs.gov/pub/irs-pdf/fw9.pdf" target="_blank" rel="noopener">irs.gov/pub/irs-pdf/fw9.pdf</a> (it&rsquo;s fillable).</li>
+              <li><strong>Line 1:</strong> the LLC&rsquo;s legal name, exactly as the IRS has it on your EIN letter (CP 575) &mdash; e.g. <strong>Henson Hauling, LLC</strong>.</li>
+              <li><strong>Line 2:</strong> <strong>College Hunks Hauling Junk and Moving</strong> (the DBA).</li>
+              <li><strong>Line 3a:</strong> check <em>LLC</em> and enter how it&rsquo;s taxed &mdash; C, S, or P. (A single-member LLC taxed as a sole proprietorship checks <em>Individual/sole proprietor</em> instead, with the owner&rsquo;s name on Line 1.) Your accountant or last return confirms which.</li>
+              <li><strong>Lines 5&ndash;6:</strong> the business mailing address.</li>
+              <li><strong>Part I:</strong> the business <strong>EIN</strong> (it&rsquo;s in Business Authorizations above).</li>
+              <li>Sign and date Part II, save it as a PDF, and upload it below.</li>
+            </ol>
+          </details>
+          <div class="form-actions" style="flex-wrap:wrap;">
+            <input type="file" id="comp_w9_file" accept=".pdf,.jpg,.jpeg,.png" style="font-size:13px;">
+            <button class="btn-primary" id="comp_w9_uploadBtn" type="button">Upload W-9</button>
+            <span class="status-msg" id="comp_w9_uploadStatus"></span>
+          </div>
+          <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:6px; padding:14px 16px; margin-top:16px;">
+            <h4 style="margin:0 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Send the W-9 to a Client</h4>
+            <label>Recipient Email <input type="email" id="comp_w9_emailTo" placeholder="requester@example.com"></label>
+            <div class="form-actions">
+              <button class="btn-primary" id="comp_w9_emailBtn" type="button">Send W-9</button>
+              <span class="status-msg" id="comp_w9_emailStatus"></span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ---- TRUCKS ---- -->
@@ -14394,6 +14424,7 @@
   function showCompSection(section){
     compCurrentSection = section;
     document.getElementById('comp_business').style.display = section === 'business' ? 'block' : 'none';
+    if(section === 'business') loadCompW9();
     document.getElementById('comp_trucks').style.display = section === 'trucks' ? 'block' : 'none';
     document.getElementById('comp_drivers').style.display = section === 'drivers' ? 'block' : 'none';
     document.getElementById('comp_insurance').style.display = section === 'insurance' ? 'block' : 'none';
@@ -15980,6 +16011,55 @@
       statusEl.textContent = 'Upload failed \u2014 check your connection.';
       statusEl.className = 'status-msg err';
     }
+  });
+
+  // ---------- W-9 (Business section) ----------
+  const W9_META_KEY = 'compliance-w9', W9_FILE_KEY = 'compliance-doc-w9';
+  let compW9 = null;
+  async function loadCompW9(){
+    try{ compW9 = await window.dashboardApi.get(W9_META_KEY, null); }catch(err){ compW9 = null; }
+    const el = document.getElementById('comp_w9_current'); if(!el) return;
+    el.innerHTML = compW9
+      ? `<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13.5px;">\u2705 <strong>On file:</strong> ${String(compW9.fileName || 'W-9').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))} <span style="color:var(--muted);">\u00b7 uploaded ${new Date(compW9.uploadedAt).toLocaleDateString()}</span>
+          <button type="button" id="comp_w9_view" style="background:#fff; border:1px solid var(--line); font-size:12px; padding:4px 10px; border-radius:5px; cursor:pointer;">View</button></div>`
+      : '<p class="form-note" style="margin:0; color:#8a6100;">No W-9 on file yet.</p>';
+    const howEl = document.getElementById('comp_w9_how'); if(howEl && !compW9) howEl.open = true;
+    document.getElementById('comp_w9_uploadBtn').textContent = compW9 ? 'Replace W-9' : 'Upload W-9';
+    const v = document.getElementById('comp_w9_view');
+    if(v) v.onclick = async () => { const uri = await window.dashboardApi.get(W9_FILE_KEY, null); if(uri && window.showPhotoModal) window.showPhotoModal(window.fleetDataUriToBlobUrl ? window.fleetDataUriToBlobUrl(uri) : uri, { isPdf: /^data:application\/pdf/.test(uri) }); };
+  }
+  document.getElementById('comp_w9_uploadBtn').addEventListener('click', async () => {
+    const st = document.getElementById('comp_w9_uploadStatus'), f = document.getElementById('comp_w9_file').files[0];
+    if(!f){ st.textContent = 'Choose the signed W-9 file first.'; st.className = 'status-msg err'; return; }
+    if(f.size > 10 * 1024 * 1024){ st.textContent = 'That file is over 10MB.'; st.className = 'status-msg err'; return; }
+    st.textContent = 'Uploading\u2026'; st.className = 'status-msg';
+    try{
+      const uri = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); });
+      if(!(await window.dashboardApi.set(W9_FILE_KEY, uri))) throw new Error('save');
+      await window.dashboardApi.set(W9_META_KEY, { fileName: f.name, uploadedAt: new Date().toISOString(), uploadedBy: localStorage.getItem('henson_auth_email') || '' });
+      document.getElementById('comp_w9_file').value = '';
+      st.textContent = '\u2713 W-9 saved.'; st.className = 'status-msg ok';
+      loadCompW9();
+    }catch(err){ st.textContent = 'Could not upload \u2014 check your connection.'; st.className = 'status-msg err'; }
+  });
+  document.getElementById('comp_w9_emailBtn').addEventListener('click', async () => {
+    const st = document.getElementById('comp_w9_emailStatus'), to = document.getElementById('comp_w9_emailTo').value.trim();
+    if(!to || !to.includes('@')){ st.textContent = 'Enter the recipient\u2019s email address.'; st.className = 'status-msg err'; return; }
+    if(!compW9){ st.textContent = 'Upload the signed W-9 first.'; st.className = 'status-msg err'; return; }
+    st.textContent = 'Preparing\u2026'; st.className = 'status-msg';
+    try{
+      const uri = await window.dashboardApi.get(W9_FILE_KEY, null);
+      if(!uri) throw new Error('missing');
+      const ext = (String(compW9.fileName || '').match(/\.[a-zA-Z0-9]+$/) || ['.pdf'])[0];
+      const a = document.createElement('a'); a.href = uri; a.download = `W-9 - ${window.LOCATION_PROFILE.carrierName || 'College Hunks'}${ext}`.replace(/[\\/:*?"<>|]/g, '_');
+      document.body.appendChild(a); a.click(); a.remove();
+      const body = `Hello,\n\nAs requested, our completed W-9 is attached.\n\nLet us know if you need anything else.\n\nThanks,\n${window.LOCATION_PROFILE.carrierName}`;
+      let copied = false;
+      try{ await navigator.clipboard.writeText(body); copied = true; }catch(err){ prompt('Copy this message, then paste it into the email body:', body); }
+      window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent('W-9 \u2014 ' + (window.LOCATION_PROFILE.carrierName || 'College Hunks'))}`;
+      st.textContent = copied ? 'W-9 downloaded, message copied, and your email is open \u2014 paste (Ctrl+V) into the body and attach the downloaded W-9.' : 'W-9 downloaded and your email is open \u2014 paste the message and attach the downloaded W-9.';
+      st.className = 'status-msg ok';
+    }catch(err){ st.textContent = 'Could not prepare the email \u2014 check your connection.'; st.className = 'status-msg err'; }
   });
 
   document.getElementById('comp_coi_emailBtn').addEventListener('click', async (e)=>{
