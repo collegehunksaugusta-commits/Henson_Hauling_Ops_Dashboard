@@ -8314,7 +8314,7 @@
         </div>
         <div class="panel" id="comp_w9Panel">
           <h3>W-9 (Request for Taxpayer ID)</h3>
-          <p class="form-note" style="margin-top:0;">Keep your signed W-9 here so it&rsquo;s ready whenever a client or vendor asks for it.</p>
+          <p class="form-note" style="margin-top:0;">Keep your W-9 here so it&rsquo;s ready whenever a client or vendor asks for it.</p>
           <div id="comp_w9_current" style="margin:6px 0 12px;"></div>
           <details id="comp_w9_how" style="margin-bottom:12px; font-size:13px;">
             <summary style="cursor:pointer; font-weight:600;">How to fill it in (about 2 minutes)</summary>
@@ -8325,7 +8325,7 @@
               <li><strong>Line 3a:</strong> check <em>LLC</em> and enter how it&rsquo;s taxed &mdash; C, S, or P. (A single-member LLC taxed as a sole proprietorship checks <em>Individual/sole proprietor</em> instead, with the owner&rsquo;s name on Line 1.) Your accountant or last return confirms which.</li>
               <li><strong>Lines 5&ndash;6:</strong> the business mailing address.</li>
               <li><strong>Part I:</strong> the business <strong>EIN</strong> (it&rsquo;s in Business Authorizations above).</li>
-              <li>Sign and date Part II, save it as a PDF, and upload it below.</li>
+              <li>Save it as a PDF and upload it below. Signing and dating Part II is optional here &mdash; add it if a client requires it.</li>
             </ol>
           </details>
           <div class="form-actions" style="flex-wrap:wrap;">
@@ -16014,29 +16014,44 @@
   });
 
   // ---------- W-9 (Business section) ----------
-  const W9_META_KEY = 'compliance-w9', W9_FILE_KEY = 'compliance-doc-w9';
+  // (The record sits next to the file under the 'compliance-doc-' names the
+  // server accepts; an older upload with no record still counts as on file.)
+  const W9_META_KEY = 'compliance-doc-w9-info', W9_FILE_KEY = 'compliance-doc-w9';
   let compW9 = null;
   async function loadCompW9(){
     try{ compW9 = await window.dashboardApi.get(W9_META_KEY, null); }catch(err){ compW9 = null; }
+    if(!compW9){
+      try{ const uri = await window.dashboardApi.get(W9_FILE_KEY, null); if(uri) compW9 = { fileName: /^data:application\/pdf/.test(uri) ? 'W-9.pdf' : 'W-9 image', uploadedAt: null }; }catch(err){}
+    }
     const el = document.getElementById('comp_w9_current'); if(!el) return;
     el.innerHTML = compW9
-      ? `<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13.5px;">\u2705 <strong>On file:</strong> ${String(compW9.fileName || 'W-9').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))} <span style="color:var(--muted);">\u00b7 uploaded ${new Date(compW9.uploadedAt).toLocaleDateString()}</span>
+      ? `<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13.5px;">\u2705 <strong>On file:</strong> ${String(compW9.fileName || 'W-9').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))} ${compW9.uploadedAt ? `<span style="color:var(--muted);">\u00b7 uploaded ${new Date(compW9.uploadedAt).toLocaleDateString()}</span>` : ''}
           <button type="button" id="comp_w9_view" style="background:#fff; border:1px solid var(--line); font-size:12px; padding:4px 10px; border-radius:5px; cursor:pointer;">View</button></div>`
       : '<p class="form-note" style="margin:0; color:#8a6100;">No W-9 on file yet.</p>';
     const howEl = document.getElementById('comp_w9_how'); if(howEl && !compW9) howEl.open = true;
     document.getElementById('comp_w9_uploadBtn').textContent = compW9 ? 'Replace W-9' : 'Upload W-9';
     const v = document.getElementById('comp_w9_view');
-    if(v) v.onclick = async () => { const uri = await window.dashboardApi.get(W9_FILE_KEY, null); if(uri && window.showPhotoModal) window.showPhotoModal(window.fleetDataUriToBlobUrl ? window.fleetDataUriToBlobUrl(uri) : uri, { isPdf: /^data:application\/pdf/.test(uri) }); };
+    if(v) v.onclick = async () => {
+      v.disabled = true; v.textContent = 'Opening\u2026';
+      try{
+        const uri = await window.dashboardApi.get(W9_FILE_KEY, null);
+        if(!uri) throw new Error('missing');
+        const isPdf = /^data:application\/pdf/.test(uri);
+        const url = window.fleetDataUriToBlobUrl ? window.fleetDataUriToBlobUrl(uri) : uri;
+        if(window.showPhotoModal) window.showPhotoModal(url, { isPdf }); else window.open(url, '_blank');
+      }catch(err){ alert('Could not open the W-9 \u2014 check your connection.'); }
+      v.disabled = false; v.textContent = 'View';
+    };
   }
   document.getElementById('comp_w9_uploadBtn').addEventListener('click', async () => {
     const st = document.getElementById('comp_w9_uploadStatus'), f = document.getElementById('comp_w9_file').files[0];
-    if(!f){ st.textContent = 'Choose the signed W-9 file first.'; st.className = 'status-msg err'; return; }
+    if(!f){ st.textContent = 'Click Choose File and pick your W-9 first (signed or not).'; st.className = 'status-msg err'; return; }
     if(f.size > 10 * 1024 * 1024){ st.textContent = 'That file is over 10MB.'; st.className = 'status-msg err'; return; }
     st.textContent = 'Uploading\u2026'; st.className = 'status-msg';
     try{
       const uri = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); });
       if(!(await window.dashboardApi.set(W9_FILE_KEY, uri))) throw new Error('save');
-      await window.dashboardApi.set(W9_META_KEY, { fileName: f.name, uploadedAt: new Date().toISOString(), uploadedBy: localStorage.getItem('henson_auth_email') || '' });
+      if(!(await window.dashboardApi.set(W9_META_KEY, { fileName: f.name, uploadedAt: new Date().toISOString(), uploadedBy: localStorage.getItem('henson_auth_email') || '' }))) throw new Error('save');
       document.getElementById('comp_w9_file').value = '';
       st.textContent = '\u2713 W-9 saved.'; st.className = 'status-msg ok';
       loadCompW9();
@@ -16045,7 +16060,7 @@
   document.getElementById('comp_w9_emailBtn').addEventListener('click', async () => {
     const st = document.getElementById('comp_w9_emailStatus'), to = document.getElementById('comp_w9_emailTo').value.trim();
     if(!to || !to.includes('@')){ st.textContent = 'Enter the recipient\u2019s email address.'; st.className = 'status-msg err'; return; }
-    if(!compW9){ st.textContent = 'Upload the signed W-9 first.'; st.className = 'status-msg err'; return; }
+    if(!compW9){ st.textContent = 'Upload your W-9 above first \u2014 then it can be sent.'; st.className = 'status-msg err'; return; }
     st.textContent = 'Preparing\u2026'; st.className = 'status-msg';
     try{
       const uri = await window.dashboardApi.get(W9_FILE_KEY, null);
