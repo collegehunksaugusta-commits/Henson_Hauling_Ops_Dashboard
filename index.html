@@ -8699,13 +8699,13 @@ window.openEmailDraft = function(o){
           <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Name</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Role</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Driver&rsquo;s License #</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">License State</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date of Birth</th></tr></thead>
             <tbody id="bp_people"></tbody></table></div>
-          <h4 style="margin:18px 0 6px;">2. Equipment</h4>
+          <h4 style="margin:18px 0 6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">2. Equipment <button type="button" id="bp_estimateBtn" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12.5px; font-weight:700;">&#10024; Estimate values</button><span class="status-msg" id="bp_estimateStatus" style="font-size:12px; font-weight:400;"></span></h4>
           <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Truck</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Year / Make / Model</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">VIN</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Stated Value</th></tr></thead>
             <tbody id="bp_trucks"></tbody></table></div>
           <h4 style="margin:18px 0 6px;">3. Commodities Hauled</h4>
           <textarea id="bp_commodities" rows="3" style="width:100%; box-sizing:border-box; padding:8px; font-size:13.5px;"></textarea>
-          <h4 style="margin:18px 0 6px;">4. Coverages &amp; Limits Needed</h4>
+          <h4 style="margin:18px 0 6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">4. Coverages &amp; Limits Needed <button type="button" id="bp_coiBtn" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12.5px; font-weight:700;">&#10024; Fill from COIs on file</button><span class="status-msg" id="bp_coiStatus" style="font-size:12px; font-weight:400;"></span></h4>
           <div id="bp_coverages"></div>
           <button type="button" id="bp_addCoverage" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12.5px; margin-top:4px;">+ Add a coverage</button>
           <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:6px; padding:14px 16px; margin-top:18px;">
@@ -15926,7 +15926,7 @@ window.openEmailDraft = function(o){
       <td style="${cell} font-weight:600;">${bpEsc(t.nickname)}</td>
       <td style="${cell}">${bpEsc([t.year, t.make, t.model].filter(Boolean).join(' '))}</td>
       <td style="${cell} font-family:'IBM Plex Mono',monospace;${t.vin ? '' : ' color:#b3261e;'}">${bpEsc(t.vin || 'no VIN on file')}</td>
-      <td style="${cell}">$<input type="number" min="0" step="100" class="bp-value" data-id="${bpEsc(t.id)}" value="${t.statedValue || ''}" style="width:110px; padding:5px; font-size:13px;${t.statedValue ? '' : ' background:#FFF6D6;'}"></td></tr>`).join('')
+      <td style="${cell}">$<input type="number" min="0" step="100" class="bp-value" data-id="${bpEsc(t.id)}" value="${t.statedValue || ''}" style="width:110px; padding:5px; font-size:13px;${t.statedValue ? '' : ' background:#FFF6D6;'}">${t.statedValueBasis ? `<div style="font-size:11.5px; color:var(--muted); margin-top:2px;">\u2248 AI estimate \u2014 ${bpEsc(t.statedValueBasis)}</div>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="4" style="${cell} color:var(--muted);">No trucks on file \u2014 add them on the Trucks tab.</td></tr>`;
     document.getElementById('bp_commodities').value = bpData.commodities;
     document.getElementById('bp_brokerEmail').value = bpData.brokerEmail || '';
@@ -15936,7 +15936,7 @@ window.openEmailDraft = function(o){
     document.getElementById('bp_coverages').innerHTML = bpData.coverages.map((c, i) => `<div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
       <input type="text" class="bp-cov" data-i="${i}" data-k="coverage" value="${bpEsc(c.coverage)}" style="flex:2; padding:6px; font-size:13px;">
       <input type="text" class="bp-cov" data-i="${i}" data-k="limit" value="${bpEsc(c.limit)}" placeholder="Limit needed, e.g. $1,000,000" style="flex:2; padding:6px; font-size:13px;${c.limit ? '' : ' background:#FFF6D6;'}">
-      <button type="button" class="bp-cov-del" data-i="${i}" title="Remove" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:16px;">\u00d7</button></div>`).join('');
+      <button type="button" class="bp-cov-del" data-i="${i}" title="Remove" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:16px;">\u00d7</button></div>${c.insurer || c.policyNumber || c.expires ? `<div style="font-size:11.5px; color:var(--muted); margin:-3px 0 7px 2px;">From COI: ${[c.insurer, c.policyNumber ? 'policy ' + c.policyNumber : '', c.expires ? 'expires ' + new Date(c.expires + 'T12:00:00').toLocaleDateString() : ''].filter(Boolean).map(bpEsc).join(' \u00b7 ')}</div>` : ''}`).join('');
   }
   document.getElementById('comp_brokerPanel').addEventListener('change', async e => {
     const t = e.target;
@@ -15949,7 +15949,7 @@ window.openEmailDraft = function(o){
     }
     if(t.classList.contains('bp-value')){
       const tr = bpTrucks.find(x => x.id === t.dataset.id); if(!tr) return;
-      tr.statedValue = t.value ? Math.round(Number(t.value)) : '';
+      tr.statedValue = t.value ? Math.round(Number(t.value)) : ''; delete tr.statedValueBasis;
       await window.dashboardApi.set('fleet-trucks', bpTrucks); t.style.background = t.value ? '' : '#FFF6D6'; return;
     }
     if(t.classList.contains('bp-cov')){ bpData.coverages[+t.dataset.i][t.dataset.k] = t.value.trim(); if(t.dataset.k === 'limit') t.style.background = t.value.trim() ? '' : '#FFF6D6'; await bpSave(); return; }
@@ -15959,6 +15959,43 @@ window.openEmailDraft = function(o){
   document.getElementById('comp_brokerPanel').addEventListener('click', async e => {
     const del = e.target.closest && e.target.closest('.bp-cov-del');
     if(del){ bpData.coverages.splice(+del.dataset.i, 1); await bpSave(); bpRenderCoverages(); }
+  });
+  // ✨ Estimate values (blank ones; asks before replacing typed ones).
+  document.getElementById('bp_estimateBtn').addEventListener('click', async () => {
+    const st = document.getElementById('bp_estimateStatus');
+    if(!bpTrucks.length){ st.textContent = 'No trucks on file.'; st.className = 'status-msg err'; return; }
+    let targets = bpTrucks.map((t, i) => i).filter(i => !bpTrucks[i].statedValue);
+    if(!targets.length){ if(!confirm('Every truck already has a stated value. Replace them all with AI estimates?')) return; targets = bpTrucks.map((t, i) => i); }
+    st.textContent = 'Estimating\u2026'; st.className = 'status-msg';
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/broker/estimate-truck-values`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ trucks: targets.map(i => bpTrucks[i]) }) });
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not estimate.');
+      (d.values || []).forEach(v => { const t = bpTrucks[targets[v.index]]; if(t){ t.statedValue = v.estimate; t.statedValueBasis = v.basis; } });
+      await window.dashboardApi.set('fleet-trucks', bpTrucks);
+      st.textContent = `\u2713 Estimated ${(d.values || []).length} \u2014 adjust any that don\u2019t look right.`; st.className = 'status-msg ok';
+      loadBrokerPacket();
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
+  });
+  // ✨ Fill from COIs on file.
+  document.getElementById('bp_coiBtn').addEventListener('click', async () => {
+    const st = document.getElementById('bp_coiStatus');
+    if(!(compCoiList || []).length){ st.textContent = 'No COIs on file \u2014 upload them in Certificates of Insurance above.'; st.className = 'status-msg err'; return; }
+    if(bpData.coverages.some(c => c.limit) && !confirm('Replace the coverage lines with what\u2019s on your COIs?')) return;
+    st.textContent = `Reading ${compCoiList.length} COI${compCoiList.length === 1 ? '' : 's'}\u2026`; st.className = 'status-msg';
+    try{
+      let images = [];
+      for(const c of compCoiList){
+        const uri = await window.dashboardApi.get('compliance-doc-coi-' + c.id, null); if(!uri) continue;
+        images = images.concat(await window.getImagesForAssessment(window.dataUriToFile(uri, c.fileName || 'coi.pdf')));
+      }
+      if(!images.length) throw new Error('Could not open the COI files.');
+      const r = await fetch(`${API_BASE}/api/admin/broker/read-cois`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ images: images.slice(0, 12) }) });
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not read the COIs.');
+      if(!(d.coverages || []).length) throw new Error('No coverages could be read from the COIs.');
+      bpData.coverages = d.coverages;
+      await bpSave(); bpRenderCoverages();
+      st.textContent = `\u2713 ${d.coverages.length} coverage${d.coverages.length === 1 ? '' : 's'} filled in from your COIs \u2014 these are your current limits; change any you\u2019re shopping to raise or lower.`; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
   });
   document.getElementById('bp_addCoverage').addEventListener('click', async () => { bpData.coverages.push({ coverage: '', limit: '' }); await bpSave(); bpRenderCoverages(); });
   function bpBuildPdf(){
