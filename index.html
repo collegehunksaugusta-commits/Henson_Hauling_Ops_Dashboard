@@ -8692,6 +8692,32 @@ window.openEmailDraft = function(o){
             </div>
           </div>
         </div>
+        <div class="panel" id="comp_brokerPanel">
+          <h3>Broker Info Packet</h3>
+          <p class="form-note" style="margin-top:0;">Everything an insurance broker asks for to quote your coverage or request loss runs &mdash; pulled from the dashboard. Fill in anything highlighted once; it&rsquo;s saved for next time. Contains license numbers and birthdates, so send it only to your broker.</p>
+          <h4 style="margin:14px 0 6px;">1. Drivers &amp; Owner</h4>
+          <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Name</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Role</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Driver&rsquo;s License #</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">License State</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date of Birth</th></tr></thead>
+            <tbody id="bp_people"></tbody></table></div>
+          <h4 style="margin:18px 0 6px;">2. Equipment</h4>
+          <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Truck</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Year / Make / Model</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">VIN</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Stated Value</th></tr></thead>
+            <tbody id="bp_trucks"></tbody></table></div>
+          <h4 style="margin:18px 0 6px;">3. Commodities Hauled</h4>
+          <textarea id="bp_commodities" rows="3" style="width:100%; box-sizing:border-box; padding:8px; font-size:13.5px;"></textarea>
+          <h4 style="margin:18px 0 6px;">4. Coverages &amp; Limits Needed</h4>
+          <div id="bp_coverages"></div>
+          <button type="button" id="bp_addCoverage" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12.5px; margin-top:4px;">+ Add a coverage</button>
+          <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:6px; padding:14px 16px; margin-top:18px;">
+            <h4 style="margin:0 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Send to a Broker</h4>
+            <label>Broker Email <input type="email" id="bp_brokerEmail" placeholder="broker@example.com"></label>
+            <div class="form-actions">
+              <button class="btn-primary" id="bp_emailBtn" type="button">Email to Broker</button>
+              <button type="button" id="bp_pdfBtn" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:9px 14px; cursor:pointer; font-weight:600;">Download PDF</button>
+              <span class="status-msg" id="bp_status"></span>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -15868,7 +15894,108 @@ window.openEmailDraft = function(o){
     return 'compliance-doc-truck-' + truckId + '-' + docKey;
   }
 
+  // ---------- Broker Info Packet (Insurance) ----------
+  // Drivers/owner from their profiles, trucks from the fleet list, plus the
+  // packet's own saved details (owner name, commodities, coverages, broker).
+  const BP_KEY = 'compliance-doc-broker-packet';
+  const BP_DEFAULT_COVERAGES = ['Auto Liability (Combined Single Limit)', 'Motor Truck Cargo', 'Physical Damage (Comprehensive & Collision)', 'General Liability', 'Workers\u2019 Compensation', 'Umbrella / Excess'];
+  let bpData = null, bpTrucks = [], bpPeople = [];
+  const bpEsc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  async function bpSave(){ await window.dashboardApi.set(BP_KEY, bpData); }
+  async function loadBrokerPacket(){
+    const peopleEl = document.getElementById('bp_people'); if(!peopleEl) return;
+    try{ bpData = await window.dashboardApi.get(BP_KEY, null); }catch(err){}
+    bpData = Object.assign({ ownerName: '', commodities: 'Household goods and personal effects (residential and commercial moving, local and long distance); junk removal and debris hauling (furniture, appliances, household items, yard waste, light construction debris). No hazardous materials.', coverages: BP_DEFAULT_COVERAGES.map(c => ({ coverage: c, limit: '' })), brokerEmail: '' }, bpData || {});
+    try{ bpTrucks = await window.dashboardApi.get('fleet-trucks', []) || []; }catch(err){ bpTrucks = []; }
+    const drivers = (compDrivers || []).filter(d => d.active).map(d => d.employeeName).filter(Boolean);
+    bpPeople = [{ name: bpData.ownerName, role: 'Owner' }].concat(drivers.map(n => ({ name: n, role: 'Driver' })));
+    for(const pp of bpPeople){
+      pp.f = {};
+      if(!pp.name) continue;
+      try{ const r = await fetch(`${API_BASE}/api/person-profile?name=${encodeURIComponent(pp.name)}`, { headers: authHeaders() }); if(r.ok) pp.f = (await r.json()).fields || {}; }catch(err){}
+    }
+    const cell = 'padding:5px 4px; border-bottom:1px solid var(--line);';
+    const inp = (pp, k, w, type) => `<input type="${type || 'text'}" class="bp-field" data-name="${bpEsc(pp.name)}" data-k="${k}" value="${bpEsc(pp.f[k] || '')}" ${pp.name ? '' : 'disabled'} style="width:${w}; padding:5px; font-size:13px;${pp.name && !pp.f[k] ? ' background:#FFF6D6;' : ''}">`;
+    peopleEl.innerHTML = bpPeople.map(pp => `<tr>
+      <td style="${cell} font-weight:600;">${pp.role === 'Owner' ? `<input type="text" id="bp_ownerName" value="${bpEsc(pp.name)}" placeholder="Last, First" style="width:150px; padding:5px; font-size:13px;${pp.name ? '' : ' background:#FFF6D6;'}">` : bpEsc(pp.name)}</td>
+      <td style="${cell}">${pp.role}</td>
+      <td style="${cell}">${inp(pp, 'licenseNumber', '140px')}</td>
+      <td style="${cell}">${inp(pp, 'licenseState', '60px')}</td>
+      <td style="${cell}">${inp(pp, 'dob', '140px', 'date')}</td></tr>`).join('');
+    document.getElementById('bp_trucks').innerHTML = bpTrucks.length ? bpTrucks.map(t => `<tr>
+      <td style="${cell} font-weight:600;">${bpEsc(t.nickname)}</td>
+      <td style="${cell}">${bpEsc([t.year, t.make, t.model].filter(Boolean).join(' '))}</td>
+      <td style="${cell} font-family:'IBM Plex Mono',monospace;${t.vin ? '' : ' color:#b3261e;'}">${bpEsc(t.vin || 'no VIN on file')}</td>
+      <td style="${cell}">$<input type="number" min="0" step="100" class="bp-value" data-id="${bpEsc(t.id)}" value="${t.statedValue || ''}" style="width:110px; padding:5px; font-size:13px;${t.statedValue ? '' : ' background:#FFF6D6;'}"></td></tr>`).join('')
+      : `<tr><td colspan="4" style="${cell} color:var(--muted);">No trucks on file \u2014 add them on the Trucks tab.</td></tr>`;
+    document.getElementById('bp_commodities').value = bpData.commodities;
+    document.getElementById('bp_brokerEmail').value = bpData.brokerEmail || '';
+    bpRenderCoverages();
+  }
+  function bpRenderCoverages(){
+    document.getElementById('bp_coverages').innerHTML = bpData.coverages.map((c, i) => `<div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
+      <input type="text" class="bp-cov" data-i="${i}" data-k="coverage" value="${bpEsc(c.coverage)}" style="flex:2; padding:6px; font-size:13px;">
+      <input type="text" class="bp-cov" data-i="${i}" data-k="limit" value="${bpEsc(c.limit)}" placeholder="Limit needed, e.g. $1,000,000" style="flex:2; padding:6px; font-size:13px;${c.limit ? '' : ' background:#FFF6D6;'}">
+      <button type="button" class="bp-cov-del" data-i="${i}" title="Remove" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:16px;">\u00d7</button></div>`).join('');
+  }
+  document.getElementById('comp_brokerPanel').addEventListener('change', async e => {
+    const t = e.target;
+    if(t.id === 'bp_ownerName'){ bpData.ownerName = t.value.trim(); await bpSave(); loadBrokerPacket(); return; }
+    if(t.classList.contains('bp-field')){
+      const pp = bpPeople.find(x => x.name === t.dataset.name);
+      if(pp) pp.f[t.dataset.k] = t.dataset.k === 'licenseState' ? t.value.trim().toUpperCase() : t.value.trim();   // the PDF uses it right away
+      try{ await fetch(`${API_BASE}/api/person-profile`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name: t.dataset.name, fields: { [t.dataset.k]: t.dataset.k === 'licenseState' ? t.value.trim().toUpperCase() : t.value.trim() } }) }); t.style.background = t.value.trim() ? '' : '#FFF6D6'; }catch(err){}
+      return;
+    }
+    if(t.classList.contains('bp-value')){
+      const tr = bpTrucks.find(x => x.id === t.dataset.id); if(!tr) return;
+      tr.statedValue = t.value ? Math.round(Number(t.value)) : '';
+      await window.dashboardApi.set('fleet-trucks', bpTrucks); t.style.background = t.value ? '' : '#FFF6D6'; return;
+    }
+    if(t.classList.contains('bp-cov')){ bpData.coverages[+t.dataset.i][t.dataset.k] = t.value.trim(); if(t.dataset.k === 'limit') t.style.background = t.value.trim() ? '' : '#FFF6D6'; await bpSave(); return; }
+    if(t.id === 'bp_commodities'){ bpData.commodities = t.value.trim(); await bpSave(); return; }
+    if(t.id === 'bp_brokerEmail'){ bpData.brokerEmail = t.value.trim(); await bpSave(); }
+  });
+  document.getElementById('comp_brokerPanel').addEventListener('click', async e => {
+    const del = e.target.closest && e.target.closest('.bp-cov-del');
+    if(del){ bpData.coverages.splice(+del.dataset.i, 1); await bpSave(); bpRenderCoverages(); }
+  });
+  document.getElementById('bp_addCoverage').addEventListener('click', async () => { bpData.coverages.push({ coverage: '', limit: '' }); await bpSave(); bpRenderCoverages(); });
+  function bpBuildPdf(){
+    const { jsPDF } = window.jspdf; const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
+    const W = 612, M = 48; let y = M;
+    const P = window.LOCATION_PROFILE || {};
+    const line = (t, o = {}) => { pdf.setFont('helvetica', o.bold ? 'bold' : 'normal'); pdf.setFontSize(o.size || 10.5); pdf.splitTextToSize(String(t), W - 2 * M - (o.indent || 0)).forEach(l => { if(y > 750){ pdf.addPage(); y = M; } pdf.text(l, M + (o.indent || 0), y); y += (o.size || 10.5) + 5; }); };
+    const row = (cols, widths, o = {}) => { if(y > 750){ pdf.addPage(); y = M; } pdf.setFont('helvetica', o.bold ? 'bold' : 'normal'); pdf.setFontSize(9.5); let x = M; cols.forEach((c, i) => { pdf.text(pdf.splitTextToSize(String(c || '\u2014'), widths[i] - 6)[0], x, y); x += widths[i]; }); y += 15; };
+    const fmtDob = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US') : '';
+    line(`${P.carrierName || 'Henson Hauling LLC'} \u2014 Broker Information`, { bold: true, size: 15 });
+    line(`College Hunks Hauling Junk & Moving${P.usdotNumber ? ' \u00b7 USDOT ' + P.usdotNumber : ''} \u00b7 prepared ${new Date().toLocaleDateString()}`, { size: 9.5 }); y += 8;
+    line('1. Drivers & Owner', { bold: true, size: 12 });
+    row(['Name', 'Role', 'License #', 'State', 'Date of Birth'], [170, 60, 130, 50, 100], { bold: true });
+    bpPeople.filter(pp => pp.name).forEach(pp => row([pp.name, pp.role, pp.f.licenseNumber, pp.f.licenseState, fmtDob(pp.f.dob)], [170, 60, 130, 50, 100]));
+    y += 8; line('2. Equipment', { bold: true, size: 12 });
+    row(['Truck', 'Year / Make / Model', 'VIN', 'Stated Value'], [90, 150, 170, 100], { bold: true });
+    bpTrucks.forEach(t => row([t.nickname, [t.year, t.make, t.model].filter(Boolean).join(' '), t.vin, t.statedValue ? '$' + Number(t.statedValue).toLocaleString() : ''], [90, 150, 170, 100]));
+    y += 8; line('3. Commodities Hauled', { bold: true, size: 12 }); line(bpData.commodities || '');
+    y += 8; line('4. Coverages & Limits Needed', { bold: true, size: 12 });
+    bpData.coverages.filter(c => c.coverage).forEach(c => line(`\u2022 ${c.coverage}: ${c.limit || '(to be discussed)'}`, { indent: 6 }));
+    return pdf;
+  }
+  function bpFileName(){ return `Broker Info - ${(window.LOCATION_PROFILE || {}).carrierName || 'College Hunks'}.pdf`.replace(/[\\/:*?"<>|]/g, '_'); }
+  document.getElementById('bp_pdfBtn').addEventListener('click', () => { try{ bpBuildPdf().save(bpFileName()); }catch(err){ const st = document.getElementById('bp_status'); st.textContent = 'Could not build the PDF.'; st.className = 'status-msg err'; } });
+  document.getElementById('bp_emailBtn').addEventListener('click', async () => {
+    const st = document.getElementById('bp_status'), to = document.getElementById('bp_brokerEmail').value.trim();
+    if(!to || !to.includes('@')){ st.textContent = 'Enter the broker\u2019s email address.'; st.className = 'status-msg err'; return; }
+    bpData.brokerEmail = to; await bpSave();
+    try{ bpBuildPdf().save(bpFileName()); }catch(err){ st.textContent = 'Could not build the PDF.'; st.className = 'status-msg err'; return; }
+    const P = window.LOCATION_PROFILE || {};
+    window.openEmailDraft({ to, subject: `Driver, Equipment & Coverage Information \u2014 ${P.carrierName || 'Henson Hauling LLC'}`,
+      body: `Hello,\n\nAs requested, attached is our driver list (with license numbers and dates of birth), equipment list (VINs and stated values), the commodities we haul, and the coverages and limits we need.\n\nLet me know if you need anything else.\n\nThanks,\n${P.carrierName || 'Henson Hauling LLC'}` });
+    st.textContent = 'PDF downloaded and your email is open with the message filled in \u2014 just attach the PDF and send.'; st.className = 'status-msg ok';
+  });
+
   async function loadCompInsuranceData(){
+    setTimeout(() => loadBrokerPacket(), 0);
     await loadCompInsTruckSelect();
     try{ compCoiList = await window.dashboardApi.get(COI_LIST_KEY, []) || []; }
     catch(err){ console.error('COI list load failed:', err); compCoiList = []; }
