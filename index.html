@@ -1470,6 +1470,17 @@
 </div>
 
 <script>
+// ---- Opening an email, everywhere in the dashboard ----
+// Fills To, Cc, Subject AND the message body directly -- nothing to paste.
+// (Email links can't carry attachments; files still download to attach.)
+window.openEmailDraft = function(o){
+  const q = [];
+  if(o.cc) q.push('cc=' + encodeURIComponent(o.cc));
+  if(o.subject) q.push('subject=' + encodeURIComponent(o.subject));
+  if(o.body) q.push('body=' + encodeURIComponent(String(o.body).replace(/\r?\n/g, '\r\n')));
+  window.location.href = 'mailto:' + encodeURIComponent(o.to || '') + (q.length ? '?' + q.join('&') : '');
+};
+
   // ======================================================================
   // LOCATION PROFILE -- everything that makes this copy of the app belong
   // to one College Hunks location. To set the app up for a different
@@ -16069,10 +16080,8 @@
       const a = document.createElement('a'); a.href = uri; a.download = `W-9 - ${window.LOCATION_PROFILE.carrierName || 'College Hunks'}${ext}`.replace(/[\\/:*?"<>|]/g, '_');
       document.body.appendChild(a); a.click(); a.remove();
       const body = `Hello,\n\nAs requested, our completed W-9 is attached.\n\nLet us know if you need anything else.\n\nThanks,\n${window.LOCATION_PROFILE.carrierName}`;
-      let copied = false;
-      try{ await navigator.clipboard.writeText(body); copied = true; }catch(err){ prompt('Copy this message, then paste it into the email body:', body); }
-      window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent('W-9 \u2014 ' + (window.LOCATION_PROFILE.carrierName || 'College Hunks'))}`;
-      st.textContent = copied ? 'W-9 downloaded, message copied, and your email is open \u2014 paste (Ctrl+V) into the body and attach the downloaded W-9.' : 'W-9 downloaded and your email is open \u2014 paste the message and attach the downloaded W-9.';
+      window.openEmailDraft({ to, subject: 'W-9 \u2014 ' + (window.LOCATION_PROFILE.carrierName || 'College Hunks'), body });
+      st.textContent = 'W-9 downloaded and your email is open with the message filled in \u2014 just attach the downloaded W-9 and send.';
       st.className = 'status-msg ok';
     }catch(err){ st.textContent = 'Could not prepare the email \u2014 check your connection.'; st.className = 'status-msg err'; }
   });
@@ -16108,16 +16117,9 @@
 
       const subject = 'Certificates of Insurance';
       const body = `Hello,\n\nPlease find our current Certificates of Insurance attached.\n\nLet us know if you need anything else.\n\nThanks,\n${window.LOCATION_PROFILE.carrierName}`;
-      let clipboardOk = false;
-      try{ await navigator.clipboard.writeText(body); clipboardOk = true; }
-      catch(clipErr){ console.error('Clipboard copy failed:', clipErr); prompt('Could not auto-copy \u2014 copy this message manually, then paste it into the email body:', body); }
+      window.openEmailDraft({ to, subject, body });
 
-      const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}`;
-      window.location.href = mailto;
-
-      statusEl.textContent = clipboardOk
-        ? `${downloadedCount} file${downloadedCount === 1 ? '' : 's'} downloaded, message copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body, then attach the downloaded file${downloadedCount === 1 ? '' : 's'}.`
-        : `${downloadedCount} file${downloadedCount === 1 ? '' : 's'} downloaded and your email is open \u2014 paste the message from the popup, then attach the downloaded file${downloadedCount === 1 ? '' : 's'}.`;
+      statusEl.textContent = `${downloadedCount} file${downloadedCount === 1 ? '' : 's'} downloaded and your email is open with the message filled in \u2014 just attach the downloaded file${downloadedCount === 1 ? '' : 's'} and send.`;
       statusEl.className = 'status-msg ok';
     }catch(err){
       console.error('COI email prep failed:', err);
@@ -26235,26 +26237,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const body = mergeEmailTemplate(template, { clientFirstName: firstName, reviewLink });
         const cc = pw.completedPaperworkCc || window.LOCATION_PROFILE.completedPaperworkCc;
 
-        let clipboardOk = false;
-        try{
-          await navigator.clipboard.writeText(body);
-          clipboardOk = true;
-        }catch(clipErr){
-          console.error('Clipboard copy failed:', clipErr);
-          prompt('Could not auto-copy \u2014 copy this message manually, then paste it into the email body:', body);
-        }
-
-        const mailto = `mailto:${encodeURIComponent(upload.clientEmail || '')}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subject)}`;
-        window.location.href = mailto;
+        window.openEmailDraft({ to: upload.clientEmail || '', cc, subject, body });
 
         upload.emailSentAt = new Date().toISOString();
         await savePaperworkUploadsList();
         renderPaperworkUploadsList();
 
         const statusEl = document.getElementById('pu_status');
-        statusEl.textContent = clipboardOk
-          ? `"${upload.fileName}" downloaded, message copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body, then attach the file.`
-          : `"${upload.fileName}" downloaded and your email is open \u2014 paste the message from the popup into the body, then attach the file.`;
+        statusEl.textContent = `"${upload.fileName}" downloaded and your email is open with the message filled in \u2014 just attach the file and send.`;
         statusEl.className = 'status-msg ok';
       }catch(err){
         console.error('Send Email prep failed:', err);
@@ -31541,9 +31531,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         statusEl.className = 'status-msg err';
         return;
       }
-      statusEl.textContent = (clipboardOk
-        ? `Message for Job ${claim.jobNumber} copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body.`
-        : `Your email for Job ${claim.jobNumber} is open \u2014 paste the message from the popup into the body.`) + ' Same link as before, good for another 7 days.';
+      statusEl.textContent = `Your email for Job ${claim.jobNumber} is open with the message filled in \u2014 just send it. Same link as before, good for another 7 days.`;
       statusEl.className = 'status-msg ok';
     }));
 
@@ -31755,15 +31743,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const clientFirstName = (fullName.includes(',') ? fullName.split(',')[1] : fullName).trim().split(/\s+/)[0] || 'there';
     const body = mergeEmailTemplate(template, { link, clientFirstName, clientName: fullName, jobNumber: claim.jobNumber || '' });
     const subject = `RE: Damage Claim ${claim.jobNumber}`;
-    let clipboardOk = false;
-    try{
-      await navigator.clipboard.writeText(body);
-      clipboardOk = true;
-    }catch(clipErr){
-      console.error('Clipboard copy failed:', clipErr);
-      prompt('Could not auto-copy \u2014 copy this message manually, then paste it into the email body:', body);
-    }
-    window.location.href = `mailto:${encodeURIComponent(claim.clientEmail)}?subject=${encodeURIComponent(subject)}`;
+    window.openEmailDraft({ to: claim.clientEmail, subject, body });
+    const clipboardOk = true;   // (kept for callers -- the body is now filled in directly)
     const now = new Date().toISOString();
     claim.emailSendCount = (claim.emailSendCount || (claim.emailSentAt ? 1 : 0)) + 1; // claims from before this counter existed had been sent once
     claim.emailSentAt = now;
@@ -31825,9 +31806,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     renderDamageClaimsList();
     updateDamageClaimTileBadge();
     await dcSettleCrewDamageFlag(jobNumber);
-    statusEl.textContent = clipboardOk
-      ? 'Message copied to your clipboard, and your email is open \u2014 paste (Ctrl+V) into the body.'
-      : 'Your email is open \u2014 paste the message from the popup into the body.';
+    statusEl.textContent = 'Your email is open with the message filled in \u2014 just send it.';
     statusEl.className = 'status-msg ok';
   });
 
