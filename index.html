@@ -6752,11 +6752,11 @@ window.openEmailDraft = function(o){
       <h2 style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Valuation Coverage <span class="arrow">&#9660;</span></h2>
     </div>
     <div class="collapsible-body" id="valSection">
-      <div class="valopt selected" data-val="1">
-        <input type="radio" name="valOpt" value="1" checked> <b>Option 1 &mdash; Released Value Protection</b> (no charge, $0.60/lb per article)
+      <div class="valopt" data-val="1">
+        <input type="radio" name="valOpt" value="1"> <b>Option 1 &mdash; Released Value Protection</b> (no charge, $0.60/lb per article)
       </div>
-      <div class="valopt" data-val="2a">
-        <input type="radio" name="valOpt" value="2a"> <b>Option 2(a) &mdash; Full Value, No Deductible</b> ($15.73 per $1,000 declared value)
+      <div class="valopt selected" data-val="2a">
+        <input type="radio" name="valOpt" value="2a" checked> <b>Option 2(a) &mdash; Full Value, No Deductible</b> ($15.73 per $1,000 declared value)
       </div>
       <div class="valopt" data-val="2b">
         <input type="radio" name="valOpt" value="2b"> <b>Option 2(b) &mdash; Full Value, $300 Deductible</b> ($5.17 per $1,000 declared value)
@@ -22019,8 +22019,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const val2b = declared > 0 ? (declared/1000)*5.17 : 0;
     const estOpt = (calc.valOpt === '2a' || calc.valOpt === '2b') ? calc.valOpt : (calc.valOpt === '1' && window.__valOptChosen ? '1' : '2a');
     const valSel = estOpt === '2b' ? val2b : estOpt === '1' ? 0 : val2a;
-    const estOptDefault = estOpt === '2a' && calc.valOpt !== '2a';
-    const estOptLabel = estOpt === '1' ? 'Released Value Protection (Option 1)' : estOpt === '2b' ? 'Full Value Protection, $300 Deductible (Option 2(b))' : `Full Value Protection (Option 2(a)${estOptDefault ? ', included by default' : ''})`;
+    // "By default" = nobody actively picked an option (new quotes start on
+    // 2(a); older quotes left on Option 1 also priced 2(a)).
+    const estOptDefault = (estOpt === '2a' && (calc.valOpt !== '2a' || !window.__valOptChosen)) || (estOpt === '2b' && !window.__valOptChosen);
+    const estOptLabel = estOpt === '1' ? 'Released Value Protection (Option 1)' : estOpt === '2b' ? `Full Value Protection, $300 Deductible (Option 2(b)${estOptDefault ? ', included by default' : ''})` : `Full Value Protection (Option 2(a)${estOptDefault ? ', included by default' : ''})`;
+    const estOptShort = estOpt === '1' ? 'Option 1' : estOpt === '2b' ? 'Option 2(b)' : 'Option 2(a)';
 
     const baseItems = calc.items.filter(([label]) => !String(label).startsWith('Valuation'));
     const baseSubtotal = baseItems.reduce((s,[,amt]) => s+amt, 0);
@@ -22034,11 +22037,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }
     discountAmt = Math.max(0, Math.min(discountAmt, subtotalWithVal));
     const estimateTotal = subtotalWithVal - discountAmt;
-    return { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, baseItems, baseSubtotal, subtotalWithVal, discountAmt, estimateTotal };
+    return { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, estOptShort, baseItems, baseSubtotal, subtotalWithVal, discountAmt, estimateTotal };
   }
 
   function buildEstimateView(){
-    const { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
+    const { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, estOptShort, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
     const val1 = 0;
     const rowSel = o => o === estOpt ? ' background:#F3FBF6;' : '';
     const tagSel = o => o === estOpt ? ' <span style="font-weight:normal; font-size:8.5pt;">(included above)</span>' : ''; // Option 1 (Released Value Protection) is always free
@@ -22101,7 +22104,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <p style="font-size:8pt; color:#666; margin:6px 0 0;">This is a Not-to-Exceed Estimate under GA DPS Maximum Rate Tariff No. 7. Final charges are determined after all services have been completed based on actual weight, distance, and services rendered, but total charges due shall not exceed 110% of this estimate, at the carrier's sole discretion.</p>
 
         <h3 style="font-family:Georgia,serif; font-size:13pt; color:#00612C; border-bottom:1px solid #ccc; padding-bottom:6px; margin:26px 0 8px;">Protecting Your Belongings</h3>
-        <p style="font-size:9.5pt; text-align:justify; margin:0 0 10px;">Every move includes valuation coverage in case of loss or damage. There are three levels to choose from. ${estOptDefault ? 'Unless you tell us otherwise, we include <b>Option 2(a)</b> in this estimate.' : `This estimate includes <b>${estOpt === '1' ? 'Option 1' : estOpt === '2b' ? 'Option 2(b)' : 'Option 2(a)'}</b>, the coverage you selected.`}</p>
+        <p style="font-size:9.5pt; text-align:justify; margin:0 0 10px;">Every move includes valuation coverage in case of loss or damage. There are three levels to choose from. ${estOptDefault ? `Unless you tell us otherwise, we include <b>${estOptShort}</b> in this estimate.` : `This estimate includes <b>${estOptShort}</b>, the coverage you selected.`}</p>
         <table style="width:100%; border-collapse:collapse; font-size:9.5pt; margin-bottom:8px;">
           <tr style="border-bottom:1px solid #ccc;${rowSel('1')}">
             <td style="padding:6px 4px; font-weight:bold;">Option 1 &mdash; Released Value${tagSel('1')}</td>
@@ -22138,7 +22141,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // the person to attach -- returns the jsPDF doc; caller decides whether
   // to .save() (download) or read a blob from it.
   function buildEstimatePDF(){
-    const { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
+    const { calc, declared, val2a, val2b, estOpt, valSel, estOptLabel, estOptDefault, estOptShort, baseItems, discountAmt, estimateTotal } = computeEstimateFigures();
     const val = (id) => document.getElementById(id).value || '';
     const money = (n) => '$' + Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
     const logoSrc = (document.querySelector('.badge-mark') || {}).src || '';
@@ -22221,7 +22224,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(102,102,102);
     const valNote = declared > 0
-      ? `Based on a declared value of ${money(declared)}. This quote includes ${estOptDefault ? 'Full Value Protection (Option 2(a)) by default' : estOptLabel + ', the coverage selected'}. Other options: Option 1, Released Value ($0.60/lb per article, free); Option 2(a), Full Value, no deductible (${money(val2a)}); Option 2(b), Full Value, $300 deductible (${money(val2b)}).`
+      ? `Based on a declared value of ${money(declared)}. This quote includes ${estOptDefault ? estOptLabel.replace(', included by default', '') + ' by default' : estOptLabel + ', the coverage selected'}. Other options: Option 1, Released Value ($0.60/lb per article, free); Option 2(a), Full Value, no deductible (${money(val2a)}); Option 2(b), Full Value, $300 deductible (${money(val2b)}).`
       : 'Valuation costs shown are based on the declared value entered for this move.';
     doc.text(doc.splitTextToSize(valNote, rightX - marginX), marginX, y);
     y += 40;
@@ -22694,7 +22697,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
     });
     // Older saved quotes: 2(a)/2(b) were always deliberate choices.
-    window.__valOptChosen = !!data.valOptChosen || data.valOptRadio === '2a' || data.valOptRadio === '2b';
+    window.__valOptChosen = ('valOptChosen' in data) ? !!data.valOptChosen : (data.valOptRadio === '2a' || data.valOptRadio === '2b');
     if(data.valOptRadio){
       const radio = document.querySelector(`input[name="valOpt"][value="${data.valOptRadio}"]`);
       if(radio){
@@ -22925,11 +22928,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     });
     document.querySelectorAll('.packQty, .bulkyQty').forEach(el => { el.value = '0'; });
 
-    const radio = document.querySelector('input[name="valOpt"][value="1"]');
+    const radio = document.querySelector('input[name="valOpt"][value="2a"]');   // default: Option 2(a)
     if(radio) radio.checked = true;
     window.__valOptChosen = false;
     document.querySelectorAll('.valopt').forEach(v => v.classList.remove('selected'));
-    const opt1 = document.querySelector('.valopt[data-val="1"]');
+    const opt1 = document.querySelector('.valopt[data-val="2a"]');
     if(opt1) opt1.classList.add('selected');
 
     // Carrier info and Date Issued are left as-is (business constants / today's date)
