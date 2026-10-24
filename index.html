@@ -21674,14 +21674,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const roomMin = rooms * 5000;
     const suggested = Math.max(weightEst, roomMin);
     const readout = document.getElementById('suggestReadout');
+    // Declared Value follows the suggestion automatically until someone types
+    // their own value (then it's left alone; "Use Suggested Value" resumes it).
+    const dv = document.getElementById('declaredValue');
+    if(!window.__declaredManual && dv){
+      const v = (weight > 0 || rooms > 0) ? suggested.toFixed(2) : '0';
+      if(dv.value !== v){ dv.value = v; if(typeof recalc === 'function') setTimeout(recalc, 0); }
+    }
     if(weight > 0 || rooms > 0){
-      readout.textContent = `Weight estimate: $${weightEst.toLocaleString(undefined,{maximumFractionDigits:0})} \u00b7 Room minimum: $${roomMin.toLocaleString()} \u00b7 Suggested: $${suggested.toLocaleString()}`;
+      readout.textContent = (window.__declaredManual ? 'Using your value \u00b7 ' : 'Filled in automatically \u00b7 ') + `Weight estimate: $${weightEst.toLocaleString(undefined,{maximumFractionDigits:0})} \u00b7 Room minimum: $${roomMin.toLocaleString()} \u00b7 Suggested: $${suggested.toLocaleString()}`;
     } else {
       readout.textContent = '';
     }
     return suggested;
   }
+  window.__declaredManual = false;
+  // Typing a Declared Value takes over from the suggestion.
+  document.getElementById('declaredValue').addEventListener('input', e => { if(e.isTrusted){ window.__declaredManual = true; updateValuationSuggestion(); } });
   document.getElementById('applySuggestBtn').addEventListener('click', () => {
+    window.__declaredManual = false;
     const suggested = updateValuationSuggestion();
     document.getElementById('declaredValue').value = suggested.toFixed(2);
     recalc();
@@ -21695,6 +21706,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   document.getElementById('weight').addEventListener('change', () => {
     const { billable, wasClamped } = getBillableWeight();
     if(wasClamped) document.getElementById('weight').value = billable;
+    updateValuationSuggestion();
   });
 
   document.querySelectorAll('input, select').forEach(el => {
@@ -22707,7 +22719,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         if(optDiv) optDiv.classList.add('selected');
       }
     }
-    updateValuationSuggestion();
+    {
+      const savedDv = Number(data.declaredValue) || 0;
+      window.__declaredManual = true;                     // keep the saved value while measuring
+      const suggested = updateValuationSuggestion();
+      window.__declaredManual = savedDv > 0 && Math.abs(savedDv - suggested) > 0.5;
+      updateValuationSuggestion();
+    }
     recalc();
   }
 
@@ -22902,6 +22920,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const statusEl = document.getElementById('clientStatus');
     if(!confirm('Clear all entered fields? Carrier info and today\'s date will stay filled in.')) return;
     ldCurrentId = null; ldCurrentLabel = ''; ldSavedAt = null; ldDirty = false; setTimeout(ldShowState, 0);
+    window.__declaredManual = false; setTimeout(() => { try{ updateValuationSuggestion(); }catch(e){} }, 0);
 
     const RESET_DEFAULTS = {
       weight: '', dayType: 'weekday', miles: '',
