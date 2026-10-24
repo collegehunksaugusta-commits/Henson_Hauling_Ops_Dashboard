@@ -7733,7 +7733,20 @@ window.openEmailDraft = function(o){
             <p class="form-note" id="tips_rangeNote">Pulling from Square starting the most recent complete pay period forward.</p>
             <div class="form-actions">
               <button class="btn-primary" id="tips_refreshBtn" type="button">Refresh From Square</button>
+              <button type="button" id="tips_cashToggle" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:6px; padding:9px 14px; cursor:pointer; font-weight:700;">&#128181; + Add Cash Tip</button>
               <span class="status-msg" id="tips_fetchStatus"></span>
+            </div>
+            <div id="tips_cashForm" style="display:none; margin-top:12px; padding:12px 14px; border:1px dashed var(--brand-green); border-radius:8px; background:#F3FBF6;">
+              <p class="form-note" style="margin:0 0 8px;">For a tip the customer paid in <strong>cash that the office kept</strong> (an overpayment, or cash handed to the office). It goes to the job&rsquo;s crew through Extra Pay just like a card tip &mdash; no card charge needed.</p>
+              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+                <label style="margin:0;">Job # <input type="text" id="tips_cashJob" placeholder="11974987" style="width:130px;"></label>
+                <label style="margin:0;">Date <input type="date" id="tips_cashDate"></label>
+                <label style="margin:0;">Tip $ <input type="number" id="tips_cashAmt" min="0.01" step="0.01" style="width:100px;"></label>
+                <label style="margin:0; flex:1; min-width:220px;">Note <input type="text" id="tips_cashNote" value="Cash overpayment kept by the office"></label>
+                <button type="button" id="tips_cashSave" class="btn-primary">Add Tip</button>
+              </div>
+              <span class="status-msg" id="tips_cashStatus"></span>
+              <div id="tips_cashList" style="margin-top:8px; font-size:12.5px;"></div>
             </div>
           </div>
 
@@ -12574,6 +12587,18 @@ window.openEmailDraft = function(o){
   const TIPS_PAID_WEEKS_RETENTION_DAYS = 92; // ~3 months
   let tipsPayments = [];       // raw fetched Square payments with a tip
   let tipsAllocations = {};    // paymentId -> { jobNumber, tipAmount, date, employees: [names], allocatedAt }
+  let tipsCashTips = [];   // cash tips the office kept, added by hand ({ id, jobNumber, date, tipAmount, note, by, at })
+  // Cash tips join the Square tips as if they were tipped payments.
+  function tipsMergeCash(){
+    tipsPayments = tipsPayments.filter(p => !p.cash);
+    const from = (typeof tipsGetMostRecentCompleteWeekStart === 'function') ? tipsGetMostRecentCompleteWeekStart() : '';
+    tipsCashTips.filter(c => !from || c.date >= from).forEach(c => tipsPayments.push({ id: c.id, date: c.date, tipAmount: Number(c.tipAmount) || 0, jobNumber: c.jobNumber, note: c.note, cardBrand: 'CASH', cash: true }));
+  }
+  function renderTipsCashList(){
+    const el = document.getElementById('tips_cashList'); if(!el) return;
+    const recent = tipsCashTips.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 10);
+    el.innerHTML = recent.length ? '<strong>Cash tips added:</strong> ' + recent.map(c => `<span style="display:inline-block; margin:2px 10px 2px 0;">${tipsEsc(c.date)} \u00b7 Job ${tipsEsc(c.jobNumber)} \u00b7 ${tipsMoney(c.tipAmount)}${tipsAllocations[c.jobNumber] ? '' : ` <button type="button" class="tips-cash-del" data-id="${tipsEsc(c.id)}" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; font-size:12px; padding:0;">remove</button>`}</span>`).join('') : '';
+  }
   let tipsJobOverrides = {};   // paymentId -> manually-entered job number, for notes Square's regex couldn't cleanly match
   let tipsRoster = [];         // employee names
   let tipsWeeks = [];          // [{weekStart, weekEnd}] Monday-Sunday pay weeks that have at least one allocation
@@ -12616,6 +12641,7 @@ window.openEmailDraft = function(o){
       const saved = await window.dashboardApi.get(TIPS_ALLOCATIONS_KEY, {allocations:{}, overrides:{}});
       tipsAllocations = (saved && saved.allocations) || {};
       tipsJobOverrides = (saved && saved.overrides) || {};
+      tipsCashTips = (saved && saved.cashTips) || [];
       if(tipsMigrateAllocationKeys()) await tipsSaveAllocations();
     }catch(err){ console.error('Tip allocations load failed:', err); }
 
@@ -12679,7 +12705,7 @@ window.openEmailDraft = function(o){
 
   async function tipsSaveAllocations(){
     try{
-      return await window.dashboardApi.set(TIPS_ALLOCATIONS_KEY, { allocations: tipsAllocations, overrides: tipsJobOverrides });
+      return await window.dashboardApi.set(TIPS_ALLOCATIONS_KEY, { allocations: tipsAllocations, overrides: tipsJobOverrides, cashTips: tipsCashTips });
     }catch(err){ console.error('Tip allocations save failed:', err); return false; }
   }
 
@@ -12718,6 +12744,7 @@ window.openEmailDraft = function(o){
       tipsPayments.forEach(p => {
         if(!p.jobNumber && tipsJobOverrides[p.id]) p.jobNumber = tipsJobOverrides[p.id];
       });
+      tipsMergeCash();
       statusEl.textContent = `Loaded ${tipsPayments.length} tipped transaction${tipsPayments.length===1?'':'s'} since ${fmtDate(fetchStart)}.`;
       statusEl.className = 'status-msg ok';
       renderTipsAll();
@@ -12728,8 +12755,45 @@ window.openEmailDraft = function(o){
     }
   }
   document.getElementById('tips_refreshBtn').addEventListener('click', tipsRefreshFromSquare);
+  document.getElementById('tips_cashToggle').addEventListener('click', () => {
+    const f = document.getElementById('tips_cashForm'); const open = f.style.display === 'none';
+    f.style.display = open ? 'block' : 'none';
+    if(open && !document.getElementById('tips_cashDate').value) document.getElementById('tips_cashDate').value = new Date().toLocaleDateString('en-CA');
+    renderTipsCashList();
+  });
+  document.getElementById('tips_cashSave').addEventListener('click', async () => {
+    const st = document.getElementById('tips_cashStatus');
+    const jobNumber = document.getElementById('tips_cashJob').value.trim(), date = document.getElementById('tips_cashDate').value;
+    const amt = Math.round((Number(document.getElementById('tips_cashAmt').value) || 0) * 100) / 100, note = document.getElementById('tips_cashNote').value.trim();
+    if(!/^[A-Za-z0-9-]{3,20}$/.test(jobNumber)){ st.textContent = 'Enter the HunkWare job number.'; st.className = 'status-msg err'; return; }
+    if(!date){ st.textContent = 'Pick the date of the job.'; st.className = 'status-msg err'; return; }
+    if(!(amt > 0)){ st.textContent = 'Enter the tip amount.'; st.className = 'status-msg err'; return; }
+    const wk = tipsGetWeekBounds(date).weekStart;
+    if((tipsPaidWeeks || []).some(w => (w.weekStart || w) === wk) && !confirm('That pay week has already been marked paid. Add the cash tip anyway?')) return;
+    const c = { id: 'cash_' + Date.now(), jobNumber, date, tipAmount: amt, note: note || 'Cash tip kept by the office', by: localStorage.getItem('henson_auth_email') || '', at: new Date().toISOString() };
+    tipsCashTips.push(c);
+    // Job already allocated? Add the cash tip to it (same crew).
+    const existing = tipsAllocations[jobNumber];
+    if(existing){
+      existing.tipAmount = Math.round(((Number(existing.tipAmount) || 0) + amt) * 100) / 100;
+      existing.paymentIds = (existing.paymentIds || []).concat([c.id]);
+      if(existing.originalTipAmount != null) existing.originalTipAmount = Math.round((Number(existing.originalTipAmount) + amt) * 100) / 100;
+    }
+    if(!(await tipsSaveAllocations())){ tipsCashTips.pop(); st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; return; }
+    tipsMergeCash(); renderTipsAll();
+    ['tips_cashJob', 'tips_cashAmt'].forEach(id => document.getElementById(id).value = '');
+    st.textContent = existing ? `\u2713 Added ${tipsMoney(amt)} to job ${jobNumber}\u2019s tip (already split among its crew).` : `\u2713 Added \u2014 job ${jobNumber} is in the list below; pick its crew and Save.`;
+    st.className = 'status-msg ok';
+  });
+  document.getElementById('tips_cashList').addEventListener('click', async e => {
+    const b = e.target.closest && e.target.closest('.tips-cash-del'); if(!b) return;
+    const c = tipsCashTips.find(x => x.id === b.dataset.id); if(!c || !confirm(`Remove the ${tipsMoney(c.tipAmount)} cash tip for job ${c.jobNumber}?`)) return;
+    tipsCashTips = tipsCashTips.filter(x => x !== c);
+    await tipsSaveAllocations(); tipsMergeCash(); renderTipsAll();
+  });
 
   function renderTipsAll(){
+    renderTipsCashList();
     renderTipsNeedsAttention();
     renderTipsAllocate();
     renderTipsAllocated();
@@ -12830,7 +12894,7 @@ window.openEmailDraft = function(o){
     tbody.innerHTML = rows.map(g => `
       <tr data-job="${g.jobNumber}">
         <td>${tipsEsc(g.date)}</td>
-        <td style="font-weight:600;">${tipsEsc(g.jobNumber)}${g.paymentIds.length > 1 ? ` <span class="form-note">(${g.paymentIds.length} payments combined)</span>` : ''}</td>
+        <td style="font-weight:600;">${tipsEsc(g.jobNumber)}${g.paymentIds.length > 1 ? ` <span class="form-note">(${g.paymentIds.length} payments combined)</span>` : ''}${g.paymentIds.some(id => String(id).startsWith('cash_')) ? ' <span style="font-size:11.5px; font-weight:700; color:var(--brand-green-dark);">\ud83d\udcb5 includes cash tip</span>' : ''}</td>
         <td><input type="number" class="tips-amount-input" data-job="${g.jobNumber}" min="0" step="0.01" value="${Number(g.tipAmount).toFixed(2)}" title="Square reported ${tipsMoney(g.tipAmount)} \u2014 changing it takes the Administrator Override PIN" style="width:90px; font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;"></td>
         <td>${tipsEmployeeCheckboxesHtml([])}</td>
         <td><button type="button" class="tips-save-alloc" data-job="${g.jobNumber}" style="background:var(--brand-green); color:#fff; border:none; padding:6px 12px; border-radius:3px; font-size:12px; cursor:pointer;">Split &amp; Save</button></td>
@@ -33892,6 +33956,20 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   }
   window.loadMgrReviewSquareTransactions = loadMgrReviewSquareTransactions;
 
+  // Assign a payment to a job by hand (Square sent no job number).
+  document.addEventListener('click', async e => {
+    const b = e.target.closest && e.target.closest('.sq-assign'); if(!b) return;
+    const current = b.dataset.job || '';
+    const val = prompt(current ? `This payment is assigned to job ${current}.\n\nEnter a different HunkWare job #, or clear it to unassign:` : 'Which HunkWare job # is this payment for?', current);
+    if(val === null) return;
+    const jobNumber = val.trim();
+    if(jobNumber === current) return;
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/square-assign-job`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ paymentId: b.dataset.id, jobNumber }) });
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not save.');
+      await loadMgrReviewSquareTransactions();
+    }catch(err){ alert(err.message); }
+  });
   function renderMgrReviewCcard(){
     const rowsEl = document.getElementById('mgrreview_ccardRows');
     const emptyNote = document.getElementById('mgrreview_ccardEmptyNote');
@@ -33905,7 +33983,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     rowsEl.innerHTML = transactions.map(t => `
       <tr>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${window.fmtDate(t.date)}</td>
-        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(t.jobNumber || '\u2014')}${!t.jobNumber && t.debugReason ? `<div style="font-size:10.5px; color:#B3261E; font-weight:400; margin-top:2px;">${mgrReviewEsc(t.debugReason)}</div>` : ''}</td>
+        <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${t.jobNumber
+          ? `${mgrReviewEsc(t.jobNumber)}${t.assigned ? `<div style="font-size:10.5px; color:var(--muted);">assigned by hand${t.assigned.by ? ' (' + mgrReviewEsc(t.assigned.by.split('@')[0]) + ')' : ''} \u00b7 <button type="button" class="sq-assign" data-id="${mgrReviewEsc(t.id)}" data-job="${mgrReviewEsc(t.jobNumber)}" style="background:none; border:none; padding:0; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:10.5px;">change</button></div>` : ''}`
+          : `\u2014${t.debugReason ? `<div style="font-size:10.5px; color:#B3261E; font-weight:400;">${mgrReviewEsc(t.debugReason)}</div>` : ''}<button type="button" class="sq-assign" data-id="${mgrReviewEsc(t.id)}" style="margin-top:4px; background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:5px; padding:3px 9px; font-size:12px; font-weight:700; cursor:pointer;">Assign Job #</button>`}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.totalAmount !== null ? '$' + t.totalAmount.toFixed(2) : '\u2014'}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.tipAmount > 0 ? '$' + t.tipAmount.toFixed(2) : ''}</td>
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${mgrReviewEsc(t.cardBrand || '')}${t.last4 ? ' \u2022\u2022\u2022\u2022' + mgrReviewEsc(t.last4) : ''}</td>
