@@ -8942,6 +8942,29 @@ function extractSquareJobNumber(payment) {
 // the tip step) still has the job number Square-side. Returns a Map of
 // order_id -> jobNumber for every order that actually had one, so callers
 // can look up by the order_id already on hand.
+// Payments the office assigned to a job by hand (rare: no job number came
+// through from Square). { paymentId: { jobNumber, by, at } } -- applied by
+// both the tips and the transactions endpoints, so tips reach the crew too.
+const SQUARE_ASSIGN_KEY = 'square-job-assignments';
+async function applySquareAssignments(list) {
+  const assigns = JSON.parse(await redis.get(SQUARE_ASSIGN_KEY) || '{}');
+  list.forEach(p => { const a = assigns[p.id]; if (a && a.jobNumber) { p.jobNumber = a.jobNumber; p.assigned = { by: a.by || '', at: a.at || '' }; delete p.debugReason; } });
+}
+app.post('/api/admin/square-assign-job', requireAuth, async (req, res) => {
+  try {
+    const paymentId = String((req.body || {}).paymentId || '').trim();
+    const jobNumber = String((req.body || {}).jobNumber || '').trim();
+    if (!paymentId) return res.status(400).json({ error: 'Missing payment.' });
+    if (jobNumber && !/^[A-Za-z0-9-]{3,20}$/.test(jobNumber)) return res.status(400).json({ error: 'Enter just the HunkWare job number.' });
+    const assigns = JSON.parse(await redis.get(SQUARE_ASSIGN_KEY) || '{}');
+    if (jobNumber) assigns[paymentId] = { jobNumber, by: req.userEmail || '', at: new Date().toISOString() };
+    else delete assigns[paymentId];
+    await redis.set(SQUARE_ASSIGN_KEY, JSON.stringify(assigns));
+    console.log(`[square] payment ${paymentId} ${jobNumber ? 'assigned to job ' + jobNumber : 'unassigned'} by ${req.userEmail || ''}`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
 async function fetchJobNumbersFromOrders(orderIds, token) {
   const found = new Map();       // order_id -> jobNumber, for orders that had one
   const fetchedOrderIds = new Set(); // order_id -> successfully retrieved, whether or not it had a reference_id
@@ -9083,6 +9106,7 @@ app.get('/api/square-tips', requireAuth, async (req, res) => {
       if (!p.jobNumber && !p.orderId) p.debugReason = 'Payment has no linked order to check';
       delete p.orderId; // internal only, not part of the response shape
     });
+    await applySquareAssignments(withTips);
 
     // Safety net: if the same job number shows an identical tip amount on
     // the same day more than once, it's almost certainly an accidental
@@ -9200,6 +9224,7 @@ app.get('/api/square-transactions', requireAuth, async (req, res) => {
       if (!t.jobNumber && !t.orderId) t.debugReason = 'Payment has no linked order to check';
       delete t.orderId;
     });
+    await applySquareAssignments(transactions);
 
     res.json({ transactions });
   } catch (err) {
