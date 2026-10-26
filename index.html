@@ -4942,6 +4942,21 @@ window.openEmailDraft = function(o){
       </div>`;
   }
 
+  // Move cards: "Add Junk Removal" starts (or reopens) a junk removal job
+  // linked to that move and opens the junk removal estimator.
+  document.addEventListener('click', async e => {
+    const b = e.target.closest && e.target.closest('.mv-junk-addon'); if(!b) return;
+    b.disabled = true; const label = b.textContent; b.textContent = 'Opening\u2026';
+    try{
+      const r = await fetch(API_BASE_AUTH + '/api/driver/junk-removal/from-move', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ jobNumber: b.dataset.job }) });
+      if(r.status === 401){ driverSessionExpired(); return; }
+      const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not open junk removal.');
+      await showDriverJunkRemoval();
+      const card = document.querySelector(`.jrd-job-card[data-id="${CSS.escape(d.job.id)}"]`);
+      if(card){ card.scrollIntoView({ behavior: 'smooth', block: 'start' }); card.style.boxShadow = '0 0 0 3px var(--brand-green)'; setTimeout(() => { card.style.boxShadow = ''; }, 2500); }
+    }catch(err){ alert(err.message); }
+    b.disabled = false; b.textContent = label;
+  });
   function renderJrdJobs(){
     const listEl = document.getElementById('jrd_jobsList');
     const emptyNote = document.getElementById('jrd_emptyNote');
@@ -4953,6 +4968,10 @@ window.openEmailDraft = function(o){
     }
     emptyNote.style.display = 'none';
     listEl.innerHTML = jrdJobs.map(jrdJobCardHtml).join('');
+    // Tag junk removal that was added to a Move.
+    jrdJobs.filter(j => j.addOnToMove).forEach(j => listEl.querySelectorAll(`.jrd-job-card[data-id="${CSS.escape(j.id)}"]`).forEach(card => {
+      const head = card.firstElementChild; if(head && !head.querySelector('.jrd-addon-tag')) head.insertAdjacentHTML('beforeend', ' <span class="jrd-addon-tag" style="font-size:11.5px; font-weight:700; color:#fff; background:#2f6db5; border-radius:10px; padding:1px 8px; vertical-align:middle;">add-on to Move</span>');
+    }));
 
     listEl.querySelectorAll('.jrd-add-photos-btn').forEach(btn => btn.addEventListener('click', ()=>{
       const input = listEl.querySelector(`.jrd-photo-input[data-id="${btn.dataset.id}"][data-stage="${btn.dataset.stage}"]`);
@@ -5164,6 +5183,7 @@ window.openEmailDraft = function(o){
     <div class="mv-job-card" data-jobnumber="${driverEsc(job.jobNumber)}" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap;">
         <div style="font-weight:700; font-size:16px;">${driverEsc(job.jobNumber)} ${job.clientName ? '\u2014 ' + driverEsc(job.clientName) : ''}${job.jobDays > 1 ? ` <span style="font-size:12px; font-weight:700; color:#fff; background:var(--brand-green); border-radius:10px; padding:1px 8px; vertical-align:middle;">${job.jobDays}-day move</span>` : ''}${job.access === 'covering' ? `<div style="font-size:12.5px; font-weight:600; color:#8a6100;">Assigned to ${driverEsc(job.assignedTo)} \u2014 add photos if you\u2019re working this job</div>` : job.access === 'unassigned' ? '<div style="font-size:12.5px; font-weight:600; color:var(--muted);">No Captain set yet \u2014 adding photos makes it yours</div>' : ''}</div>
+        ${driverRole !== 'wingman' ? `<button type="button" class="mv-junk-addon" data-job="${driverEsc(job.jobNumber)}" style="margin:8px 0 4px; background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:8px; padding:8px 12px; font-weight:700; cursor:pointer; font-size:13.5px;">\ud83d\uddd1\ufe0f Add Junk Removal</button>` : ''}
         <span style="font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">${mvJobTypeLabel(job.jobType)}</span>
       </div>
       ${mvOnly() !== 'caused' ? mvSectionHtml(job, 'preexisting', 'Pre-Existing Damage', 'Before starting, photograph any damage already at the property so the crew isn\u2019t blamed for it later.') : ''}
@@ -31286,7 +31306,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       <div data-id="${j.id}" style="padding:14px 0; border-bottom:1px solid var(--line);">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
           <div>
-            <div style="font-weight:700; font-size:14px;">${jrEsc(j.jobNumber)} ${j.clientName ? '\u2014 ' + jrEsc(j.clientName) : ''}</div>
+            <div style="font-weight:700; font-size:14px;">${jrEsc(j.jobNumber)} ${j.clientName ? '\u2014 ' + jrEsc(j.clientName) : ''}${j.addOnToMove ? ' <span style="font-size:11px; font-weight:700; color:#fff; background:#2f6db5; border-radius:10px; padding:1px 8px;">add-on to Move</span>' : ''}</div>
             <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">${jrEsc(j.assignmentDate)}${j.captainName !== undefined ? ' &middot; Captain: ' + (j.captainName ? jrEsc(j.captainName) : 'Unassigned') : ''}</div>
           </div>
           ${status ? `<span style="flex-shrink:0; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; background:${status.bg}; color:${status.color};">${status.label}</span>` : ''}
