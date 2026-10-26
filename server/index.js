@@ -2811,7 +2811,7 @@ app.get('/api/driver/junk-removal-jobs', requireDriverAuth, async (req, res) => 
     const mine = jobs
       .filter(j => j.captainName === captainName && j.status !== 'completed')
       .map(j => ({
-        id: j.id, jobNumber: j.jobNumber, clientName: j.clientName, status: j.status,
+        id: j.id, jobNumber: j.jobNumber, clientName: j.clientName, status: j.status, addOnToMove: !!j.addOnToMove,
         initialEstimate: j.initialEstimate || null, initialConfirmedTier: j.initialConfirmedTier || null
       }));
     res.json({ jobs: mine });
@@ -2824,6 +2824,34 @@ app.get('/api/driver/junk-removal-jobs', requireDriverAuth, async (req, res) => 
 // Lets a Captain pull up the photos already submitted for a stage, so they
 // can add ones they forgot (or remove one) and re-submit for a fresh
 // estimate, rather than being stuck with whatever they first uploaded.
+// Junk removal as an add-on to a Move: the Move's Captain starts a junk
+// removal job linked to it (same job #, client and Captain) and uses the
+// same photo-estimate flow. Reuses an unfinished add-on rather than
+// making a duplicate.
+app.post('/api/driver/junk-removal/from-move', requireDriverAuth, async (req, res) => {
+  try {
+    const jobNumber = String((req.body || {}).jobNumber || '').trim();
+    const archive = JSON.parse(await redis.get(JOB_ARCHIVE_KEY) || '[]');
+    const move = archive.find(j => j.jobNumber === jobNumber && MOVING_JOB_TYPES.includes(j.jobType));
+    if (!move) return res.status(404).json({ error: 'Move job not found.' });
+    const access = captainJobAccess(move, req.driverName, await loadRoleRules());
+    if (access !== 'mine' && access !== 'unassigned') return res.status(403).json({ error: 'That move isn\u2019t assigned to you.' });
+    const jobs = JSON.parse(await redis.get(JUNK_REMOVAL_JOBS_KEY) || '[]');
+    let job = jobs.find(j => j.jobNumber === jobNumber && j.status !== 'completed');
+    if (job) {
+      if (!job.captainName) { job.captainName = req.driverName; job.updatedAt = new Date().toISOString(); await redis.set(JUNK_REMOVAL_JOBS_KEY, JSON.stringify(jobs)); }
+      return res.json({ ok: true, job: { id: job.id, jobNumber: job.jobNumber }, existing: true });
+    }
+    const now = new Date().toISOString();
+    job = { id: 'junk_' + Date.now() + '_' + Math.floor(Math.random() * 1000), jobNumber, clientName: move.clientName || '', captainName: req.driverName,
+      assignmentDate: easternDateFromMs(Date.now()), status: 'assigned', addOnToMove: true,
+      initialPhotoKeys: [], initialEstimate: null, initialConfirmedTier: null, finalPhotoKeys: [], finalEstimate: null, finalConfirmedTier: null, createdAt: now, updatedAt: now };
+    jobs.push(job);
+    await redis.set(JUNK_REMOVAL_JOBS_KEY, JSON.stringify(jobs));
+    console.log(`[junk-removal] ${req.driverName} added junk removal to move ${jobNumber}`);
+    res.json({ ok: true, job: { id: job.id, jobNumber } });
+  } catch (err) { console.error('Junk add-on failed:', err.message); res.status(500).json({ error: 'Could not start the junk removal estimate.' }); }
+});
 app.get('/api/driver/junk-removal/:jobId/photos', requireDriverAuth, async (req, res) => {
   const stage = req.query.stage;
   if (stage !== 'initial' && stage !== 'final') {
