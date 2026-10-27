@@ -8501,15 +8501,19 @@ window.openEmailDraft = function(o){
           <p class="form-note" id="maintenanceHistoryEmptyNote" style="display:none; margin-top:10px;">No maintenance history for this truck yet.</p>
         </div>
 
-        <div class="panel" id="comp_truckSelectPanel">
-          <h3>Select a Truck</h3>
-          <label>Truck <select id="comp_truckSelect"></select></label>
-          <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found &mdash; add one above first.</p>
-        </div>
-
         <div class="panel" id="comp_ptiPanel">
-          <h3>Pre-Trip Inspections</h3>
-          <p class="form-note">Submitted electronically by drivers using the shared Driver Access code on the login screen. Manage that code in Settings.</p>
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px 16px;">
+            <h3 style="margin:0;">Pre-Trip Inspections</h3>
+            <label style="margin:0; display:flex; align-items:center; gap:8px; font-weight:600;">Truck <select id="comp_truckSelect" style="min-width:160px;"></select></label>
+          </div>
+          <p class="form-note" id="comp_noTrucksNote" style="display:none;">No trucks found &mdash; add one above first.</p>
+          <button type="button" id="comp_pti_toggle" aria-expanded="false" style="display:flex; align-items:center; gap:8px; width:100%; margin-top:14px; padding:10px 12px; background:var(--offwhite); border:1px solid var(--line); border-radius:8px; cursor:pointer; font:inherit; font-size:13.5px; text-align:left;">
+            <span id="comp_pti_caret" style="display:inline-block; transition:transform .15s;">&#9656;</span>
+            <span style="font-weight:600;">Show inspection log</span>
+            <span id="comp_pti_summary" style="color:var(--muted);"></span>
+          </button>
+          <div id="comp_pti_body" style="display:none; margin-top:12px;">
+          <p class="form-note" style="margin-top:0;">Submitted electronically by drivers using the shared Driver Access code on the login screen. Manage that code in Settings.</p>
           <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
             <thead><tr>
               <th style="text-align:left; padding:5px 3px; border-bottom:1px solid var(--line);">Date</th>
@@ -8522,6 +8526,7 @@ window.openEmailDraft = function(o){
             <tbody id="comp_pti_rows"></tbody>
           </table>
           <p class="form-note" id="comp_pti_emptyNote" style="display:none; margin-top:10px;">No pre-trip inspections submitted yet for this truck.</p>
+          </div>
         </div>
 
         <div class="panel" id="comp_dotInspectionPanel">
@@ -14739,6 +14744,13 @@ window.openEmailDraft = function(o){
   });
 
   // ---- Trucks ----
+  document.getElementById('comp_pti_toggle').addEventListener('click', e => {
+    const btn = e.currentTarget, body = document.getElementById('comp_pti_body'), open = body.style.display === 'none';
+    body.style.display = open ? 'block' : 'none';
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    document.getElementById('comp_pti_caret').style.transform = open ? 'rotate(90deg)' : '';
+    btn.querySelector('span:nth-child(2)').textContent = open ? 'Hide inspection log' : 'Show inspection log';
+  });
   async function renderCompTruckSelect(){
     let list = trucks;
     if(!list || list.length === 0){
@@ -14796,6 +14808,16 @@ window.openEmailDraft = function(o){
 
     const headTruckCol = document.getElementById('comp_pti_truckColHead');
     if(headTruckCol) headTruckCol.style.display = showAllTrucks ? '' : 'none';
+    // One-line summary on the collapsed log (open defects in red).
+    const sumEl = document.getElementById('comp_pti_summary');
+    if(sumEl){
+      const open = rows.filter(r => r.overallStatus === 'defects' && !r.resolved).length;
+      const latest = rows[0];
+      const fmt = d => d ? new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+      sumEl.innerHTML = rows.length
+        ? `\u00b7 ${rows.length} inspection${rows.length === 1 ? '' : 's'} \u00b7 latest ${fleetEsc(fmt(latest.date))}${latest.overallStatus === 'defects' && !latest.resolved ? '' : ' (OK)'}${open ? ` \u00b7 <span style="color:#B3261E; font-weight:700;">${open} with open defects</span>` : ''}`
+        : '\u00b7 none yet';
+    }
 
     tbody.querySelectorAll('.comp-pti-view').forEach(btn => btn.addEventListener('click', (e)=> viewPtiDetails(e.target.dataset.id)));
     tbody.querySelectorAll('.comp-pti-resolve').forEach(btn => btn.addEventListener('click', async (e)=>{
