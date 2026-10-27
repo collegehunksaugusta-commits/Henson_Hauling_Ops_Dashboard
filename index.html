@@ -8391,7 +8391,7 @@ window.openEmailDraft = function(o){
       <!-- ---- TRUCKS ---- -->
       <div id="comp_trucks" class="comp-section" style="display:none;">
         <div class="panel" id="truckInventoryPanel">
-          <h3>Truck Inventory</h3>
+          <h3>Fleet Vehicles</h3>
           <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
             <thead><tr>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th>
@@ -8405,6 +8405,7 @@ window.openEmailDraft = function(o){
               <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th>
               <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Personal vehicles move to the Personal Vehicles card and stay out of crew, compliance and insurance lists">Personal?</th>
               <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="truckRows"></tbody>
@@ -8429,6 +8430,7 @@ window.openEmailDraft = function(o){
               </label>
               <label>Length (ft, if applicable) <input type="number" id="t_length" step="0.1"></label>
               <label style="display:flex; align-items:center; gap:8px; font-weight:400;"><input type="checkbox" id="t_isDiesel"> Diesel? <span class="form-note" style="margin:0;">(adds a DEF Level question to its Pre-Trip)</span></label>
+              <label style="display:flex; align-items:center; gap:8px; font-weight:400;"><input type="checkbox" id="t_isPersonal"> Personal vehicle? <span class="form-note" style="margin:0;">(tracked here for maintenance only &mdash; kept off crew, compliance and insurance lists)</span></label>
               <label style="display:flex; align-items:center; gap:8px; font-weight:400;"><input type="checkbox" id="t_isJunk"> Junk Truck? <span class="form-note" style="margin:0;">(adds the rear-door chain and tool box questions)</span></label>
             </div>
             <div class="form-actions">
@@ -8436,6 +8438,17 @@ window.openEmailDraft = function(o){
               <span class="status-msg" id="truckStatus"></span>
             </div>
           </div>
+        </div>
+        <div class="panel" id="personalVehiclesPanel">
+          <h3>Personal Vehicles</h3>
+          <p class="form-note" id="personalVehiclesEmpty" style="margin-top:0;">No personal vehicles yet &mdash; tick <strong>Personal?</strong> on a vehicle above, or add one with <strong>Personal vehicle?</strong> checked. They get the same maintenance tracking, and stay off crew, compliance and insurance lists.</p>
+          <table id="personalVehiclesTable" style="width:100%; border-collapse:collapse; font-size:12.5px;">
+            <thead><tr>
+              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">VIN</th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Year</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Make</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Model</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Style</th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Diesel?</th><th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);"></th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th><th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Personal?</th><th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+            </tr></thead>
+            <tbody id="personalRows"></tbody>
+          </table>
         </div>
 
         <div class="panel" id="maintenanceLogPanel">
@@ -11796,7 +11809,7 @@ window.openEmailDraft = function(o){
 
   function renderTruckTable(){
     const tbody = document.getElementById('truckRows');
-    tbody.innerHTML = trucks.map((t, i) => {
+    const rowHtml = (t, i) => {
       const status = getTruckStatus(t.id);
       const mileage = getLatestMileage(t.id);
       const statusHtml = status === 'overdue'
@@ -11816,20 +11829,33 @@ window.openEmailDraft = function(o){
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.length ? fleetEsc(t.length) + ' ft' : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${mileage !== null ? Number(mileage).toLocaleString() : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${statusHtml}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center;"><input type="checkbox" class="truck-flag" data-idx="${i}" data-flag="isPersonal" ${t.isPersonal ? 'checked' : ''} aria-label="Personal vehicle"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="truck-remove" data-idx="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Remove</button></td>
       </tr>`;
-    }).join('');
+    };
+    // Fleet vehicles here; personal vehicles in their own card below.
+    const withIdx = trucks.map((t, i) => [t, i]);
+    tbody.innerHTML = withIdx.filter(([t]) => !t.isPersonal).map(([t, i]) => rowHtml(t, i)).join('');
+    const personal = withIdx.filter(([t]) => t.isPersonal);
+    const pBody = document.getElementById('personalRows');
+    if(pBody){
+      pBody.innerHTML = personal.map(([t, i]) => rowHtml(t, i).replace(/<input type="checkbox" class="truck-flag" data-idx="\d+" data-flag="isJunk"[^>]*>/, '')).join('');
+      document.getElementById('personalVehiclesEmpty').style.display = personal.length ? 'none' : 'block';
+      document.getElementById('personalVehiclesTable').style.display = personal.length ? '' : 'none';
+    }
+    const scope = document.getElementById('truckInventoryPanel').parentElement;
     // Diesel? / Junk Truck? save the moment they're ticked.
-    tbody.querySelectorAll('.truck-flag').forEach(cb => cb.addEventListener('change', async (e)=>{
+    scope.querySelectorAll('#truckRows .truck-flag, #personalRows .truck-flag').forEach(cb => cb.addEventListener('change', async (e)=>{
       const t = trucks[parseInt(e.target.dataset.idx, 10)];
       if(!t) return;
       const flag = e.target.dataset.flag;
       const prev = !!t[flag];
       t[flag] = e.target.checked;
       const ok = await saveTrucks();
-      if(!ok){ t[flag] = prev; e.target.checked = prev; alert('Could not save that change \u2014 check your connection.'); }
+      if(!ok){ t[flag] = prev; e.target.checked = prev; alert('Could not save that change \u2014 check your connection.'); return; }
+      if(flag === 'isPersonal'){ renderTruckTable(); renderTruckDropdown(); }   // moves to the other card
     }));
-    tbody.querySelectorAll('.truck-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
+    scope.querySelectorAll('#truckRows .truck-remove, #personalRows .truck-remove').forEach(btn => btn.addEventListener('click', async (e)=>{
       const idx = parseInt(e.target.dataset.idx, 10);
       const t = trucks[idx];
       if(!t) return;
@@ -11844,14 +11870,14 @@ window.openEmailDraft = function(o){
 
   function renderTruckDropdown(){
     const sel = document.getElementById('m_truck');
-    sel.innerHTML = trucks.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
+    sel.innerHTML = trucks.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}${t.isPersonal ? ' (personal)' : ''}</option>`).join('');
 
     // Preserve whatever truck was already selected in the history filter --
     // re-rendering this (e.g. after adding a truck) shouldn't silently reset
     // an admin's active filter.
     const filterEl = document.getElementById('maintenanceHistoryFilter');
     const prevFilterValue = filterEl.value;
-    filterEl.innerHTML = '<option value="">All Trucks</option>' + trucks.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}</option>`).join('');
+    filterEl.innerHTML = '<option value="">All Vehicles</option>' + trucks.map(t => `<option value="${t.id}">${fleetEsc(t.nickname)}${t.isPersonal ? ' (personal)' : ''}</option>`).join('');
     if(trucks.some(t => t.id === prevFilterValue)) filterEl.value = prevFilterValue;
   }
 
@@ -11955,12 +11981,13 @@ window.openEmailDraft = function(o){
       style: document.getElementById('t_style').value,
       length: document.getElementById('t_length').value,
       isDiesel: document.getElementById('t_isDiesel').checked,
-      isJunk: document.getElementById('t_isJunk').checked
+      isJunk: document.getElementById('t_isJunk').checked,
+      isPersonal: document.getElementById('t_isPersonal').checked
     };
     trucks.push(truck);
     const ok = await saveTrucks();
     ['t_nickname','t_vin','t_year','t_make','t_model','t_length'].forEach(id => { document.getElementById(id).value = ''; });
-    ['t_isDiesel','t_isJunk'].forEach(id => { document.getElementById(id).checked = false; });
+    ['t_isDiesel','t_isJunk','t_isPersonal'].forEach(id => { document.getElementById(id).checked = false; });
     renderTruckTable();
     renderTruckDropdown();
     updateFleetTileBadge();
@@ -14717,6 +14744,7 @@ window.openEmailDraft = function(o){
     if(!list || list.length === 0){
       try{ list = await window.dashboardApi.get(FLEET_TRUCKS_KEY, []); }catch(err){ list = []; }
     }
+    list = (list || []).filter(t => !t.isPersonal);
     const sel = document.getElementById('comp_truckSelect');
     const noTrucksNote = document.getElementById('comp_noTrucksNote');
     if(!list || list.length === 0){
@@ -15783,6 +15811,7 @@ window.openEmailDraft = function(o){
       if(!truckList || truckList.length === 0){
         try{ truckList = await window.dashboardApi.get(FLEET_TRUCKS_KEY, []); }catch(err){ truckList = []; }
       }
+      truckList = (truckList || []).filter(t => !t.isPersonal);
       const images = batchDocsPastedImages.map(img => img.previewDataUri);
       const res = await fetch(`${API_BASE}/api/admin/extract-truck-docs`, {
         method: 'POST',
@@ -16006,7 +16035,8 @@ window.openEmailDraft = function(o){
       <td style="${cell}">${inp(pp, 'licenseNumber', '140px')}</td>
       <td style="${cell}">${inp(pp, 'licenseState', '60px')}</td>
       <td style="${cell}">${inp(pp, 'dob', '140px', 'date')}</td></tr>`).join('');
-    document.getElementById('bp_trucks').innerHTML = bpTrucks.length ? bpTrucks.map(t => `<tr>
+    const bpFleet = bpTrucks.filter(t => !t.isPersonal);   // (personal vehicles stay on file, just not in the packet)
+    document.getElementById('bp_trucks').innerHTML = bpFleet.length ? bpFleet.map(t => `<tr>
       <td style="${cell} font-weight:600;">${bpEsc(t.nickname)}</td>
       <td style="${cell}">${bpEsc([t.year, t.make, t.model].filter(Boolean).join(' '))}</td>
       <td style="${cell} font-family:'IBM Plex Mono',monospace;${t.vin ? '' : ' color:#b3261e;'}">${bpEsc(t.vin || 'no VIN on file')}</td>
@@ -16048,8 +16078,9 @@ window.openEmailDraft = function(o){
   document.getElementById('bp_estimateBtn').addEventListener('click', async () => {
     const st = document.getElementById('bp_estimateStatus');
     if(!bpTrucks.length){ st.textContent = 'No trucks on file.'; st.className = 'status-msg err'; return; }
-    let targets = bpTrucks.map((t, i) => i).filter(i => !bpTrucks[i].statedValue);
-    if(!targets.length){ if(!confirm('Every truck already has a stated value. Replace them all with AI estimates?')) return; targets = bpTrucks.map((t, i) => i); }
+    const fleetIdx = bpTrucks.map((t, i) => i).filter(i => !bpTrucks[i].isPersonal);
+    let targets = fleetIdx.filter(i => !bpTrucks[i].statedValue);
+    if(!targets.length){ if(!confirm('Every truck already has a stated value. Replace them all with AI estimates?')) return; targets = fleetIdx; }
     st.textContent = 'Estimating\u2026'; st.className = 'status-msg';
     try{
       const r = await fetch(`${API_BASE}/api/admin/broker/estimate-truck-values`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ trucks: targets.map(i => bpTrucks[i]) }) });
@@ -16096,7 +16127,7 @@ window.openEmailDraft = function(o){
     bpPeople.filter(pp => pp.name).forEach(pp => row([pp.name, pp.role, pp.f.licenseNumber, pp.f.licenseState, fmtDob(pp.f.dob)], [170, 60, 130, 50, 100]));
     y += 8; line('2. Equipment', { bold: true, size: 12 });
     row(['Truck', 'Year / Make / Model', 'VIN', 'Stated Value'], [90, 150, 170, 100], { bold: true });
-    bpTrucks.forEach(t => row([t.nickname, [t.year, t.make, t.model].filter(Boolean).join(' '), t.vin, t.statedValue ? '$' + Number(t.statedValue).toLocaleString() : ''], [90, 150, 170, 100]));
+    bpTrucks.filter(t => !t.isPersonal).forEach(t => row([t.nickname, [t.year, t.make, t.model].filter(Boolean).join(' '), t.vin, t.statedValue ? '$' + Number(t.statedValue).toLocaleString() : ''], [90, 150, 170, 100]));
     y += 8; line('3. Commodities Hauled', { bold: true, size: 12 }); line(bpData.commodities || '');
     y += 8; line('4. Coverages & Limits Needed', { bold: true, size: 12 });
     bpData.coverages.filter(c => c.coverage).forEach(c => line(`\u2022 ${c.coverage}: ${c.limit || '(to be discussed)'}`, { indent: 6 }));
@@ -16128,6 +16159,7 @@ window.openEmailDraft = function(o){
     if(!list || list.length === 0){
       try{ list = await window.dashboardApi.get(FLEET_TRUCKS_KEY, []); }catch(err){ list = []; }
     }
+    list = (list || []).filter(t => !t.isPersonal);
     const sel = document.getElementById('comp_insTruckSelect');
     const noTrucksNote = document.getElementById('comp_insNoTrucksNote');
     if(!list || list.length === 0){
