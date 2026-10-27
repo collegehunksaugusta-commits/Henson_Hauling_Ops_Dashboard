@@ -7440,7 +7440,14 @@ app.get('/api/ops-manager/commission-history', requireAuth, async (req, res) => 
       const entry = Object.entries(manual[ws] || {}).find(([n]) => nameCoreKey(n) === nameCoreKey(omName));
       if (!entry) return null;
       const v = entry[1] || {};
-      return { weekStart: ws, convertedRevenue: Number(v.convertedRevenue) || 0, commission: Number(v.commission) || 0,
+      // Extra Pay only saves the commission when it was typed over or the
+      // week was marked paid; otherwise work it out with the same formula:
+      // converted revenue x rate x score x (hours / 40, capped at 40).
+      const conv = Number(v.convertedRevenue) || 0, ratePct = v.omRatePct != null ? Number(v.omRatePct) : rate;
+      const saved = v.commission !== undefined && v.commission !== null && v.commission !== '';
+      const calc = (conv > 0 && v.omScore != null && Number(v.omHours) > 0)
+        ? Math.round(conv * ratePct / 100 * Number(v.omScore) / 100 * Math.min(Number(v.omHours), 40) / 40 * 100) / 100 : 0;
+      return { weekStart: ws, convertedRevenue: conv, commission: saved ? Number(v.commission) || 0 : calc, calculated: !saved && calc > 0,
         omRatePct: v.omRatePct != null ? v.omRatePct : null, omScore: v.omScore != null ? v.omScore : null, omHours: v.omHours != null ? v.omHours : null };
     }).filter(Boolean).slice(0, 8);
     res.json({ omName, rate, weeks });
