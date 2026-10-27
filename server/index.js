@@ -793,7 +793,8 @@ app.get('/api/driver/trucks', requireDriverOrTaskWingman(null), async (req, res)
     const raw = await redis.get('fleet-trucks');
     const trucks = raw ? JSON.parse(raw) : [];
     // isDiesel / isJunk decide which extra Pre-Trip questions a truck gets.
-    res.json({ trucks: trucks.map(t => ({ id: t.id, nickname: t.nickname, isDiesel: !!t.isDiesel, isJunk: !!t.isJunk })) });
+    // Personal vehicles (tracked in Fleet Maintenance) never show for crews.
+    res.json({ trucks: trucks.filter(t => !t.isPersonal).map(t => ({ id: t.id, nickname: t.nickname, isDiesel: !!t.isDiesel, isJunk: !!t.isJunk })) });
   } catch (err) {
     console.error('Driver truck list failed:', err.message);
     res.status(500).json({ error: 'Could not load trucks.' });
