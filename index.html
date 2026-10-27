@@ -28917,7 +28917,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const rate = Number(commission.opsManagerRate) || 0;
       // Only the Ops Manager's own commission rows (Extra Pay itself is Owner only).
       const ch = await (await fetch(`${API_BASE}/api/ops-manager/commission-history`, { headers: authHeaders() })).json();
-      const weeks = (ch.weeks || []).map(w => ({ weekStart: w.weekStart, conv: w.convertedRevenue, paid: w.commission,
+      const weeks = (ch.weeks || []).map(w => ({ weekStart: w.weekStart, conv: w.convertedRevenue, paid: w.commission, calculated: !!w.calculated,
         rate: w.omRatePct != null ? w.omRatePct : rate, score: w.omScore, hours: w.omHours }));
       const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const span = ws => { const s = new Date(ws + 'T00:00:00'); const p = new Date(s); p.setDate(s.getDate() - 7); const e = new Date(p); e.setDate(p.getDate() + 6); const f = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); return `${f(p)} \u2013 ${f(e)}`; };
@@ -28932,7 +28932,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           <td style="padding:8px; text-align:right;">\u00d7 ${w.rate}%</td>
           <td style="padding:8px; text-align:right;">${w.score == null ? '<span style="color:var(--muted);">\u2014</span>' : '\u00d7 ' + w.score + '%'}</td>
           <td style="padding:8px; text-align:right;">${w.hours == null ? '<span style="color:var(--muted);">\u2014</span>' : '\u00d7 ' + (Math.round(w.hours * 10) / 10) + '/40'}</td>
-          <td style="padding:8px; text-align:right; font-weight:800; font-size:16px; color:var(--brand-green-dark);">${money(w.paid)}</td>
+          <td style="padding:8px; text-align:right; font-weight:800; font-size:16px; color:var(--brand-green-dark);">${money(w.paid)}${w.calculated ? '<div style="font-size:11px; font-weight:400; color:var(--muted);">calculated</div>' : ''}</td>
         </tr>`).join('')}</tbody></table></div>`;
     }catch(err){ console.error('Ops Manager commission panel failed:', err); wrap.innerHTML = '<p class="form-note" style="margin:0;">Couldn\u2019t load commission history.</p>'; }
   }
