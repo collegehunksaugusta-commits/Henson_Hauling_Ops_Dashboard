@@ -7884,6 +7884,14 @@ window.openEmailDraft = function(o){
 
     <div class="panel" id="mgrreview_panel_truckconditions" style="display:none;">
       <h3>Truck Conditions</h3>
+      <div style="border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:18px; background:var(--offwhite);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <h4 style="margin:0; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:16px;">Start of Day &mdash; Truck Beds</h4>
+          <label style="margin:0; display:flex; align-items:center; gap:6px; font-size:13px;">Day <input type="date" id="mgrreview_sodDate" style="padding:4px 6px;"></label>
+        </div>
+        <p class="form-note" style="margin:4px 0 10px;">Each truck&rsquo;s pre-trip photo of the back of the truck &mdash; how loaded it was when the day started, even while it&rsquo;s still out.</p>
+        <div id="mgrreview_sodCards" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px;"></div>
+      </div>
       <p class="form-note">AI-flagged truck condition issues from End of Day Inspection photo comparisons. Mark each Pass or Fail &mdash; that call is what counts toward the Captain's own Truck Conditions score in Captain Metrics, not the AI's initial flag.</p>
       <div id="mgrreview_truckOpenRows"></div>
       <p class="form-note" id="mgrreview_truckEmptyNote" style="display:none;">Nothing needs review right now.</p>
@@ -34261,7 +34269,60 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       </div>`;
   }
 
+  // ---- Start of Day: each truck's pre-trip back-of-truck photo for a day ----
+  let sodLoadSeq = 0, sodLoaded = { day: '', at: 0 };
+  async function loadMgrReviewStartOfDay(force){
+    const wrap = document.getElementById('mgrreview_sodCards'), dateEl = document.getElementById('mgrreview_sodDate');
+    if(!wrap || !dateEl) return;
+    if(!dateEl.value) dateEl.value = new Date().toLocaleDateString('en-CA');
+    const day = dateEl.value;
+    if(!force && sodLoaded.day === day && Date.now() - sodLoaded.at < 60000) return;   // (redraws after Pass/Fail reuse it)
+    sodLoaded = { day, at: Date.now() };
+    const seq = ++sodLoadSeq;
+    wrap.innerHTML = '<p class="form-note" style="margin:0;">Loading\u2026</p>';
+    try{
+      const [ptiRaw, eodRaw, trucksRaw] = await Promise.all([
+        window.dashboardApi.get('compliance-pretrip-inspections', []),
+        window.dashboardApi.get('compliance-eod-inspections', []),
+        window.dashboardApi.get('fleet-trucks', [])
+      ]);
+      if(seq !== sodLoadSeq) return;
+      const ptis = (ptiRaw || []).filter(p => p.date === day).sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
+      const eods = (eodRaw || []).filter(e => e.date === day);
+      const trucks = (trucksRaw || []).filter(t => !t.isPersonal);
+      // One card per fleet truck (latest pre-trip that day), plus any pre-trip for a truck no longer listed.
+      const cards = trucks.map(t => ({ truckId: t.id, name: t.nickname, pti: ptis.find(p => p.truckId === t.id) || null }));
+      ptis.forEach(p => { if(!cards.some(c => c.truckId === p.truckId)) cards.push({ truckId: p.truckId, name: p.truckNickname || 'Truck', pti: p }); });
+      if(!cards.length){ wrap.innerHTML = '<p class="form-note" style="margin:0;">No trucks on file.</p>'; return; }
+      const time = iso => iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      wrap.innerHTML = cards.map(c => {
+        const eod = eods.find(e => e.truckId === c.truckId);
+        const status = !c.pti ? '' : eod
+          ? '<span style="font-size:11.5px; font-weight:700; color:#fff; background:var(--brand-green); border-radius:10px; padding:1px 8px;">End of day in</span>'
+          : day < new Date().toLocaleDateString('en-CA')
+            ? '<span style="font-size:11.5px; font-weight:700; color:#fff; background:#B3261E; border-radius:10px; padding:1px 8px;">No end-of-day inspection</span>'
+            : '<span style="font-size:11.5px; font-weight:700; color:#5c4300; background:#FFE28A; border-radius:10px; padding:1px 8px;">Still out \u2014 no end-of-day yet</span>';
+        return `<div style="background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;"><strong>${mgrReviewEsc(c.name)}</strong>${status}</div>
+          ${c.pti ? `<div style="font-size:12.5px; color:var(--muted);">${mgrReviewEsc(c.pti.driverName || '')}${c.pti.submittedAt ? ' \u00b7 ' + time(c.pti.submittedAt) : ''}</div>` : ''}
+          ${c.pti && c.pti.backPhotoKey
+            ? `<div class="sod-photo" data-key="${mgrReviewEsc(c.pti.backPhotoKey)}" style="aspect-ratio:4/3; background:#eee; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#888; font-size:12px; overflow:hidden;">Loading photo\u2026</div>`
+            : `<div style="aspect-ratio:4/3; background:#fafafa; border:1px dashed var(--line); border-radius:6px; display:flex; align-items:center; justify-content:center; color:#999; font-size:12.5px; text-align:center; padding:6px;">${c.pti ? 'Pre-trip has no photo' : 'No pre-trip photo'}</div>`}
+        </div>`;
+      }).join('');
+      // Photos load one by one so the cards show right away.
+      for(const el of wrap.querySelectorAll('.sod-photo')){
+        try{
+          const uri = await window.dashboardApi.get(el.dataset.key, null);
+          if(seq !== sodLoadSeq) return;
+          el.innerHTML = uri ? `<img src="${uri}" alt="Back of truck at the start of the day" onclick="window.showPhotoModal(this.src)" style="width:100%; height:100%; object-fit:cover; cursor:zoom-in;">` : 'Photo not available';
+        }catch(err){ el.textContent = 'Photo not available'; }
+      }
+    }catch(err){ wrap.innerHTML = '<p class="form-note" style="margin:0; color:#B3261E;">Could not load the pre-trip photos.</p>'; }
+  }
+  document.getElementById('mgrreview_sodDate').addEventListener('change', () => loadMgrReviewStartOfDay(true));
   function renderMgrReviewTruckConditions(){
+    loadMgrReviewStartOfDay();
     const openRowsEl = document.getElementById('mgrreview_truckOpenRows');
     const emptyNote = document.getElementById('mgrreview_truckEmptyNote');
     const reviewedCountEl = document.getElementById('mgrreview_truckReviewedCount');
