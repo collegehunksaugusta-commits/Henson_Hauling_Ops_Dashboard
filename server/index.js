@@ -1201,7 +1201,7 @@ app.get('/api/driver/materials-reminders', requireDriverAuth, async (req, res) =
     ]);
     const archive = JSON.parse(archiveRaw || '[]'), checkouts = JSON.parse(checkoutsRaw || '[]');
     const items = new Map(JSON.parse(itemsRaw || '[]').map(i => [i.id, i]));
-    const invoiced = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
+    const invoiced = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt && !u.invoiceNotFound).map(u => u.jobNumber));
     const from = isoDay(-7), to = isoDay(0);
     const jobsByNumber = new Map(archive.filter(j => j.jobNumber).map(j => [j.jobNumber, j]));
     const mine = j => j && nameCoreKey(j.captainName || '') === meKey;
@@ -3028,7 +3028,7 @@ app.get('/api/driver/moving-jobs', requireDriverOrTaskWingman(['moving-preexisti
       redis.get('paperwork-uploads')
     ]);
     // Closed out = its invoice is on file with the completed paperwork.
-    const closedOut = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
+    const closedOut = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt && !u.invoiceNotFound).map(u => u.jobNumber));
     const archive = archiveRaw ? JSON.parse(archiveRaw) : [];
     const reports = reportsRaw ? JSON.parse(reportsRaw) : [];
     const reportsByJobNumber = new Map(reports.map(r => [r.jobNumber, r]));
@@ -3383,7 +3383,7 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
   // Same rule as Junk Removal below: a Move/Move Labor job isn't
   // applicable to the travel-line check until its invoice is on file.
   // Before that, "no confirmed travel line" just means "no invoice yet."
-  const invoicedJobNumbers = new Set((uploads || []).filter(u => u.jobNumber && u.invoiceUploadedAt).map(u => u.jobNumber));
+  const invoicedJobNumbers = new Set((uploads || []).filter(u => u.jobNumber && u.invoiceUploadedAt && !u.invoiceNotFound).map(u => u.jobNumber));
   const underbilledItemsByJob = {};
   (managerReviewItems || []).forEach(item => {
     if (item.type !== 'underbilled' || !item.jobNumber) return;
@@ -5926,6 +5926,20 @@ app.post('/api/admin/extract-client-invoice', requireAuth, async (req, res) => {
     if (hasUsableText) {
       extraction.hasTravelLineItem = TRAVEL_WORD.test(invoicePageIndices.map(i => texts[i]).join(' '));
       extraction.travelCheckSource = 'text';
+      // Some invoice PDFs come through with the services table missing from
+      // their text. Before calling the line missing, look at the page images.
+      if (!extraction.hasTravelLineItem && imageBlocks.length) {
+        try {
+          const look = await callClaude([{ name: 'report_travel_line', description: 'Whether the invoice shows a travel line.',
+            input_schema: { type: 'object', properties: {
+              hasTravelLine: { type: 'boolean', description: 'True only if a billed line item on the invoice has the word "travel" in its description (e.g. "Truck and Travel Fee").' },
+              lineAsPrinted: { type: 'string', description: 'That line exactly as printed, or empty.' } }, required: ['hasTravelLine', 'lineAsPrinted'] } }],
+            'report_travel_line', [ ...invoicePageIndices.map(i => imageBlocks[i]), { type: 'text', text: 'Look at the billed line items on this invoice. Is there a line whose description contains the word "travel" (for example "Truck and Travel Fee")? Copy it exactly as printed.' } ]);
+          if (look && look.hasTravelLine === true && TRAVEL_WORD.test(look.lineAsPrinted || '')) {
+            extraction.hasTravelLineItem = true; extraction.travelLineAsPrinted = look.lineAsPrinted; extraction.travelCheckSource = 'text+image';
+          }
+        } catch (err) { console.log(`[TAX-EXTRACT ${reqId}] travel image check failed: ${err.message}`); }
+      }
     } else {
       extraction.hasTravelLineItem = modelTravelAnswer === true || quotedTravel;
       extraction.travelCheckSource = 'vision';
