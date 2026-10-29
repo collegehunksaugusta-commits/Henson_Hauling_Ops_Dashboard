@@ -6961,7 +6961,7 @@ window.openEmailDraft = function(o){
 
         <div id="pwDigital_wrap" style="display:none; margin-top:20px;">
           <h4 style="margin-bottom:4px;">&#128241; Digital Work Packages</h4>
-          <p class="form-note" style="margin:0 0 8px;">Packages pushed to a Captain&rsquo;s HUNK Portal (last 14 days). <strong>Switch to paper</strong> takes one back off his phone; <strong>Print</strong> prints its paper work package.</p>
+          <p class="form-note" style="margin:0 0 8px;">Packages pushed to a Captain&rsquo;s HUNK Portal (last 14 days). <strong>Switch to paper</strong> takes one back off his phone; <strong>Print</strong> prints its paper work package; <strong>Remove</strong> clears a finished one from this list.</p>
           <div id="pwDigital_rows"></div>
         </div>
 
@@ -23331,7 +23331,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     if(!wrap) return;
     await loadDigitalWP();
     const cutoff = new Date(Date.now() - 14 * 864e5).toISOString();
-    const list = (pwDigitalWP || []).filter(w => (w.pushedAt || '') >= cutoff).sort((a, b) => String(b.pushedAt).localeCompare(String(a.pushedAt)));
+    // (Removed = cleared from this list only; the record stays on file.)
+    const list = (pwDigitalWP || []).filter(w => (w.pushedAt || '') >= cutoff && !w.removedFromList).sort((a, b) => String(b.pushedAt).localeCompare(String(a.pushedAt)));
     wrap.style.display = list.length ? 'block' : 'none';
     const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const when = t => t ? new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
@@ -23344,9 +23345,17 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <div style="display:flex; gap:8px; align-items:center;">
           ${w.status === 'pushed' ? '<button type="button" class="pwdig-paper" style="background:#fff; border:1px solid #c06a00; color:#8a4b00; padding:7px 12px; border-radius:6px; font-weight:700; cursor:pointer; font-size:13px;">\u21a9 Switch to paper</button>' : ''}
           ${w.status !== 'completed' ? '<button type="button" class="pwdig-print" style="background:var(--brand-green); border:none; color:#fff; padding:7px 14px; border-radius:6px; font-weight:700; cursor:pointer; font-size:13px;">\ud83d\udda8 Print</button>' : ''}
+          ${w.status !== 'pushed' ? '<button type="button" class="pwdig-remove" title="Clear it from this list (the job and its paperwork aren\u2019t affected)" style="background:#fff; border:1px solid var(--line); color:#b3261e; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Remove</button>' : ''}
           <span class="status-msg pwdig-status" style="font-size:12px;"></span>
         </div></div>`;
     }).join('');
+    rows.querySelectorAll('.pwdig-remove').forEach(b => b.onclick = async () => {
+      const key = b.closest('.pwdig-row').dataset.key, w = pwDigitalWP.find(x => x.jobKey === key); if(!w) return;
+      if(!confirm(`Remove ${w.jobNumber} (${w.clientName}) from this list?\n\nThe job and its paperwork aren\u2019t affected.`)) return;
+      w.removedFromList = true; w.removedAt = new Date().toISOString(); w.removedBy = localStorage.getItem('henson_auth_email') || '';
+      if(!(await window.dashboardApi.set(DIGITAL_WP_KEY, pwDigitalWP))){ w.removedFromList = false; alert('Could not save \u2014 check your connection.'); return; }
+      renderDigitalWP();
+    });
     rows.querySelectorAll('.pwdig-paper').forEach(b => b.onclick = async () => {
       const key = b.closest('.pwdig-row').dataset.key, w = pwDigitalWP.find(x => x.jobKey === key); if(!w) return;
       if(!confirm(`Take ${w.jobNumber} (${w.clientName}) off ${w.captainName}\u2019s phone and do it on paper?`)) return;
