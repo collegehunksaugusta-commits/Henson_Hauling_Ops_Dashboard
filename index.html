@@ -26166,6 +26166,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // jobs -- independent of materials, so stored here regardless of
       // whether any materials were matched below.
       upload.hasTravelLineItem = !!extractData.hasTravelLineItem;
+      // A file with no invoice in it (e.g. the work order uploaded by
+      // mistake) isn't an invoice -- no travel / materials checks on it.
+      upload.invoiceNotFound = extractData.invoicePageFound === false;
       // Kept so Underbilled Jobs can re-match them whenever inventory
       // nicknames change -- no need to re-read the invoice.
       upload.invoiceLineItems = (extractData.lineItems || []).map(li => ({ description: li.description, quantity: Number(li.quantity) || 0, lineTotal: Number(li.lineTotal) || 0 }));
@@ -26391,6 +26394,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${(() => {
             const balanceOk = u.invoiceUploadedAt && (Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden);
             const materialsOk = u.requiresMaterials !== true || (Array.isArray(u.materialsBilled) && u.materialsBilled.length > 0) || u.materialsBilledOverridden;
+            if(u.invoiceUploadedAt && u.invoiceNotFound){
+              return `<span style="font-size:10.5px; margin-right:4px; color:#B3261E; font-weight:700;" title="The file uploaded as the invoice has no invoice page in it (it looks like the work order or other paperwork). Upload the HunkWare invoice again.">\u26a0 Not an invoice \u2014 re-upload</span>`;
+            }
             if(balanceOk && materialsOk){
               return `<button type="button" class="pu-email" data-id="${u.id}" style="background:${u.emailSentAt ? '#e8f5e9' : '#fff'}; border:1px solid #00612C; color:#00612C; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;" title="${u.emailSentAt ? 'Sent ' + new Date(u.emailSentAt).toLocaleDateString() : ''}">${u.emailSentAt ? '\u2713 Sent \u00b7 Resend' : 'Send Email'}</button>`;
             }
@@ -28592,7 +28598,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const invoicedByJob = {};
     (uploads || []).forEach(u => {
       if(!u.jobNumber) return;
-      if(u.invoiceUploadedAt) invoicedByJob[u.jobNumber] = true;
+      if(u.invoiceUploadedAt && !u.invoiceNotFound) invoicedByJob[u.jobNumber] = true;
       if(u.hasTravelLineItem === true) travelConfirmedByJob[u.jobNumber] = true;
     });
     return (archive || []).filter(j => {
@@ -28675,8 +28681,11 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         let hasTravel = null;
         const savedText = await window.dashboardApi.get('paperwork-upload-invoicetext-' + upload.id, null);
         const joined = Array.isArray(savedText) ? savedText.join(' ') : '';
-        if(joined.trim().length > 50){
-          hasTravel = /\btravel\b/i.test(joined);
+        // The saved text settles it only when it shows the travel line --
+        // some invoices' text is missing the services table, so otherwise
+        // the page images get a look.
+        if(joined.trim().length > 50 && /\btravel\b/i.test(joined)){
+          hasTravel = true;
         } else {
           const dataUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
           if(!dataUri){ failed++; if(onProgress) onProgress(checked, total, confirmed, stillMissing, failed); continue; }
@@ -28689,6 +28698,11 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           });
           if(handleAuthFailure(res)) return { checked, total, confirmed, stillMissing, failed };
           const data = await res.json();
+          if(res.ok && data.invoicePageFound === false){
+            // The "invoice" file has no invoice in it (e.g. the work order).
+            upload.invoiceNotFound = true; upload.travelRecheckedAt = new Date().toISOString();
+            stillMissing++; if(onProgress) onProgress(checked, total, confirmed, stillMissing, failed); continue;
+          }
           if(!res.ok || !data.invoicePageFound){ failed++; if(onProgress) onProgress(checked, total, confirmed, stillMissing, failed); continue; }
           hasTravel = data.hasTravelLineItem === true;
         }
