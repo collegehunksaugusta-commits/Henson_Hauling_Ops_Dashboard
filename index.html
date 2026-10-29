@@ -8999,11 +8999,11 @@ window.openEmailDraft = function(o){
         <h3>Apartment Complexes (<span id="mailApt_count">0</span>)</h3>
         <div class="kpi-row" style="grid-template-columns:repeat(2,1fr); margin-bottom:20px;">
           <div class="kpi-card">
-            <div class="label">Contacted This Quarter</div>
+            <div class="label">Contacted in Last 3 Months</div>
             <div class="big" id="mailApt_kpiUpToDate">0</div>
           </div>
           <div class="kpi-card">
-            <div class="label">Overdue (Not Contacted This Quarter)</div>
+            <div class="label">Overdue (3+ Months Since Contact)</div>
             <div class="big" id="mailApt_kpiOverdue">0</div>
           </div>
         </div>
@@ -9017,7 +9017,7 @@ window.openEmailDraft = function(o){
             <select id="mailApt_statusFilter" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
               <option value="all">All</option>
               <option value="overdue">Overdue</option>
-              <option value="up_to_date">Contacted This Quarter</option>
+              <option value="up_to_date">Contacted in Last 3 Months</option>
             </select>
           </label>
           <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
@@ -9077,11 +9077,11 @@ window.openEmailDraft = function(o){
         <h3>Storage Facilities (<span id="mailStorage_count">0</span>)</h3>
         <div class="kpi-row" style="grid-template-columns:repeat(2,1fr); margin-bottom:20px;">
           <div class="kpi-card">
-            <div class="label">Contacted This Quarter</div>
+            <div class="label">Contacted in Last 3 Months</div>
             <div class="big" id="mailStorage_kpiUpToDate">0</div>
           </div>
           <div class="kpi-card">
-            <div class="label">Overdue (Not Contacted This Quarter)</div>
+            <div class="label">Overdue (3+ Months Since Contact)</div>
             <div class="big" id="mailStorage_kpiOverdue">0</div>
           </div>
         </div>
@@ -9095,7 +9095,7 @@ window.openEmailDraft = function(o){
             <select id="mailStorage_statusFilter" style="font-family:'Inter',sans-serif; font-size:13px; padding:8px 9px; border:1px solid var(--line); border-radius:3px;">
               <option value="all">All</option>
               <option value="overdue">Overdue</option>
-              <option value="up_to_date">Contacted This Quarter</option>
+              <option value="up_to_date">Contacted in Last 3 Months</option>
             </select>
           </label>
           <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em;">
@@ -17624,8 +17624,29 @@ window.openEmailDraft = function(o){
     return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
   }
 
+  // Every target should be contacted at least every 3 months: due 3
+  // calendar months after the last contact, overdue once that day arrives
+  // (or if it's never been contacted).
+  function mailAptDueDate(rec){
+    if(!rec || !rec.dateContacted) return null;
+    const d = new Date(rec.dateContacted + 'T00:00:00');
+    if(isNaN(d.getTime())) return null;
+    const day = d.getDate();
+    d.setMonth(d.getMonth() + 3);
+    if(d.getDate() !== day) d.setDate(0);   // e.g. Nov 30 -> Feb 28, not Mar 2
+    return d.toLocaleDateString('en-CA');
+  }
   function mailAptIsOverdue(rec){
-    return mailAptGetQuarter(rec.dateContacted) !== mailAptGetQuarter(todayStr());
+    const due = mailAptDueDate(rec);
+    return !due || todayStr() >= due;
+  }
+  function mailAptDueHtml(rec){
+    const due = mailAptDueDate(rec);
+    if(!due) return '<div style="font-size:11px; color:#B3261E; font-weight:600; margin-top:2px;">Never contacted</div>';
+    const label = new Date(due + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: due.slice(0, 4) !== todayStr().slice(0, 4) ? 'numeric' : undefined });
+    return todayStr() >= due
+      ? `<div style="font-size:11px; color:#B3261E; font-weight:600; margin-top:2px;">Overdue since ${label}</div>`
+      : `<div style="font-size:11px; color:var(--muted); margin-top:2px;">Due ${label}</div>`;
   }
 
   function updateMailListTileBadge(){
@@ -18062,7 +18083,7 @@ window.openEmailDraft = function(o){
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="phone" value="${mailEsc(r.phone)}" style="width:105px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailApt-edit" data-id="${r.id}" data-field="email" value="${mailEsc(r.email)}" style="width:170px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono',monospace; color:var(--brand-green); font-weight:600; white-space:nowrap;">${r.priceTier ? mailEsc(r.priceTier) : '<span style="color:var(--muted);">&mdash;</span>'}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="date" class="mailApt-date" data-id="${r.id}" value="${r.dateContacted || ''}" style="font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="date" class="mailApt-date" data-id="${r.id}" value="${r.dateContacted || ''}" style="font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;">${mailAptDueHtml(r)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="mailApt-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`;
     }).join('');
@@ -18238,7 +18259,7 @@ window.openEmailDraft = function(o){
       name: r.name, address: r.address, city: r.city, state: r.state, zip: r.zip,
       phone: r.phone, email: r.email, priceTier: r.priceTier || '',
       dateContacted: r.dateContacted || '',
-      contactStatus: mailAptIsOverdue(r) ? 'Overdue' : 'Contacted This Quarter'
+      contactStatus: mailAptIsOverdue(r) ? 'Overdue' : 'Contacted in Last 3 Months'
     }));
     const sheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -18310,8 +18331,29 @@ window.openEmailDraft = function(o){
     return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
   }
 
+  // Every target should be contacted at least every 3 months: due 3
+  // calendar months after the last contact, overdue once that day arrives
+  // (or if it's never been contacted).
+  function mailAptDueDate(rec){
+    if(!rec || !rec.dateContacted) return null;
+    const d = new Date(rec.dateContacted + 'T00:00:00');
+    if(isNaN(d.getTime())) return null;
+    const day = d.getDate();
+    d.setMonth(d.getMonth() + 3);
+    if(d.getDate() !== day) d.setDate(0);   // e.g. Nov 30 -> Feb 28, not Mar 2
+    return d.toLocaleDateString('en-CA');
+  }
   function mailAptIsOverdue(rec){
-    return mailAptGetQuarter(rec.dateContacted) !== mailAptGetQuarter(todayStr());
+    const due = mailAptDueDate(rec);
+    return !due || todayStr() >= due;
+  }
+  function mailAptDueHtml(rec){
+    const due = mailAptDueDate(rec);
+    if(!due) return '<div style="font-size:11px; color:#B3261E; font-weight:600; margin-top:2px;">Never contacted</div>';
+    const label = new Date(due + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: due.slice(0, 4) !== todayStr().slice(0, 4) ? 'numeric' : undefined });
+    return todayStr() >= due
+      ? `<div style="font-size:11px; color:#B3261E; font-weight:600; margin-top:2px;">Overdue since ${label}</div>`
+      : `<div style="font-size:11px; color:var(--muted); margin-top:2px;">Due ${label}</div>`;
   }
 
   function updateMailListTileBadge(){
@@ -18426,7 +18468,7 @@ window.openEmailDraft = function(o){
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="phone" value="${mailEsc(r.phone)}" style="width:105px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="text" class="mailStorage-edit" data-id="${r.id}" data-field="email" value="${mailEsc(r.email)}" style="width:170px; font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono',monospace; color:var(--brand-green); font-weight:600; white-space:nowrap;">${r.priceTier ? mailEsc(r.priceTier) : '<span style="color:var(--muted);">&mdash;</span>'}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="date" class="mailStorage-date" data-id="${r.id}" value="${r.dateContacted || ''}" style="font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;"></td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line);"><input type="date" class="mailStorage-date" data-id="${r.id}" value="${r.dateContacted || ''}" style="font-size:12.5px; padding:3px 4px; border:1px solid var(--line); border-radius:3px;">${mailAptDueHtml(r)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="mailStorage-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button></td>
       </tr>`;
     }).join('');
@@ -18602,7 +18644,7 @@ window.openEmailDraft = function(o){
       name: r.name, address: r.address, city: r.city, state: r.state, zip: r.zip,
       phone: r.phone, email: r.email, priceTier: r.priceTier || '',
       dateContacted: r.dateContacted || '',
-      contactStatus: mailAptIsOverdue(r) ? 'Overdue' : 'Contacted This Quarter'
+      contactStatus: mailAptIsOverdue(r) ? 'Overdue' : 'Contacted in Last 3 Months'
     }));
     const sheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
