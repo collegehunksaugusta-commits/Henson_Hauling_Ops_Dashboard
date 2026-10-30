@@ -6452,12 +6452,12 @@ window.openEmailDraft = function(o){
         <span class="dashSectionChevron">&#9656;</span>
         <div class="dashSectionHeaderText">
           <div class="dashSectionTitleRow">
-            <span class="dashSectionEmoji" aria-hidden="true">🚚</span>
-            <span>Trucks</span>
-            <span class="dashSectionCount">(3)</span>
+            <span class="dashSectionEmoji" aria-hidden="true">🛡️</span>
+            <span>Compliance</span>
+            <span class="dashSectionCount">(5)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-trucks">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Motive, Regulatory Compliance</div>
+          <div class="dashSectionTileList">Motive, Business, Trucks, Drivers, Insurance</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -6467,11 +6467,28 @@ window.openEmailDraft = function(o){
         <h3>Motive</h3>
         <p>Fleet tracking and ELD dashboard</p>
       </a>
-      <div class="tile" id="tile-compliance" tabindex="0" role="button" aria-label="Open Regulatory Compliance">
-        <span class="badge" id="complianceTileBadge" style="display:none;">Attention Needed</span>
-        <span class="icon">🛡️</span>
-        <h3>Regulatory Compliance</h3>
-        <p>Business authorizations, truck inventory and maintenance, safety records, and driver qualification files.</p>
+      <div class="tile comp-area-tile" id="tile-comp-business" data-section="business" tabindex="0" role="button" aria-label="Open Compliance: Business">
+        <span class="badge" id="compBusinessTileBadge" style="display:none;">Attention Needed</span>
+        <span class="icon">🏢</span>
+        <h3>Business</h3>
+        <p>Business authorizations and permits, EIN, W-9, and filing due dates.</p>
+      </div>
+      <div class="tile comp-area-tile" id="tile-comp-trucks" data-section="trucks" tabindex="0" role="button" aria-label="Open Compliance: Trucks">
+        <span class="badge" id="compTrucksTileBadge" style="display:none;">Attention Needed</span>
+        <span class="icon">🚚</span>
+        <h3>Trucks</h3>
+        <p>Fleet and personal vehicles, maintenance, pre-trip and DOT inspections, incidents, and violations.</p>
+      </div>
+      <div class="tile comp-area-tile" id="tile-comp-drivers" data-section="drivers" tabindex="0" role="button" aria-label="Open Compliance: Drivers">
+        <span class="badge" id="compDriversTileBadge" style="display:none;">Attention Needed</span>
+        <span class="icon">🪪</span>
+        <h3>Drivers</h3>
+        <p>Driver qualification files, medical cards, and driver documents.</p>
+      </div>
+      <div class="tile comp-area-tile" id="tile-comp-insurance" data-section="insurance" tabindex="0" role="button" aria-label="Open Compliance: Insurance">
+        <span class="icon">📄</span>
+        <h3>Insurance</h3>
+        <p>Certificates of insurance and the Broker Info Packet.</p>
       </div>
         </div>
       </div>
@@ -10275,7 +10292,8 @@ window.openEmailDraft = function(o){
     attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
     injuryDetail.style.display = view === 'injuries' ? 'block' : 'none';
     if(view === 'injuries') window.loadInjuries && window.loadInjuries();
-    complianceDetail.style.display = view === 'compliance' ? 'block' : 'none';
+    const compArea = /^compliance-(business|trucks|drivers|insurance)$/.exec(view);
+    complianceDetail.style.display = (view === 'compliance' || compArea) ? 'block' : 'none';
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
     mailListDetail.style.display = view === 'maillist' ? 'block' : 'none';
     mailRouteDetail.style.display = view === 'mailroute' ? 'block' : 'none';
@@ -10301,7 +10319,9 @@ window.openEmailDraft = function(o){
     if(view === 'attendance'){
       loadAttendanceData();
     }
-    if(view === 'compliance'){
+    if(view === 'compliance' || compArea){
+      // Opened from one of the Compliance tiles: go straight to that area.
+      if(window.setCompArea) window.setCompArea(compArea ? compArea[1] : null);
       loadFleetData();
       loadComplianceData();
     }
@@ -11013,8 +11033,10 @@ window.openEmailDraft = function(o){
   document.getElementById('tile-injuries').addEventListener('click', ()=> navigateTo('injuries'));
   document.getElementById('tile-injuries').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('injuries'); }});
 
-  document.getElementById('tile-compliance').addEventListener('click', ()=> navigateTo('compliance'));
-  document.getElementById('tile-compliance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('compliance'); }});
+  document.querySelectorAll('.comp-area-tile').forEach(t => {
+    t.addEventListener('click', () => navigateTo('compliance-' + t.dataset.section));
+    t.addEventListener('keydown', e => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); navigateTo('compliance-' + t.dataset.section); } });
+  });
   document.getElementById('complianceBackBtn').addEventListener('click', ()=> history.back());
 
   document.getElementById('tile-maillist').addEventListener('click', ()=> navigateTo('maillist'));
@@ -14780,6 +14802,14 @@ window.openEmailDraft = function(o){
   }
   window.loadComplianceData = loadComplianceData;
 
+  const COMP_AREA_TITLES = { business: 'Business', trucks: 'Trucks', drivers: 'Drivers', insurance: 'Insurance' };
+  window.setCompArea = area => {
+    if(area) compCurrentSection = area;
+    const head = document.querySelector('#complianceDetail .detail-head h2'), sub = document.querySelector('#complianceDetail .detail-head p');
+    document.getElementById('complianceSectionPanel').style.display = area ? 'none' : '';
+    if(head) head.textContent = area ? 'Compliance \u2014 ' + COMP_AREA_TITLES[area] : 'Regulatory Compliance';
+    if(sub) sub.textContent = area ? ({ business: 'Business authorizations, permits, EIN and W-9.', trucks: 'Vehicles, maintenance, inspections, incidents and violations.', drivers: 'Driver qualification files and documents.', insurance: 'Certificates of insurance and the Broker Info Packet.' }[area]) : 'Business authorizations, truck safety records, and driver qualification files.';
+  };
   function showCompSection(section){
     compCurrentSection = section;
     document.getElementById('comp_business').style.display = section === 'business' ? 'block' : 'none';
@@ -14805,16 +14835,12 @@ window.openEmailDraft = function(o){
     // Trucks moved here from the old standalone Fleet Maintenance tile --
     // overdue or due-soon maintenance now shows on this tile's badge too.
     const maintenanceDue = trucks.some(t => { const s = getTruckStatus(t.id); return s === 'overdue' || s === 'warning'; });
-    const anyDue = authDue || driverDue || ptiDefects || maintenanceDue;
-    const tile = document.getElementById('tile-compliance');
-    const badge = document.getElementById('complianceTileBadge');
-    if(anyDue){
-      tile.classList.add('attention');
-      badge.style.display = 'inline-block';
-    } else {
-      tile.classList.remove('attention');
-      badge.style.display = 'none';
-    }
+    // Each Compliance tile shows its own attention badge.
+    [['tile-comp-business', 'compBusinessTileBadge', authDue], ['tile-comp-trucks', 'compTrucksTileBadge', ptiDefects || maintenanceDue], ['tile-comp-drivers', 'compDriversTileBadge', driverDue]].forEach(([tid, bid, on]) => {
+      const tile = document.getElementById(tid), badge = document.getElementById(bid);
+      if(tile) tile.classList.toggle('attention', !!on);
+      if(badge) badge.style.display = on ? 'inline-block' : 'none';
+    });
   }
 
   // ---- Business: EIN letter ----
@@ -16947,7 +16973,7 @@ window.openEmailDraft = function(o){
   // future badge-toggling function keeps working exactly as it does today --
   // nothing scattered elsewhere in this file needs to know sections exist.
   (function watchTileBadgesForAttentionSync(){
-    const badgeIds = ['complianceTileBadge', 'mailListTileBadge', 'materialsTileBadge', 'damageClaimTileBadge', 'managerReviewTileBadge'];
+    const badgeIds = ['compBusinessTileBadge', 'compTrucksTileBadge', 'compDriversTileBadge', 'mailListTileBadge', 'materialsTileBadge', 'damageClaimTileBadge', 'managerReviewTileBadge'];
     const observer = new MutationObserver(updateDashSectionAttentionBadges);
     badgeIds.forEach(id => {
       const el = document.getElementById(id);
