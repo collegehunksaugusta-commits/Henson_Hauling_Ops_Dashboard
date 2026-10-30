@@ -17020,15 +17020,6 @@ window.openEmailDraft = function(o){
         <div style="margin-top:10px;"><strong style="font-size:13.5px;">Photos of the incident / injury</strong>
           <div id="injf_photos" style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0;"></div>
           <input type="file" id="injf_photoInput" accept="image/*" multiple style="font-size:13px;"></div>
-        <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:8px;">
-          <strong style="font-size:13.5px;">Medical files</strong>
-          <p class="form-note" style="margin:2px 0 8px;">Discharge papers and other documents from treatment (PDF or photo).</p>
-          <div id="injf_medList" style="margin-bottom:8px;"></div>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <select id="injf_medType" style="padding:6px;">${MED_TYPES.map(t => `<option>${t}</option>`).join('')}</select>
-            <input type="file" id="injf_medInput" accept=".pdf,image/*" multiple style="font-size:13px;">
-          </div>
-        </div>
         <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
           <label style="display:flex; align-items:center; gap:10px; margin:0; font-weight:700;"><input type="checkbox" id="injf_recordable" ${r.recordable ? 'checked' : ''} style="width:20px; height:20px;"> OSHA recordable</label>
           <p class="form-note" style="margin:4px 0 0;">Recordable = treatment beyond first aid, days away, restricted work or job transfer, loss of consciousness, or a significant diagnosed injury. It&rsquo;s added to the OSHA 300 log.</p>
@@ -17054,8 +17045,7 @@ window.openEmailDraft = function(o){
           ${r.isNew ? '' : '<button type="button" id="injf_delete" style="background:#fff; border:1px solid var(--line); color:#b3261e; border-radius:6px; padding:9px 14px; cursor:pointer; margin-left:auto;">Delete</button>'}
           <span class="status-msg" id="injf_status"></span>
         </div>`;
-      renderPhotos(); renderEmp(); renderMedFiles();
-      document.getElementById('injf_medInput').addEventListener('change', addMedFiles);
+      renderPhotos(); renderEmp();
       document.getElementById('injf_recordable').addEventListener('change', e => { document.getElementById('injf_oshaBox').style.display = e.target.checked ? 'block' : 'none'; });
       document.getElementById('injf_photoInput').addEventListener('change', addPhotos);
       document.getElementById('injf_save').addEventListener('click', () => saveEditor());
@@ -17133,33 +17123,25 @@ window.openEmailDraft = function(o){
         <button type="button" class="inj-medview" data-key="${esc(f.key)}" style="margin-left:auto; background:#fff; border:1px solid var(--line); border-radius:5px; padding:3px 10px; cursor:pointer; font-size:12px;">View</button>
         ${canRemove ? `<button type="button" class="inj-medrm" data-key="${esc(f.key)}" style="background:none; border:none; color:#b3261e; cursor:pointer; font-size:12px;">Remove</button>` : ''}</div>`;
     }
-    function renderMedFiles(){
-      const el = document.getElementById('injf_medList'); if(!el) return;
-      const files = injEditing.medicalFiles || [];
-      el.innerHTML = files.length ? files.map(f => medFileRow(f, true)).join('') : '<span class="form-note" style="margin:0;">None uploaded yet.</span>';
-      el.querySelectorAll('.inj-medview').forEach(b => b.onclick = () => viewMedFile(b.dataset.key));
-      el.querySelectorAll('.inj-medrm').forEach(b => b.onclick = async () => {
-        if(!confirm('Remove this medical file?')) return;
-        injEditing.medicalFiles = files.filter(f => f.key !== b.dataset.key);
-        window.dashboardApi.set(b.dataset.key, null).catch(() => {});
-        await saveEditor(true); renderMedFiles();
-      });
+    // Upload / remove work on the case record directly (and keep an open
+    // case form in step, so saving it can't drop a file).
+    async function saveMedFiles(rec){
+      if(injEditing && injEditing.id === rec.id) injEditing.medicalFiles = JSON.parse(JSON.stringify(rec.medicalFiles || []));
+      return await save();
     }
-    async function addMedFiles(e){
-      const st = document.getElementById('injf_status'), docType = document.getElementById('injf_medType').value;
-      for(const f of [...e.target.files]){
+    async function addMedFilesTo(rec, files, docType, st){
+      for(const f of files){
         if(f.size > 15 * 1024 * 1024){ st.textContent = `${f.name} is over 15MB.`; st.className = 'status-msg err'; continue; }
         st.textContent = `Uploading ${f.name}\u2026`; st.className = 'status-msg';
         try{
           const uri = f.type.startsWith('image/') ? await window.compressImageForUpload(f, 2000, 0.85) : await new Promise((ok, bad) => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.onerror = bad; rd.readAsDataURL(f); });
-          const key = `injury-file-${injEditing.id}-m${Date.now()}${Math.floor(Math.random() * 1000)}`;
+          const key = `injury-file-${rec.id}-m${Date.now()}${Math.floor(Math.random() * 1000)}`;
           if(!(await window.dashboardApi.set(key, uri))) throw new Error('save');
-          injEditing.medicalFiles = (injEditing.medicalFiles || []).concat([{ key, name: f.name, type: f.type || '', docType, uploadedAt: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || '' }]);
-        }catch(err){ st.textContent = `${f.name} could not be uploaded \u2014 check your connection.`; st.className = 'status-msg err'; }
+          rec.medicalFiles = (rec.medicalFiles || []).concat([{ key, name: f.name, type: f.type || '', docType, uploadedAt: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || '' }]);
+        }catch(err){ st.textContent = `${f.name} could not be uploaded \u2014 check your connection.`; st.className = 'status-msg err'; return false; }
       }
-      e.target.value = '';
-      if(await saveEditor(true)){ st.textContent = '\u2713 Medical file saved.'; st.className = 'status-msg ok'; }
-      renderMedFiles();
+      if(!(await saveMedFiles(rec))){ st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; return false; }
+      return true;
     }
     // The Medical Files tab: every case for the year with its documents.
     function renderMedical(){
@@ -17167,15 +17149,34 @@ window.openEmailDraft = function(o){
       const beyondFirstAid = r => r.treatment && !/^first aid|declined/i.test(r.treatment);
       const list = inj.reports.filter(r => yearOf(r) === y && ((r.medicalFiles || []).length || beyondFirstAid(r))).sort((a, b) => String(b.date).localeCompare(String(a.date)));
       const panel = document.getElementById('inj_medPanel');
-      panel.innerHTML = `<h3 style="margin:0 0 4px;">Medical Files \u2014 ${esc(y)}</h3><p class="form-note" style="margin:0 0 10px;">Discharge papers and other treatment documents, by case. Open a case to add or remove files.</p>
+      panel.innerHTML = `<h3 style="margin:0 0 4px;">Medical Files \u2014 ${esc(y)}</h3><p class="form-note" style="margin:0 0 10px;">Discharge papers and other treatment documents, by case. Pick the type of document, then <strong>+ Add Files</strong> (PDF or photo).</p>
         ${list.length ? list.map(r => `<div style="border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
             <div><strong>${esc(r.employeeName)}</strong> <span style="color:var(--muted); font-size:13px;">\u00b7 ${fmtD(r.date)} \u00b7 ${esc(r.injuryType)}${r.bodyPart ? ' \u2014 ' + esc(r.bodyPart) : ''} \u00b7 ${esc(r.treatment)}</span></div>
             <button type="button" class="inj-medopen" data-id="${esc(r.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer;">Open case</button></div>
-          ${(r.medicalFiles || []).length ? (r.medicalFiles || []).map(f => medFileRow(f, false)).join('') : `<div style="margin-top:6px; font-size:13px; color:#8a6100; font-weight:600;">\u26a0 Treated beyond first aid \u2014 no medical documents uploaded yet.</div>`}
-        </div>`).join('') : `<p class="form-note" style="margin:0;">No medical files for ${esc(y)}.</p>`}`;
+          ${(r.medicalFiles || []).length ? (r.medicalFiles || []).map(f => medFileRow(f, true)).join('') : `<div style="margin-top:6px; font-size:13px; color:#8a6100; font-weight:600;">\u26a0 Treated beyond first aid \u2014 no medical documents uploaded yet.</div>`}
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px;">
+            <select class="inj-medtype" data-id="${esc(r.id)}" style="padding:6px;">${MED_TYPES.map(t => `<option>${t}</option>`).join('')}</select>
+            <label style="margin:0; display:inline-flex; align-items:center; gap:6px; background:var(--brand-green); color:#fff; border-radius:6px; padding:7px 14px; cursor:pointer; font-weight:700; font-size:13px; text-transform:none; letter-spacing:normal; font-family:inherit;">+ Add Files<input type="file" class="inj-medfile" data-id="${esc(r.id)}" accept=".pdf,image/*" multiple style="display:none;"></label>
+            <span class="status-msg inj-medstatus" data-id="${esc(r.id)}" style="font-size:12.5px;"></span>
+          </div>
+        </div>`).join('') : `<p class="form-note" style="margin:0;">No cases with treatment beyond first aid in ${esc(y)}. Cases appear here once one is reported with treatment such as urgent care or the ER.</p>`}`;
       panel.querySelectorAll('.inj-medview').forEach(b => b.onclick = () => viewMedFile(b.dataset.key));
       panel.querySelectorAll('.inj-medopen').forEach(b => b.onclick = () => { showTab('reports'); openEditor(inj.reports.find(r => r.id === b.dataset.id)); });
+      panel.querySelectorAll('.inj-medfile').forEach(inp => inp.addEventListener('change', async () => {
+        const rec = inj.reports.find(r => r.id === inp.dataset.id); if(!rec || !inp.files.length) return;
+        const st = panel.querySelector(`.inj-medstatus[data-id="${CSS.escape(rec.id)}"]`), type = panel.querySelector(`.inj-medtype[data-id="${CSS.escape(rec.id)}"]`).value;
+        const ok = await addMedFilesTo(rec, [...inp.files], type, st);
+        inp.value = '';
+        if(ok){ renderMedical(); const st2 = panel.querySelector(`.inj-medstatus[data-id="${CSS.escape(rec.id)}"]`); if(st2){ st2.textContent = '\u2713 Saved.'; st2.className = 'status-msg inj-medstatus ok'; } }
+      }));
+      panel.querySelectorAll('.inj-medrm').forEach(b => b.onclick = async () => {
+        const rec = inj.reports.find(r => (r.medicalFiles || []).some(f => f.key === b.dataset.key)); if(!rec || !confirm('Remove this medical file?')) return;
+        rec.medicalFiles = rec.medicalFiles.filter(f => f.key !== b.dataset.key);
+        window.dashboardApi.set(b.dataset.key, null).catch(() => {});
+        if(!(await saveMedFiles(rec))) alert('Could not save \u2014 check your connection.');
+        renderMedical();
+      });
     }
 
     // the employee signs in the HUNK Portal
