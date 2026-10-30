@@ -6292,10 +6292,10 @@ window.openEmailDraft = function(o){
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(7)</span>
+            <span class="dashSectionCount">(8)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Ops Manager Metrics, Captain Metrics, Wingman Metrics, Attendance Tracking, Employee Roster, Hiring</div>
+          <div class="dashSectionTileList">Ops Manager Metrics, Captain Metrics, Wingman Metrics, Attendance Tracking, Injury Reports, Employee Roster, Hiring</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -6319,6 +6319,11 @@ window.openEmailDraft = function(o){
         <span class="icon">🕒</span>
         <h3>Attendance Tracking</h3>
         <p>Log unexcused tardies and absences, pulled from your current payroll roster.</p>
+      </div>
+      <div class="tile" id="tile-injuries" tabindex="0" role="button" aria-label="Open Injury Reports">
+        <span class="icon">&#129657;</span>
+        <h3>Injury Reports</h3>
+        <p>Report and document injuries, signed reports, and the OSHA 300 log and 300A summary.</p>
       </div>
       <div class="tile" id="tile-roster" tabindex="0" role="button" aria-label="Open Employee Roster">
         <span class="icon">&#128101;</span>
@@ -8319,6 +8324,36 @@ window.openEmailDraft = function(o){
   </div>
 
   <!-- ============ ATTENDANCE TRACKING DETAIL ============ -->
+  <div id="injuryDetail" style="display:none;">
+    <button class="backlink" id="injuryBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Injury Reports</h2>
+        <p>Document every injury, print the one-page report for signatures, attach the signed copy, and keep the OSHA 300 log and 300A summary.</p>
+      </div>
+      <div class="panel">
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="inj-tab btn-primary" data-tab="reports">Injury Reports</button>
+            <button type="button" class="inj-tab" data-tab="log300">OSHA 300 Log</button>
+            <button type="button" class="inj-tab" data-tab="sum300a">OSHA 300A Summary</button>
+          </div>
+          <label style="margin:0; display:flex; align-items:center; gap:8px;">Year <select id="inj_year" style="padding:6px;"></select></label>
+        </div>
+      </div>
+      <div class="panel" id="inj_reportsPanel">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <h3 style="margin:0;">Injuries</h3>
+          <button type="button" class="btn-primary" id="inj_newBtn">+ New Injury Report</button>
+        </div>
+        <div id="inj_list" style="margin-top:12px;"></div>
+      </div>
+      <div class="panel" id="inj_editPanel" style="display:none; border:2px solid var(--brand-green);"></div>
+      <div class="panel" id="inj_logPanel" style="display:none;"></div>
+      <div class="panel" id="inj_sumPanel" style="display:none;"></div>
+    </div>
+  </div>
+
   <div id="attendanceDetail" style="display:none;">
     <button class="backlink" id="attendanceBackBtn">&larr; Dispatch</button>
     <div class="wrap">
@@ -10114,6 +10149,7 @@ window.openEmailDraft = function(o){
   const calcDetail = document.getElementById('calcDetail');
   const paperworkDetail = document.getElementById('paperworkDetail');
   const attendanceDetail = document.getElementById('attendanceDetail');
+  const injuryDetail = document.getElementById('injuryDetail');
   const complianceDetail = document.getElementById('complianceDetail');
   const settingsDetail = document.getElementById('settingsDetail');
   const mailListDetail = document.getElementById('mailListDetail');
@@ -10165,6 +10201,8 @@ window.openEmailDraft = function(o){
     calcDetail.style.display = view === 'calc' ? 'block' : 'none';
     paperworkDetail.style.display = view === 'paperwork' ? 'block' : 'none';
     attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
+    injuryDetail.style.display = view === 'injuries' ? 'block' : 'none';
+    if(view === 'injuries') window.loadInjuries && window.loadInjuries();
     complianceDetail.style.display = view === 'compliance' ? 'block' : 'none';
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
     mailListDetail.style.display = view === 'maillist' ? 'block' : 'none';
@@ -10899,6 +10937,9 @@ window.openEmailDraft = function(o){
   document.getElementById('tile-attendance').addEventListener('click', ()=> navigateTo('attendance'));
   document.getElementById('tile-attendance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('attendance'); }});
   document.getElementById('attendanceBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('injuryBackBtn').addEventListener('click', ()=> history.back());
+  document.getElementById('tile-injuries').addEventListener('click', ()=> navigateTo('injuries'));
+  document.getElementById('tile-injuries').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('injuries'); }});
 
   document.getElementById('tile-compliance').addEventListener('click', ()=> navigateTo('compliance'));
   document.getElementById('tile-compliance').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('compliance'); }});
@@ -16805,6 +16846,379 @@ window.openEmailDraft = function(o){
       if(el) observer.observe(el, { attributes: true, attributeFilter: ['style'] });
     });
     updateDashSectionAttentionBadges(); // capture whatever state badges are already in
+  })();
+
+  // ======================================================================
+  // INJURY REPORTS + OSHA 300 / 300A (People tab)
+  // One record per injury in 'injury-reports' ({ reports, establishment });
+  // photos and the signed report are files under 'injury-file-'.
+  // ======================================================================
+  (function(){
+    const INJ_KEY = 'injury-reports';
+    const INJ_TYPES = ['Cut / laceration', 'Strain / sprain', 'Back injury', 'Bruise / contusion', 'Fracture', 'Crush / pinch', 'Puncture', 'Burn', 'Eye injury', 'Heat illness', 'Dog / animal bite', 'Other'];
+    const INJ_TREAT = ['First aid only (on site)', 'Urgent care', 'Emergency room', 'Doctor / clinic visit', 'Prescription medication', 'Physical therapy', 'Chiropractor', 'Hospitalized overnight', 'Declined treatment', 'Other'];
+    const OSHA_OUTCOME = { death: 'Death', daysAway: 'Days away from work', restricted: 'Job transfer or restriction', other: 'Other recordable case' };
+    const OSHA_TYPE = { injury: 'Injury', skin: 'Skin disorder', respiratory: 'Respiratory condition', poisoning: 'Poisoning', hearing: 'Hearing loss', other: 'All other illnesses' };
+    let inj = { reports: [], establishment: {} }, injTab = 'reports', injEditing = null, injRoster = [];
+    const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const fmtD = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US') : '';
+    const fmtT = t => { if(!t) return ''; const [h, m] = t.split(':').map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+    const yearOf = r => String(r.date || '').slice(0, 4);
+    async function save(){ return await window.dashboardApi.set(INJ_KEY, inj); }
+
+    window.loadInjuries = async function(){
+      try{ const d = await window.dashboardApi.get(INJ_KEY, null); inj = Object.assign({ reports: [], establishment: {} }, d || {}); }catch(err){}
+      try{ injRoster = await window.getCurrentEmployeeRoster() || []; }catch(err){ injRoster = []; }
+      const sel = document.getElementById('inj_year'), cur = new Date().getFullYear();
+      const years = new Set([cur, cur - 1, ...inj.reports.map(r => Number(yearOf(r))).filter(Boolean)]);
+      const keep = sel.value || String(cur);
+      sel.innerHTML = [...years].sort((a, b) => b - a).map(y => `<option ${String(y) === keep ? 'selected' : ''}>${y}</option>`).join('');
+      showTab(injTab);
+    };
+    function showTab(t){
+      injTab = t;
+      document.querySelectorAll('.inj-tab').forEach(b => { b.classList.toggle('btn-primary', b.dataset.tab === t); });
+      document.getElementById('inj_reportsPanel').style.display = t === 'reports' ? '' : 'none';
+      document.getElementById('inj_editPanel').style.display = t === 'reports' && injEditing ? '' : 'none';
+      document.getElementById('inj_logPanel').style.display = t === 'log300' ? '' : 'none';
+      document.getElementById('inj_sumPanel').style.display = t === 'sum300a' ? '' : 'none';
+      if(t === 'reports') renderList();
+      if(t === 'log300') renderLog();
+      if(t === 'sum300a') renderSummary();
+    }
+    document.querySelectorAll('.inj-tab').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+    document.getElementById('inj_year').addEventListener('change', () => showTab(injTab));
+
+    // ---------- list ----------
+    function renderList(){
+      const y = document.getElementById('inj_year').value;
+      const list = inj.reports.filter(r => yearOf(r) === y).sort((a, b) => String(b.date + b.time).localeCompare(String(a.date + a.time)));
+      const chip = (t, bg, fg) => `<span style="font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; background:${bg}; color:${fg};">${t}</span>`;
+      document.getElementById('inj_list').innerHTML = list.length ? `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr>${['Date', 'Employee', 'Injury', 'Treatment', 'Status', ''].map(h => `<th style="text-align:left; padding:6px; border-bottom:1px solid var(--line);">${h}</th>`).join('')}</tr></thead>
+        <tbody>${list.map(r => `<tr>
+          <td style="padding:6px; border-bottom:1px solid var(--line);">${fmtD(r.date)}${r.time ? '<div style="font-size:11.5px; color:var(--muted);">' + fmtT(r.time) + '</div>' : ''}</td>
+          <td style="padding:6px; border-bottom:1px solid var(--line); font-weight:600;">${esc(r.employeeName)}</td>
+          <td style="padding:6px; border-bottom:1px solid var(--line);">${esc(r.injuryType)}${r.bodyPart ? ' \u2014 ' + esc(r.bodyPart) : ''}</td>
+          <td style="padding:6px; border-bottom:1px solid var(--line);">${esc(r.treatment)}</td>
+          <td style="padding:6px; border-bottom:1px solid var(--line);">${r.signedKey ? chip('Signed', '#E3F4EA', '#00612C') : chip('Needs signature', '#FFF1CC', '#7A5A00')} ${r.recordable ? chip('OSHA ' + esc(r.caseNo || ''), '#FDECEA', '#B3261E') : ''}</td>
+          <td style="padding:6px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="inj-open" data-id="${esc(r.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer;">Open</button></td></tr>`).join('')}</tbody></table></div>`
+        : `<p class="form-note" style="margin:0;">No injuries reported in ${esc(y)}.</p>`;
+      document.querySelectorAll('.inj-open').forEach(b => b.addEventListener('click', () => openEditor(inj.reports.find(r => r.id === b.dataset.id))));
+    }
+    document.getElementById('inj_newBtn').addEventListener('click', () => {
+      const now = new Date();
+      openEditor({ id: 'inj_' + Date.now(), date: now.toLocaleDateString('en-CA'), time: now.toTimeString().slice(0, 5), photoKeys: [], isNew: true });
+    });
+
+    // ---------- the report form ----------
+    function openEditor(r){
+      injEditing = JSON.parse(JSON.stringify(r));
+      const p = document.getElementById('inj_editPanel'); p.style.display = '';
+      const opt = (list, v) => '<option value="">Select\u2026</option>' + list.map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join('') + (v && !list.includes(v) ? `<option selected>${esc(v)}</option>` : '');
+      const names = Array.from(new Set([...(injRoster || []), r.employeeName].filter(Boolean)));
+      p.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;"><h3 style="margin:0;">${r.isNew ? 'New Injury Report' : 'Injury Report'}</h3>${r.recordable ? `<strong style="color:#B3261E;">OSHA case ${esc(r.caseNo || '')}</strong>` : ''}</div>
+        <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); align-items:end; margin-top:10px;">
+          <label>Employee <select id="injf_employee">${opt(names, r.employeeName)}</select></label>
+          <label>Date of injury <input type="date" id="injf_date" value="${esc(r.date || '')}"></label>
+          <label>Time <input type="time" id="injf_time" value="${esc(r.time || '')}"></label>
+          <label>Where it happened <input type="text" id="injf_location" value="${esc(r.location || '')}" placeholder="e.g. client's home, 123 Main St, Evans"></label>
+          <label>Injury type <select id="injf_type">${opt(INJ_TYPES, r.injuryType)}</select></label>
+          <label>Body part affected <input type="text" id="injf_body" value="${esc(r.bodyPart || '')}" placeholder="e.g. lower back, left hand"></label>
+          <label>Treatment <select id="injf_treat">${opt(INJ_TREAT, r.treatment)}</select></label>
+          <label>Reported to (supervisor) <input type="text" id="injf_super" value="${esc(r.supervisor || '')}" placeholder="e.g. Captain on the job"></label>
+        </div>
+        <label style="display:block; margin-top:8px;">Description of the incident <textarea id="injf_desc" rows="4" style="width:100%;" placeholder="What happened, what the employee was doing, and the object or substance involved.">${esc(r.description || '')}</textarea></label>
+        <div style="margin-top:10px;"><strong style="font-size:13.5px;">Photos of the incident / injury</strong>
+          <div id="injf_photos" style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0;"></div>
+          <input type="file" id="injf_photoInput" accept="image/*" multiple style="font-size:13px;"></div>
+        <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; background:var(--offwhite);">
+          <label style="display:flex; align-items:center; gap:10px; margin:0; font-weight:700;"><input type="checkbox" id="injf_recordable" ${r.recordable ? 'checked' : ''} style="width:20px; height:20px;"> OSHA recordable</label>
+          <p class="form-note" style="margin:4px 0 0;">Recordable = treatment beyond first aid, days away, restricted work or job transfer, loss of consciousness, or a significant diagnosed injury. It&rsquo;s added to the OSHA 300 log.</p>
+          <div id="injf_oshaBox" style="display:${r.recordable ? 'block' : 'none'}; margin-top:10px;">
+            <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); align-items:end;">
+              <label>Job title <input type="text" id="injf_job" value="${esc(r.jobTitle || '')}" placeholder="e.g. Mover / Driver"></label>
+              <label>Most serious outcome <select id="injf_outcome">${Object.entries(OSHA_OUTCOME).map(([k, v]) => `<option value="${k}" ${r.oshaOutcome === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+              <label>Days away from work <input type="number" min="0" max="180" id="injf_away" value="${r.daysAway || 0}"></label>
+              <label>Days on job transfer / restriction <input type="number" min="0" max="180" id="injf_restricted" value="${r.daysRestricted || 0}"></label>
+              <label>Injury or illness <select id="injf_itype">${Object.entries(OSHA_TYPE).map(([k, v]) => `<option value="${k}" ${(r.illnessType || 'injury') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+            </div>
+            <label style="display:flex; align-items:center; gap:8px; margin:8px 0 0;"><input type="checkbox" id="injf_privacy" ${r.privacyCase ? 'checked' : ''}> Privacy case <span class="form-note" style="margin:0;">(the log shows &ldquo;Privacy Case&rdquo; instead of the name)</span></label>
+          </div>
+        </div>
+        <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:8px;">
+          <strong style="font-size:13.5px;">Signed report</strong>
+          <div id="injf_signed" style="margin:6px 0;"></div>
+          <input type="file" id="injf_signedInput" accept=".pdf,image/*" style="font-size:13px;">
+        </div>
+        <div class="form-actions" style="flex-wrap:wrap;">
+          <button type="button" class="btn-primary" id="injf_save">Save</button>
+          <button type="button" id="injf_print" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:9px 14px; cursor:pointer; font-weight:600;">&#128424; Print Report</button>
+          <button type="button" id="injf_close" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:9px 14px; cursor:pointer;">Close</button>
+          ${r.isNew ? '' : '<button type="button" id="injf_delete" style="background:#fff; border:1px solid var(--line); color:#b3261e; border-radius:6px; padding:9px 14px; cursor:pointer; margin-left:auto;">Delete</button>'}
+          <span class="status-msg" id="injf_status"></span>
+        </div>`;
+      renderPhotos(); renderSigned();
+      document.getElementById('injf_recordable').addEventListener('change', e => { document.getElementById('injf_oshaBox').style.display = e.target.checked ? 'block' : 'none'; });
+      document.getElementById('injf_photoInput').addEventListener('change', addPhotos);
+      document.getElementById('injf_signedInput').addEventListener('change', addSigned);
+      document.getElementById('injf_save').addEventListener('click', () => saveEditor());
+      document.getElementById('injf_print').addEventListener('click', async () => { if(await saveEditor(true)) printReport(injEditing); });
+      document.getElementById('injf_close').addEventListener('click', () => { injEditing = null; p.style.display = 'none'; });
+      const del = document.getElementById('injf_delete'); if(del) del.addEventListener('click', deleteReport);
+      p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function readForm(){
+      const v = id => document.getElementById(id).value.trim();
+      const r = injEditing;
+      Object.assign(r, { employeeName: v('injf_employee'), date: v('injf_date'), time: v('injf_time'), location: v('injf_location'), injuryType: v('injf_type'), bodyPart: v('injf_body'),
+        treatment: v('injf_treat'), supervisor: v('injf_super'), description: v('injf_desc'), recordable: document.getElementById('injf_recordable').checked });
+      if(r.recordable) Object.assign(r, { jobTitle: v('injf_job'), oshaOutcome: v('injf_outcome'), daysAway: Math.max(0, Math.min(180, parseInt(v('injf_away'), 10) || 0)),
+        daysRestricted: Math.max(0, Math.min(180, parseInt(v('injf_restricted'), 10) || 0)), illnessType: v('injf_itype'), privacyCase: document.getElementById('injf_privacy').checked });
+      return r;
+    }
+    async function saveEditor(quiet){
+      const r = readForm(), st = document.getElementById('injf_status');
+      const missing = [['employeeName', 'employee'], ['date', 'date'], ['injuryType', 'injury type'], ['treatment', 'treatment'], ['description', 'description']].filter(([k]) => !r[k]).map(([, l]) => l);
+      if(missing.length){ st.textContent = 'Fill in: ' + missing.join(', ') + '.'; st.className = 'status-msg err'; return false; }
+      if(r.recordable && r.date && r.date.slice(0, 4) !== (r.caseNo || '').slice(0, 4)){
+        // Next OSHA case number for that year: 2026-01, 2026-02, ...
+        const y = r.date.slice(0, 4);
+        const used = inj.reports.filter(x => x.id !== r.id && x.recordable && (x.caseNo || '').startsWith(y)).map(x => parseInt((x.caseNo || '').split('-')[1], 10) || 0);
+        r.caseNo = `${y}-${String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0')}`;
+      }
+      delete r.isNew;
+      r.updatedAt = new Date().toISOString(); r.updatedBy = localStorage.getItem('henson_auth_email') || '';
+      if(!r.createdAt){ r.createdAt = r.updatedAt; r.createdBy = r.updatedBy; }
+      const i = inj.reports.findIndex(x => x.id === r.id);
+      if(i >= 0) inj.reports[i] = JSON.parse(JSON.stringify(r)); else inj.reports.push(JSON.parse(JSON.stringify(r)));
+      if(!(await save())){ st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; return false; }
+      if(!quiet){ st.textContent = '\u2713 Saved.' + (r.recordable ? ` On the OSHA 300 log as case ${r.caseNo}.` : ''); st.className = 'status-msg ok'; }
+      const ysel = document.getElementById('inj_year'); if(r.date && ![...ysel.options].some(o => o.value === r.date.slice(0, 4))) await window.loadInjuries(); else renderList();
+      return true;
+    }
+    async function deleteReport(){
+      const r = injEditing; if(!confirm(`Delete the injury report for ${r.employeeName || 'this employee'} (${fmtD(r.date)})? Its photos and signed copy are deleted too.`)) return;
+      inj.reports = inj.reports.filter(x => x.id !== r.id);
+      if(!(await save())){ alert('Could not delete \u2014 check your connection.'); return; }
+      [...(r.photoKeys || []), r.signedKey].filter(Boolean).forEach(k => window.dashboardApi.set(k, null).catch(() => {}));
+      injEditing = null; document.getElementById('inj_editPanel').style.display = 'none'; renderList();
+    }
+    // photos
+    async function renderPhotos(){
+      const wrap = document.getElementById('injf_photos'); if(!wrap) return;
+      const keys = injEditing.photoKeys || [];
+      wrap.innerHTML = keys.length ? keys.map(k => `<div style="position:relative;"><img data-key="${esc(k)}" alt="Injury photo" style="width:96px; height:96px; object-fit:cover; border-radius:6px; background:#eee; cursor:zoom-in;" onclick="window.showPhotoModal(this.src)"><button type="button" class="injf-delphoto" data-key="${esc(k)}" title="Remove" style="position:absolute; top:2px; right:2px; background:rgba(0,0,0,.6); color:#fff; border:none; border-radius:50%; width:22px; height:22px; cursor:pointer;">&times;</button></div>`).join('') : '<span class="form-note" style="margin:0;">No photos yet.</span>';
+      wrap.querySelectorAll('.injf-delphoto').forEach(b => b.addEventListener('click', () => { injEditing.photoKeys = injEditing.photoKeys.filter(k => k !== b.dataset.key); window.dashboardApi.set(b.dataset.key, null).catch(() => {}); renderPhotos(); }));
+      for(const img of wrap.querySelectorAll('img')){ try{ const u = await window.dashboardApi.get(img.dataset.key, null); if(u) img.src = u; }catch(err){} }
+    }
+    async function addPhotos(e){
+      const st = document.getElementById('injf_status');
+      for(const f of [...e.target.files]){
+        try{
+          st.textContent = 'Adding photo\u2026'; st.className = 'status-msg';
+          const uri = await window.compressImageForUpload(f, 1600, 0.82);
+          const key = `injury-file-${injEditing.id}-p${Date.now()}${Math.floor(Math.random() * 1000)}`;
+          if(!(await window.dashboardApi.set(key, uri))) throw new Error('save');
+          injEditing.photoKeys = (injEditing.photoKeys || []).concat([key]);
+        }catch(err){ st.textContent = 'A photo could not be saved \u2014 check your connection.'; st.className = 'status-msg err'; }
+      }
+      e.target.value = ''; if(st.textContent === 'Adding photo\u2026') st.textContent = '';
+      renderPhotos(); saveEditor(true);
+    }
+    // signed copy
+    function renderSigned(){
+      const el = document.getElementById('injf_signed'); if(!el) return;
+      el.innerHTML = injEditing.signedKey
+        ? `\u2705 <strong>Signed copy on file</strong>${injEditing.signedFileName ? ' \u00b7 ' + esc(injEditing.signedFileName) : ''}${injEditing.signedAt ? ` <span style="color:var(--muted);">(${new Date(injEditing.signedAt).toLocaleDateString()})</span>` : ''} <button type="button" id="injf_viewSigned" style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:3px 10px; cursor:pointer; font-size:12px;">View</button><div class="form-note" style="margin:4px 0 0;">Choose a new file below to replace it.</div>`
+        : '<span class="form-note" style="margin:0;">Print the report, have the employee sign it, then scan or photograph it and upload it here.</span>';
+      const v = document.getElementById('injf_viewSigned');
+      if(v) v.onclick = async () => { const u = await window.dashboardApi.get(injEditing.signedKey, null); if(u) window.showPhotoModal(window.fleetDataUriToBlobUrl ? window.fleetDataUriToBlobUrl(u) : u, { isPdf: /^data:application\/pdf/.test(u) }); };
+    }
+    async function addSigned(e){
+      const f = e.target.files[0], st = document.getElementById('injf_status'); if(!f) return;
+      if(f.size > 12 * 1024 * 1024){ st.textContent = 'That file is over 12MB.'; st.className = 'status-msg err'; return; }
+      st.textContent = 'Uploading the signed copy\u2026'; st.className = 'status-msg';
+      try{
+        const uri = f.type.startsWith('image/') ? await window.compressImageForUpload(f, 2000, 0.85) : await new Promise((ok, bad) => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.onerror = bad; rd.readAsDataURL(f); });
+        const key = `injury-file-${injEditing.id}-signed`;
+        if(!(await window.dashboardApi.set(key, uri))) throw new Error('save');
+        Object.assign(injEditing, { signedKey: key, signedFileName: f.name, signedAt: new Date().toISOString() });
+        if(await saveEditor(true)){ st.textContent = '\u2713 Signed copy saved.'; st.className = 'status-msg ok'; }
+      }catch(err){ st.textContent = 'Could not upload \u2014 check your connection.'; st.className = 'status-msg err'; }
+      e.target.value = ''; renderSigned();
+    }
+
+    // ---------- printing (a hidden frame, so no pop-up is needed) ----------
+    function printHtml(title, body, landscape){
+      const fr = document.createElement('iframe');
+      fr.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
+      document.body.appendChild(fr);
+      const doc = fr.contentWindow.document;
+      doc.open();
+      doc.write(`<!doctype html><html><head><title>${esc(title)}</title><style>@page{size:${landscape ? 'letter landscape' : 'letter'}; margin:0.45in;} body{font-family:Arial,Helvetica,sans-serif; color:#111; font-size:11.5px;} h1{font-size:18px; margin:0;} table{border-collapse:collapse; width:100%;} th,td{border:1px solid #444; padding:4px 5px; vertical-align:top;} th{background:#eee; font-size:10px;} .lbl{font-size:10px; color:#555; text-transform:uppercase; letter-spacing:.04em;} .box{border:1px solid #444; padding:6px 8px; min-height:16px;}</style></head><body>${body}</body></html>`);
+      doc.close();
+      const imgs = [...doc.images];
+      Promise.all(imgs.map(im => im.complete ? 0 : new Promise(res => { im.onload = im.onerror = res; }))).then(() => setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(() => fr.remove(), 2000); }, 150));
+    }
+    async function printReport(r){
+      const P = window.LOCATION_PROFILE || {};
+      const photos = [];
+      for(const k of (r.photoKeys || []).slice(0, 4)){ try{ const u = await window.dashboardApi.get(k, null); if(u) photos.push(u); }catch(err){} }
+      const row = (l, v) => `<td style="width:25%;"><div class="lbl">${l}</div><div>${esc(v || '') || '&nbsp;'}</div></td>`;
+      printHtml(`Injury Report - ${r.employeeName}`, `
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #111; padding-bottom:6px; margin-bottom:10px;">
+          <div><h1>Employee Injury Report</h1><div>${esc(P.legalName || '')} \u00b7 ${esc(P.dbaName || '')}</div><div style="font-size:10.5px; color:#555;">${esc(P.letterheadContact || P.officeAddress || '')}</div></div>
+          <div style="text-align:right; font-size:10.5px;">${r.recordable ? `<strong>OSHA case ${esc(r.caseNo || '')}</strong><br>` : ''}Report printed ${new Date().toLocaleDateString()}</div></div>
+        <table><tr>${row('Employee', r.employeeName)}${row('Date of injury', fmtD(r.date))}${row('Time', fmtT(r.time))}${row('Reported to', r.supervisor)}</tr>
+          <tr>${row('Where it happened', r.location)}${row('Injury type', r.injuryType)}${row('Body part', r.bodyPart)}${row('Treatment', r.treatment)}</tr></table>
+        <div class="lbl" style="margin-top:10px;">Description of the incident</div>
+        <div class="box" style="min-height:${photos.length ? 110 : 220}px; white-space:pre-wrap;">${esc(r.description || '')}</div>
+        ${photos.length ? `<div class="lbl" style="margin-top:10px;">Photos</div><div style="display:flex; gap:8px; margin-top:4px;">${photos.map(u => `<img src="${u}" style="width:${photos.length > 2 ? 23 : 32}%; height:150px; object-fit:cover; border:1px solid #999;">`).join('')}</div>` : ''}
+        <div class="lbl" style="margin-top:12px;">Employee statement (in your own words, if anything to add)</div>
+        <div class="box" style="min-height:70px;"></div>
+        <p style="font-size:10.5px; margin:10px 0 18px;">I confirm the information above is true and complete to the best of my knowledge.</p>
+        <table style="border:none;"><tr>
+          <td style="border:none; width:50%; padding:18px 12px 0 0;"><div style="border-top:1px solid #111; padding-top:3px;">Employee signature &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date</div></td>
+          <td style="border:none; width:50%; padding:18px 0 0 12px;"><div style="border-top:1px solid #111; padding-top:3px;">Supervisor / manager signature &nbsp;&nbsp;&nbsp;&nbsp; Date</div></td></tr></table>`);
+    }
+
+    // ---------- OSHA 300 log ----------
+    function logRows(y){
+      return inj.reports.filter(r => r.recordable && yearOf(r) === y).sort((a, b) => String(a.caseNo).localeCompare(String(b.caseNo)));
+    }
+    function renderLog(){
+      const y = document.getElementById('inj_year').value, rows = logRows(y);
+      const c = 'padding:5px; border:1px solid var(--line); font-size:12px; vertical-align:top;';
+      const x = on => on ? '&#10004;' : '';
+      document.getElementById('inj_logPanel').innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"><h3 style="margin:0;">OSHA 300 Log \u2014 ${esc(y)}</h3>
+          <button type="button" class="btn-primary" id="inj_print300">&#128424; Print 300 Log</button></div>
+        <p class="form-note">Every injury marked <strong>OSHA recordable</strong> for ${esc(y)}. Open a report to change its details.</p>
+        ${rows.length ? `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; min-width:980px;">
+          <thead><tr>${['(A) Case', '(B) Employee', '(C) Job title', '(D) Date', '(E) Where', '(F) Injury, body part, object', '(G) Death', '(H) Days away', '(I) Restricted', '(J) Other', '(K) Days away', '(L) Days restricted', '(M) Type'].map(h => `<th style="${c} background:var(--offwhite); text-align:left;">${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map(r => `<tr><td style="${c}">${esc(r.caseNo)}</td><td style="${c}">${r.privacyCase ? '<em>Privacy Case</em>' : esc(r.employeeName)}</td><td style="${c}">${esc(r.jobTitle)}</td><td style="${c}">${fmtD(r.date)}</td><td style="${c}">${esc(r.location)}</td>
+            <td style="${c}">${esc([r.injuryType, r.bodyPart].filter(Boolean).join(', '))}</td><td style="${c} text-align:center;">${x(r.oshaOutcome === 'death')}</td><td style="${c} text-align:center;">${x(r.oshaOutcome === 'daysAway')}</td><td style="${c} text-align:center;">${x(r.oshaOutcome === 'restricted')}</td><td style="${c} text-align:center;">${x(r.oshaOutcome === 'other')}</td>
+            <td style="${c} text-align:right;">${r.daysAway || 0}</td><td style="${c} text-align:right;">${r.daysRestricted || 0}</td><td style="${c}">${esc(OSHA_TYPE[r.illnessType || 'injury'])}</td></tr>`).join('')}</tbody></table></div>`
+          : '<p class="form-note" style="margin:0;">No OSHA recordable cases for this year.</p>'}`;
+      document.getElementById('inj_print300').onclick = () => print300(y);
+    }
+    function print300(y){
+      const rows = logRows(y), P = window.LOCATION_PROFILE || {}, x = on => on ? 'X' : '';
+      const blank = Math.max(0, 12 - rows.length);
+      const tr = r => `<tr><td>${esc(r.caseNo)}</td><td>${r.privacyCase ? 'Privacy Case' : esc(r.employeeName)}</td><td>${esc(r.jobTitle)}</td><td>${fmtD(r.date)}</td><td>${esc(r.location)}</td><td>${esc([r.injuryType, r.bodyPart].filter(Boolean).join(', '))}</td>
+        <td style="text-align:center;">${x(r.oshaOutcome === 'death')}</td><td style="text-align:center;">${x(r.oshaOutcome === 'daysAway')}</td><td style="text-align:center;">${x(r.oshaOutcome === 'restricted')}</td><td style="text-align:center;">${x(r.oshaOutcome === 'other')}</td>
+        <td style="text-align:right;">${r.daysAway || ''}</td><td style="text-align:right;">${r.daysRestricted || ''}</td>${Object.keys(OSHA_TYPE).map(k => `<td style="text-align:center;">${x((r.illnessType || 'injury') === k)}</td>`).join('')}</tr>`;
+      const tot = sumYear(y);
+      printHtml(`OSHA 300 Log ${y}`, `
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;"><div><h1>OSHA&rsquo;s Form 300 \u2014 Log of Work-Related Injuries and Illnesses</h1><div style="font-size:10.5px;">Year ${esc(y)} \u00b7 U.S. Department of Labor, Occupational Safety and Health Administration</div></div>
+          <div style="text-align:right; font-size:11px;"><strong>${esc((inj.establishment || {}).name || P.legalName || '')}</strong><br>${esc((inj.establishment || {}).city || 'Evans')}, ${esc((inj.establishment || {}).state || 'GA')}</div></div>
+        <table><thead><tr><th>(A) Case no.</th><th>(B) Employee&rsquo;s name</th><th>(C) Job title</th><th>(D) Date of injury</th><th>(E) Where the event occurred</th><th>(F) Describe injury or illness, parts of body affected, and object/substance</th>
+          <th>(G) Death</th><th>(H) Days away from work</th><th>(I) Job transfer or restriction</th><th>(J) Other recordable</th><th>(K) Away from work (days)</th><th>(L) On job transfer or restriction (days)</th>
+          <th>(M1) Injury</th><th>(M2) Skin disorder</th><th>(M3) Respiratory</th><th>(M4) Poisoning</th><th>(M5) Hearing loss</th><th>(M6) All other illnesses</th></tr></thead>
+          <tbody>${rows.map(tr).join('')}${'<tr>' + '<td>&nbsp;</td>'.repeat(18) + '</tr>'}${('<tr>' + '<td>&nbsp;</td>'.repeat(18) + '</tr>').repeat(Math.max(0, blank - 1))}
+          <tr style="font-weight:bold;"><td colspan="6" style="text-align:right;">Page totals</td><td style="text-align:center;">${tot.G}</td><td style="text-align:center;">${tot.H}</td><td style="text-align:center;">${tot.I}</td><td style="text-align:center;">${tot.J}</td><td style="text-align:right;">${tot.K}</td><td style="text-align:right;">${tot.L}</td>${['M1', 'M2', 'M3', 'M4', 'M5', 'M6'].map(k => `<td style="text-align:center;">${tot[k]}</td>`).join('')}</tr></tbody></table>
+        <p style="font-size:9.5px; margin-top:6px;">Be sure to transfer these totals to the Summary page (Form 300A) before you post it. Employers must record information about every work-related death and about every work-related injury or illness that involves loss of consciousness, restricted work activity or job transfer, days away from work, or medical treatment beyond first aid.</p>`, true);
+    }
+
+    // ---------- OSHA 300A summary ----------
+    function sumYear(y){
+      const rows = logRows(y), t = { G: 0, H: 0, I: 0, J: 0, K: 0, L: 0, M1: 0, M2: 0, M3: 0, M4: 0, M5: 0, M6: 0 };
+      const mk = { injury: 'M1', skin: 'M2', respiratory: 'M3', poisoning: 'M4', hearing: 'M5', other: 'M6' };
+      rows.forEach(r => { t[{ death: 'G', daysAway: 'H', restricted: 'I', other: 'J' }[r.oshaOutcome || 'other']]++; t.K += Number(r.daysAway) || 0; t.L += Number(r.daysRestricted) || 0; t[mk[r.illnessType || 'injury']]++; });
+      return t;
+    }
+    // From payroll (Labor Cost): every weekly payroll in the year.
+    async function payrollFigures(y){
+      let weeks = [];
+      try{ weeks = (await window.dashboardApi.get('labor-weeks', [])) || []; }catch(err){}
+      const inYear = weeks.filter(w => String(w.weekStart || '').slice(0, 4) === y);
+      let hours = 0, headcount = 0;
+      inYear.forEach(w => { const emps = (w.employees || []).filter(e => (Number(e.regHrs) || 0) + (Number(e.otHrs) || 0) > 0); headcount += emps.length; emps.forEach(e => { hours += (Number(e.regHrs) || 0) + (Number(e.otHrs) || 0); }); });
+      return { weeks: inYear.length, hours: Math.round(hours), avgEmployees: inYear.length ? Math.round(headcount / inYear.length) : 0 };
+    }
+    async function renderSummary(){
+      const y = document.getElementById('inj_year').value, P = window.LOCATION_PROFILE || {};
+      const panel = document.getElementById('inj_sumPanel');
+      panel.innerHTML = '<p class="form-note">Calculating from payroll\u2026</p>';
+      const t = sumYear(y), pay = await payrollFigures(y);
+      const est = Object.assign({ name: P.legalName || '', dba: P.dbaName || '', street: '3001 McCrary Ct, Suite 1', city: 'Evans', state: 'GA', zip: '30809', industry: 'Used household and office goods moving; junk removal', naics: '484210' }, inj.establishment || {});
+      const o = (inj.overrides || {})[y] || {};
+      const yearDone = Number(y) < new Date().getFullYear();
+      const num = (id, v, ph) => `<input type="number" id="${id}" min="0" value="${v === '' || v == null ? '' : v}" placeholder="${ph}" style="width:130px;">`;
+      const box = (l, v) => `<div style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; min-width:110px;"><div style="font-size:11.5px; color:var(--muted);">${l}</div><div style="font-size:20px; font-weight:800;">${v}</div></div>`;
+      panel.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"><h3 style="margin:0;">OSHA 300A Summary \u2014 ${esc(y)}</h3>
+          <button type="button" class="btn-primary" id="inj_print300a">&#128424; Produce OSHA 300A</button></div>
+        ${yearDone ? '' : `<p class="form-note" style="color:#8a6100;">${esc(y)} isn\u2019t over yet \u2014 these numbers are year-to-date. Post the final 300A from Feb 1 to Apr 30 of next year.</p>`}
+        <h4 style="margin:14px 0 6px;">Number of cases</h4>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">${box('(G) Deaths', t.G)}${box('(H) Days away', t.H)}${box('(I) Transfer / restriction', t.I)}${box('(J) Other recordable', t.J)}</div>
+        <h4 style="margin:14px 0 6px;">Number of days</h4>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">${box('(K) Days away', t.K)}${box('(L) Transfer / restriction days', t.L)}</div>
+        <h4 style="margin:14px 0 6px;">Injury and illness types</h4>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">${box('(M1) Injuries', t.M1)}${box('(M2) Skin disorders', t.M2)}${box('(M3) Respiratory', t.M3)}${box('(M4) Poisonings', t.M4)}${box('(M5) Hearing loss', t.M5)}${box('(M6) Other illnesses', t.M6)}</div>
+        <h4 style="margin:16px 0 6px;">Employment information (from payroll)</h4>
+        <p class="form-note" style="margin:0 0 6px;">${pay.weeks} weekly payroll${pay.weeks === 1 ? '' : 's'} on file for ${esc(y)} in Labor Cost. Average employees = total employees paid each pay period \u00f7 number of pay periods; hours = all regular and overtime hours. Type over either if needed.</p>
+        <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); align-items:end;">
+          <label>Annual average number of employees ${num('inj_avgEmp', o.avgEmployees != null ? o.avgEmployees : pay.avgEmployees, String(pay.avgEmployees))}</label>
+          <label>Total hours worked by all employees ${num('inj_hours', o.hours != null ? o.hours : pay.hours, String(pay.hours))}</label>
+        </div>
+        <h4 style="margin:16px 0 6px;">Establishment information</h4>
+        <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); align-items:end;">
+          <label>Establishment name <input type="text" id="inj_estName" value="${esc(est.name)}"></label>
+          <label>Street <input type="text" id="inj_estStreet" value="${esc(est.street)}"></label>
+          <label>City <input type="text" id="inj_estCity" value="${esc(est.city)}"></label>
+          <label>State <input type="text" id="inj_estState" value="${esc(est.state)}" maxlength="2"></label>
+          <label>ZIP <input type="text" id="inj_estZip" value="${esc(est.zip)}"></label>
+          <label>Industry description <input type="text" id="inj_estInd" value="${esc(est.industry)}"></label>
+          <label>NAICS code <input type="text" id="inj_estNaics" value="${esc(est.naics)}"></label>
+        </div>
+        <div class="form-actions"><button type="button" id="inj_estSave" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 14px; cursor:pointer; font-weight:600;">Save These Details</button><span class="status-msg" id="inj_estStatus"></span></div>`;
+      const readEst = () => { const v = id => document.getElementById(id).value.trim(); return { name: v('inj_estName'), street: v('inj_estStreet'), city: v('inj_estCity'), state: v('inj_estState').toUpperCase(), zip: v('inj_estZip'), industry: v('inj_estInd'), naics: v('inj_estNaics') }; };
+      const readNums = () => ({ avgEmployees: Math.max(0, parseInt(document.getElementById('inj_avgEmp').value, 10) || 0), hours: Math.max(0, parseInt(document.getElementById('inj_hours').value, 10) || 0) });
+      document.getElementById('inj_estSave').onclick = async () => {
+        inj.establishment = readEst();
+        const n = readNums(); inj.overrides = inj.overrides || {};
+        inj.overrides[y] = { avgEmployees: n.avgEmployees !== pay.avgEmployees ? n.avgEmployees : null, hours: n.hours !== pay.hours ? n.hours : null };
+        const st = document.getElementById('inj_estStatus');
+        if(await save()){ st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; } else { st.textContent = 'Could not save.'; st.className = 'status-msg err'; }
+      };
+      document.getElementById('inj_print300a').onclick = () => print300A(y, t, readEst(), readNums());
+    }
+    function print300A(y, t, est, n){
+      const big = (l, v) => `<td style="text-align:center; width:25%;"><div style="font-size:22px; font-weight:bold; padding:6px 0;">${v}</div><div style="font-size:10px;">${l}</div></td>`;
+      printHtml(`OSHA 300A ${y}`, `
+        <h1>OSHA&rsquo;s Form 300A \u2014 Summary of Work-Related Injuries and Illnesses</h1>
+        <div style="font-size:10.5px; margin:2px 0 10px;">Year ${esc(y)} \u00b7 U.S. Department of Labor, Occupational Safety and Health Administration. All establishments covered by Part 1904 must complete this Summary page, even if no work-related injuries or illnesses occurred during the year.</div>
+        <div style="display:flex; gap:16px;">
+          <div style="flex:3;">
+            <div class="lbl">Number of cases</div>
+            <table><tr>${big('(G) Total number of deaths', t.G)}${big('(H) Total cases with days away from work', t.H)}${big('(I) Total cases with job transfer or restriction', t.I)}${big('(J) Total other recordable cases', t.J)}</tr></table>
+            <div class="lbl" style="margin-top:10px;">Number of days</div>
+            <table><tr>${big('(K) Total number of days away from work', t.K)}${big('(L) Total days of job transfer or restriction', t.L)}</tr></table>
+            <div class="lbl" style="margin-top:10px;">Injury and illness types</div>
+            <table><tr>${big('(M1) Injuries', t.M1)}${big('(M2) Skin disorders', t.M2)}${big('(M3) Respiratory conditions', t.M3)}</tr><tr>${big('(M4) Poisonings', t.M4)}${big('(M5) Hearing loss', t.M5)}${big('(M6) All other illnesses', t.M6)}</tr></table>
+            <p style="font-size:10px; margin-top:8px;">Post this Summary page from February 1 to April 30 of the year following the year covered by the form.</p>
+          </div>
+          <div style="flex:2;">
+            <div class="lbl">Establishment information</div>
+            <table>
+              <tr><td><div class="lbl">Your establishment name</div>${esc(est.name)}</td></tr>
+              <tr><td><div class="lbl">Street</div>${esc(est.street)}</td></tr>
+              <tr><td><div class="lbl">City / State / ZIP</div>${esc(est.city)}, ${esc(est.state)} ${esc(est.zip)}</td></tr>
+              <tr><td><div class="lbl">Industry description</div>${esc(est.industry)}</td></tr>
+              <tr><td><div class="lbl">North American Industrial Classification (NAICS)</div>${esc(est.naics)}</td></tr>
+            </table>
+            <div class="lbl" style="margin-top:10px;">Employment information</div>
+            <table>
+              <tr><td><div class="lbl">Annual average number of employees</div><strong>${n.avgEmployees.toLocaleString()}</strong></td></tr>
+              <tr><td><div class="lbl">Total hours worked by all employees last year</div><strong>${n.hours.toLocaleString()}</strong></td></tr>
+            </table>
+            <div class="lbl" style="margin-top:10px;">Sign here</div>
+            <p style="font-size:9.5px; margin:2px 0 14px;">Knowingly falsifying this document may result in a fine. I certify that I have examined this document and that to the best of my knowledge the entries are true, accurate, and complete.</p>
+            <div style="border-top:1px solid #111; padding-top:2px; margin-top:18px; font-size:10px;">Company executive &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Title</div>
+            <div style="border-top:1px solid #111; padding-top:2px; margin-top:22px; font-size:10px;">Phone &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date</div>
+          </div>
+        </div>`, true);
+    }
   })();
 
   // ---------- Home Tile Reordering (admin, "wiggle mode") ----------
