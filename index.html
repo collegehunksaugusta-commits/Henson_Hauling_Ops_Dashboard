@@ -15375,7 +15375,9 @@ window.openEmailDraft = function(o){
       <tr>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
         ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
-        <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.status==='open'?'color:#B3261E; font-weight:600;':''}">${statusLabels[r.status]||fleetEsc(r.status)}</td>
+        <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${r.status==='open'?'color:#B3261E; font-weight:600;':''}">${statusLabels[r.status]||fleetEsc(r.status)}${r.status === 'resolved' && r.resolvedDate ? `<div style="font-size:11px; color:var(--muted); font-weight:400;">${fleetEsc(new Date(r.resolvedDate + 'T12:00:00').toLocaleDateString())}${r.resolvedNote ? ' \u00b7 ' + fleetEsc(r.resolvedNote) : ''}</div>` : ''}${r.status === 'open'
+          ? `<div><button type="button" class="comp-vio-resolve" data-id="${r.id}" style="margin-top:3px; background:var(--brand-green); color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:11.5px; font-weight:700; cursor:pointer;">Mark Resolved</button></div>`
+          : `<div><button type="button" class="comp-vio-reopen" data-id="${r.id}" style="background:none; border:none; padding:0; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:11px;">Reopen</button></div>`}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.description)}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${r.hasFile ? `<button type="button" class="comp-vio-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>` : '\u2014'}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="comp-vio-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button></td>
@@ -15396,6 +15398,26 @@ window.openEmailDraft = function(o){
         const isPdf = dataUri.startsWith('data:application/pdf');
         window.showPhotoModal(isPdf ? fleetDataUriToBlobUrl(dataUri) : dataUri, { isPdf });
       }catch(err){ console.error(err); alert('Could not load this file \u2014 check your connection.'); }
+    }));
+    // Close out (or reopen) a violation any time after it was logged.
+    tbody.querySelectorAll('.comp-vio-resolve').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const rec = compViolations.find(r => r.id === e.target.dataset.id); if(!rec) return;
+      const today = new Date().toLocaleDateString('en-CA');
+      const d = prompt('Date it was resolved (YYYY-MM-DD):', today); if(d === null) return;
+      const date = d.trim() || today;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date + 'T12:00:00'))){ alert('Enter the date like ' + today + '.'); return; }
+      const note = prompt('How was it resolved? (optional \u2014 e.g. "Paid fine", "Brake light replaced")', '');
+      if(note === null) return;
+      const prev = { status: rec.status, resolvedDate: rec.resolvedDate, resolvedNote: rec.resolvedNote, resolvedBy: rec.resolvedBy };
+      Object.assign(rec, { status: 'resolved', resolvedDate: date, resolvedNote: note.trim().slice(0, 300), resolvedBy: localStorage.getItem('henson_auth_email') || '' });
+      if(!(await window.dashboardApi.set(COMP_VIOLATION_KEY, compViolations))){ Object.assign(rec, prev); alert('Could not save \u2014 check your connection.'); }
+      renderCompViolationRows();
+    }));
+    tbody.querySelectorAll('.comp-vio-reopen').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const rec = compViolations.find(r => r.id === e.target.dataset.id); if(!rec || !confirm('Reopen this violation?')) return;
+      rec.status = 'open';
+      if(!(await window.dashboardApi.set(COMP_VIOLATION_KEY, compViolations))){ rec.status = 'resolved'; alert('Could not save \u2014 check your connection.'); }
+      renderCompViolationRows();
     }));
     tbody.querySelectorAll('.comp-vio-delete').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.target.dataset.id;
