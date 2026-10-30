@@ -4096,7 +4096,7 @@ const DEFAULT_APP_SETTINGS = {
     // The Owner (a dashboard login). Only this person sees and uses the
     // owner time tracker; set in Configuration -> Financials.
     ownerEmail: '',
-    ownerTimeCategories: ['Operations Activities', 'Scheduled Calls', 'Client Calls', 'Estimates', 'Marketing Activities', 'Networking']
+    ownerTimeCategories: ['Operations Activities', 'Scheduled Calls', 'Client Calls', 'Estimates', 'Marketing Activities', 'Networking', 'Finances', 'Insurance']
   },
   marketing: {
     redfinSouthCarolina: 'https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308',
@@ -4651,6 +4651,14 @@ app.get('/api/owner/time', requireAuth, requireOwner, async (req, res) => {
   try {
     const me = String(req.userEmail || '').toLowerCase();
     const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    // One time: add Finances and Insurance to an already-saved category list
+    // (they can still be renamed or removed in Configuration afterward).
+    if (!st.financials.ownerTimeAdded2026_10) {
+      const cats = st.financials.ownerTimeCategories || [];
+      ['Finances', 'Insurance'].forEach(c => { if (!cats.some(x => x.toLowerCase() === c.toLowerCase())) cats.push(c); });
+      st.financials.ownerTimeCategories = cats; st.financials.ownerTimeAdded2026_10 = true;
+      await redis.set(APP_SETTINGS_KEY, JSON.stringify(st));
+    }
     const manual = (JSON.parse(await redis.get(OWNER_TIME_KEY) || '{}'))[me] || {};
     const app = (JSON.parse(await redis.get(APP_ACTIVITY_KEY) || '{}'))[me] || {};
     const appByDay = {}; Object.entries(app).forEach(([d, v]) => { appByDay[d] = Object.values(v).reduce((t, m) => t + m, 0); });
