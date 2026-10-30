@@ -45,6 +45,7 @@ redis.on('error', (err) => { console.error('Redis connection error:', err.messag
 
 // ============ Data key whitelist (existing dashboard data) ============
 const ALLOWED_KEYS = new Set([
+  'injury-reports',            // Injury Reports + OSHA 300 log (People tab)
   'labor-weeks',
   'ldEstimateClients',
   'labor-employee-rates',
@@ -112,7 +113,7 @@ const ALLOWED_KEYS = new Set([
   'hiring-reveal-log',
   'ops-manager-metrics-monthly-locks'
 ]);
-const ALLOWED_KEY_PREFIXES = ['wp-doc-file-', 'interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
+const ALLOWED_KEY_PREFIXES = ['injury-file-', 'wp-doc-file-', 'interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
 function isAllowedKey(key) {
   if (ALLOWED_KEYS.has(key)) return true;
