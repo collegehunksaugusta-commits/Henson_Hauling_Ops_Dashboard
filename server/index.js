@@ -7304,6 +7304,48 @@ app.post('/api/admin/roster/restore', requireAuth, requireAdmin, async (req, res
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: 'Could not restore.' }); }
 });
+// ---- Injury reports: the employee reviews, adds a statement and signs in the HUNK Portal ----
+// The office sends a report (pushedAt); until the employee signs, the portal
+// shows it full-screen before anything else.
+async function crewName(req) {
+  const h = req.headers['authorization'] || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  if (!token) return null;
+  const n = (await redis.get(DRIVER_SESSION_PREFIX + token)) || (await redis.get(WINGMAN_SESSION_PREFIX + token));
+  return n && !isRosterRemoved(n) ? n : null;
+}
+app.get('/api/crew/injury-pending', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const data = JSON.parse(await redis.get('injury-reports') || '{}');
+    const mine = (data.reports || []).filter(r => r.pushedAt && !r.employeeSignedAt && nameDedupKey(r.employeeName || '') === nameDedupKey(me))
+      .map(r => ({ id: r.id, employeeName: r.employeeName, date: r.date, time: r.time, location: r.location, injuryType: r.injuryType, bodyPart: r.bodyPart,
+        treatment: r.treatment, supervisor: r.supervisor, description: r.description }));
+    res.json({ reports: mine });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/injury/:id/sign', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const statement = String((req.body || {}).statement || '').slice(0, 20000);
+    const signature = String((req.body || {}).signature || '');
+    if (!/^data:image\/png;base64,/.test(signature) || signature.length < 400) return res.status(400).json({ error: 'Please sign in the box first.' });
+    if (signature.length > 600000) return res.status(400).json({ error: 'That signature is too large \u2014 clear it and try again.' });
+    const data = JSON.parse(await redis.get('injury-reports') || '{}');
+    const r = (data.reports || []).find(x => x.id === req.params.id);
+    if (!r || !r.pushedAt || nameDedupKey(r.employeeName || '') !== nameDedupKey(me)) return res.status(404).json({ error: 'That report isn\u2019t waiting for your signature.' });
+    if (r.employeeSignedAt) return res.json({ ok: true, already: true });
+    const sigKey = `injury-file-${r.id}-empsig`;
+    await redis.set(sigKey, JSON.stringify(signature));
+    Object.assign(r, { employeeStatement: statement, employeeSignatureKey: sigKey, employeeSignedAt: new Date().toISOString(), employeeSignedName: me });
+    await redis.set('injury-reports', JSON.stringify(data));
+    console.log(`[injury] ${me} signed injury report ${r.id}`);
+    res.json({ ok: true });
+  } catch (err) { console.error('Injury sign failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+
 app.get('/api/roster', requireAuth, async (req, res) => {
   try {
     const [weeksRaw, manualRaw] = await Promise.all([
