@@ -228,6 +228,22 @@
   .tile.attention .badge{color:#B3261E; background:#FCDCD6; border-color:#E8A69C;}
   .tile.warning{background:#FFF6E8; border-color:#F0D9A8;}
 
+  /* ---------- Home tabs (one per dashboard section) ---------- */
+  .dashTabs{display:flex; flex-wrap:wrap; gap:2px 2px; border-bottom:2px solid var(--line); margin:0 0 16px; padding-bottom:0;}
+  @media (max-width:700px){ .dashTabs{flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:thin;} .dashTab{flex:0 0 auto;} }
+  .dashTab{flex:1 1 auto; justify-content:center; display:flex; align-items:center; gap:6px; background:none; border:none; border-bottom:3px solid transparent; margin-bottom:-2px;
+    padding:9px 9px; cursor:pointer; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.02em; font-size:15px; font-weight:700; color:var(--muted); white-space:nowrap;}
+  .dashTab:hover{color:var(--charcoal); background:var(--offwhite);}
+  .dashTab[aria-selected="true"]{color:var(--charcoal); border-bottom-color:var(--brand-orange, #F7941D);}
+  .dashTab:focus-visible{outline:3px solid var(--steel); outline-offset:-3px;}
+  .dashTab .dashTabCount{font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; color:var(--muted); letter-spacing:.04em;}
+  .dashTab .dashTabDot{display:none; width:9px; height:9px; border-radius:50%; background:#B3261E;}
+  .dashTab .dashTabDot.on{display:inline-block;}
+  body.dashTabsOn .dashSection.dashTabHidden{display:none !important;}
+  body.dashTabsOn .dashSection .dashSectionHeader{display:none;}
+  body.dashTabsOn .dashSection .dashSectionBody{display:block; padding-top:0;}
+  body.dashTabsOn #home > .section-eyebrow{display:none;}
+
   /* ---------- Collapsible dashboard categories ---------- */
   .dashSection{margin-bottom:14px;}
   .dashSectionHeader{
@@ -6207,6 +6223,7 @@ window.openEmailDraft = function(o){
       <p class="form-note" id="truckMapEmptyNote" style="display:none; margin-top:8px;">No truck locations available right now.</p>
     </div>
     <p class="section-eyebrow">Dispatch / Automations</p>
+    <div class="dashTabs" id="dashTabs" role="tablist" aria-label="Dashboard sections"></div>
     <div id="tileEditDoneBar">
       <span>Rearranging tiles &mdash; drag to reorder, then tap Done to save.</span>
       <button type="button" id="tileEditDoneBtn">Done</button>
@@ -16672,6 +16689,44 @@ window.openEmailDraft = function(o){
     });
   }
   initDashSections();
+
+  // ---- Home tabs: each section becomes a tab under the truck map ----
+  // Built from the sections themselves (name, emoji, count, attention), so
+  // permissions that hide a section (Financial, Just for Fun) hide its tab.
+  const DASH_TAB_KEY = 'henson_dash_tab';
+  function dashTabSections(){ return Array.from(document.querySelectorAll('#home .dashSection')).filter(sec => sec.style.display !== 'none'); }
+  function renderDashTabs(){
+    const bar = document.getElementById('dashTabs'); if(!bar) return;
+    document.body.classList.add('dashTabsOn');
+    const secs = dashTabSections();
+    let active = bar.dataset.active || localStorage.getItem(DASH_TAB_KEY) || '';
+    if(!secs.some(s => s.dataset.category === active) || (ALWAYS_COLLAPSED_SECTIONS.has(active) && !bar.dataset.active)) active = (secs.find(s => !ALWAYS_COLLAPSED_SECTIONS.has(s.dataset.category)) || secs[0] || {}).dataset ? (secs.find(s => !ALWAYS_COLLAPSED_SECTIONS.has(s.dataset.category)) || secs[0]).dataset.category : '';
+    bar.dataset.active = active;
+    bar.innerHTML = secs.map(sec => {
+      const cat = sec.dataset.category;
+      const emoji = (sec.querySelector('.dashSectionEmoji') || {}).textContent || '';
+      const name = ((sec.querySelector('.dashSectionTitleRow > span:not(.dashSectionEmoji):not(.dashSectionCount):not(.dashSectionAttention)') || {}).textContent || cat).trim();
+      const count = (sec.querySelector('.dashSectionCount') || {}).textContent || '';
+      const attn = !!sec.querySelector('.dashSectionAttention.active');
+      return `<button type="button" class="dashTab" role="tab" data-cat="${cat}" aria-selected="${cat === active}" title="${(sec.querySelector('.dashSectionTileList') || {}).textContent || ''}"><span aria-hidden="true">${emoji}</span><span>${name}</span><span class="dashTabDot${attn ? ' on' : ''}" title="Attention needed"></span></button>`;
+    }).join('');
+    document.querySelectorAll('#home .dashSection').forEach(sec => sec.classList.toggle('dashTabHidden', sec.dataset.category !== active));
+    bar.querySelectorAll('.dashTab').forEach(b => b.addEventListener('click', () => {
+      bar.dataset.active = b.dataset.cat;
+      if(!ALWAYS_COLLAPSED_SECTIONS.has(b.dataset.cat)){ try{ localStorage.setItem(DASH_TAB_KEY, b.dataset.cat); }catch(e){} }
+      renderDashTabs();
+    }));
+  }
+  window.renderDashTabs = renderDashTabs;
+  renderDashTabs();
+  // Re-draw when a section is shown/hidden by permissions, or its count changes.
+  (function(){
+    const mo = new MutationObserver(() => { clearTimeout(renderDashTabs.__t); renderDashTabs.__t = setTimeout(renderDashTabs, 50); });
+    document.querySelectorAll('#home .dashSection').forEach(sec => {
+      mo.observe(sec, { attributes: true, attributeFilter: ['style'] });
+      const c = sec.querySelector('.dashSectionCount'); if(c) mo.observe(c, { childList: true, characterData: true, subtree: true });
+    });
+  })();
   window.collapseAlwaysCollapsedSections = () => document.querySelectorAll('.dashSection').forEach(sec => { if(ALWAYS_COLLAPSED_SECTIONS.has(sec.dataset.category)) setDashSectionExpanded(sec, false, false); });
 
   // Monthly Financials is sensitive enough (meant for a future buyer's
@@ -16735,6 +16790,8 @@ window.openEmailDraft = function(o){
       const hasAttention = Array.from(section.querySelectorAll('.tile .badge')).some(b => b.style.display !== 'none');
       const indicator = section.querySelector('.dashSectionAttention');
       if(indicator) indicator.classList.toggle('active', hasAttention);
+      const dot = document.querySelector(`#dashTabs .dashTab[data-cat="${section.dataset.category}"] .dashTabDot`);
+      if(dot) dot.classList.toggle('on', hasAttention);
     });
   }
   // A MutationObserver on each existing tile badge means every current and
