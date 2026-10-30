@@ -3015,7 +3015,76 @@ window.openEmailDraft = function(o){
     document.getElementById('driverMovingView').style.display = 'none';
   }
 
+  // ---- Injury report to review and sign (blocks the portal until done) ----
+  let injSignOpen = false;
+  async function checkInjuryToSign(){
+    if(injSignOpen || !driverToken) return;
+    let list = [];
+    try{
+      const r = await fetch(API_BASE_AUTH + '/api/crew/injury-pending', { headers: { 'Authorization': 'Bearer ' + driverToken } });
+      if(!r.ok) return; list = (await r.json()).reports || [];
+    }catch(err){ return; }
+    if(list.length) showInjurySign(list[0], list.length);
+  }
+  function showInjurySign(rep, count){
+    injSignOpen = true;
+    const fmtDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const fmtTime = t => { if(!t) return ''; const [h, m] = t.split(':').map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+    const row = (l, v) => v ? `<div style="margin:4px 0;"><span style="color:var(--muted); font-size:12.5px;">${l}</span><div style="font-size:15px;">${driverEsc(v)}</div></div>` : '';
+    const ov = document.createElement('div');
+    ov.id = 'injSignOverlay';
+    ov.style.cssText = 'position:fixed; inset:0; z-index:200000; background:#f4f1ea; overflow-y:auto; -webkit-overflow-scrolling:touch;';
+    ov.innerHTML = `<div style="max-width:560px; margin:0 auto; padding:calc(18px + env(safe-area-inset-top, 0px)) 16px calc(28px + env(safe-area-inset-bottom, 0px));">
+      <div style="font-size:12px; font-weight:800; letter-spacing:.06em; color:#b3261e;">ACTION REQUIRED${count > 1 ? ` \u00b7 1 OF ${count}` : ''}</div>
+      <h2 style="margin:4px 0 6px; font-size:22px;">Review &amp; Sign Your Injury Report</h2>
+      <p style="margin:0 0 12px; font-size:14px; color:var(--muted);">Please read the report the office filled out. Add anything in your own words (optional), then sign below. You can use the app again after this is done.</p>
+      <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px;">
+        ${row('Employee', rep.employeeName)}${row('Date', fmtDate(rep.date))}${row('Time', fmtTime(rep.time))}${row('Where it happened', rep.location)}
+        ${row('Injury', [rep.injuryType, rep.bodyPart].filter(Boolean).join(' \u2014 '))}${row('Treatment', rep.treatment)}${row('Reported to', rep.supervisor)}
+        <div style="margin:8px 0 0;"><span style="color:var(--muted); font-size:12.5px;">What happened</span><div style="font-size:15px; white-space:pre-wrap;">${driverEsc(rep.description || '')}</div></div>
+      </div>
+      <label style="display:block; margin:16px 0 6px; font-weight:700; font-size:15px;">Your statement <span style="font-weight:400; color:var(--muted); font-size:13px;">(optional \u2014 write as much as you want)</span></label>
+      <textarea id="injSignStatement" rows="5" style="width:100%; box-sizing:border-box; font-family:inherit; font-size:16px; padding:10px; border:1px solid var(--line); border-radius:8px; resize:vertical;" placeholder="Anything you want to add or correct, in your own words."></textarea>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin:16px 0 6px;"><strong style="font-size:15px;">Sign with your finger</strong>
+        <button type="button" id="injSignClear" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 12px; font-size:14px;">Clear</button></div>
+      <canvas id="injSignPad" style="width:100%; height:170px; background:#fff; border:2px dashed #999; border-radius:8px; touch-action:none; display:block;"></canvas>
+      <p style="font-size:12.5px; color:var(--muted); margin:6px 0 0;">By signing, I confirm the information above is true and complete to the best of my knowledge.</p>
+      <button type="button" id="injSignSubmit" style="width:100%; margin-top:14px; padding:15px; font-size:17px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Sign &amp; Submit</button>
+      <p id="injSignStatus" style="margin:10px 0 0; font-size:14px; text-align:center;"></p>
+    </div>`;
+    document.body.appendChild(ov);
+    // signature pad
+    const cv = document.getElementById('injSignPad'), ctx = cv.getContext('2d');
+    let drawing = false, inked = false, last = null;
+    const size = () => { const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = r.width * d; cv.height = r.height * d; ctx.setTransform(d, 0, 0, d, 0, 0); ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111'; inked = false; };
+    size();
+    const pt = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    cv.addEventListener('pointerdown', e => { document.getElementById('injSignStatus').textContent = ''; drawing = true; last = pt(e); cv.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.arc(last.x, last.y, 1.2, 0, Math.PI * 2); ctx.fillStyle = '#111'; ctx.fill(); inked = true; });
+    cv.addEventListener('pointermove', e => { if(!drawing) return; const p = pt(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; inked = true; });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => cv.addEventListener(t, () => { drawing = false; }));
+    document.getElementById('injSignClear').onclick = () => { ctx.clearRect(0, 0, cv.width, cv.height); inked = false; };
+    document.getElementById('injSignSubmit').onclick = async () => {
+      const st = document.getElementById('injSignStatus'), btn = document.getElementById('injSignSubmit');
+      if(!inked){ st.textContent = 'Please sign in the box first.'; st.style.color = '#b3261e'; return; }
+      // trim to the drawn area, white background
+      const out = document.createElement('canvas'); out.width = cv.width; out.height = cv.height;
+      const o = out.getContext('2d'); o.fillStyle = '#fff'; o.fillRect(0, 0, out.width, out.height); o.drawImage(cv, 0, 0);
+      const small = document.createElement('canvas'); const sc = Math.min(1, 900 / out.width); small.width = Math.round(out.width * sc); small.height = Math.round(out.height * sc);
+      small.getContext('2d').drawImage(out, 0, 0, small.width, small.height);
+      btn.disabled = true; btn.textContent = 'Saving\u2026'; st.textContent = '';
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/crew/injury/' + encodeURIComponent(rep.id) + '/sign', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken },
+          body: JSON.stringify({ statement: document.getElementById('injSignStatement').value, signature: small.toDataURL('image/png') }) });
+        const d = await r.json().catch(() => ({}));
+        if(!r.ok) throw new Error(d.error || 'Could not save \u2014 try again.');
+        ov.remove(); injSignOpen = false;
+        checkInjuryToSign();   // another one waiting?
+      }catch(err){ st.textContent = err.message; st.style.color = '#b3261e'; btn.disabled = false; btn.textContent = 'Sign & Submit'; }
+    };
+  }
+  window.checkInjuryToSign = checkInjuryToSign;
   function showDriverMenu(){
+    setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
     setTimeout(() => { try{ hunkResumeAfterReload(); }catch(e){} }, 400);   // back from a reload mid-photo?
     setTimeout(() => { try{ loadMyWorkPackages(); }catch(e){} }, 300);
     setTimeout(() => { try{ showMaterialsReminder(); }catch(e){} }, 900);
@@ -4124,6 +4193,7 @@ window.openEmailDraft = function(o){
   }
 
   function showWingmanMenu(flashMsg){
+    setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     loadDriveTodayOption();
     driverActiveTask = null;
@@ -8329,7 +8399,7 @@ window.openEmailDraft = function(o){
     <div class="wrap">
       <div class="detail-head">
         <h2 class="display">Injury Reports</h2>
-        <p>Document every injury, print the one-page report for signatures, attach the signed copy, and keep the OSHA 300 log and 300A summary.</p>
+        <p>Document every injury, send it to the employee to review and sign in the HUNK Portal, and keep the OSHA 300 log and 300A summary.</p>
       </div>
       <div class="panel">
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
@@ -16864,7 +16934,20 @@ window.openEmailDraft = function(o){
     const fmtD = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US') : '';
     const fmtT = t => { if(!t) return ''; const [h, m] = t.split(':').map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
     const yearOf = r => String(r.date || '').slice(0, 4);
-    async function save(){ return await window.dashboardApi.set(INJ_KEY, inj); }
+    const EMP_FIELDS = ['employeeStatement', 'employeeSignatureKey', 'employeeSignedAt', 'employeeSignedName'];
+    async function save(){
+      // Signatures arrive from the HUNK Portal straight to the server -- pull
+      // them in first so saving here never wipes one out.
+      try{
+        const fresh = await window.dashboardApi.get(INJ_KEY, null);
+        (fresh && fresh.reports || []).forEach(fr => {
+          if(!fr.employeeSignedAt) return;
+          const mine = inj.reports.find(x => x.id === fr.id); if(mine) EMP_FIELDS.forEach(k => { mine[k] = fr[k]; });
+          if(injEditing && injEditing.id === fr.id) EMP_FIELDS.forEach(k => { injEditing[k] = fr[k]; });
+        });
+      }catch(err){}
+      return await window.dashboardApi.set(INJ_KEY, inj);
+    }
 
     window.loadInjuries = async function(){
       try{ const d = await window.dashboardApi.get(INJ_KEY, null); inj = Object.assign({ reports: [], establishment: {} }, d || {}); }catch(err){}
@@ -16901,7 +16984,7 @@ window.openEmailDraft = function(o){
           <td style="padding:6px; border-bottom:1px solid var(--line); font-weight:600;">${esc(r.employeeName)}</td>
           <td style="padding:6px; border-bottom:1px solid var(--line);">${esc(r.injuryType)}${r.bodyPart ? ' \u2014 ' + esc(r.bodyPart) : ''}</td>
           <td style="padding:6px; border-bottom:1px solid var(--line);">${esc(r.treatment)}</td>
-          <td style="padding:6px; border-bottom:1px solid var(--line);">${r.signedKey ? chip('Signed', '#E3F4EA', '#00612C') : chip('Needs signature', '#FFF1CC', '#7A5A00')} ${r.recordable ? chip('OSHA ' + esc(r.caseNo || ''), '#FDECEA', '#B3261E') : ''}</td>
+          <td style="padding:6px; border-bottom:1px solid var(--line);">${r.employeeSignedAt ? chip('Signed', '#E3F4EA', '#00612C') : r.pushedAt ? chip('Waiting on employee', '#E6EEF9', '#1f4f87') : chip('Not sent to employee', '#FFF1CC', '#7A5A00')} ${r.recordable ? chip('OSHA ' + esc(r.caseNo || ''), '#FDECEA', '#B3261E') : ''}</td>
           <td style="padding:6px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="inj-open" data-id="${esc(r.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer;">Open</button></td></tr>`).join('')}</tbody></table></div>`
         : `<p class="form-note" style="margin:0;">No injuries reported in ${esc(y)}.</p>`;
       document.querySelectorAll('.inj-open').forEach(b => b.addEventListener('click', () => openEditor(inj.reports.find(r => r.id === b.dataset.id))));
@@ -16926,7 +17009,7 @@ window.openEmailDraft = function(o){
           <label>Injury type <select id="injf_type">${opt(INJ_TYPES, r.injuryType)}</select></label>
           <label>Body part affected <input type="text" id="injf_body" value="${esc(r.bodyPart || '')}" placeholder="e.g. lower back, left hand"></label>
           <label>Treatment <select id="injf_treat">${opt(INJ_TREAT, r.treatment)}</select></label>
-          <label>Reported to (supervisor) <input type="text" id="injf_super" value="${esc(r.supervisor || '')}" placeholder="e.g. Captain on the job"></label>
+          <label>Reported to (supervisor) <select id="injf_super">${opt(Array.from(new Set([...(injRoster || []), r.supervisor].filter(Boolean))), r.supervisor)}</select></label>
         </div>
         <label style="display:block; margin-top:8px;">Description of the incident <textarea id="injf_desc" rows="4" style="width:100%;" placeholder="What happened, what the employee was doing, and the object or substance involved.">${esc(r.description || '')}</textarea></label>
         <div style="margin-top:10px;"><strong style="font-size:13.5px;">Photos of the incident / injury</strong>
@@ -16947,21 +17030,19 @@ window.openEmailDraft = function(o){
           </div>
         </div>
         <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:8px;">
-          <strong style="font-size:13.5px;">Signed report</strong>
-          <div id="injf_signed" style="margin:6px 0;"></div>
-          <input type="file" id="injf_signedInput" accept=".pdf,image/*" style="font-size:13px;">
+          <strong style="font-size:13.5px;">Employee review &amp; signature</strong>
+          <div id="injf_emp" style="margin:6px 0;"></div>
         </div>
         <div class="form-actions" style="flex-wrap:wrap;">
           <button type="button" class="btn-primary" id="injf_save">Save</button>
-          <button type="button" id="injf_print" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:9px 14px; cursor:pointer; font-weight:600;">&#128424; Print Report</button>
+          <button type="button" id="injf_print" style="display:${r.employeeSignedAt ? '' : 'none'}; background:#fff; border:1px solid var(--line); border-radius:6px; padding:9px 14px; cursor:pointer; font-weight:600;" title="The signed report, for regulators">&#128424; Print Report</button>
           <button type="button" id="injf_close" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:9px 14px; cursor:pointer;">Close</button>
           ${r.isNew ? '' : '<button type="button" id="injf_delete" style="background:#fff; border:1px solid var(--line); color:#b3261e; border-radius:6px; padding:9px 14px; cursor:pointer; margin-left:auto;">Delete</button>'}
           <span class="status-msg" id="injf_status"></span>
         </div>`;
-      renderPhotos(); renderSigned();
+      renderPhotos(); renderEmp();
       document.getElementById('injf_recordable').addEventListener('change', e => { document.getElementById('injf_oshaBox').style.display = e.target.checked ? 'block' : 'none'; });
       document.getElementById('injf_photoInput').addEventListener('change', addPhotos);
-      document.getElementById('injf_signedInput').addEventListener('change', addSigned);
       document.getElementById('injf_save').addEventListener('click', () => saveEditor());
       document.getElementById('injf_print').addEventListener('click', async () => { if(await saveEditor(true)) printReport(injEditing); });
       document.getElementById('injf_close').addEventListener('click', () => { injEditing = null; p.style.display = 'none'; });
@@ -17026,29 +17107,36 @@ window.openEmailDraft = function(o){
       e.target.value = ''; if(st.textContent === 'Adding photo\u2026') st.textContent = '';
       renderPhotos(); saveEditor(true);
     }
-    // signed copy
-    function renderSigned(){
-      const el = document.getElementById('injf_signed'); if(!el) return;
-      el.innerHTML = injEditing.signedKey
-        ? `\u2705 <strong>Signed copy on file</strong>${injEditing.signedFileName ? ' \u00b7 ' + esc(injEditing.signedFileName) : ''}${injEditing.signedAt ? ` <span style="color:var(--muted);">(${new Date(injEditing.signedAt).toLocaleDateString()})</span>` : ''} <button type="button" id="injf_viewSigned" style="background:#fff; border:1px solid var(--line); border-radius:5px; padding:3px 10px; cursor:pointer; font-size:12px;">View</button><div class="form-note" style="margin:4px 0 0;">Choose a new file below to replace it.</div>`
-        : '<span class="form-note" style="margin:0;">Print the report, have the employee sign it, then scan or photograph it and upload it here.</span>';
-      const v = document.getElementById('injf_viewSigned');
-      if(v) v.onclick = async () => { const u = await window.dashboardApi.get(injEditing.signedKey, null); if(u) window.showPhotoModal(window.fleetDataUriToBlobUrl ? window.fleetDataUriToBlobUrl(u) : u, { isPdf: /^data:application\/pdf/.test(u) }); };
+    // the employee signs in the HUNK Portal
+    async function renderEmp(){
+      const el = document.getElementById('injf_emp'); if(!el) return;
+      const r = injEditing, when = iso => iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      const pb = document.getElementById('injf_print'); if(pb) pb.style.display = r.employeeSignedAt ? '' : 'none';
+      if(r.employeeSignedAt){
+        el.innerHTML = `<div style="color:var(--brand-green-dark); font-weight:700;">\u270d Signed in the app by ${esc(r.employeeSignedName || r.employeeName)} \u00b7 ${esc(when(r.employeeSignedAt))}</div>
+          <div class="form-note" style="margin:6px 0 2px;">Their statement:</div>
+          <div style="white-space:pre-wrap; background:var(--offwhite); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:13.5px;">${r.employeeStatement ? esc(r.employeeStatement) : '<em style="color:var(--muted);">No statement added.</em>'}</div>
+          <div class="form-note" style="margin:8px 0 2px;">Signature:</div><img id="injf_empSig" alt="Employee signature" style="max-width:280px; height:auto; border-bottom:1px solid #333; background:#fff;">`;
+        try{ const u = await window.dashboardApi.get(r.employeeSignatureKey, null); const im = document.getElementById('injf_empSig'); if(im && u) im.src = u; }catch(err){}
+        return;
+      }
+      if(r.pushedAt){
+        el.innerHTML = `<div style="color:#1f4f87; font-weight:700;">\ud83d\udcf1 Waiting on ${esc(r.employeeName)} to review and sign in the HUNK Portal</div>
+          <div class="form-note" style="margin:2px 0 6px;">Sent ${esc(when(r.pushedAt))}. It opens full-screen the next time they use the app. <button type="button" id="injf_unpush" style="background:none; border:none; color:#b3261e; text-decoration:underline; cursor:pointer; padding:0; font-size:12.5px;">Cancel request</button></div>`;
+        document.getElementById('injf_unpush').onclick = async () => { if(!confirm('Cancel the signature request?')) return; delete injEditing.pushedAt; delete injEditing.pushedBy; await saveEditor(true); renderEmp(); };
+        return;
+      }
+      el.innerHTML = `<button type="button" id="injf_push" style="background:#2f6db5; color:#fff; border:none; border-radius:6px; padding:9px 14px; cursor:pointer; font-weight:700;">\ud83d\udcf1 Send to Employee to Sign</button>
+        <div class="form-note" style="margin:6px 0 0;">They review the report, add their own statement if they want, and sign by drawing their signature &mdash; in the HUNK Portal, before they can do anything else there.</div>`;
+      document.getElementById('injf_push').onclick = async () => {
+        const st = document.getElementById('injf_status');
+        if(!document.getElementById('injf_employee').value){ st.textContent = 'Pick the employee first.'; st.className = 'status-msg err'; return; }
+        injEditing.pushedAt = new Date().toISOString(); injEditing.pushedBy = localStorage.getItem('henson_auth_email') || '';
+        if(await saveEditor(true)){ st.textContent = '\u2713 Sent \u2014 it opens on their phone next time they use the HUNK Portal.'; st.className = 'status-msg ok'; }
+        else { delete injEditing.pushedAt; }
+        renderEmp();
+      };
     }
-    async function addSigned(e){
-      const f = e.target.files[0], st = document.getElementById('injf_status'); if(!f) return;
-      if(f.size > 12 * 1024 * 1024){ st.textContent = 'That file is over 12MB.'; st.className = 'status-msg err'; return; }
-      st.textContent = 'Uploading the signed copy\u2026'; st.className = 'status-msg';
-      try{
-        const uri = f.type.startsWith('image/') ? await window.compressImageForUpload(f, 2000, 0.85) : await new Promise((ok, bad) => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.onerror = bad; rd.readAsDataURL(f); });
-        const key = `injury-file-${injEditing.id}-signed`;
-        if(!(await window.dashboardApi.set(key, uri))) throw new Error('save');
-        Object.assign(injEditing, { signedKey: key, signedFileName: f.name, signedAt: new Date().toISOString() });
-        if(await saveEditor(true)){ st.textContent = '\u2713 Signed copy saved.'; st.className = 'status-msg ok'; }
-      }catch(err){ st.textContent = 'Could not upload \u2014 check your connection.'; st.className = 'status-msg err'; }
-      e.target.value = ''; renderSigned();
-    }
-
     // ---------- printing (a hidden frame, so no pop-up is needed) ----------
     function printHtml(title, body, landscape){
       const fr = document.createElement('iframe');
@@ -17063,6 +17151,9 @@ window.openEmailDraft = function(o){
     }
     async function printReport(r){
       const P = window.LOCATION_PROFILE || {};
+      let empSig = '';
+      if(r.employeeSignedAt && r.employeeSignatureKey){ try{ empSig = await window.dashboardApi.get(r.employeeSignatureKey, null) || ''; }catch(err){} }
+      const signedWhen = r.employeeSignedAt ? new Date(r.employeeSignedAt).toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
       const photos = [];
       for(const k of (r.photoKeys || []).slice(0, 4)){ try{ const u = await window.dashboardApi.get(k, null); if(u) photos.push(u); }catch(err){} }
       const row = (l, v) => `<td style="width:25%;"><div class="lbl">${l}</div><div>${esc(v || '') || '&nbsp;'}</div></td>`;
@@ -17075,11 +17166,11 @@ window.openEmailDraft = function(o){
         <div class="lbl" style="margin-top:10px;">Description of the incident</div>
         <div class="box" style="min-height:${photos.length ? 110 : 220}px; white-space:pre-wrap;">${esc(r.description || '')}</div>
         ${photos.length ? `<div class="lbl" style="margin-top:10px;">Photos</div><div style="display:flex; gap:8px; margin-top:4px;">${photos.map(u => `<img src="${u}" style="width:${photos.length > 2 ? 23 : 32}%; height:150px; object-fit:cover; border:1px solid #999;">`).join('')}</div>` : ''}
-        <div class="lbl" style="margin-top:12px;">Employee statement (in your own words, if anything to add)</div>
-        <div class="box" style="min-height:70px;"></div>
-        <p style="font-size:10.5px; margin:10px 0 18px;">I confirm the information above is true and complete to the best of my knowledge.</p>
+        <div class="lbl" style="margin-top:12px;">Employee statement (in their own words)</div>
+        <div class="box" style="min-height:24px; white-space:pre-wrap;">${esc(r.employeeStatement) || '<em>No statement added.</em>'}</div>
+        <p style="font-size:10.5px; margin:10px 0 ${r.employeeSignedAt ? 4 : 18}px;">I confirm the information above is true and complete to the best of my knowledge.</p>
         <table style="border:none;"><tr>
-          <td style="border:none; width:50%; padding:18px 12px 0 0;"><div style="border-top:1px solid #111; padding-top:3px;">Employee signature &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date</div></td>
+          <td style="border:none; width:50%; padding:${r.employeeSignedAt ? 0 : 18}px 12px 0 0;">${empSig ? `<img src="${empSig}" style="height:46px; display:block;">` : ''}<div style="border-top:1px solid #111; padding-top:3px;">Employee signature &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date${signedWhen ? ` &nbsp; <strong>${esc(signedWhen)}</strong>` : ''}</div>${r.employeeSignedAt ? `<div style="font-size:9.5px; color:#444; margin-top:2px;">Signed electronically by ${esc(r.employeeSignedName || r.employeeName)} in the HUNK Portal.</div>` : ''}</td>
           <td style="border:none; width:50%; padding:18px 0 0 12px;"><div style="border-top:1px solid #111; padding-top:3px;">Supervisor / manager signature &nbsp;&nbsp;&nbsp;&nbsp; Date</div></td></tr></table>`);
     }
 
