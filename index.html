@@ -14951,12 +14951,22 @@ window.openEmailDraft = function(o){
 
   // ---- Trucks ----
   document.getElementById('comp_pti_toggle').addEventListener('click', e => {
-    const btn = e.currentTarget, body = document.getElementById('comp_pti_body'), open = body.style.display === 'none';
+    const btn = e.currentTarget, body = document.getElementById('comp_pti_body');
+    const jump = !!(e.target.closest && e.target.closest('.comp-pti-jump'));
+    const open = jump ? true : body.style.display === 'none';
+    if(jump && body.style.display !== 'none'){ setTimeout(() => ptiJumpToOpen(), 0); return; }
     body.style.display = open ? 'block' : 'none';
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     document.getElementById('comp_pti_caret').style.transform = open ? 'rotate(90deg)' : '';
     btn.querySelector('span:nth-child(2)').textContent = open ? 'Hide inspection log' : 'Show inspection log';
+    if(jump) setTimeout(() => ptiJumpToOpen(), 0);
   });
+  function ptiJumpToOpen(){
+    const rows = document.querySelectorAll('#comp_pti_rows tr.comp-pti-openrow');
+    if(!rows.length) return;
+    rows[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    rows.forEach(r => { r.style.background = '#FDECEA'; setTimeout(() => { r.style.background = ''; }, 3000); });
+  }
   async function renderCompTruckSelect(){
     let list = trucks;
     if(!list || list.length === 0){
@@ -14995,10 +15005,10 @@ window.openEmailDraft = function(o){
       const isResolved = hasDefects && !!r.resolved;
       let statusHtml;
       if(!hasDefects) statusHtml = '<span style="color:#00612C;">OK</span>';
-      else if(isResolved) statusHtml = '<span style="color:#00612C;">Defects Noted \u2014 Resolved</span>';
+      else if(isResolved) statusHtml = `<span style="color:#00612C;">Defects Noted \u2014 Resolved</span>${r.resolvedAt ? `<div style="font-size:11px; color:var(--muted);">${fleetEsc(new Date(r.resolvedAt).toLocaleDateString())}${r.resolvedNote ? ' \u00b7 ' + fleetEsc(r.resolvedNote) : ''}</div>` : ''}`;
       else statusHtml = '<span style="color:#B3261E; font-weight:600;">Defects Noted</span>';
       return `
-      <tr>
+      <tr${hasDefects && !isResolved ? ' class="comp-pti-openrow"' : ''}>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.date)}</td>
         ${showAllTrucks ? `<td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(truckName(r.truckId))}</td>` : ''}
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${fleetEsc(r.driverName)}</td>
@@ -15006,7 +15016,7 @@ window.openEmailDraft = function(o){
         <td style="padding:4px 3px; border-bottom:1px solid var(--line);">${statusHtml}</td>
         <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="comp-pti-view" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">View</button>
-          ${hasDefects && !isResolved ? `<button type="button" class="comp-pti-resolve" data-id="${r.id}" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Mark Resolved</button>` : ''}
+          ${hasDefects && !isResolved ? `<button type="button" class="comp-pti-resolve" data-id="${r.id}" style="background:var(--brand-green); border:1px solid var(--brand-green); color:#fff; font-weight:700; font-size:11px; padding:3px 9px; border-radius:4px; cursor:pointer;">\u2713 Mark Resolved</button>` : ''}
           <button type="button" class="comp-pti-delete" data-id="${r.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
         </td>
       </tr>`;
@@ -15021,7 +15031,7 @@ window.openEmailDraft = function(o){
       const latest = rows[0];
       const fmt = d => d ? new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
       sumEl.innerHTML = rows.length
-        ? `\u00b7 ${rows.length} inspection${rows.length === 1 ? '' : 's'} \u00b7 latest ${fleetEsc(fmt(latest.date))}${latest.overallStatus === 'defects' && !latest.resolved ? '' : ' (OK)'}${open ? ` \u00b7 <span style="color:#B3261E; font-weight:700;">${open} with open defects</span>` : ''}`
+        ? `\u00b7 ${rows.length} inspection${rows.length === 1 ? '' : 's'} \u00b7 latest ${fleetEsc(fmt(latest.date))}${latest.overallStatus === 'defects' && !latest.resolved ? '' : ' (OK)'}${open ? ` \u00b7 <span class="comp-pti-jump" style="color:#B3261E; font-weight:700; text-decoration:underline;">${open} with open defects \u2014 resolve</span>` : ''}`
         : '\u00b7 none yet';
     }
 
@@ -15030,8 +15040,12 @@ window.openEmailDraft = function(o){
       const id = e.target.dataset.id;
       const rec = compPretripInspections.find(r => r.id === id);
       if(!rec) return;
+      const note = prompt(`Mark ${rec.driverName ? rec.driverName + '\u2019s ' : ''}pre-trip defects from ${rec.date} resolved?\n\nWhat was done? (optional \u2014 e.g. "Replaced brake light")`, '');
+      if(note === null) return;
       rec.resolved = true;
       rec.resolvedAt = new Date().toISOString();
+      rec.resolvedNote = note.trim().slice(0, 300);
+      rec.resolvedBy = localStorage.getItem('henson_auth_email') || '';
       try{ await window.dashboardApi.set(COMP_PTI_KEY, compPretripInspections); }catch(err){ console.error(err); }
       renderCompPtiRows();
       updateComplianceTileBadge();
