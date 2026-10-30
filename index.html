@@ -23427,6 +23427,28 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   const DIGITAL_WP_KEY = 'digital-work-packages';
   let pwDigitalWP = [];
   const pwJobKey = n => String(n || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  // A job's original work order pages, saved when its package is generated
+  // so every later print (Digital list, reprints) includes the work order --
+  // not just the print right after reading. Compressed to keep storage small.
+  const pwWorkOrderKey = jobNumber => 'paperwork-job-link-' + pwJobKey(jobNumber) + '-workorder';
+  async function pwShrinkPage(uri){
+    try{
+      const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = uri; });
+      const scale = Math.min(1, 1400 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.72);
+    }catch(err){ return uri; }
+  }
+  async function pwSaveWorkOrderPages(jobNumber, pages){
+    if(!jobNumber || !(pages || []).length) return;
+    try{ await window.dashboardApi.set(pwWorkOrderKey(jobNumber), { pages: await Promise.all(pages.map(pwShrinkPage)), savedAt: new Date().toISOString() }); }
+    catch(err){ console.error('Saving the work order pages failed:', err); }
+  }
+  async function pwLoadWorkOrderPages(jobNumber){
+    if(!jobNumber) return [];
+    try{ const d = await window.dashboardApi.get(pwWorkOrderKey(jobNumber), null); return (d && d.pages) || []; }catch(err){ return []; }
+  }
   async function loadDigitalWP(){ try{ pwDigitalWP = await window.dashboardApi.get(DIGITAL_WP_KEY, []) || []; }catch(err){} }
   // ---- Pushed packages: switch back to paper, or print ----
   function pwFillFromJobData(jobData){
@@ -23480,7 +23502,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const jobData = await window.dashboardApi.get('paperwork-job-link-' + key, null);
         if(!jobData) throw new Error('This job\u2019s saved details couldn\u2019t be found \u2014 print it from the work order instead.');
         pwFillFromJobData(jobData);
-        const { html, extraNote } = await buildWorkPackageHtml(jobData.jobType || 'move');
+        const woPages = await pwLoadWorkOrderPages(jobData.jobNumber || key);
+        const { html, extraNote } = await buildWorkPackageHtml(jobData.jobType || 'move', woPages);
         document.getElementById('printPaperwork').innerHTML = html;
         document.getElementById('printBOL').innerHTML = '';
         document.getElementById('printEstimate').innerHTML = '';
@@ -23503,6 +23526,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     try{
       const jobData = Object.assign({}, pkg.jobData || { jobType: pkg.jobType, jobNumber: pkg.jobNumber, clientName: pkg.clientName }, { captainName: pkg.captainName });
       if(!(await window.dashboardApi.set('paperwork-job-link-' + jobKey, jobData))) throw new Error('save');
+      // Keep its work order so "Switch to paper" + Print includes it later.
+      await pwSaveWorkOrderPages(pkg.jobNumber, pkg.workOrderPages);
       await loadDigitalWP();
       const list = (pwDigitalWP || []).filter(x => x.jobKey !== jobKey);
       list.push({ jobKey, jobNumber: pkg.jobNumber, clientName: pkg.clientName, jobType: pkg.jobType, jobDate: (pkg.jobData || {}).loadingDate || '', captainName: pkg.captainName, status: 'pushed', pushedAt: new Date().toISOString(), pushedBy: localStorage.getItem('henson_auth_email') || '' });
@@ -23774,8 +23799,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // Captured now, before pwBatchPastedImages gets cleared below -- these
     // are the exact original work order pages for this job, later
     // prepended to its printed packet.
-    const workOrderPages = file ? file.allPageDataUris.slice(firstIdx, lastIdx + 1) : [];
-    const thumbnail = file ? file.allPageDataUris[firstIdx] : null;
+    const workOrderPages = (d.__pages && d.__pages.length) ? d.__pages : (file ? file.allPageDataUris.slice(firstIdx, lastIdx + 1) : []);
+    const thumbnail = workOrderPages[0] || (file ? file.allPageDataUris[firstIdx] : null);
 
     const scheduledHours = d.scheduledHours || 0;
     const quotedHours = d.quotedHours || 0;
@@ -23869,6 +23894,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       statusEl.className = 'status-msg err';
       return;
     }
+    const readBtn = document.getElementById('pwBatch_extractBtn');
+    if(readBtn.dataset.reading === '1') return;   // already reading -- a second click would rebuild the list without the pages
+    readBtn.dataset.reading = '1'; readBtn.disabled = true;
     statusEl.textContent = 'Reading work orders \u2014 this may take a moment...';
     statusEl.className = 'status-msg';
     try{
@@ -23893,6 +23921,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       const allDocuments = (data.documents || []).slice()
         .sort((a, b) => ((a.fileIndex || 0) - (b.fileIndex || 0)) || ((a.firstPageIndex || 0) - (b.firstPageIndex || 0)));
       allDocuments.forEach((d, i) => { d.sortKey = pwBatchSeq * 10000 + i; });
+      // Each work order keeps its own original pages from the moment it's
+      // read, so a job added to the review list later (an unclear one, or an
+      // estimate that's actually booked) still prints with its work order.
+      allDocuments.forEach(d => {
+        const f = pwBatchPastedImages[d.fileIndex], total = f ? f.allPageDataUris.length : 0;
+        if(!total) return;
+        const first = Math.max(0, Math.min(d.firstPageIndex || 0, total - 1));
+        const last = Math.max(first, Math.min(typeof d.lastPageIndex === 'number' ? d.lastPageIndex : first, total - 1));
+        d.__pages = f.allPageDataUris.slice(first, last + 1);
+      });
       if(allDocuments.length === 0){
         statusEl.textContent = 'Could not read any work orders from those files.';
         statusEl.className = 'status-msg err';
@@ -23962,7 +24000,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           jobNumber: d.jobNumber || '(no job # read)',
           clientName: d.clientName || '(no client name read)',
           thumbnail: (pwBatchPastedImages[d.fileIndex] && pwBatchPastedImages[d.fileIndex].allPageDataUris[d.firstPageIndex]) || null,
-          reason
+          reason, sourceDoc: d, dist
         });
       }
       const junkRemovalRecords = await createJunkRemovalJobsFromExcluded(junkDocs);
@@ -24048,7 +24086,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       console.error('Work order extraction failed:', err);
       statusEl.textContent = 'Could not reach the server \u2014 check your connection.';
       statusEl.className = 'status-msg err';
-    }
+    }finally{ readBtn.dataset.reading = ''; readBtn.disabled = false; }
   });
 
   function pwBatchDataUriToBlobUrl(dataUri){
@@ -24112,11 +24150,22 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     container.innerHTML = pwBatchExcluded.map((x, i) => `
       <div style="display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
         ${x.thumbnail ? `<img class="pwBatch-excluded-thumb" data-index="${i}" src="${x.thumbnail}" style="width:44px; height:44px; object-fit:cover; border-radius:4px; cursor:pointer; flex-shrink:0;">` : ''}
-        <div><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)} <span class="form-note" style="margin:0;">${pwBatchEsc(x.reason)}</span></div>
+        <div style="flex:1;"><strong>${pwBatchEsc(x.jobNumber)}</strong> \u2014 ${pwBatchEsc(x.clientName)} <span class="form-note" style="margin:0;">${pwBatchEsc(x.reason)}</span></div>
+        ${x.sourceDoc ? `<button type="button" class="btn-secondary pwBatch-estimate-promote" data-index="${i}" style="flex-shrink:0;" title="The reader took this for an estimate, but it\u2019s a booked job">It\u2019s Booked \u2014 Add to Review</button>` : ''}
       </div>`).join('');
     container.querySelectorAll('.pwBatch-excluded-thumb').forEach(img => img.addEventListener('click', (e)=>{
       const x = pwBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
       if(x && x.thumbnail) window.showPhotoModal(x.thumbnail);
+    }));
+    container.querySelectorAll('.pwBatch-estimate-promote').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const x = pwBatchExcluded[parseInt(e.currentTarget.dataset.index, 10)];
+      if(!x || !x.sourceDoc) return;
+      const d = Object.assign({}, x.sourceDoc, { orderType: 'job' });
+      pwBatchReview.push(buildPwReviewRow(d, x.dist || null, 'pwrev_est_' + Date.now()));
+      pwBatchReview.sort(pwBySortKey);
+      pwBatchExcluded = pwBatchExcluded.filter(y => y !== x);
+      await renderPwBatchReview();
+      renderPwBatchExcluded();
     }));
   }
 
@@ -24571,7 +24620,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const { html, extraNote } = await buildWorkPackageHtml(r.jobType, r.workOrderPages);
         const jobData = { jobType: r.jobType, jobNumber: r.jobNumber, clientName: r.clientName, clientPhone: r.clientPhone, clientEmail: r.clientEmail, originAddress: r.originAddress, destAddress: r.destAddress,
           stop1: '', stop2: '', stop3: '', estDate: '', packingDate: '', loadingDate: r.jobDate || '', deliveryDate: '', unpackingDate: '', otherServiceDate: '', estimateSummary: r.estimateSummary || '', captainName: r.captainName || '' };
-        generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote, sortKey: r.sortKey, jobData });
+        generated.push({ jobNumber: r.jobNumber, clientName: r.clientName, jobType: r.jobType, captainName: r.captainName, html, extraNote, sortKey: r.sortKey, jobData, workOrderPages: r.workOrderPages || [] });
       }
 
       pwClearFormFields();
@@ -24703,7 +24752,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     archiveJobData();
     try{
       const jobType = document.getElementById('pw_jobType').value;
-      const { html, extraNote } = await buildWorkPackageHtml(jobType);
+      const woPages = await pwLoadWorkOrderPages(document.getElementById('pw_jobNumber').value.trim());
+      const { html, extraNote } = await buildWorkPackageHtml(jobType, woPages);
       document.getElementById('printPaperwork').innerHTML = html;
       document.getElementById('printBOL').innerHTML = '';
       document.getElementById('printEstimate').innerHTML = '';
