@@ -7456,6 +7456,7 @@ window.openEmailDraft = function(o){
       <p class="form-note">Each Captain's overall weighted score, by week. Weeks with no applicable data for a Captain are skipped for them, rather than shown as a 0.</p>
       <label style="max-width:260px; margin-bottom:12px;">Captain <select id="cm_trendCaptainSelect"><option value="__all__">All Captains</option></select></label>
       <canvas id="cm_trendChart"></canvas>
+      <p id="cm_trendSummary" style="margin:8px 0 0; font-size:13.5px;"></p>
       <p class="form-note" id="cm_trendEmptyNote" style="display:none;">Not enough weekly data yet to show a trend.</p>
     </div>
 
@@ -29466,6 +29467,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(captainsToShow.length === 0 || !anyData){
       canvas.style.display = 'none';
       emptyNote.style.display = 'block';
+      document.getElementById('cm_trendSummary').innerHTML = '';
       if(cmTrendChart){ cmTrendChart.destroy(); cmTrendChart = null; }
       return;
     }
@@ -29483,6 +29485,29 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }));
 
     const labels = cmTrendWeeksCache.map(w => window.trendWeekLabel(w.weekStart));
+
+    // Logarithmic trendline through every score shown (all Captains pooled,
+    // or just the one picked): score = a + b * ln(week #), least squares.
+    const pts = [];
+    cmTrendWeeksCache.forEach((w, i) => captainsToShow.forEach(c => { const v = w.scores[c] && w.scores[c].overall; if(typeof v === 'number') pts.push([Math.log(i + 1), v]); }));
+    const summaryEl = document.getElementById('cm_trendSummary');
+    const who = selected === '__all__' ? 'across all Captains' : 'for ' + selected;
+    if(pts.length >= 3 && new Set(pts.map(p => p[0])).size >= 2){
+      const n = pts.length, sx = pts.reduce((t, p) => t + p[0], 0), sy = pts.reduce((t, p) => t + p[1], 0);
+      const sxx = pts.reduce((t, p) => t + p[0] * p[0], 0), sxy = pts.reduce((t, p) => t + p[0] * p[1], 0);
+      const b = (n * sxy - sx * sy) / (n * sxx - sx * sx), a = (sy - b * sx) / n;
+      const clamp = v => Math.max(0, Math.min(100, v));
+      // The line covers the weeks that actually have scores.
+      const idx = cmTrendWeeksCache.map((w, i) => captainsToShow.some(c => w.scores[c] && w.scores[c].overall != null) ? i : -1).filter(i => i >= 0);
+      const first = idx[0], last = idx[idx.length - 1];
+      const fit = cmTrendWeeksCache.map((w, i) => i >= first && i <= last ? Math.round(clamp(a + b * Math.log(i + 1)) * 10) / 10 : null);
+      datasets.push({ label: 'Trend' + (selected === '__all__' ? ' (all Captains)' : ''), data: fit, borderColor: '#111', backgroundColor: '#111', borderDash: [7, 5], borderWidth: 3, pointRadius: 0, pointHoverRadius: 0, tension: 0.35, fill: false, spanGaps: true, order: -1 });
+      const from = fit[first], to = fit[last], diff = Math.round(to - from);
+      const word = Math.abs(diff) < 1 ? 'flat' : diff > 0 ? `up ${diff} point${diff === 1 ? '' : 's'}` : `down ${-diff} point${diff === -1 ? '' : 's'}`;
+      summaryEl.innerHTML = `<strong style="color:${Math.abs(diff) < 1 ? 'var(--charcoal)' : diff > 0 ? 'var(--brand-green-dark)' : '#b3261e'};">Trend: ${word}</strong> (${Math.round(from)}% \u2192 ${Math.round(to)}%) over ${last - first + 1} week${last === first ? '' : 's'} ${cmEsc(who)}. <span class="form-note" style="margin:0;">Logarithmic fit \u2014 fast early change that levels off.</span>`;
+    } else {
+      summaryEl.innerHTML = `<span class="form-note" style="margin:0;">Not enough scores yet for a trendline ${cmEsc(who)} (needs at least 3).</span>`;
+    }
 
     try{
       if(cmTrendChart) cmTrendChart.destroy();
