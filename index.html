@@ -3025,6 +3025,52 @@ window.openEmailDraft = function(o){
       if(!r.ok) return; list = (await r.json()).reports || [];
     }catch(err){ return; }
     if(list.length) showInjurySign(list[0], list.length);
+    else checkSmsConsent();
+  }
+  // ---- One-time text-message opt-in (Team Messages) ----
+  let smsConsentOpen = false;
+  async function checkSmsConsent(){
+    if(smsConsentOpen || injSignOpen || !driverToken) return;
+    let d;
+    try{ const r = await fetch(API_BASE_AUTH + '/api/crew/sms-consent', { headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) return; d = await r.json(); }catch(err){ return; }
+    if(d.answered) return;
+    smsConsentOpen = true;
+    const ov = document.createElement('div');
+    ov.id = 'smsConsentOverlay';
+    ov.style.cssText = 'position:fixed; inset:0; z-index:199999; background:#f4f1ea; overflow-y:auto; -webkit-overflow-scrolling:touch;';
+    ov.innerHTML = `<div style="max-width:520px; margin:0 auto; padding:calc(22px + env(safe-area-inset-top, 0px)) 18px calc(28px + env(safe-area-inset-bottom, 0px));">
+      <div style="font-size:40px; line-height:1;">\ud83d\udcac</div>
+      <h2 style="margin:8px 0 6px; font-size:22px;">Get Work Texts from College Hunks Augusta</h2>
+      <p style="margin:0 0 14px; font-size:15px; color:var(--muted);">The office can now text the team directly \u2014 schedule and job updates, safety and weather alerts, and company announcements.</p>
+      <label style="display:block; font-weight:700; font-size:15px; margin-bottom:6px;">Your mobile number</label>
+      <input type="tel" id="smsConsentPhone" inputmode="tel" autocomplete="tel" value="${driverEsc(d.phone || '')}" placeholder="(706) 555-0123" style="width:100%; box-sizing:border-box; font-size:18px; padding:12px; border:1px solid var(--line); border-radius:8px;">
+      <label style="display:flex; gap:12px; align-items:flex-start; margin:16px 0 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:14px; line-height:1.45; cursor:pointer;">
+        <input type="checkbox" id="smsConsentBox" style="width:24px; height:24px; flex-shrink:0; margin-top:2px;">
+        <span>${driverEsc(d.text || '')}</span>
+      </label>
+      <button type="button" id="smsConsentYes" style="width:100%; margin-top:16px; padding:15px; font-size:17px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Agree &amp; Continue</button>
+      <button type="button" id="smsConsentNo" style="width:100%; margin-top:10px; padding:12px; font-size:15px; background:#fff; color:var(--charcoal); border:1px solid var(--line); border-radius:10px;">No thanks</button>
+      <p id="smsConsentStatus" style="margin:10px 0 0; font-size:14px; text-align:center;"></p>
+      <p style="margin:14px 0 0; font-size:12px; color:var(--muted); text-align:center;">Your number is only used for work texts from College Hunks Augusta and is never sold or shared. <a href="sms-consent.html" target="_blank" rel="noopener" style="color:var(--muted);">Privacy &amp; terms</a></p>
+    </div>`;
+    document.body.appendChild(ov);
+    const st = document.getElementById('smsConsentStatus');
+    const send = async (agree) => {
+      const phone = document.getElementById('smsConsentPhone').value;
+      if(agree){
+        if(!document.getElementById('smsConsentBox').checked){ st.textContent = 'Check the box to agree, or choose No thanks.'; st.style.color = '#b3261e'; return; }
+        if(phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1').length !== 10){ st.textContent = 'Enter your 10-digit mobile number.'; st.style.color = '#b3261e'; return; }
+      }
+      st.textContent = 'Saving\u2026'; st.style.color = 'var(--muted)';
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/crew/sms-consent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ agree, phone }) });
+        const res = await r.json().catch(() => ({}));
+        if(!r.ok) throw new Error(res.error || 'Could not save \u2014 try again.');
+        ov.remove(); smsConsentOpen = false;
+      }catch(err){ st.textContent = err.message; st.style.color = '#b3261e'; }
+    };
+    document.getElementById('smsConsentYes').onclick = () => send(true);
+    document.getElementById('smsConsentNo').onclick = () => send(false);
   }
   function showInjurySign(rep, count){
     injSignOpen = true;
@@ -11068,8 +11114,11 @@ window.openEmailDraft = function(o){
     const chosen = () => new Set([...document.querySelectorAll('.tt-person:checked')].map(c => c.value));
     function group(){ const a = aud(), c = chosen(); return people.filter(p => a === 'captains' ? p.captain : a === 'wingmen' ? p.wingman : a === 'custom' ? c.has(p.name) : true); }
     function renderPreview(){
-      const g = group(), ok = g.filter(p => p.phone && !p.optedOut), noPhone = g.filter(p => !p.phone), out = g.filter(p => p.optedOut);
-      $('tt_preview').innerHTML = `<strong>Goes to ${ok.length} ${ok.length === 1 ? 'person' : 'people'}.</strong>`
+      const g = group(), ok = g.filter(p => p.phone && !p.optedOut && p.consent === 'agreed'), out = g.filter(p => p.optedOut);
+      const notYet = g.filter(p => !p.optedOut && p.consent === 'none'), declined = g.filter(p => !p.optedOut && p.consent === 'declined'), noPhone = g.filter(p => p.consent === 'agreed' && !p.phone);
+      $('tt_preview').innerHTML = `<strong>Goes to ${ok.length} ${ok.length === 1 ? 'person' : 'people'}</strong> <span style="color:var(--muted);">(only people who agreed to texts in the HUNK Portal).</span>`
+        + (notYet.length ? ` <span style="color:#8a6100;">Haven\u2019t answered the opt-in yet: ${notYet.map(p => esc(p.name)).join(', ')}.</span>` : '')
+        + (declined.length ? ` <span style="color:var(--muted);">Declined texts: ${declined.map(p => esc(p.name)).join(', ')}.</span>` : '')
         + (noPhone.length ? ` <span style="color:#8a6100;">No phone number on the Employee Roster: ${noPhone.map(p => esc(p.name)).join(', ')}.</span>` : '')
         + (out.length ? ` <span style="color:var(--muted);">Opted out (texted STOP): ${out.map(p => esc(p.name)).join(', ')}.</span>` : '');
       $('tt_send').disabled = !configured || !ok.length;
@@ -11086,7 +11135,7 @@ window.openEmailDraft = function(o){
         const pd = await pr.json(), md = await mr.json();
         people = pd.people || []; configured = !!pd.configured;
         $('tt_notConnected').style.display = configured ? 'none' : 'block';
-        $('tt_pick').innerHTML = people.map(p => `<label style="display:flex; gap:8px; align-items:center; margin:3px 0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:13.5px; color:${p.phone && !p.optedOut ? 'var(--charcoal)' : 'var(--muted)'};"><input type="checkbox" class="tt-person" value="${esc(p.name)}" ${p.phone && !p.optedOut ? '' : 'disabled'}> ${esc(p.name)} <span style="font-size:12px; color:var(--muted);">${p.phone ? esc(p.phoneDisplay) + (p.optedOut ? ' \u00b7 opted out' : '') : 'no phone number'}</span></label>`).join('');
+        $('tt_pick').innerHTML = people.map(p => `<label style="display:flex; gap:8px; align-items:center; margin:3px 0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:13.5px; color:${p.phone && !p.optedOut && p.consent === 'agreed' ? 'var(--charcoal)' : 'var(--muted)'};"><input type="checkbox" class="tt-person" value="${esc(p.name)}" ${p.phone && !p.optedOut && p.consent === 'agreed' ? '' : 'disabled'}> ${esc(p.name)} <span style="font-size:12px; color:var(--muted);">${p.phone ? esc(p.phoneDisplay) : 'no phone number'}${p.optedOut ? ' \u00b7 opted out (STOP)' : p.consent === 'agreed' ? ' \u00b7 <span style="color:var(--brand-green-dark);">\u2713 agreed ' + new Date(p.consentAt).toLocaleDateString() + '</span>' : p.consent === 'declined' ? ' \u00b7 declined texts' : ' \u00b7 hasn\u2019t answered yet'}</span></label>`).join('');
         renderPreview();
         $('tt_unread').textContent = md.unread ? `(${md.unread} new)` : '';
         $('tt_inbox').innerHTML = (md.inbox || []).length ? md.inbox.map(m => `<div style="border-bottom:1px solid var(--line); padding:8px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div><div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div></div>`).join('') : '<p class="form-note" style="margin:0;">No replies yet.</p>';
