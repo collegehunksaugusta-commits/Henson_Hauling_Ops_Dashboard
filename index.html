@@ -2882,10 +2882,10 @@ window.openEmailDraft = function(o){
       const r = await fetch(expBase() + '/expenses', { headers: { 'Authorization': 'Bearer ' + driverToken } });
       if(!r.ok) return;
       const today = new Date(); today.setHours(0, 0, 0, 0);
-      list = ((await r.json()).expenses || []).filter(e => e.type === 'charge' && e.status === 'approved' && e.payWeek && (() => { const p = new Date(e.payWeek + 'T12:00:00'); p.setDate(p.getDate() + 10); return p >= today; })());
+      list = ((await r.json()).expenses || []).filter(e => e.type === 'charge' && e.status === 'approved' && e.payWeek && (() => { const p = new Date(e.payWeek + 'T12:00:00'); p.setDate(p.getDate() + 11); return p >= today; })());
     }catch(err){ return; }
     const money = n => '$' + (Number(n) || 0).toFixed(2);
-    const payday = w => { const p = new Date(w + 'T12:00:00'); p.setDate(p.getDate() + 10); return p.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); };
+    const payday = w => { const p = new Date(w + 'T12:00:00'); p.setDate(p.getDate() + 11); return p.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); };
     document.querySelectorAll('.charge-notice-tile').forEach(tile => {
       tile.style.display = list.length ? 'block' : 'none';
       tile.querySelector('.charge-notice-body').innerHTML = list.map(e => {
@@ -14181,6 +14181,12 @@ window.openEmailDraft = function(o){
   }
   window.loadExtraPayData = loadExtraPayData;
 
+  function extraPayMarkNegative(input){
+    if(input.dataset.baseStyle === undefined) input.dataset.baseStyle = input.getAttribute('style') || '';
+    const neg = (Number(input.value) || 0) < 0;
+    input.setAttribute('style', input.dataset.baseStyle + (neg ? '; color:#b3261e; font-weight:700; background:#fdecea; border-color:#e8a19b;' : ''));
+    input.title = neg ? 'Deduction \u2014 comes out of this paycheck' : (input.dataset.baseTitle !== undefined ? input.dataset.baseTitle : input.title);
+  }
   function extraPayRecalcRow(row){
     const tips = Number(row.dataset.tips) || 0;
     const reviewBonus = Number(row.querySelector('.extraPay-reviewBonus').value) || 0;
@@ -14198,7 +14204,11 @@ window.openEmailDraft = function(o){
     const mileage = Number(row.dataset.mileage) || 0;
     const costRecovery = Number(row.dataset.costrecovery) || 0;
     const total = tips + reviewBonus + commission - damage - costRecovery + expenses + mileage + misc;
-    row.querySelector('.extraPay-total').textContent = extraPayMoney(total);
+    const totalCell = row.querySelector('.extraPay-total');
+    totalCell.textContent = extraPayMoney(total);
+    totalCell.style.color = total < 0 ? '#b3261e' : '';
+    // Anything typed below zero is a deduction -- show it in red.
+    row.querySelectorAll('.extraPay-misc, .extraPay-reviewBonus, .extraPay-commission').forEach(extraPayMarkNegative);
     return { tips, reviewBonus, commission, damage, costRecovery, expenses, mileage, misc, total };
   }
 
@@ -14217,7 +14227,9 @@ window.openEmailDraft = function(o){
     weekPanel.querySelector('.extraPay-totalExpenses').textContent = sums.expenses ? (sums.expenses < 0 ? '\u2212' + extraPayMoney(-sums.expenses) : extraPayMoney(sums.expenses)) : '';
     weekPanel.querySelector('.extraPay-totalMileage').textContent = sums.mileage > 0 ? extraPayMoney(sums.mileage) : '';
     weekPanel.querySelector('.extraPay-totalMisc').textContent = extraPayMoney(sums.misc);
+    weekPanel.querySelector('.extraPay-totalMisc').style.color = sums.misc < 0 ? '#b3261e' : '';
     weekPanel.querySelector('.extraPay-totalGrand').textContent = extraPayMoney(sums.total);
+    weekPanel.querySelector('.extraPay-totalGrand').style.color = sums.total < 0 ? '#b3261e' : '';
   }
 
   function extraPayWeekPanelHtml(w){
@@ -14255,7 +14267,7 @@ window.openEmailDraft = function(o){
       const isOm = w.opsManagerName === name;
       return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}" data-costrecovery="${costRec ? costRec.total : 0}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-expenses="${expenses ? expenses.total : 0}" data-mileage="${mileage ? mileage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}${isOm ? `<div style="margin-top:6px; padding:6px 8px; background:#FFF4E5; border:1px solid var(--brand-orange); border-radius:6px; font-size:12px;" title="Ops Manager commission = revenue from his estimate conversions x the Ops Manager rate">
-          <div style="font-weight:700; color:var(--brand-orange-dark);">Ops Manager &mdash; Converted Revenue (${extraPayEsc(extraPayWeekLabel(w.commissionSourceWeek || extraPayGetWeekBounds(extraPayPriorWeekStart(w.weekStart))))})</div>
+          <div style="font-weight:700; color:var(--brand-orange-dark);">Ops Manager &mdash; Converted Revenue (${extraPayEsc(extraPayWeekLabel(extraPayGetWeekBounds(w.weekStart)))})</div>
           <div style="display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">$<input type="number" min="0" step="0.01" class="extraPay-convRev" data-rate="${w.omRatePct}" data-score="${w.omScoreVal == null ? '' : w.omScoreVal}" data-hours="${w.omHoursVal || 0}" value="${w.omConvertedRevenue ? Number(w.omConvertedRevenue).toFixed(2) : ''}" placeholder="0.00" style="width:110px; text-align:right; padding:4px 6px;"> <span style="color:var(--muted);">&times; ${w.omRatePct}% &times; ${w.omScoreVal == null ? (w.omWaitingPayroll ? '<span style="color:#8a6d00;" title="The score and hours come from this work week\u2019s payroll report \u2014 upload it in Labor Cost">score after payroll upload</span>' : '<span style="color:#b3261e;">no score</span>') : w.omScoreVal + '% score'} &times; ${Math.round((w.omHoursVal || 0) * 10) / 10}/40 hrs${w.omSalaried ? ' (salaried)' : (w.omHoursActual > 40 ? ` (worked ${Math.round(w.omHoursActual * 10) / 10}, capped at 40)` : '')} = <span class="extraPay-convRevResult" style="color:var(--charcoal); font-weight:700;">${extraPayMoney((w.omConvertedRevenue || 0) * w.omRatePct / 100 * ((w.omScoreVal || 0) / 100) * ((w.omHoursVal || 0) / 40))}</span></span></div>
         </div>` : ''}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayMoney(tips)}</td>
@@ -14265,8 +14277,8 @@ window.openEmailDraft = function(o){
         <td class="extraPay-costRecovery" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${costRec ? ` title="${extraPayEsc(costRec.lines.join('\n'))}"` : ''}>${costRec ? '\u2212' + extraPayMoney(costRec.total) : '<span style="color:var(--muted); font-weight:400;">\u2014</span>'}</td>
         <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${expenses ? `<button type="button" class="ep-claims" data-kind="expenses" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change these expenses" style="background:none; border:none; padding:0; cursor:pointer; color:${expenses.total < 0 ? '#b3261e' : 'var(--brand-green-dark)'}; font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${expenses.total < 0 ? '\u2212' + extraPayMoney(-expenses.total) : extraPayMoney(expenses.total)}${expenses.claims.some(c => c.type === 'charge') ? '<div style="font-size:10.5px; font-weight:600;">incl. charge</div>' : ''}${expenses.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td class="extraPay-mileage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${mileage ? `<button type="button" class="ep-claims" data-kind="mileage" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change this mileage" style="background:none; border:none; padding:0; cursor:pointer; color:#1f4f87; font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${extraPayMoney(mileage.total)}${mileage.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}"></td>
-        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600;" class="extraPay-total"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}" title="Extra pay, or a negative amount to deduct (e.g. -150)"></td>
+        <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); font-weight:600; white-space:nowrap; min-width:84px;" class="extraPay-total"></td>
       </tr>`;
     }).join('');
 
@@ -14293,7 +14305,7 @@ window.openEmailDraft = function(o){
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Expenses approved in Manager Review this pay week -- reimbursements, not commission">Expenses</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Personal-vehicle mileage approved in Manager Review this pay week (miles x the rate locked in at approval)">Mileage</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
-            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Total</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); min-width:84px;">Total</th>
           </tr></thead>
           <tbody>${rowsHtml}</tbody>
           <tfoot>
@@ -14307,7 +14319,7 @@ window.openEmailDraft = function(o){
               <td class="extraPay-totalExpenses" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalMileage" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalMisc" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
-              <td class="extraPay-totalGrand" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
+              <td class="extraPay-totalGrand" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line); white-space:nowrap;"></td>
             </tr>
           </tfoot>
         </table>
@@ -29962,14 +29974,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const weeks = (ch.weeks || []).map(w => ({ weekStart: w.weekStart, conv: w.convertedRevenue, paid: w.commission, calculated: !!w.calculated,
         rate: w.omRatePct != null ? w.omRatePct : rate, score: w.omScore, hours: w.omHours }));
       const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const span = ws => { const s = new Date(ws + 'T00:00:00'); const p = new Date(s); p.setDate(s.getDate() - 7); const e = new Date(p); e.setDate(p.getDate() + 6); const f = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); return `${f(p)} \u2013 ${f(e)}`; };
+      // Conversions are for the pay week itself (paid on that week's payday).
+      const span = ws => { const s = new Date(ws + 'T00:00:00'); const p = new Date(s); const e = new Date(p); e.setDate(p.getDate() + 6); const f = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); return `${f(p)} \u2013 ${f(e)}`; };
       if(!omName){ wrap.innerHTML = '<p class="form-note" style="margin:0;">No Ops Manager is selected in Configuration \u2192 Commission yet.</p>'; return; }
       if(weeks.length === 0){ wrap.innerHTML = `<p class="form-note" style="margin:0;">No commission weeks saved yet. Current rate: <strong>${rate}%</strong> of converted revenue.</p>`; return; }
       const th = 'text-align:right; padding:6px 8px;';
       wrap.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:14px;">
         <thead><tr><th style="text-align:left; padding:6px 8px;">Conversions week</th><th style="${th}">Converted revenue</th><th style="${th}">Rate</th><th style="${th}">Score</th><th style="${th}">Hours</th><th style="${th}">Commission</th></tr></thead>
         <tbody>${weeks.map(w => `<tr style="border-bottom:1px solid var(--line);">
-          <td style="padding:8px;">${span(w.weekStart)}<div style="font-size:11.5px; color:var(--muted);">paid week of ${new Date(w.weekStart + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div></td>
+          <td style="padding:8px;">${span(w.weekStart)}<div style="font-size:11.5px; color:var(--muted);">paid ${window.expPayday(w.weekStart).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</div></td>
           <td style="padding:8px; text-align:right;">${w.conv ? money(w.conv) : '<span style="color:var(--muted);">\u2014</span>'}</td>
           <td style="padding:8px; text-align:right;">\u00d7 ${w.rate}%</td>
           <td style="padding:8px; text-align:right;">${w.score == null ? '<span style="color:var(--muted);">\u2014</span>' : '\u00d7 ' + w.score + '%'}</td>
@@ -34355,7 +34368,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   let expenseClaims = [];
   const expMoneyFmt = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   // Approved expenses and charges go on the upcoming paycheck -- the one for
-  // the PREVIOUS pay week (approved Tue 10/21 -> paid Wed 10/22 for 10/12-10/18)
+  // the PREVIOUS pay week (approved Tue 10/20 -> paid Fri 10/23 for 10/12-10/18)
   // -- unless that week has already been paid (its payroll is in Labor Cost),
   // then the next one.
   let expPaidWeeks = new Set();
@@ -34372,8 +34385,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     return expPaidWeeks.has(lastWeek) ? thisWeek : lastWeek;
   }
   window.expPayWeekStart = expPayWeekStart;
-  // The Wednesday paycheck for a pay week (Monday + 10 days).
-  window.expPayday = weekStart => { const x = new Date(weekStart + 'T12:00:00'); x.setDate(x.getDate() + 10); return x; };
+  // Payday: the Friday after the pay week closes (its Monday + 11 days),
+  // e.g. the week of Mon Oct 26 - Sun Nov 1 is paid Fri Nov 6.
+  window.expPayday = weekStart => { const x = new Date(weekStart + 'T12:00:00'); x.setDate(x.getDate() + 11); return x; };
   window.expIsWeekPaid = w => expPaidWeeks.has(w);
   async function loadExpenseClaims(){
     try{ await ensureAppSettingsLoaded(); }catch(err){}
