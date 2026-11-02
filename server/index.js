@@ -4970,19 +4970,34 @@ function dataUriParts(uri) {
   return m ? { mediaType: m[1], data: m[2] } : null;
 }
 
-app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(400).json({ error: 'AI recommendations need a Claude key (ANTHROPIC_API_KEY in Render).' });
-  const { claimId, valuation, declaredValue, notes } = req.body || {};
-  try {
-    const [claimsRaw, reportsRaw, uploadsRaw, archiveRaw] = await Promise.all([
-      redis.get('damage-claims'), redis.get('moving-damage-reports'), redis.get('paperwork-uploads'), redis.get(JOB_ARCHIVE_KEY)
-    ]);
-    const claim = (claimsRaw ? JSON.parse(claimsRaw) : []).find(c => c.id === claimId);
-    if (!claim) return res.status(404).json({ error: 'Claim not found.' });
-    const report = (reportsRaw ? JSON.parse(reportsRaw) : []).find(r => String(r.jobNumber) === String(claim.jobNumber)) || {};
-    const job = (archiveRaw ? JSON.parse(archiveRaw) : []).find(j => String(j.jobNumber) === String(claim.jobNumber)) || {};
+function damageClaimTariffResult(a, chosen, declaredValue, extra) {
+  const items = (a.items || []).map(it => {
+    const weight = Math.max(0, Number(it.estimatedWeightLbs) || 0);
+    const cost = Math.max(0, Number(it.estimatedRepairOrReplaceCost) || 0);
+    const covered = it.covered !== false;
+    const releasedCap = Math.round(weight * 0.60 * 100) / 100;
+    return { ...it, estimatedWeightLbs: weight, estimatedRepairOrReplaceCost: cost, covered,
+      releasedValueAmount: covered ? Math.min(cost, releasedCap) : 0, releasedValueCap: releasedCap,
+      fullValueAmount: covered ? cost : 0 };
+  });
+  const round2 = n => Math.round(n * 100) / 100;
+  const releasedTotal = round2(items.reduce((t, i) => t + i.releasedValueAmount, 0));
+  const fullCostTotal = round2(items.reduce((t, i) => t + i.fullValueAmount, 0));
+  const option = chosen || (['1', '2a', '2b'].includes(a.valuationFromPaperwork) ? a.valuationFromPaperwork : null);
+  const declared = Number(chosen ? declaredValue : a.declaredValueFromPaperwork) || 0;
+  const cap = v => declared > 0 ? Math.min(v, declared) : v;
+  const totals = { '1': releasedTotal, '2a': round2(cap(fullCostTotal)), '2b': round2(cap(Math.max(0, fullCostTotal - 300))) };
+  return {
+    generatedAt: new Date().toISOString(), by: extra.by || '',
+    option, optionSource: extra.optionSource || (chosen ? 'entered' : (option ? 'paperwork' : 'not_found')),
+    declaredValue: declared, paperworkIncluded: !!extra.paperworkIncluded, paperworkEvidence: a.paperworkEvidence || '',
+    items, totals, recommendedTotal: option ? totals[option] : null,
+    confidence: a.confidence || 'low', concerns: a.concerns || [], writtenRecommendation: a.writtenRecommendation || '',
+    photoCounts: extra.counts || {}
+  };
+}
 
+async function damageClaimEvidence(claim, report, uploadsRaw, valuation) {
     // Photos, labeled by source, up to 18 in all.
     const groups = [
       { label: 'CLIENT CLAIM PHOTO (uploaded by the client after the move)', keys: (claim.photos || []).map(p => `damage-claim-photo-${claim.id}-${p.id}`) },
@@ -5006,7 +5021,6 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
         total++;
       }
     }
-    if (total === 0) return res.status(400).json({ error: 'This claim has no photos to analyze yet.' });
 
     // The job's scanned paperwork packet, to read the signed valuation addendum.
     let paperworkIncluded = false;
@@ -5028,6 +5042,108 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
         }
       }
     }
+
+  return { content, counts, total, paperworkIncluded };
+}
+
+// ---- Discuss the recommendation: questions and added context ----
+// The office asks questions or adds facts (receipts, the signed valuation,
+// what the crew said...). The AI answers with the same photos and paperwork
+// in view, and -- only when the new information changes the assessment --
+// returns a full revised assessment; the tariff math is redone here.
+const DAMAGE_DISCUSS_TOOL = {
+  name: 'damage_claim_discussion',
+  description: 'Answer the owner about the damage claim assessment, and revise it if warranted.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      reply: { type: 'string', description: 'Direct, plain-language answer to the owner (a few sentences). If you revised the assessment, say exactly what changed and why.' },
+      revise: { type: 'boolean', description: 'True only if the owner\u2019s information or a closer look changes the items, weights, costs, coverage, or valuation option.' },
+      assessment: Object.assign({}, DAMAGE_REC_TOOL.input_schema, { description: 'Required when revise is true: the COMPLETE revised assessment (every item, not only the changed ones).' })
+    },
+    required: ['reply', 'revise']
+  }
+};
+app.post('/api/admin/damage-claim/discuss', requireAuth, async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'AI needs a Claude key (ANTHROPIC_API_KEY in Render).' });
+  const { claimId } = req.body || {};
+  const message = String((req.body || {}).message || '').trim().slice(0, 4000);
+  if (!message) return res.status(400).json({ error: 'Type a question or some context first.' });
+  try {
+    const [claimsRaw, reportsRaw, uploadsRaw, archiveRaw] = await Promise.all([
+      redis.get('damage-claims'), redis.get('moving-damage-reports'), redis.get('paperwork-uploads'), redis.get(JOB_ARCHIVE_KEY)
+    ]);
+    const claim = (claimsRaw ? JSON.parse(claimsRaw) : []).find(c => c.id === claimId);
+    if (!claim) return res.status(404).json({ error: 'Claim not found.' });
+    const rec = claim.aiRecommendation;
+    if (!rec) return res.status(400).json({ error: 'Run the recommendation first.' });
+    const report = (reportsRaw ? JSON.parse(reportsRaw) : []).find(r => String(r.jobNumber) === String(claim.jobNumber)) || {};
+    const job = (archiveRaw ? JSON.parse(archiveRaw) : []).find(j => String(j.jobNumber) === String(claim.jobNumber)) || {};
+    const { content, counts, paperworkIncluded } = await damageClaimEvidence(claim, report, uploadsRaw, rec.optionSource === 'entered' ? rec.option : 'paperwork');
+    const current = {
+      valuationOption: rec.option, optionSource: rec.optionSource, declaredValue: rec.declaredValue, paperworkEvidence: rec.paperworkEvidence,
+      items: (rec.items || []).map(i => ({ article: i.article, photoNumbers: i.photoNumbers, damage: i.damage, estimatedWeightLbs: i.estimatedWeightLbs,
+        estimatedRepairOrReplaceCost: i.estimatedRepairOrReplaceCost, repairOrReplace: i.repairOrReplace, preExistingOverlap: i.preExistingOverlap,
+        exclusionConcern: i.exclusionConcern, covered: i.covered, removedByOffice: !!i.removedByOffice })),
+      totals: rec.totals, recommendedTotal: rec.recommendedTotal, confidence: rec.confidence, concerns: rec.concerns, writtenRecommendation: rec.writtenRecommendation
+    };
+    const history = (claim.aiChat || []).slice(-20).map(m => `${m.role === 'user' ? 'OWNER' : 'YOU'}: ${m.text}`).join('\n\n');
+    content.push({ type: 'text', text:
+      `You are helping a College Hunks Hauling Junk & Moving franchise owner in Georgia evaluate a customer's moving damage claim, and you already gave the assessment below. The owner is now asking questions or adding context.\n\n${GA_TARIFF_7_VALUATION}\n\n` +
+      `Job ${claim.jobNumber}${job.jobType ? ' (' + job.jobType + ')' : ''}, client ${claim.clientName || job.clientName || 'unknown'}.\n\n` +
+      `CURRENT ASSESSMENT (items marked removedByOffice were struck by the office; keep them out unless the owner says otherwise):\n${JSON.stringify(current, null, 1)}\n\n` +
+      (history ? `CONVERSATION SO FAR:\n${history}\n\n` : '') +
+      `OWNER'S NEW MESSAGE:\n${message}\n\n` +
+      `Answer directly and honestly, referring to photo numbers where useful. Facts the owner provides (receipts, the signed valuation option and declared value, what the crew reported, an item being shipper-packed, etc.) take precedence over your estimates -- but if the photos clearly contradict something, say so. ` +
+      `Set revise=true ONLY if this changes the assessment (items, weights, costs, coverage, or valuation); then return the COMPLETE revised assessment with every item, counting each physical article once. Otherwise set revise=false and do not include an assessment. Do not do the tariff dollar math yourself -- it is calculated for you from the items.` });
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, tools: [DAMAGE_DISCUSS_TOOL], tool_choice: { type: 'tool', name: 'damage_claim_discussion' }, messages: [{ role: 'user', content }] })
+    });
+    if (!r.ok) { console.error('[damage-discuss] Claude call failed:', r.status, (await r.text().catch(() => '')).slice(0, 300)); return res.status(502).json({ error: 'The AI service returned an error \u2014 try again in a minute.' }); }
+    const d = await r.json();
+    const out = ((d.content || []).find(b => b.type === 'tool_use') || {}).input || {};
+    const reply = String(out.reply || '').trim() || 'Sorry \u2014 I couldn\u2019t answer that. Try rephrasing.';
+    let revised = null;
+    if (out.revise === true && out.assessment && Array.isArray(out.assessment.items)) {
+      // Keep the valuation the office entered, unless the owner just told us otherwise.
+      const said = ['1', '2a', '2b'].includes(out.assessment.valuationFromPaperwork) ? out.assessment.valuationFromPaperwork : null;
+      const keepEntered = rec.optionSource === 'entered' && (!said || said === rec.option);
+      revised = damageClaimTariffResult(out.assessment, keepEntered ? rec.option : null, keepEntered ? rec.declaredValue : 0,
+        { by: req.userEmail || '', paperworkIncluded, counts, optionSource: keepEntered ? 'entered' : (said && said !== rec.option ? 'discussion' : undefined) });
+      revised.revisedFromDiscussion = true;
+    }
+    const now = new Date().toISOString();
+    const claims = JSON.parse(await redis.get('damage-claims') || '[]');
+    const c = claims.find(x => x.id === claimId);
+    if (!c) return res.status(404).json({ error: 'Claim not found.' });
+    c.aiChat = (c.aiChat || []).concat([
+      { role: 'user', text: message, at: now, by: req.userEmail || '' },
+      { role: 'assistant', text: reply, at: new Date().toISOString(), revised: !!revised, from: revised ? rec.recommendedTotal : null, to: revised ? revised.recommendedTotal : null }
+    ]).slice(-60);
+    if (revised) { c.aiRecommendationHistory = (c.aiRecommendationHistory || []).concat([c.aiRecommendation]).slice(-10); c.aiRecommendation = revised; }
+    await redis.set('damage-claims', JSON.stringify(claims));
+    console.log(`[damage-discuss] claim ${claimId}: ${revised ? `revised ${rec.recommendedTotal} -> ${revised.recommendedTotal}` : 'answered'}`);
+    res.json({ reply, revised: !!revised, recommendation: c.aiRecommendation, chat: c.aiChat });
+  } catch (err) { console.error('[damage-discuss] failed:', err.message); res.status(500).json({ error: 'Could not get an answer.' }); }
+});
+
+app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'AI recommendations need a Claude key (ANTHROPIC_API_KEY in Render).' });
+  const { claimId, valuation, declaredValue, notes } = req.body || {};
+  try {
+    const [claimsRaw, reportsRaw, uploadsRaw, archiveRaw] = await Promise.all([
+      redis.get('damage-claims'), redis.get('moving-damage-reports'), redis.get('paperwork-uploads'), redis.get(JOB_ARCHIVE_KEY)
+    ]);
+    const claim = (claimsRaw ? JSON.parse(claimsRaw) : []).find(c => c.id === claimId);
+    if (!claim) return res.status(404).json({ error: 'Claim not found.' });
+    const report = (reportsRaw ? JSON.parse(reportsRaw) : []).find(r => String(r.jobNumber) === String(claim.jobNumber)) || {};
+    const job = (archiveRaw ? JSON.parse(archiveRaw) : []).find(j => String(j.jobNumber) === String(claim.jobNumber)) || {};
+
+    const { content, counts, total, paperworkIncluded } = await damageClaimEvidence(claim, report, uploadsRaw, valuation);
+    if (total === 0) return res.status(400).json({ error: 'This claim has no photos to analyze yet.' });
 
     const chosen = ['1', '2a', '2b'].includes(valuation) ? valuation : null;
     content.push({ type: 'text', text:
@@ -5054,34 +5170,8 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
     const a = block.input || {};
 
     // Tariff math, done here.
-    const items = (a.items || []).map(it => {
-      const weight = Math.max(0, Number(it.estimatedWeightLbs) || 0);
-      const cost = Math.max(0, Number(it.estimatedRepairOrReplaceCost) || 0);
-      const covered = it.covered !== false;
-      const releasedCap = Math.round(weight * 0.60 * 100) / 100;
-      return { ...it, estimatedWeightLbs: weight, estimatedRepairOrReplaceCost: cost, covered,
-        releasedValueAmount: covered ? Math.min(cost, releasedCap) : 0, releasedValueCap: releasedCap,
-        fullValueAmount: covered ? cost : 0 };
-    });
-    const round2 = n => Math.round(n * 100) / 100;
-    const releasedTotal = round2(items.reduce((t, i) => t + i.releasedValueAmount, 0));
-    const fullCostTotal = round2(items.reduce((t, i) => t + i.fullValueAmount, 0));
-    const option = chosen || (['1', '2a', '2b'].includes(a.valuationFromPaperwork) ? a.valuationFromPaperwork : null);
-    const declared = Number(chosen ? declaredValue : a.declaredValueFromPaperwork) || 0;
-    const cap = v => declared > 0 ? Math.min(v, declared) : v;
-    const totals = {
-      '1': releasedTotal,
-      '2a': round2(cap(fullCostTotal)),
-      '2b': round2(cap(Math.max(0, fullCostTotal - 300)))
-    };
-    const result = {
-      generatedAt: new Date().toISOString(), by: req.userEmail || '',
-      option, optionSource: chosen ? 'entered' : (option ? 'paperwork' : 'not_found'),
-      declaredValue: declared, paperworkIncluded, paperworkEvidence: a.paperworkEvidence || '',
-      items, totals, recommendedTotal: option ? totals[option] : null,
-      confidence: a.confidence || 'low', concerns: a.concerns || [], writtenRecommendation: a.writtenRecommendation || '',
-      photoCounts: counts
-    };
+    const result = damageClaimTariffResult(a, chosen, declaredValue, { by: req.userEmail || '', paperworkIncluded, counts });
+    const items = result.items, option = result.option;
     // Kept on the claim so it can be reopened without re-running.
     const claims = JSON.parse(await redis.get('damage-claims') || '[]');
     const c = claims.find(x => x.id === claimId);
