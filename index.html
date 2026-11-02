@@ -2082,7 +2082,7 @@ window.openEmailDraft = function(o){
         <div style="background:#b3261e; color:#fff; padding:16px 18px; display:flex; align-items:center; gap:12px;">
           <span style="font-size:38px; line-height:1;">&#128666;</span>
           <div><div style="font-size:21px; font-weight:800; letter-spacing:.03em;">${notices.every(n => n.kind !== 'underbilled') ? 'TRUCK CONDITION' : notices.every(n => n.kind === 'underbilled') ? 'UNDERBILLED JOB' : 'MANAGER REVIEW'} \u2014 FAIL</div>
-          <div style="font-size:13px; opacity:.95;">${notices.every(n => n.kind !== 'underbilled') ? `The manager reviewed your End of Day truck photo${notices.length > 1 ? 's' : ''}` : 'The manager reviewed your work'}</div></div>
+</div>
         </div>
         <div style="padding:16px 18px 18px;">
           ${notices.map(n => {
