@@ -6783,14 +6783,55 @@ function twilioSignatureOk(req) {
   try { return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig)); } catch (e) { return false; }
 }
 // Everyone on the roster, with phone, role and opt-out status.
+// ---- Text-message consent (opt-in), collected in the HUNK Portal ----
+// The exact wording each employee agreed to is kept with their answer.
+const TT_CONSENT_KEY = 'team-text-consents';
+const SMS_CONSENT_VERSION = '2026-11-02';
+const SMS_CONSENT_TEXT = 'I agree to receive work-related text messages from College Hunks Hauling Junk & Moving (Henson Hauling, LLC) at the mobile number above, including schedule and job updates, safety and weather alerts, and company announcements. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time, or HELP for help. Consent is not a condition of employment.';
+async function teamTextConsents() { return JSON.parse(await redis.get(TT_CONSENT_KEY) || '{}'); }
+app.get('/api/crew/sms-consent', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const c = (await teamTextConsents())[nameCoreKey(me)] || null;
+    const contacts = await getEmployeeContactsMap();
+    const phone = (contacts[nameCoreKey(me)] || {}).phone || '';
+    res.json({ answered: !!c, agree: c ? !!c.agree : null, phone: (c && c.phone) || phone, text: SMS_CONSENT_TEXT, version: SMS_CONSENT_VERSION });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/sms-consent', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const agree = (req.body || {}).agree === true;
+    const digits = String((req.body || {}).phone || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+    if (agree && digits.length !== 10) return res.status(400).json({ error: 'Enter your 10-digit mobile number.' });
+    const phone = agree ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : '';
+    const all = await teamTextConsents();
+    all[nameCoreKey(me)] = { name: me, agree, phone, at: new Date().toISOString(), version: SMS_CONSENT_VERSION, text: agree ? SMS_CONSENT_TEXT : '',
+      ip: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(), ua: String(req.headers['user-agent'] || '').slice(0, 200) };
+    await redis.set(TT_CONSENT_KEY, JSON.stringify(all));
+    if (agree) {   // keep the roster's phone in step with the number they confirmed
+      const contacts = JSON.parse(await redis.get('employee-contacts') || '{}');
+      const k = nameCoreKey(me); contacts[k] = Object.assign({}, contacts[k] || {}, { name: (contacts[k] || {}).name || me, phone, updatedAt: new Date().toISOString(), by: 'self (text consent)' });
+      await redis.set('employee-contacts', JSON.stringify(contacts));
+    }
+    console.log(`[sms-consent] ${me} ${agree ? 'agreed' : 'declined'}`);
+    res.json({ ok: true });
+  } catch (err) { console.error('SMS consent failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+
 async function teamTextPeople() {
   const rules = await loadRoleRules();
   const [weeksRaw, manualRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions')]);
   const contacts = await getEmployeeContactsMap();
   const optouts = new Set(JSON.parse(await redis.get(TT_OPTOUT_KEY) || '[]'));
+  const consents = await teamTextConsents();
   return computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')).map(name => {
     const phone = toE164((contacts[nameCoreKey(name)] || {}).phone);
-    return { name, phone, phoneDisplay: phone ? prettyPhone(phone) : '', captain: rules.isCaptain(name), wingman: rules.isWingman(name), optedOut: !!phone && optouts.has(phone) };
+    const c = consents[nameCoreKey(name)];
+    return { name, phone, phoneDisplay: phone ? prettyPhone(phone) : '', captain: rules.isCaptain(name), wingman: rules.isWingman(name), optedOut: !!phone && optouts.has(phone),
+      consent: c ? (c.agree ? 'agreed' : 'declined') : 'none', consentAt: c ? c.at : null };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 app.get('/api/admin/team-texts/people', requireAuth, requireAdmin, async (req, res) => {
@@ -6817,8 +6858,9 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
     if (!message) return res.status(400).json({ error: 'Type a message first.' });
     if (message.length > 1200) return res.status(400).json({ error: 'That message is too long (1,200 characters max).' });
     const people = (await teamTextPeople()).filter(p => audience === 'captains' ? p.captain : audience === 'wingmen' ? p.wingman : audience === 'custom' ? picked.has(p.name) : true);
-    const sendable = people.filter(p => p.phone && !p.optedOut);
-    if (!sendable.length) return res.status(400).json({ error: 'No one in that group has a phone number on the Employee Roster.' });
+    // Only employees who agreed to texts in the HUNK Portal.
+    const sendable = people.filter(p => p.phone && !p.optedOut && p.consent === 'agreed');
+    if (!sendable.length) return res.status(400).json({ error: 'No one in that group has agreed to receive texts yet — they’re asked in the HUNK Portal.' });
     const settings = await getAppSettings();
     const noted = new Set(JSON.parse(await redis.get(TT_NOTICED_KEY) || '[]'));
     const cb = publicBase(req) + '/api/twilio/status';
