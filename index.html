@@ -13796,6 +13796,10 @@ window.openEmailDraft = function(o){
       const timelyCloseoutWindowDays = Number(omSettings.timelyCloseoutWindowDays) || 4;
 
       const reviewBonusRate = Number(commission.reviewBonusPerReview) || 0;
+      // Damage costs come off the paycheck stamped on each claim; have the
+      // Damage Claims page stamp (and save) any older claims first, so a
+      // claim can never land on two paychecks.
+      try{ if(window.loadDamageClaimsData) await window.loadDamageClaimsData(); }catch(err){}
       const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations, damageClaimsForPay, expenseClaimsForPay] = await Promise.all([
         window.getCurrentEmployeeRoster(),
         window.dashboardApi.get('square-tip-allocations', {allocations:{}, overrides:{}}),
@@ -13898,9 +13902,10 @@ window.openEmailDraft = function(o){
         (damageClaimsForPay || []).forEach(c => {
           const cost = Number(c.totalCost) || 0;
           if(!(cost > 0) || !c.costRecordedAt || !c.costCaptainName) return;
-          // The job's pay week (job date), falling back to when the cost was entered.
-          const when = jobDateForClaims[String(c.jobNumber)] || c.costRecordedAt;
-          if(when < week.weekStart || when > week.weekEnd) return;
+          // The pay week stamped when the cost was finalized (the next paycheck).
+          // Claims from before that stamp: the job's week, as before.
+          if(c.payWeek){ if(c.payWeek !== weekStart) return; }
+          else { const when = jobDateForClaims[String(c.jobNumber)] || c.costRecordedAt; if(when < week.weekStart || when > week.weekEnd) return; }
           // Split evenly between the Captain and any wingmen on the claim.
           const split = window.damageCostShares(cost, c.costCaptainName, c.costWingmen);
           const crew = split.crew;
@@ -31865,8 +31870,32 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     return [...new Set([cap, ...(c.costWingmen || [])].filter(Boolean))];
   }
   window.dcCostCrew = dcCostCrew;
-  // The deduction belongs to the job's pay week (the job date), or -- if
-  // the job date isn't on file -- the week the cost was entered.
+  // A damage cost comes off the NEXT paycheck after it's finalized (its
+  // Total Cost entered) -- stamped on the claim as payWeek, the same rule as
+  // other paycheck charges. Not tied to the job's week.
+  const dcMondayOf = dateStr => { const d = new Date(String(dateStr).slice(0, 10) + 'T12:00:00'); const dow = d.getDay(); d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow)); return d.toLocaleDateString('en-CA'); };
+  async function dcStampPayWeek(claim){
+    if(claim.payWeek) return;
+    try{ await window.loadExpPaidWeeks(); }catch(err){}
+    claim.payWeek = window.expPayWeekStart();
+  }
+  // Claims finalized before this rule: if the cost was entered by the old
+  // job week's payday it already came out then -- keep it there; if entered
+  // after that payroll ran it never came out -- put it on the next paycheck.
+  function dcLegacyPayWeek(c){
+    const oldWeek = dcMondayOf(dcDeductionDate(c));
+    const payday = window.expPayday(oldWeek).toLocaleDateString('en-CA');
+    return dcPaidWeeks.has(oldWeek) && String(c.costRecordedAt) > payday ? window.expPayWeekStart() : oldWeek;
+  }
+  async function dcMigratePayWeeks(){
+    const todo = damageClaims.filter(c => Number(c.totalCost) > 0 && c.costRecordedAt && !c.payWeek);
+    if(!todo.length) return false;
+    try{ await window.loadExpPaidWeeks(); }catch(err){}
+    todo.forEach(c => { c.payWeek = dcLegacyPayWeek(c); c.payWeekSetBy = 'migrated'; });
+    return true;
+  }
+  window.dcClaimPayWeek = c => c.payWeek || null;
+  // (Before payWeek existed:) the job's week, or when the cost was entered.
   function dcDeductionDate(c){
     const job = (dcArchiveCache || []).find(j => String(j.jobNumber) === String(c.jobNumber));
     return (job && job.assignmentDate) || c.costRecordedAt;
@@ -31874,15 +31903,15 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   function dcDeductionNote(c){
     if(!(Number(c.totalCost) > 0)) return '';
     if(!c.costRecordedAt) return '<div style="font-size:11px; color:var(--muted); margin-top:3px; max-width:200px;">Entered before commission deductions began \u2014 not deducted</div>';
-    const d = new Date(dcDeductionDate(c) + 'T00:00:00'); const dow = d.getDay();
-    const mon = new Date(d); mon.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
-    const monStr = `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
+    const monStr = c.payWeek || dcMondayOf(dcDeductionDate(c));
+    const paydayTxt = window.expPayday(monStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     const crew = dcCostCrew(c);
     if(crew.length === 0) return '<div style="font-size:11px; color:#8a6d00; margin-top:3px; max-width:200px;">No Captain on file for this job \u2014 not deducted</div>';
-    if(dcPaidWeeks.has(monStr)){
+    if(c.payWeek && dcPaidWeeks.has(monStr)) return `<div style="font-size:11px; color:var(--muted); margin-top:3px; max-width:230px;">\u2713 Deducted on the ${dcEsc(paydayTxt)} paycheck</div>`;
+    if(!c.payWeek && dcPaidWeeks.has(monStr)){
       return `<div style="font-size:11px; color:#b3261e; font-weight:700; margin-top:3px; max-width:230px;">\u26a0 Job week of ${window.fmtDate(monStr)} \u2014 that payroll already ran, so this won\u2019t come out automatically \u2014 collect it by hand on a later payroll.</div>`;
     }
-    if(crew.length === 1) return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:200px;">Comes off ${dcEsc(crew[0])}\u2019s commission, week of ${window.fmtDate(monStr)}</div>`;
+    if(crew.length === 1) return `<div style="font-size:11px; color:#b3261e; margin-top:3px; max-width:200px;">Comes off ${dcEsc(crew[0])}\u2019s commission on the ${dcEsc(paydayTxt)} paycheck</div>`;
     const split = window.damageCostShares(Number(c.totalCost), c.costCaptainName, c.costWingmen);
     const capShare = split.shares[c.costCaptainName] || 0;
     const wmShares = crew.filter(n => n !== c.costCaptainName).map(n => split.shares[n]);
@@ -32011,6 +32040,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       claim.totalCost = amount;
       if(!claim.costRecordedAt) claim.costRecordedAt = new Date().toLocaleDateString('en-CA');
       if(!claim.costCaptainName) claim.costCaptainName = await dcCaptainForJob(claim.jobNumber);
+      await dcStampPayWeek(claim);
     }
     await saveDamageClaims();
     updateDamageClaimTileBadge();
@@ -32384,7 +32414,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       damageClaims = await window.dashboardApi.get(DAMAGE_CLAIMS_KEY, []) || [];
       dcRefreshJobNumbers();
       if(typeof window.rerenderMovingReports === 'function') window.rerenderMovingReports();
-      if(await pruneOldDamageClaims()) await saveDamageClaims();
+      const pruned = await pruneOldDamageClaims();
+      if(pruned | await dcMigratePayWeeks()) await saveDamageClaims();
       await pruneOldMovingDamageReports();
       renderDamageClaimsList();
       updateDamageClaimTileBadge();
@@ -33005,9 +33036,11 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(claim.totalCost > 0){
         if(!claim.costRecordedAt) claim.costRecordedAt = new Date().toLocaleDateString('en-CA');
         if(!claim.costCaptainName) claim.costCaptainName = await dcCaptainForJob(claim.jobNumber);
+        await dcStampPayWeek(claim);   // the next paycheck
       } else {
         delete claim.costRecordedAt;
         delete claim.costCaptainName;
+        delete claim.payWeek;
       }
       await saveDamageClaims();
       renderDamageClaimsList();
