@@ -2422,6 +2422,40 @@ app.get('/api/wingman/my-extras', requireWingmanAuth, async (req, res) => {
   try { res.json(await myExtrasFor(req.wingmanName)); } catch (err) { console.error('My extras failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
 });
 
+// ---- Review shout-outs: a credited Google review pops up in the HUNK Portal ----
+// Each crew member sees each review credited to them once, and taps to
+// collect. Only reviews credited after this started (REVIEW_POP_START) pop up.
+const REVIEW_POP_ACKS_KEY = 'review-popup-acks';   // { coreKey: [reviewId, ...] }
+const REVIEW_POP_START = '2026-11-02T00:00:00Z';
+app.get('/api/crew/review-shoutouts', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const key = nameCoreKey(me);
+    const [allocRaw, reviewsRaw, acksRaw] = await Promise.all([redis.get('google-review-allocations'), redis.get(GOOGLE_REVIEWS_KEY), redis.get(REVIEW_POP_ACKS_KEY)]);
+    const seen = new Set((JSON.parse(acksRaw || '{}')[key]) || []);
+    const reviews = new Map(JSON.parse(reviewsRaw || '[]').map(r => [r.id, r]));
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    const bonus = Number((st.commission || {}).reviewBonusPerReview) || 0;
+    const list = Object.entries(JSON.parse(allocRaw || '{}'))
+      .filter(([id, a]) => a && (a.allocatedAt || '') >= REVIEW_POP_START && !seen.has(id) && (a.employees || []).some(n => nameCoreKey(n) === key))
+      .map(([id, a]) => { const r = reviews.get(id) || {}; return { id, authorName: r.authorName || a.reviewerName || 'A customer', photoUrl: r.photoUrl || '', rating: Number(r.rating) || 5, text: r.text || '', date: r.date || a.date, publishedAt: r.publishedAt || null,
+        crew: (a.employees || []).filter(n => nameCoreKey(n) !== key) }; })
+      .sort((x, y) => String(x.date).localeCompare(String(y.date)));
+    res.json({ reviews: list, bonus });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/review-shoutouts/:id/ack', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const acks = JSON.parse(await redis.get(REVIEW_POP_ACKS_KEY) || '{}'), key = nameCoreKey(me);
+    acks[key] = Array.from(new Set([...(acks[key] || []), String(req.params.id)])).slice(-500);
+    await redis.set(REVIEW_POP_ACKS_KEY, JSON.stringify(acks));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
 app.get('/api/driver/my-tips', requireDriverAuth, async (req, res) => {
   try { res.json(await myTipsFor(req.driverName)); } catch (err) { console.error('My tips failed:', err.message); res.status(500).json({ error: 'Could not load tips.' }); }
 });
