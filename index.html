@@ -31908,6 +31908,14 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     '2b': { name: 'Option 2(b) \u2014 Full Value Protection ($300 deductible)', basis: 'Full Value Protection provides coverage based on the current replacement value of each damaged article at the time of damage (or its reasonable repair cost), up to the total value you declared, less a $300.00 deductible.' }
   };
 
+  // Notes on the client's Settlement Summary: the office's edited version if
+  // there is one, otherwise the AI's (kept current by the discussion).
+  function dcSettlementNotes(claim){
+    if(typeof claim.settlementNotes === 'string') return claim.settlementNotes.trim();
+    return String((claim.aiRecommendation || {}).settlementNotes || '').trim();
+  }
+  // The amount the client is told: the claim's Total Cost if set, otherwise the recommendation.
+  function dcSettlementAmount(claim){ const t = Number(claim.totalCost); return t > 0 ? t : (claim.aiRecommendation || {}).recommendedTotal; }
   function dcBuildSettlementPdf(claim, rec, amount){
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -31942,6 +31950,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       line(`   ${how}`, 10, false, [60,60,60]);
     });
     y += 4;
+    const notes = dcSettlementNotes(claim);
+    if(notes){ y += 4; line('Notes', 11.5, true); line(notes, 10.5, false, [40,40,40]); y += 4; }
     if(rec.option === '2b') line('A $300.00 deductible applies under Option 2(b).', 10, false, [60,60,60]);
     if((rec.option === '2a' || rec.option === '2b') && rec.declaredValue) line(`Total coverage is limited to your declared value of $${Number(rec.declaredValue).toLocaleString()}.`, 10, false, [60,60,60]);
     y += 8;
@@ -31962,6 +31972,14 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       return false;
     }
     if(!(Number(claim.totalCost) > 0) && !confirm(`This claim has no Total Cost yet. Send the recommended ${dcMoney(amount)} as the settlement? (Set the Total Cost first if the amount is different.)`)) return false;
+    if(Number(claim.totalCost) > 0 && recommended != null && Math.abs(Number(claim.totalCost) - recommended) > 0.005){
+      // The recommendation changed after the Total Cost was set (e.g. from the discussion).
+      if(confirm(`The claim's Total Cost is ${dcMoney(claim.totalCost)}, but the latest recommendation is ${dcMoney(recommended)}.\n\nOK = send ${dcMoney(recommended)} (and update the Total Cost)\nCancel = keep ${dcMoney(claim.totalCost)}`)){
+        amount = recommended;
+        const input = document.querySelector(`.dc-total-cost[data-id="${CSS.escape(claim.id)}"]`);
+        if(input){ input.value = String(recommended); input.dispatchEvent(new Event('change')); } else { claim.totalCost = recommended; await saveDamageClaims(); }
+      }
+    }
     if(!rec.option){ alert('The valuation option wasn\u2019t found \u2014 re-run the recommendation with the option selected first.'); return false; }
     await ensureAppSettingsLoaded();
     const dc = window.appSettings.damageClaims || {};
@@ -32129,6 +32147,18 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${r.editedByOffice ? '<p class="form-note" style="margin:0 0 8px; color:#8a6d00;">Adjusted by the office \u2014 one or more items removed; totals recalculated with the same tariff rules.</p>' : ''}
         ${(r.concerns || []).length ? `<p style="margin:0 0 4px; font-weight:700; font-size:13px;">Verify before paying:</p><ul style="margin:0 0 12px 18px; font-size:13px;">${r.concerns.map(c => `<li>${dcEsc(c)}</li>`).join('')}</ul>` : ''}
         <p class="form-note" style="margin:0 0 12px;">AI estimate based on photos \u2014 weights and costs are approximate. Under the tariff, the carrier may also choose to repair or restore an item instead of paying. Review before settling; this isn\u2019t legal advice.</p>
+        ${Number(claim.totalCost) > 0 && r.recommendedTotal != null && Math.abs(Number(claim.totalCost) - r.recommendedTotal) > 0.005 ? `<div style="border:1px solid #f0c36d; background:#fff8e6; border-radius:8px; padding:10px 12px; margin:0 0 12px; font-size:13.5px;">\u26a0 This claim\u2019s <strong>Total Cost is ${dcMoney(claim.totalCost)}</strong>, but the recommendation is now <strong>${dcMoney(r.recommendedTotal)}</strong>. The Settlement Summary uses the Total Cost. <button type="button" id="dcai_useNow" style="margin-left:6px; background:#5b3fa8; color:#fff; border:none; border-radius:5px; padding:4px 10px; cursor:pointer; font-weight:700;">Use ${dcMoney(r.recommendedTotal)}</button></div>` : ''}
+        <div style="border:1px solid #cfe3d6; border-radius:8px; padding:12px 14px; margin:0 0 14px; background:#f7fbf8;">
+          <div style="font-weight:800; font-size:14px; color:#00612C;">Notes on the client\u2019s Settlement Summary</div>
+          <p class="form-note" style="margin:2px 0 6px;">Printed under the itemized list on the PDF the client receives. The AI keeps these current as you discuss the claim; edit them if you like.</p>
+          <textarea id="dcai_notes" rows="3" style="width:100%; box-sizing:border-box; padding:8px; font-size:13.5px; font-family:inherit; resize:vertical;" placeholder="(No notes \u2014 the Settlement Summary will show just the itemized list.)">${dcEsc(dcSettlementNotes(claim))}</textarea>
+          ${typeof claim.settlementNotes === 'string' && String(r.settlementNotes || '').trim() && claim.settlementNotes.trim() !== String(r.settlementNotes).trim() ? `<div class="form-note" style="margin:4px 0 0;">You\u2019ve edited these. The AI\u2019s latest version differs \u2014 <a href="#" id="dcai_notesAi">use the AI\u2019s latest notes</a>.</div>` : ''}
+          <div style="display:flex; gap:8px; align-items:center; margin-top:6px; flex-wrap:wrap;">
+            <button type="button" id="dcai_notesSave" style="${btn('#fff','#00612C','#00612C')}">Save Notes</button>
+            <button type="button" id="dcai_preview" style="${btn('#fff','#333','#999')}">\ud83d\udcc4 Preview Settlement Summary</button>
+            <span class="status-msg" id="dcai_notesStatus" style="font-size:12.5px;"></span>
+          </div>
+        </div>
         <div style="border:1px solid #d9cff0; border-radius:8px; padding:12px 14px; margin:0 0 14px; background:#fcfbfe;">
           <div style="font-weight:800; font-size:14px; color:#5b3fa8;">\ud83d\udcac Discuss this recommendation</div>
           <p class="form-note" style="margin:2px 0 8px;">Ask a question, or add context the AI couldn\u2019t know (a receipt amount, the valuation the client signed, what the crew said, an item that was shipper-packed). If it changes things, the recommendation and totals update.</p>
@@ -32154,6 +32184,23 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       overlay.querySelector('#dcai_close2').addEventListener('click', close);
       overlay.querySelector('#dcai_again').addEventListener('click', renderForm);
       const chatEl = overlay.querySelector('#dcai_chat'); if(chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+      const useNow = overlay.querySelector('#dcai_useNow');
+      if(useNow) useNow.addEventListener('click', () => { const b = overlay.querySelector('#dcai_use'); if(b) b.click(); setTimeout(() => renderResult(claim.aiRecommendation), 300); });
+      overlay.querySelector('#dcai_notesSave').addEventListener('click', async () => {
+        const st = overlay.querySelector('#dcai_notesStatus');
+        claim.settlementNotes = overlay.querySelector('#dcai_notes').value.trim();
+        if(await saveDamageClaims()){ st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; } else { st.textContent = 'Could not save.'; st.className = 'status-msg err'; }
+      });
+      const useAi = overlay.querySelector('#dcai_notesAi');
+      if(useAi) useAi.addEventListener('click', async e => { e.preventDefault(); delete claim.settlementNotes; await saveDamageClaims(); renderResult(claim.aiRecommendation); });
+      overlay.querySelector('#dcai_preview').addEventListener('click', () => {
+        const amount = dcSettlementAmount(claim);
+        if(amount == null || !claim.aiRecommendation.option){ alert('The valuation option isn\u2019t set yet, so there\u2019s no settlement amount to preview.'); return; }
+        // preview what would go out right now, including unsaved note edits
+        const draft = Object.assign({}, claim, { settlementNotes: overlay.querySelector('#dcai_notes').value });
+        const url = dcBuildSettlementPdf(draft, claim.aiRecommendation, amount).output('bloburl');
+        window.showPhotoModal(url, { isPdf: true });
+      });
       // Ask / add context; the reply (and any revision) comes back saved on the claim.
       const sendAsk = async () => {
         const box = overlay.querySelector('#dcai_ask'), st = overlay.querySelector('#dcai_askStatus'), btnEl = overlay.querySelector('#dcai_send');
