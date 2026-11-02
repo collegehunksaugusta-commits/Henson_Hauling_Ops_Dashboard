@@ -7437,6 +7437,7 @@ window.openEmailDraft = function(o){
     <div class="panel">
       <h3>New Message</h3>
       <textarea id="tt_message" rows="4" maxlength="1200" placeholder="e.g. Reminder: team meeting Saturday at 8am at the shop." style="width:100%; box-sizing:border-box; font-size:15px; padding:10px;"></textarea>
+      <div id="tt_asSent" style="font-size:13px; margin:4px 0 2px; white-space:pre-wrap;"></div>
       <div id="tt_count" style="font-size:12px; color:var(--muted); margin:2px 0 10px;"></div>
       <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px; font-size:14px;">
         <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_aud" value="everyone" checked> Everyone</label>
@@ -7459,6 +7460,8 @@ window.openEmailDraft = function(o){
     </div>
     <div class="panel">
       <h3>Settings</h3>
+      <label>Every text starts with <input type="text" id="tt_prefix" maxlength="80" placeholder="College Hunks Hauling Junk and Moving Augusta GA:" style="max-width:420px;"></label>
+      <p class="form-note" style="margin:-4px 0 8px;">Your registered business name, so carriers and employees know who it&rsquo;s from. Added automatically &mdash; don&rsquo;t type it in messages.</p>
       <label>Also forward every reply to this cell (optional) <input type="tel" id="tt_forward" placeholder="(706) 555-0100" style="max-width:200px;"></label>
       <label style="display:flex; gap:8px; align-items:center; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="checkbox" id="tt_optNote"> Add &ldquo;Reply STOP to opt out.&rdquo; to each person&rsquo;s first text (recommended by the carriers)</label>
       <button type="button" id="tt_saveSettings" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Save Settings</button> <span class="status-msg" id="tt_settingsStatus"></span>
@@ -11124,7 +11127,10 @@ window.openEmailDraft = function(o){
       $('tt_send').disabled = !configured || !ok.length;
     }
     function renderCount(){
-      const t = $('tt_message').value, gsm = /^[\x20-\x7E\n\r£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¡ÄÖÑÜ§¿äöñüà€]*$/.test(t);
+      const msg = $('tt_message').value, pre = (($('tt_prefix') || {}).value || '').trim();
+      const t = msg && pre && !msg.toLowerCase().startsWith(pre.toLowerCase()) ? pre + ' ' + msg : msg;
+      const pv = document.getElementById('tt_asSent'); if(pv) pv.innerHTML = msg ? `<span style="color:var(--muted);">Sends as:</span> ${esc(t)}` : '';
+      const gsm = /^[\x20-\x7E\n\r£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¡ÄÖÑÜ§¿äöñüà€]*$/.test(t);
       const per = gsm ? (t.length > 160 ? 153 : 160) : (t.length > 70 ? 67 : 70), parts = t.length ? Math.ceil(t.length / per) : 0;
       $('tt_count').textContent = t.length ? `${t.length} characters \u00b7 ${parts} text${parts === 1 ? '' : 's'} per person${gsm ? '' : ' (emoji or special characters shorten each text)'}` : '';
     }
@@ -11148,6 +11154,7 @@ window.openEmailDraft = function(o){
         await (window.ensureAppSettingsLoaded ? window.ensureAppSettingsLoaded() : Promise.resolve());
         const ts = (window.appSettings || {}).teamTexts || {};
         $('tt_forward').value = ts.forwardRepliesTo || ''; $('tt_optNote').checked = ts.optOutNote !== false;
+        $('tt_prefix').value = ts.brandPrefix != null ? ts.brandPrefix : 'College Hunks Hauling Junk and Moving Augusta GA:'; renderCount();
         updateBadge(md.unread || 0);
       }catch(err){ $('tt_preview').textContent = 'Could not load \u2014 check your connection.'; }
     }
@@ -11163,6 +11170,7 @@ window.openEmailDraft = function(o){
     document.querySelectorAll('input[name=tt_aud]').forEach(r => r.addEventListener('change', () => { $('tt_pick').style.display = aud() === 'custom' ? 'block' : 'none'; renderPreview(); }));
     $('tt_pick').addEventListener('change', renderPreview);
     $('tt_message').addEventListener('input', renderCount);
+    $('tt_prefix').addEventListener('input', renderCount);
     $('tt_send').addEventListener('click', async () => {
       const msg = $('tt_message').value.trim(), st = $('tt_status');
       if(!msg){ st.textContent = 'Type a message first.'; st.className = 'status-msg err'; return; }
@@ -11182,7 +11190,7 @@ window.openEmailDraft = function(o){
       const st = $('tt_settingsStatus'), raw = $('tt_forward').value.trim(), d = raw.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
       if(raw && d.length !== 10){ st.textContent = 'Enter a 10-digit phone number (or leave it blank).'; st.className = 'status-msg err'; return; }
       try{
-        const r = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { teamTexts: { forwardRepliesTo: d ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : '', optOutNote: $('tt_optNote').checked } } }) });
+        const r = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { teamTexts: { brandPrefix: $('tt_prefix').value.trim(), forwardRepliesTo: d ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : '', optOutNote: $('tt_optNote').checked } } }) });
         const j = await r.json(); if(!r.ok) throw new Error(j.error || 'Could not save.');
         window.appSettings = j.settings || window.appSettings;
         st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; load();
