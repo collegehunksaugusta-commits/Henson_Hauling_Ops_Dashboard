@@ -1304,13 +1304,25 @@ app.post('/api/driver/materials-checkout', requireDriverOrTaskWingman(['pretrip'
 // from the next day on, until he acknowledges it ("I Understand").
 const TRUCK_COND_ACKS_KEY = 'truck-condition-acks';   // { itemId: { name, at } }
 async function conditionNoticesFor(name) {
-  const [itemsRaw, acksRaw] = await Promise.all([redis.get('manager-review-items'), redis.get(TRUCK_COND_ACKS_KEY)]);
+  // Manager Review items marked Fail for this Captain -- truck conditions and
+  // underbilled jobs -- with the manager's note when one was given.
+  const [itemsRaw, acksRaw, archiveRaw] = await Promise.all([redis.get('manager-review-items'), redis.get(TRUCK_COND_ACKS_KEY), redis.get(JOB_ARCHIVE_KEY)]);
   const acks = JSON.parse(acksRaw || '{}'), today = easternDateFromMs(Date.now());
   const cutoff = easternDateFromMs(Date.now() - 30 * 864e5);
-  return JSON.parse(itemsRaw || '[]').filter(i => i.type === 'truck-condition' && i.outcome === 'fail' && i.reviewedAt
-      && nameCoreKey(i.driverName) === nameCoreKey(name) && !acks[i.id]) 
+  const captainByJob = new Map(JSON.parse(archiveRaw || '[]').map(j => [String(j.jobNumber), j.captainName || '']));
+  const me = nameCoreKey(name);
+  const UB_LABEL = { materials: 'Materials not billed', 'travel-line': 'Truck & Travel fee missing', 'junk-removal': 'Junk removal billed under the estimate' };
+  return JSON.parse(itemsRaw || '[]').filter(i => i.outcome === 'fail' && i.reviewedAt && !acks[i.id])
+    .filter(i => {
+      if (i.type === 'truck-condition') return nameCoreKey(i.driverName || '') === me;
+      if (i.type === 'underbilled') return nameCoreKey(i.captainName || captainByJob.get(String(i.jobNumber)) || '') === me;
+      return false;
+    })
     .filter(i => { const d = easternDateFromMs(Date.parse(i.reviewedAt)); return d < today && d >= cutoff; })   // from the next day on
-    .map(i => ({ id: i.id, date: i.date, truckNickname: i.truckNickname || '', summary: i.visionSummary || '', issues: (i.visionIssues || []).map(x => ({ issue: String(x.issue || ''), severity: x.severity || '' })) }));
+    .map(i => i.type === 'truck-condition'
+      ? { id: i.id, kind: 'truck', date: i.date, truckNickname: i.truckNickname || '', summary: i.visionSummary || '', issues: (i.visionIssues || []).map(x => ({ issue: String(x.issue || ''), severity: x.severity || '' })), reason: i.failReason || '' }
+      : { id: i.id, kind: 'underbilled', date: i.jobDate || '', jobNumber: i.jobNumber || '', clientName: i.clientName || '', what: UB_LABEL[i.source] || 'Underbilled job',
+          items: (i.items || []).map(x => String(x.description || x.billingName || x.name || '') + (x.netUsed ? ` (used ${x.netUsed}${x.billed != null ? ', billed ' + x.billed : ''})` : '')).filter(Boolean).slice(0, 8), reason: i.failReason || '' });
 }
 app.get('/api/driver/condition-notices', requireDriverAuth, async (req, res) => {
   try { res.json({ notices: await conditionNoticesFor(req.driverName) }); }
