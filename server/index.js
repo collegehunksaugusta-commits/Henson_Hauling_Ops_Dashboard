@@ -4128,7 +4128,8 @@ const DEFAULT_APP_SETTINGS = {
   },
   teamTexts: {
     forwardRepliesTo: '',      // a cell number that also gets every crew reply
-    optOutNote: true           // "Reply STOP to opt out." on each person's first text
+    optOutNote: true,          // "Reply STOP to opt out." on each person's first text
+    brandPrefix: 'College Hunks Hauling Junk and Moving Augusta GA:'   // starts every text (the registered A2P brand)
   },
   hiring: {
     emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
@@ -6864,10 +6865,13 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
     const settings = await getAppSettings();
     const noted = new Set(JSON.parse(await redis.get(TT_NOTICED_KEY) || '[]'));
     const cb = publicBase(req) + '/api/twilio/status';
-    const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, recipients: [] };
+    const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, prefix: String((settings.teamTexts || {}).brandPrefix || '').trim(), recipients: [] };
     for (const p of sendable) {
       const firstTime = !noted.has(p.phone);
-      const body = message + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
+      // Every text identifies the business by its registered brand name.
+      const prefix = String((settings.teamTexts || {}).brandPrefix || '').trim();
+      const branded = prefix && !message.toLowerCase().startsWith(prefix.toLowerCase()) ? `${prefix} ${message}` : message;
+      const body = branded + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
       try {
         const d = await twilioSend(p.phone, body, cb);
         entry.recipients.push({ name: p.name, phone: p.phone, sid: d.sid, status: d.status || 'queued' });
