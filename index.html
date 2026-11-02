@@ -2081,15 +2081,22 @@ window.openEmailDraft = function(o){
       ov.innerHTML = `<div style="background:#fff; max-width:440px; width:100%; border-radius:14px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.4); font-family:inherit;">
         <div style="background:#b3261e; color:#fff; padding:16px 18px; display:flex; align-items:center; gap:12px;">
           <span style="font-size:38px; line-height:1;">&#128666;</span>
-          <div><div style="font-size:21px; font-weight:800; letter-spacing:.03em;">TRUCK CONDITION \u2014 FAIL</div>
-          <div style="font-size:13px; opacity:.95;">The manager reviewed your End of Day truck photo${notices.length > 1 ? 's' : ''}</div></div>
+          <div><div style="font-size:21px; font-weight:800; letter-spacing:.03em;">${notices.every(n => n.kind !== 'underbilled') ? 'TRUCK CONDITION' : notices.every(n => n.kind === 'underbilled') ? 'UNDERBILLED JOB' : 'MANAGER REVIEW'} \u2014 FAIL</div>
+          <div style="font-size:13px; opacity:.95;">${notices.every(n => n.kind !== 'underbilled') ? `The manager reviewed your End of Day truck photo${notices.length > 1 ? 's' : ''}` : 'The manager reviewed your work'}</div></div>
         </div>
         <div style="padding:16px 18px 18px;">
-          ${notices.map(n => `<div style="margin-bottom:12px;">
-              <div style="font-weight:800; font-size:15px;">${new Date(n.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}${n.truckNickname ? ' \u00b7 ' + driverEsc(n.truckNickname) : ''}</div>
-              ${n.issues.length ? `<ul style="margin:4px 0 0; padding-left:20px; font-size:14px;">${n.issues.map(i => `<li>${driverEsc(i.issue)}${i.severity === 'moderate' ? ' <strong style="color:#b3261e;">(moderate)</strong>' : ''}</li>`).join('')}</ul>` : `<div style="font-size:14px;">${driverEsc(n.summary)}</div>`}
-            </div>`).join('')}
-          <p style="font-size:13.5px; color:var(--muted); margin:4px 0 16px;">Please leave the truck clean and in good shape at the end of every day. This counts toward your Truck Conditions score.</p>
+          ${notices.map(n => {
+              const when = n.date ? new Date(n.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+              const note = n.reason ? `<div style="margin-top:6px; background:#fdecea; border-left:4px solid #b3261e; border-radius:6px; padding:8px 10px; font-size:14px;"><strong>Manager\u2019s note:</strong> ${driverEsc(n.reason)}</div>` : '';
+              if(n.kind === 'underbilled') return `<div style="margin-bottom:12px;">
+                <div style="font-weight:800; font-size:15px;">Job ${driverEsc(n.jobNumber)}${n.clientName ? ' \u00b7 ' + driverEsc(n.clientName) : ''}${when ? ' \u00b7 ' + when : ''}</div>
+                <div style="font-size:14px;">${driverEsc(n.what)}</div>
+                ${(n.items || []).length ? `<ul style="margin:4px 0 0; padding-left:20px; font-size:14px;">${n.items.map(x => `<li>${driverEsc(x)}</li>`).join('')}</ul>` : ''}${note}</div>`;
+              return `<div style="margin-bottom:12px;">
+                <div style="font-weight:800; font-size:15px;">${when}${n.truckNickname ? ' \u00b7 ' + driverEsc(n.truckNickname) : ''}</div>
+                ${(n.issues || []).length ? `<ul style="margin:4px 0 0; padding-left:20px; font-size:14px;">${n.issues.map(i => `<li>${driverEsc(i.issue)}${i.severity === 'moderate' ? ' <strong style="color:#b3261e;">(moderate)</strong>' : ''}</li>`).join('')}</ul>` : `<div style="font-size:14px;">${driverEsc(n.summary)}</div>`}${note}</div>`;
+            }).join('')}
+          <p style="font-size:13.5px; color:var(--muted); margin:4px 0 16px;">${notices.some(n => n.kind === 'underbilled') ? 'Make sure every material, fee and charge is on the invoice before closing out a job. ' : ''}${notices.some(n => n.kind !== 'underbilled') ? 'Please leave the truck clean and in good shape at the end of every day. ' : ''}This counts toward your Captain score.</p>
           <button type="button" id="condFailOk" style="width:100%; padding:15px; font-size:18px; font-weight:800; background:#b3261e; color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">I Understand</button>
         </div></div>`;
       document.body.appendChild(ov);
@@ -35257,9 +35264,38 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   // word; the Manager's Pass/Fail verdict here is what actually counts
   // toward Captain Metrics' Underbilled Jobs score. An item left open
   // (not yet reviewed) isn't counted toward that score either way. ----
+  // Fail asks for an optional reason -- the Captain sees it in the HUNK Portal.
+  function mgrReviewAskFailReason(item){
+    return new Promise(resolve => {
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed; inset:0; z-index:100000; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; padding:16px;';
+      const what = item.type === 'truck-condition' ? `${item.driverName || 'the Captain'}\u2019s truck condition` : `job ${item.jobNumber || ''}${item.clientName ? ' \u2014 ' + item.clientName : ''}`;
+      ov.innerHTML = `<div style="background:#fff; color:var(--charcoal); width:100%; max-width:460px; border-radius:12px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.3);">
+        <div style="font-weight:800; font-size:17px; color:#B3261E;">Mark Fail</div>
+        <div style="font-size:13.5px; color:var(--muted); margin:2px 0 10px;">${mgrReviewEsc(what)}</div>
+        <label style="display:block; font-weight:600; font-size:13.5px;">Reason <span style="font-weight:400; color:var(--muted);">(optional \u2014 the Captain sees this in the HUNK Portal)</span>
+          <textarea id="mrFailReason" rows="3" maxlength="500" style="width:100%; box-sizing:border-box; margin-top:4px; padding:8px; font-family:inherit; font-size:14px;" placeholder="e.g. Bed full of debris and straps loose \u2014 please sweep out and secure gear before leaving."></textarea></label>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+          <button type="button" id="mrFailCancel" style="padding:8px 14px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer;">Cancel</button>
+          <button type="button" id="mrFailOk" style="padding:8px 16px; border-radius:6px; border:1px solid #B3261E; background:#B3261E; color:#fff; font-weight:700; cursor:pointer;">Mark Fail</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+      const ta = ov.querySelector('#mrFailReason'); ta.focus();
+      const done = v => { ov.remove(); resolve(v); };
+      ov.querySelector('#mrFailCancel').onclick = () => done(null);
+      ov.querySelector('#mrFailOk').onclick = () => done(ta.value.trim());
+      ov.addEventListener('click', e => { if(e.target === ov) done(null); });
+      ta.addEventListener('keydown', e => { if(e.key === 'Escape') done(null); if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)) done(ta.value.trim()); });
+    });
+  }
   async function mgrReviewMarkOutcome(id, outcome){
     const item = managerReviewItems.find(i => i.id === id);
     if(!item) return;
+    if(outcome === 'fail'){
+      const reason = await mgrReviewAskFailReason(item);
+      if(reason === null) return;   // cancelled
+      if(reason) item.failReason = reason.slice(0, 500); else delete item.failReason;
+    } else delete item.failReason;
     item.reviewedAt = new Date().toISOString();
     item.reviewedBy = localStorage.getItem('henson_auth_email') || '';
     item.outcome = outcome;
@@ -35282,7 +35318,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const passed = item.outcome === 'pass';
     const seen = item.type === 'truck-condition' && item.outcome === 'fail' && (window.__condAcks || {})[item.id];
     const badge = `<span style="display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; background:${passed ? '#E6F4EA' : '#FCDCD6'}; color:${passed ? '#00612C' : '#B3261E'};">${passed ? 'Pass' : 'Fail'}</span>`;
-    return `<div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${badge}<span class="form-note" style="margin:0;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</span>${item.type === 'truck-condition' && item.outcome === 'fail' ? (seen ? `<span class="form-note" style="margin:0; color:var(--brand-green-dark); font-weight:600;">\u2713 Seen by the Captain ${window.fmtDate(String(seen.at).slice(0,10))}</span>` : '<span class="form-note" style="margin:0;">\u2014 shows on the Captain\u2019s app from the next day</span>') : ''}</div>`;
+    return `<div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${badge}<span class="form-note" style="margin:0;">Reviewed ${window.fmtDate((item.reviewedAt||'').slice(0,10))}${item.reviewedBy ? ' by ' + mgrReviewEsc(item.reviewedBy) : ''}</span>${item.type === 'truck-condition' && item.outcome === 'fail' ? (seen ? `<span class="form-note" style="margin:0; color:var(--brand-green-dark); font-weight:600;">\u2713 Seen by the Captain ${window.fmtDate(String(seen.at).slice(0,10))}</span>` : '<span class="form-note" style="margin:0;">\u2014 shows on the Captain\u2019s app from the next day</span>') : ''}</div>${item.outcome === 'fail' && item.failReason ? `<div style="margin-top:4px; font-size:12.5px; color:#8a1f17; background:#fdecea; border-radius:6px; padding:5px 8px;"><strong>Reason:</strong> ${mgrReviewEsc(item.failReason)}</div>` : ''}`;
   }
   function wireMgrReviewOutcomeButtons(scopeSelector){
     document.querySelectorAll(`${scopeSelector} .mgrreview-pass-btn`).forEach(btn => btn.addEventListener('click', (e)=> mgrReviewMarkOutcome(e.currentTarget.dataset.id, 'pass')));
