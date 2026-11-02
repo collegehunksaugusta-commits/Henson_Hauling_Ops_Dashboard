@@ -4993,7 +4993,8 @@ const DAMAGE_REC_TOOL = {
       },
       confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
       concerns: { type: 'array', items: { type: 'string' }, description: 'Things the owner should verify before paying (unclear photos, missing receipts, possible pre-existing damage, etc.).' },
-      writtenRecommendation: { type: 'string', description: 'A plain-language recommendation for the business owner, 2-4 short paragraphs: what was damaged, which valuation option applies and why, how the amount was reached under Tariff No. 7, and anything to verify. Do not invent dollar totals different from the item estimates.' }
+      writtenRecommendation: { type: 'string', description: 'A plain-language recommendation for the business owner, 2-4 short paragraphs: what was damaged, which valuation option applies and why, how the amount was reached under Tariff No. 7, and anything to verify. Do not invent dollar totals different from the item estimates.' },
+      settlementNotes: { type: 'string', description: 'Client-facing notes for the Settlement Summary the CUSTOMER receives: 0-3 short, courteous sentences explaining any special circumstances behind the amounts — e.g. a receipt they provided, an item repaired rather than replaced, damage confirmed as pre-existing, an item excluded and why. Plain language, no internal or AI wording, no confidence levels. Empty string if nothing beyond the itemized list needs explaining.' },
     },
     required: ['valuationFromPaperwork', 'declaredValueFromPaperwork', 'paperworkEvidence', 'items', 'confidence', 'concerns', 'writtenRecommendation']
   }
@@ -5026,7 +5027,7 @@ function damageClaimTariffResult(a, chosen, declaredValue, extra) {
     option, optionSource: extra.optionSource || (chosen ? 'entered' : (option ? 'paperwork' : 'not_found')),
     declaredValue: declared, paperworkIncluded: !!extra.paperworkIncluded, paperworkEvidence: a.paperworkEvidence || '',
     items, totals, recommendedTotal: option ? totals[option] : null,
-    confidence: a.confidence || 'low', concerns: a.concerns || [], writtenRecommendation: a.writtenRecommendation || '',
+    confidence: a.confidence || 'low', concerns: a.concerns || [], writtenRecommendation: a.writtenRecommendation || '', settlementNotes: String(a.settlementNotes || '').trim(),
     photoCounts: extra.counts || {}
   };
 }
@@ -5120,7 +5121,8 @@ app.post('/api/admin/damage-claim/discuss', requireAuth, async (req, res) => {
       items: (rec.items || []).map(i => ({ article: i.article, photoNumbers: i.photoNumbers, damage: i.damage, estimatedWeightLbs: i.estimatedWeightLbs,
         estimatedRepairOrReplaceCost: i.estimatedRepairOrReplaceCost, repairOrReplace: i.repairOrReplace, preExistingOverlap: i.preExistingOverlap,
         exclusionConcern: i.exclusionConcern, covered: i.covered, removedByOffice: !!i.removedByOffice })),
-      totals: rec.totals, recommendedTotal: rec.recommendedTotal, confidence: rec.confidence, concerns: rec.concerns, writtenRecommendation: rec.writtenRecommendation
+      totals: rec.totals, recommendedTotal: rec.recommendedTotal, confidence: rec.confidence, concerns: rec.concerns, writtenRecommendation: rec.writtenRecommendation,
+      settlementNotes: rec.settlementNotes || ''
     };
     const history = (claim.aiChat || []).slice(-20).map(m => `${m.role === 'user' ? 'OWNER' : 'YOU'}: ${m.text}`).join('\n\n');
     content.push({ type: 'text', text:
@@ -5130,7 +5132,8 @@ app.post('/api/admin/damage-claim/discuss', requireAuth, async (req, res) => {
       (history ? `CONVERSATION SO FAR:\n${history}\n\n` : '') +
       `OWNER'S NEW MESSAGE:\n${message}\n\n` +
       `Answer directly and honestly, referring to photo numbers where useful. Facts the owner provides (receipts, the signed valuation option and declared value, what the crew reported, an item being shipper-packed, etc.) take precedence over your estimates -- but if the photos clearly contradict something, say so. ` +
-      `Set revise=true ONLY if this changes the assessment (items, weights, costs, coverage, or valuation); then return the COMPLETE revised assessment with every item, counting each physical article once. Otherwise set revise=false and do not include an assessment. Do not do the tariff dollar math yourself -- it is calculated for you from the items.` });
+      `Set revise=true if this changes the assessment (items, damage descriptions, weights, costs, coverage, or valuation) OR if the context the owner gave should be explained to the customer; then return the COMPLETE revised assessment with every item, counting each physical article once, with item descriptions updated to match the owner's context. ` +
+      `Keep settlementNotes current: they print on the Settlement Summary the CUSTOMER receives, so explain in 1-3 courteous plain sentences any context that shaped the settlement (receipts, repairs instead of replacement, pre-existing damage, exclusions), with no internal or AI wording. Otherwise set revise=false and do not include an assessment. Do not do the tariff dollar math yourself -- it is calculated for you from the items.` });
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, tools: [DAMAGE_DISCUSS_TOOL], tool_choice: { type: 'tool', name: 'damage_claim_discussion' }, messages: [{ role: 'user', content }] })
