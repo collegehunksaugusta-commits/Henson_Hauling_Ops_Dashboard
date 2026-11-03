@@ -7577,6 +7577,7 @@ window.openEmailDraft = function(o){
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Email</th>
           <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Signs in to Driver Tools, and is scored in Captain Metrics">Captain</th>
           <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Can be reviewed as a wingman, handed tasks, and is scored in Wingman Metrics">Wingman</th>
+          <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); min-width:220px;" title="For insurance (Workers' Comp): Operations Manager, Driver (Captain), or Non-driver (Wingman). Edit the descriptions in Compliance \u2192 Insurance.">Job Duties</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Source</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">HUNK Portal sign-in</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);" title="First payroll week on file, and when commission starts under the New Employee waiting period">Started &middot; Commission</th>
@@ -9100,6 +9101,32 @@ window.openEmailDraft = function(o){
             </div>
           </div>
         </div>
+        <div class="panel" id="comp_wcPanel">
+          <h3>Workers&rsquo; Comp &mdash; Employee Duties &amp; Hours</h3>
+          <p class="form-note" style="margin-top:0;">For a workers&rsquo; comp audit or quote: every employee with their classification and job duties, and hours worked from payroll. Owners are left out. Classifications come from the Employee Roster (the assigned Ops Manager, Captains = Driver, Wingmen = Non-driver).</p>
+          <div id="wc_summary" style="overflow-x:auto;"></div>
+          <details style="margin-top:12px;"><summary style="cursor:pointer; font-weight:600; font-size:13.5px;">Employees (<span id="wc_count">0</span>)</summary>
+            <div id="wc_people" style="overflow-x:auto; margin-top:6px;"></div></details>
+          <details style="margin-top:10px;"><summary style="cursor:pointer; font-weight:600; font-size:13.5px;">Job duty descriptions &amp; owners (edit)</summary>
+            <div style="margin-top:8px;">
+              <label>Operations Manager <textarea id="wc_text_opsmanager" rows="3" style="width:100%; box-sizing:border-box; padding:8px; font-size:13px; font-family:inherit;"></textarea></label>
+              <label>Driver (Captains) <textarea id="wc_text_driver" rows="4" style="width:100%; box-sizing:border-box; padding:8px; font-size:13px; font-family:inherit;"></textarea></label>
+              <label>Non-driver (Wingmen) <textarea id="wc_text_nondriver" rows="3" style="width:100%; box-sizing:border-box; padding:8px; font-size:13px; font-family:inherit;"></textarea></label>
+              <label>Owners (left out) <input type="text" id="wc_owners" placeholder="Henson, Aaron K; Henson, Heather" style="max-width:420px;"></label>
+              <p class="form-note" style="margin:2px 0 0;">Names separated by semicolons, as they appear on the roster.</p>
+              <div class="form-actions"><button type="button" id="wc_saveTexts" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 14px; cursor:pointer; font-weight:600;">Save</button><span class="status-msg" id="wc_textStatus"></span></div>
+            </div></details>
+          <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:6px; padding:14px 16px; margin-top:16px;">
+            <h4 style="margin:0 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Send to the Auditor / Carrier</h4>
+            <label style="display:flex; align-items:center; gap:8px; margin:0 0 8px;"><input type="checkbox" id="wc_wages"> Include gross wages by classification (auditors usually ask for payroll by class)</label>
+            <label>Email <input type="email" id="wc_email" placeholder="auditor@example.com"></label>
+            <div class="form-actions">
+              <button class="btn-primary" id="wc_emailBtn" type="button">Email Packet</button>
+              <button type="button" id="wc_pdfBtn" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:9px 14px; cursor:pointer; font-weight:600;">Download PDF</button>
+              <span class="status-msg" id="wc_status"></span>
+            </div>
+          </div>
+        </div>
         <div class="panel" id="comp_brokerPanel">
           <h3>Broker Info Packet</h3>
           <p class="form-note" style="margin-top:0;">Everything an insurance broker asks for to quote your coverage or request loss runs &mdash; pulled from the dashboard. Fill in anything highlighted once; it&rsquo;s saved for next time. Contains license numbers and birthdates, so send it only to your broker.</p>
@@ -9116,6 +9143,8 @@ window.openEmailDraft = function(o){
           <h4 style="margin:18px 0 6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">4. Coverages &amp; Limits Needed <button type="button" id="bp_coiBtn" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12.5px; font-weight:700;">&#10024; Fill from COIs on file</button><span class="status-msg" id="bp_coiStatus" style="font-size:12px; font-weight:400;"></span></h4>
           <div id="bp_coverages"></div>
           <button type="button" id="bp_addCoverage" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12.5px; margin-top:4px;">+ Add a coverage</button>
+          <h4 style="margin:18px 0 6px;">5. Employees &amp; Job Duties</h4>
+          <div id="bp_employees" class="form-note" style="margin:0;">Loading…</div>
           <div style="background:var(--offwhite); border:1px dashed var(--line); border-radius:6px; padding:14px 16px; margin-top:18px;">
             <h4 style="margin:0 0 8px; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.04em; font-size:14px; color:var(--muted);">Send to a Broker</h4>
             <label>Broker Email <input type="email" id="bp_brokerEmail" placeholder="broker@example.com"></label>
@@ -10963,6 +10992,13 @@ window.openEmailDraft = function(o){
         })()}
         <td style="${cell} text-align:center;">${box('captain', role.captain)}</td>
         <td style="${cell} text-align:center;">${box('wingman', role.wingman)}</td>
+        <td style="${cell} max-width:340px;">${(() => {
+          if(!window.empDuties) return '';
+          const c = window.empDuties.classify(n, role);
+          if(c === 'owner') return '<span style="color:var(--muted);">Owner \u2014 excluded</span>';
+          const t = window.empDuties.text(c);
+          return `<div style="font-weight:700;">${rosterManualEsc(window.empDuties.label(c))}</div><div style="font-size:12px; color:var(--muted); line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="${rosterManualEsc(t)}">${rosterManualEsc(t)}</div>`;
+        })()}</td>
         ${admin ? `<td style="${cell}">${isManual ? 'Added manually' : 'Payroll'}</td>
         <td style="${cell}">${access}</td>
         <td style="${cell}">${(() => {
@@ -11028,6 +11064,7 @@ window.openEmailDraft = function(o){
   let rosterRoles = null;
   async function loadRosterRoles(){
     try{ const r = await fetch(`${API_BASE}/api/employee-roles`, { headers: authHeaders() }); rosterRoles = r.ok ? (await r.json()).roles : null; }catch(err){ rosterRoles = null; }
+    try{ if(window.empDuties) await window.empDuties.load(); }catch(err){}
   }
   document.getElementById('rosterListRows').addEventListener('change', async (e) => {
     const cb = e.target.closest && e.target.closest('.role-cb'); if(!cb) return;
@@ -11039,6 +11076,7 @@ window.openEmailDraft = function(o){
       const r = await fetch(`${API_BASE}/api/admin/employee-roles`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ name, captain, wingman }) });
       if(!r.ok) throw new Error();
       rosterRoles = rosterRoles || {}; rosterRoles[name] = Object.assign({}, rosterRoles[name], { captain, wingman, saved: true });
+      setTimeout(renderEmployeeRosterView, 950);   // Job Duties follow the new role
       row.style.background = '#f1f8f3'; setTimeout(() => { row.style.background = ''; }, 900);
     }catch(err){ cb.checked = !cb.checked; alert('Could not save \u2014 check your connection.'); }
     row.querySelectorAll('.role-cb').forEach(x => x.disabled = false);
@@ -16462,12 +16500,89 @@ window.openEmailDraft = function(o){
     return 'compliance-doc-truck-' + truckId + '-' + docKey;
   }
 
+  // ---------- Employee job duties (insurance) ----------
+  // Each person's classification comes from the roster: the assigned Ops
+  // Manager, Drivers (Captains / anyone marked to drive), Non-drivers
+  // (Wingmen). Owners are excluded. One editable duty description per
+  // classification, shared by the roster, the Workers' Comp packet, and the
+  // Broker Info Packet. Hours come from payroll (Labor Cost).
+  const ED_KEY = 'compliance-doc-employee-duties';
+  const ED_DEFAULT_TEXT = {
+    opsmanager: 'Operations Manager (office). Schedules jobs and crews, answers customer calls, prepares estimates (in-home and virtual), dispatches trucks, and reviews job paperwork, billing and payroll records. Primarily office/clerical work with occasional job-site visits; does not perform moving or hauling labor or drive company trucks as a regular duty.',
+    driver: 'Crew Leader / Driver. Drives company box trucks to residential and commercial job sites and performs pre-trip and end-of-day vehicle inspections. Leads a 2-3 person crew: lifts, carries, loads and unloads furniture, boxes, appliances and junk; wraps and protects items; disassembles and reassembles furniture; hauls debris to transfer stations, recycling and donation centers. Completes job paperwork and collects customer payment.',
+    nondriver: 'Mover / Laborer (non-driver). Rides with the crew to job sites but does not drive company vehicles. Lifts, carries, loads and unloads furniture, boxes, appliances and junk; wraps, pads and protects items; assists with furniture disassembly and reassembly; helps sort donations and dispose of debris.'
+  };
+  const ED_LABEL = { opsmanager: 'Operations Manager', driver: 'Driver', nondriver: 'Non-driver', owner: 'Owner' };
+  const edKey = n => String(n || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
+  let edData = null;
+  async function edLoad(){
+    if(edData) return edData;
+    let d = null; try{ d = await window.dashboardApi.get(ED_KEY, null); }catch(err){}
+    edData = Object.assign({ texts: {}, owners: null, auditorEmail: '', includeWages: false }, d || {});
+    edData.texts = Object.assign({}, ED_DEFAULT_TEXT, edData.texts || {});
+    return edData;
+  }
+  async function edSave(){ return await window.dashboardApi.set(ED_KEY, edData); }
+  // Owners: saved list, or anyone named Henson, Aaron / Henson, Heather.
+  function edIsOwner(name){
+    const k = edKey(name);
+    if(edData && Array.isArray(edData.owners)) return edData.owners.some(o => edKey(o) === k);
+    return /\bhenson\b/.test(k) && /\b(aaron|heather)\b/.test(k);
+  }
+  function edClassify(name, role){
+    if(edIsOwner(name)) return 'owner';
+    const om = ((window.appSettings || {}).commission || {}).opsManagerAssignment;
+    if(om && edKey(om) === edKey(name)) return 'opsmanager';
+    role = role || {};
+    return (role.captain || role.driver) ? 'driver' : 'nondriver';
+  }
+  // Payroll hours over the last 12 months (excluding owners), per person.
+  async function edHours(){
+    let weeks = []; try{ weeks = (await window.dashboardApi.get('labor-weeks', [])) || []; }catch(err){}
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 364);
+    const from = cutoff.toLocaleDateString('en-CA');
+    const inWindow = weeks.filter(w => String(w.weekStart || '') >= from);
+    const byPerson = {};
+    inWindow.forEach(w => (w.employees || []).forEach(e => {
+      const hrs = (Number(e.regHrs) || 0) + (Number(e.otHrs) || 0); if(!(hrs > 0) || !e.name) return;
+      const k = edKey(e.name); const p = byPerson[k] || (byPerson[k] = { name: e.name, hours: 0, wages: 0 });
+      p.hours += hrs; p.wages += Number(e.totalEarnings) || 0;
+    }));
+    const firstWeek = inWindow.map(w => w.weekStart).sort()[0] || null;
+    return { byPerson, weeksOnFile: inWindow.length, firstWeek };
+  }
+  // Everything the packets need, from the roster + payroll.
+  async function edBuild(){
+    await edLoad();
+    let names = [], roles = {};
+    try{ names = await window.getCurrentEmployeeRoster() || []; }catch(err){}
+    try{ const r = await fetch(`${API_BASE}/api/employee-roles`, { headers: authHeaders() }); if(r.ok) roles = (await r.json()).roles || {}; }catch(err){}
+    const hrs = await edHours();
+    const people = names.map(n => ({ name: n, cls: edClassify(n, roles[n]) })).filter(p => p.cls !== 'owner');
+    people.forEach(p => { const h = hrs.byPerson[edKey(p.name)] || {}; p.hours = h.hours || 0; p.wages = h.wages || 0; });
+    // People paid in the last 12 months who aren't on the roster any more.
+    const onRoster = new Set(names.map(edKey));
+    const former = Object.entries(hrs.byPerson).filter(([k, v]) => !onRoster.has(k) && !edIsOwner(v.name)).map(([, v]) => v);
+    const annualize = h => hrs.weeksOnFile ? Math.round(h * 52 / Math.min(52, hrs.weeksOnFile)) : 0;
+    const groups = ['opsmanager', 'driver', 'nondriver'].map(c => {
+      const list = people.filter(p => p.cls === c);
+      const hours = list.reduce((t, p) => t + p.hours, 0), wages = list.reduce((t, p) => t + p.wages, 0);
+      return { cls: c, label: ED_LABEL[c], count: list.length, hours: Math.round(hours), wages, annualHours: annualize(hours) };
+    });
+    const fHours = former.reduce((t, p) => t + p.hours, 0), fWages = former.reduce((t, p) => t + p.wages, 0);
+    const totalHours = groups.reduce((t, g) => t + g.hours, 0) + Math.round(fHours);
+    return { people: people.sort((a, b) => ['opsmanager', 'driver', 'nondriver'].indexOf(a.cls) - ['opsmanager', 'driver', 'nondriver'].indexOf(b.cls) || a.name.localeCompare(b.name)),
+      groups, former: { count: former.length, hours: Math.round(fHours), wages: fWages, annualHours: annualize(fHours) },
+      totalHours, totalAnnual: annualize(totalHours), totalWages: groups.reduce((t, g) => t + g.wages, 0) + fWages,
+      weeksOnFile: hrs.weeksOnFile, firstWeek: hrs.firstWeek, texts: edData.texts };
+  }
+  window.empDuties = { load: edLoad, classify: edClassify, label: c => ED_LABEL[c], text: c => (edData && edData.texts[c]) || ED_DEFAULT_TEXT[c] || '', build: edBuild };
   // ---------- Broker Info Packet (Insurance) ----------
   // Drivers/owner from their profiles, trucks from the fleet list, plus the
   // packet's own saved details (owner name, commodities, coverages, broker).
   const BP_KEY = 'compliance-doc-broker-packet';
   const BP_DEFAULT_COVERAGES = ['Auto Liability (Combined Single Limit)', 'Motor Truck Cargo', 'Physical Damage (Comprehensive & Collision)', 'General Liability', 'Workers\u2019 Compensation', 'Umbrella / Excess'];
-  let bpData = null, bpTrucks = [], bpPeople = [];
+  let bpData = null, bpTrucks = [], bpPeople = [], bpEmp = null;
   const bpEsc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   async function bpSave(){ await window.dashboardApi.set(BP_KEY, bpData); }
   async function loadBrokerPacket(){
@@ -16498,6 +16613,10 @@ window.openEmailDraft = function(o){
       <td style="${cell}">$<input type="number" min="0" step="100" class="bp-value" data-id="${bpEsc(t.id)}" value="${t.statedValue || ''}" style="width:110px; padding:5px; font-size:13px;${t.statedValue ? '' : ' background:#FFF6D6;'}">${t.statedValueBasis ? `<div style="font-size:11.5px; color:var(--muted); margin-top:2px;">\u2248 AI estimate \u2014 ${bpEsc(t.statedValueBasis)}</div>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="4" style="${cell} color:var(--muted);">No trucks on file \u2014 add them on the Trucks tab.</td></tr>`;
     document.getElementById('bp_commodities').value = bpData.commodities;
+    try{
+      bpEmp = await edBuild();
+      document.getElementById('bp_employees').innerHTML = `${bpEmp.groups.filter(g => g.count).map(g => `<strong>${g.count} ${bpEsc(g.label)}${g.count === 1 ? '' : 's'}</strong>`).join(' \u00b7 ')} \u00b7 <strong>about ${Math.round(bpEmp.totalAnnual).toLocaleString()} hours a year</strong> (owners excluded). Classifications, job duties and hours are included from <em>Workers\u2019 Comp \u2014 Employee Duties &amp; Hours</em> above; edit the descriptions there.`;
+    }catch(err){ bpEmp = null; document.getElementById('bp_employees').textContent = 'Employee information could not be loaded.'; }
     document.getElementById('bp_brokerEmail').value = bpData.brokerEmail || '';
     bpRenderCoverages();
   }
@@ -16586,6 +16705,16 @@ window.openEmailDraft = function(o){
     y += 8; line('3. Commodities Hauled', { bold: true, size: 12 }); line(bpData.commodities || '');
     y += 8; line('4. Coverages & Limits Needed', { bold: true, size: 12 });
     bpData.coverages.filter(c => c.coverage).forEach(c => line(`\u2022 ${c.coverage}: ${c.limit || '(to be discussed)'}`, { indent: 6 }));
+    if(bpEmp){
+      y += 8; line('5. Employees & Job Duties (owners excluded)', { bold: true, size: 12 });
+      row(['Classification', 'Employees', 'Est. annual hours'], [220, 100, 140], { bold: true });
+      bpEmp.groups.forEach(g => row([g.label, String(g.count), Math.round(g.annualHours).toLocaleString()], [220, 100, 140]));
+      if(bpEmp.former.count) row(['Former employees (last 12 mo.)', String(bpEmp.former.count), Math.round(bpEmp.former.annualHours).toLocaleString()], [220, 100, 140]);
+      row(['Total', String(bpEmp.people.length + bpEmp.former.count), Math.round(bpEmp.totalAnnual).toLocaleString()], [220, 100, 140], { bold: true });
+      line(`Hours from payroll (regular + overtime), ${bpEmp.weeksOnFile} week${bpEmp.weeksOnFile === 1 ? '' : 's'} on file in the last 12 months${bpEmp.weeksOnFile && bpEmp.weeksOnFile < 52 ? ', scaled to a full year' : ''}.`, { size: 9 });
+      y += 4;
+      ['opsmanager', 'driver', 'nondriver'].forEach(cl => { const g = bpEmp.groups.find(x => x.cls === cl); if(!g || !g.count) return; line(g.label, { bold: true, size: 10.5 }); line(bpEmp.texts[cl], { indent: 8, size: 9.5 }); });
+    }
     return pdf;
   }
   function bpFileName(){ return `Broker Info - ${(window.LOCATION_PROFILE || {}).carrierName || 'College Hunks'}.pdf`.replace(/[\\/:*?"<>|]/g, '_'); }
@@ -16597,12 +16726,88 @@ window.openEmailDraft = function(o){
     try{ bpBuildPdf().save(bpFileName()); }catch(err){ st.textContent = 'Could not build the PDF.'; st.className = 'status-msg err'; return; }
     const P = window.LOCATION_PROFILE || {};
     window.openEmailDraft({ to, subject: `Driver, Equipment & Coverage Information \u2014 ${P.carrierName || 'Henson Hauling LLC'}`,
-      body: `Hello,\n\nAs requested, attached is our driver list (with license numbers and dates of birth), equipment list (VINs and stated values), the commodities we haul, and the coverages and limits we need.\n\nLet me know if you need anything else.\n\nThanks,\n${P.carrierName || 'Henson Hauling LLC'}` });
+      body: `Hello,\n\nAs requested, attached is our driver list (with license numbers and dates of birth), equipment list (VINs and stated values), the commodities we haul, the coverages and limits we need, and our employee classifications, job duties and estimated annual hours.\n\nLet me know if you need anything else.\n\nThanks,\n${P.carrierName || 'Henson Hauling LLC'}` });
     st.textContent = 'PDF downloaded and your email is open with the message filled in \u2014 just attach the PDF and send.'; st.className = 'status-msg ok';
   });
 
+  // ---------- Workers' Comp packet: employees, duties, hours ----------
+  let wcData = null;
+  const wcNum = n => Math.round(n).toLocaleString();
+  const wcMoney = n => '$' + Math.round(n).toLocaleString();
+  async function loadWcPanel(){
+    const el = document.getElementById('wc_summary'); if(!el) return;
+    el.innerHTML = '<p class="form-note" style="margin:0;">Loading payroll\u2026</p>';
+    wcData = await edBuild();
+    ['opsmanager', 'driver', 'nondriver'].forEach(c => { document.getElementById('wc_text_' + c).value = edData.texts[c]; });
+    document.getElementById('wc_owners').value = Array.isArray(edData.owners) ? edData.owners.join('; ') : '';
+    document.getElementById('wc_email').value = edData.auditorEmail || '';
+    document.getElementById('wc_wages').checked = !!edData.includeWages;
+    wcRender();
+  }
+  function wcRender(){
+    const d = wcData, wages = document.getElementById('wc_wages').checked;
+    const c = 'padding:6px 4px; border-bottom:1px solid var(--line);';
+    const period = d.weeksOnFile ? `${d.weeksOnFile} payroll week${d.weeksOnFile === 1 ? '' : 's'} on file in the last 12 months` : 'no payroll on file yet';
+    document.getElementById('wc_summary').innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead><tr><th style="${c} text-align:left;">Classification</th><th style="${c} text-align:right;">Employees</th><th style="${c} text-align:right;">Hours, last 12 mo.</th><th style="${c} text-align:right;">Est. annual hours</th>${wages ? `<th style="${c} text-align:right;">Gross wages</th>` : ''}</tr></thead>
+      <tbody>${d.groups.map(g => `<tr><td style="${c} font-weight:600;">${bpEsc(g.label)}</td><td style="${c} text-align:right;">${g.count}</td><td style="${c} text-align:right;">${wcNum(g.hours)}</td><td style="${c} text-align:right;">${wcNum(g.annualHours)}</td>${wages ? `<td style="${c} text-align:right;">${wcMoney(g.wages)}</td>` : ''}</tr>`).join('')}
+      ${d.former.count ? `<tr><td style="${c}">Former employees <span class="form-note" style="margin:0;">(paid in the last 12 months)</span></td><td style="${c} text-align:right;">${d.former.count}</td><td style="${c} text-align:right;">${wcNum(d.former.hours)}</td><td style="${c} text-align:right;">${wcNum(d.former.annualHours)}</td>${wages ? `<td style="${c} text-align:right;">${wcMoney(d.former.wages)}</td>` : ''}</tr>` : ''}
+      <tr style="font-weight:800;"><td style="${c}">Total (excluding owners)</td><td style="${c} text-align:right;">${d.people.length + d.former.count}</td><td style="${c} text-align:right;">${wcNum(d.totalHours)}</td><td style="${c} text-align:right;">${wcNum(d.totalAnnual)}</td>${wages ? `<td style="${c} text-align:right;">${wcMoney(d.totalWages)}</td>` : ''}</tr></tbody></table>
+      <p class="form-note" style="margin:6px 0 0;">From ${period}${d.weeksOnFile && d.weeksOnFile < 52 ? ' \u2014 the annual figure scales those weeks up to 52' : ''}. Regular plus overtime hours.</p>`;
+    document.getElementById('wc_count').textContent = d.people.length;
+    document.getElementById('wc_people').innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr><th style="${c} text-align:left;">Employee</th><th style="${c} text-align:left;">Classification</th><th style="${c} text-align:right;">Hours, last 12 mo.</th>${wages ? `<th style="${c} text-align:right;">Gross wages</th>` : ''}</tr></thead>
+      <tbody>${d.people.map(p => `<tr><td style="${c}">${bpEsc(p.name)}</td><td style="${c}">${bpEsc(ED_LABEL[p.cls])}</td><td style="${c} text-align:right;">${wcNum(p.hours)}</td>${wages ? `<td style="${c} text-align:right;">${wcMoney(p.wages)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+  }
+  function wcBuildPdf(){
+    const d = wcData, wages = document.getElementById('wc_wages').checked;
+    const { jsPDF } = window.jspdf; const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
+    const W = 612, M = 48; let y = M;
+    const P = window.LOCATION_PROFILE || {};
+    const line = (t, o = {}) => { pdf.setFont('helvetica', o.bold ? 'bold' : 'normal'); pdf.setFontSize(o.size || 10.5); pdf.splitTextToSize(String(t), W - 2 * M - (o.indent || 0)).forEach(l => { if(y > 750){ pdf.addPage(); y = M; } pdf.text(l, M + (o.indent || 0), y); y += (o.size || 10.5) * 1.35; }); };
+    const row = (cols, widths, o = {}) => { if(y > 750){ pdf.addPage(); y = M; } pdf.setFont('helvetica', o.bold ? 'bold' : 'normal'); pdf.setFontSize(9.5); let x = M; cols.forEach((col, i) => { const right = o.right && o.right.includes(i); const txt = pdf.splitTextToSize(String(col == null ? '' : col), widths[i] - 6)[0] || ''; pdf.text(txt, right ? x + widths[i] - 6 : x, y, right ? { align: 'right' } : undefined); x += widths[i]; }); y += 14; };
+    line(`${P.legalName || P.carrierName || 'Henson Hauling, LLC'} \u2014 Employee Job Duties & Hours`, { bold: true, size: 15 });
+    line(`${P.dbaName || 'College Hunks Hauling Junk and Moving'}${P.officeAddress ? ' \u00b7 ' + P.officeAddress : ''} \u00b7 prepared ${new Date().toLocaleDateString()}`, { size: 9.5 });
+    line('Owners are not included.', { size: 9.5 }); y += 8;
+    line('1. Classifications & Job Duties', { bold: true, size: 12 });
+    ['opsmanager', 'driver', 'nondriver'].forEach(cl => { const g = d.groups.find(x => x.cls === cl); if(!g || !g.count) return; line(`${g.label} (${g.count} employee${g.count === 1 ? '' : 's'})`, { bold: true }); line(d.texts[cl], { indent: 8, size: 10 }); y += 4; });
+    y += 6; line('2. Hours Worked (from payroll, regular + overtime)', { bold: true, size: 12 });
+    line(d.weeksOnFile ? `${d.weeksOnFile} payroll week${d.weeksOnFile === 1 ? '' : 's'} on file in the last 12 months${d.weeksOnFile < 52 ? '; annual estimate scales those weeks to 52' : ''}.` : 'No payroll on file yet.', { size: 9.5 });
+    const cols = ['Classification', 'Employees', 'Hours (last 12 mo.)', 'Est. annual hours'].concat(wages ? ['Gross wages'] : []), widths = wages ? [160, 70, 110, 105, 90] : [190, 80, 125, 120];
+    const right = wages ? [1, 2, 3, 4] : [1, 2, 3];
+    row(cols, widths, { bold: true, right });
+    d.groups.forEach(g => row([g.label, g.count, wcNum(g.hours), wcNum(g.annualHours)].concat(wages ? [wcMoney(g.wages)] : []), widths, { right }));
+    if(d.former.count) row(['Former employees', d.former.count, wcNum(d.former.hours), wcNum(d.former.annualHours)].concat(wages ? [wcMoney(d.former.wages)] : []), widths, { right });
+    row(['Total (excluding owners)', d.people.length + d.former.count, wcNum(d.totalHours), wcNum(d.totalAnnual)].concat(wages ? [wcMoney(d.totalWages)] : []), widths, { bold: true, right });
+    y += 10; line('3. Employees', { bold: true, size: 12 });
+    const pw = wages ? [220, 140, 85, 85] : [250, 160, 110];
+    row(['Employee', 'Classification', 'Hours (12 mo.)'].concat(wages ? ['Gross wages'] : []), pw, { bold: true, right: wages ? [2, 3] : [2] });
+    d.people.forEach(p => row([p.name, ED_LABEL[p.cls], wcNum(p.hours)].concat(wages ? [wcMoney(p.wages)] : []), pw, { right: wages ? [2, 3] : [2] }));
+    return pdf;
+  }
+  const wcFileName = () => `Employee Duties & Hours - ${(window.LOCATION_PROFILE || {}).carrierName || 'College Hunks'}.pdf`.replace(/[\\/:*?"<>|]/g, '_');
+  document.getElementById('wc_wages').addEventListener('change', async e => { edData.includeWages = e.target.checked; wcRender(); await edSave(); });
+  document.getElementById('wc_saveTexts').addEventListener('click', async () => {
+    const st = document.getElementById('wc_textStatus');
+    ['opsmanager', 'driver', 'nondriver'].forEach(c => { edData.texts[c] = document.getElementById('wc_text_' + c).value.trim() || ED_DEFAULT_TEXT[c]; });
+    const owners = document.getElementById('wc_owners').value.split(';').map(x => x.trim()).filter(Boolean);
+    edData.owners = owners.length ? owners : null;
+    if(await edSave()){ st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; await loadWcPanel(); if(typeof renderEmployeeRosterView === 'function') try{ renderEmployeeRosterView(); }catch(e){} }
+    else { st.textContent = 'Could not save.'; st.className = 'status-msg err'; }
+  });
+  document.getElementById('wc_pdfBtn').addEventListener('click', () => { try{ wcBuildPdf().save(wcFileName()); }catch(err){ const st = document.getElementById('wc_status'); st.textContent = 'Could not build the PDF.'; st.className = 'status-msg err'; } });
+  document.getElementById('wc_emailBtn').addEventListener('click', async () => {
+    const st = document.getElementById('wc_status'), to = document.getElementById('wc_email').value.trim();
+    if(!to || !to.includes('@')){ st.textContent = 'Enter the auditor\u2019s or carrier\u2019s email address.'; st.className = 'status-msg err'; return; }
+    edData.auditorEmail = to; await edSave();
+    try{ wcBuildPdf().save(wcFileName()); }catch(err){ st.textContent = 'Could not build the PDF.'; st.className = 'status-msg err'; return; }
+    const P = window.LOCATION_PROFILE || {}, d = wcData;
+    window.openEmailDraft({ to, subject: `Employee Job Duties & Hours \u2014 ${P.legalName || P.carrierName || 'Henson Hauling, LLC'}`,
+      body: `Hello,\n\nAs requested for our workers\u2019 compensation review, attached is a list of our employees with their job classifications and duties, and hours worked from payroll over the last 12 months (owners not included).\n\nIn summary: ${d.groups.filter(g => g.count).map(g => `${g.count} ${g.label}${g.count === 1 ? '' : 's'}`).join(', ')}; about ${wcNum(d.totalAnnual)} total hours per year.\n\nPlease let me know if you need anything else.\n\nThank you,\n${P.ownerName || ''}\n${P.legalName || ''}`.replace(/\n{3,}/g, '\n\n') });
+    st.textContent = 'PDF downloaded and your email is open with the message filled in \u2014 just attach the PDF and send.'; st.className = 'status-msg ok';
+  });
   async function loadCompInsuranceData(){
     setTimeout(() => loadBrokerPacket(), 0);
+    setTimeout(() => loadWcPanel(), 0);
     await loadCompInsTruckSelect();
     try{ compCoiList = await window.dashboardApi.get(COI_LIST_KEY, []) || []; }
     catch(err){ console.error('COI list load failed:', err); compCoiList = []; }
