@@ -607,7 +607,7 @@
   <div id="driverMenuView" style="display:none; max-width:380px; width:100%; margin:60px auto 0;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h2 class="display" style="margin:0; font-size:18px;">Driver Tools</h2>
-      <button type="button" id="driverMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+      <div style="display:flex; gap:6px;"><button type="button" class="smsSettingsBtn" title="Work text messages: opt in or out" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 10px; border-radius:4px; cursor:pointer;">&#128241; Texts</button><button type="button" id="driverMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button></div>
     </div>
 
     <div class="portal-welcome" data-role="Captain" style="background:var(--brand-green); color:#fff; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
@@ -773,7 +773,7 @@
   <div id="wingmanMenuView" style="display:none; max-width:380px; width:100%; margin:60px auto 0;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h2 class="display" style="margin:0; font-size:18px;">Wingman Tools</h2>
-      <button type="button" id="wingmanMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
+      <div style="display:flex; gap:6px;"><button type="button" class="smsSettingsBtn" title="Work text messages: opt in or out" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 10px; border-radius:4px; cursor:pointer;">&#128241; Texts</button><button type="button" id="wingmanMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button></div>
     </div>
 
     <div id="wmDriveToday" style="display:none; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px;">
@@ -3126,6 +3126,60 @@ window.openEmailDraft = function(o){
     };
   }
   window.checkReviewShoutouts = checkReviewShoutouts;
+  // ---- Work Texts setting: opt in or out any time ----
+  async function openSmsSettings(){
+    let d;
+    try{ const r = await fetch(API_BASE_AUTH + '/api/crew/sms-consent', { headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) throw new Error(); d = await r.json(); }
+    catch(err){ alert('Could not load your text settings \u2014 check your connection.'); return; }
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed; inset:0; z-index:199997; background:#f4f1ea; overflow-y:auto; -webkit-overflow-scrolling:touch;';
+    const close = () => ov.remove();
+    const post = async (agree, phone, st) => {
+      st.textContent = 'Saving\u2026'; st.style.color = 'var(--muted)';
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/crew/sms-consent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ agree, phone }) });
+        const res = await r.json().catch(() => ({})); if(!r.ok) throw new Error(res.error || 'Could not save \u2014 try again.');
+        close(); alert(agree ? '\u2713 You\u2019re signed up for work texts.' : 'You won\u2019t get work texts. You can turn them back on here any time.');
+      }catch(err){ st.textContent = err.message; st.style.color = '#b3261e'; }
+    };
+    const wrap = inner => `<div style="max-width:520px; margin:0 auto; padding:calc(22px + env(safe-area-inset-top, 0px)) 18px calc(28px + env(safe-area-inset-bottom, 0px));">
+      <div style="display:flex; justify-content:space-between; align-items:center;"><h2 style="margin:0; font-size:22px;">\ud83d\udcf1 Work Texts</h2><button type="button" id="smsSetClose" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 12px; font-size:14px;">Close</button></div>${inner}</div>`;
+    const form = (cancelLabel) => `<p style="margin:12px 0 14px; font-size:15px; color:var(--muted);">Schedule and job updates, safety and weather alerts, and company announcements, texted to your phone.</p>
+      <label style="display:block; font-weight:700; font-size:15px; margin-bottom:6px;">Your mobile number</label>
+      <input type="tel" id="smsSetPhone" inputmode="tel" autocomplete="tel" value="${driverEsc(d.phone || '')}" placeholder="(706) 555-0123" style="width:100%; box-sizing:border-box; font-size:18px; padding:12px; border:1px solid var(--line); border-radius:8px;">
+      <label style="display:flex; gap:12px; align-items:flex-start; margin:16px 0 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:14px; line-height:1.45; cursor:pointer;">
+        <input type="checkbox" id="smsSetBox" style="width:24px; height:24px; flex-shrink:0; margin-top:2px;"><span>${driverEsc(d.text || '')}</span></label>
+      <button type="button" id="smsSetAgree" style="width:100%; margin-top:16px; padding:15px; font-size:17px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Agree &amp; Save</button>
+      <button type="button" id="smsSetCancel" style="width:100%; margin-top:10px; padding:12px; font-size:15px; background:#fff; border:1px solid var(--line); border-radius:10px;">${cancelLabel}</button>
+      <p id="smsSetStatus" style="margin:10px 0 0; font-size:14px; text-align:center;"></p>
+      <p style="margin:14px 0 0; font-size:12.5px; color:var(--muted); text-align:center;">You can also text <strong>START</strong> to the company number to sign up, or <strong>STOP</strong> to stop.</p>`;
+    const wireForm = () => {
+      const st = ov.querySelector('#smsSetStatus');
+      ov.querySelector('#smsSetCancel').onclick = close;
+      ov.querySelector('#smsSetAgree').onclick = () => {
+        if(!ov.querySelector('#smsSetBox').checked){ st.textContent = 'Check the box to agree.'; st.style.color = '#b3261e'; return; }
+        const ph = ov.querySelector('#smsSetPhone').value;
+        if(ph.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1').length !== 10){ st.textContent = 'Enter your 10-digit mobile number.'; st.style.color = '#b3261e'; return; }
+        post(true, ph, st);
+      };
+    };
+    if(d.agree === true){
+      ov.innerHTML = wrap(`<div style="margin:16px 0; background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px;">
+          <div style="font-size:16px; font-weight:800; color:var(--brand-green-dark);">\u2713 You\u2019re getting work texts</div>
+          <div style="font-size:15px; margin-top:4px;">at <strong>${driverEsc(d.phone || '')}</strong></div></div>
+        <button type="button" id="smsSetChange" style="width:100%; padding:13px; font-size:15px; font-weight:700; background:#fff; border:1px solid var(--line); border-radius:10px;">Change my number</button>
+        <button type="button" id="smsSetStop" style="width:100%; margin-top:10px; padding:13px; font-size:15px; font-weight:700; background:#fff; color:#b3261e; border:1px solid #e8a19b; border-radius:10px;">Stop work texts</button>
+        <p id="smsSetStatus" style="margin:10px 0 0; font-size:14px; text-align:center;"></p>`);
+      ov.querySelector('#smsSetChange').onclick = () => { ov.innerHTML = wrap(form('Cancel')); ov.querySelector('#smsSetClose').onclick = close; wireForm(); };
+      ov.querySelector('#smsSetStop').onclick = () => { if(confirm('Stop getting work texts from College Hunks Augusta?')) post(false, '', ov.querySelector('#smsSetStatus')); };
+    } else {
+      ov.innerHTML = wrap((d.agree === false ? '<p style="margin:14px 0 0; font-size:15px;">You\u2019re <strong>not</strong> getting work texts right now. To sign up:</p>' : '') + form('Cancel'));
+      wireForm();
+    }
+    document.body.appendChild(ov);
+    ov.querySelector('#smsSetClose').onclick = close;
+  }
+  document.querySelectorAll('.smsSettingsBtn').forEach(b => b.addEventListener('click', openSmsSettings));
   // ---- One-time text-message opt-in (Team Messages) ----
   let smsConsentOpen = false;
   async function checkSmsConsent(){
