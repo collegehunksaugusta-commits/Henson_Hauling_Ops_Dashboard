@@ -27205,6 +27205,39 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Open invoice failed:', err); alert('Could not open the invoice \u2014 check your connection.'); }
     finally{ btn.disabled = false; btn.textContent = label; }
   }
+  // Reads the job's invoice again (same way as when it was uploaded) and
+  // updates its State Taxes record -- for spot-check corrections.
+  async function stRereadInvoice(jobNumber, btn){
+    const label = btn.textContent; btn.disabled = true; btn.textContent = 'Reading\u2026';
+    try{
+      const uploads = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []) || [];
+      const up = uploads.filter(u => String(u.jobNumber) === String(jobNumber) && u.invoiceUploadedAt).sort((a, b) => String(b.invoiceUploadedAt).localeCompare(String(a.invoiceUploadedAt)))[0];
+      if(!up){ alert('No invoice on file for job ' + jobNumber + '.'); return; }
+      const dataUri = await window.dashboardApi.get('paperwork-upload-' + up.id, null);
+      if(!dataUri){ alert('The file for job ' + jobNumber + ' couldn\u2019t be found.'); return; }
+      const file = window.dataUriToFile(dataUri, up.fileName);
+      const images = await window.getImagesForAssessment(file);
+      if(!images.length){ alert('Couldn\u2019t open the pages of that file.'); return; }
+      let pageTexts = [];
+      const saved = await window.dashboardApi.get('paperwork-upload-invoicetext-' + up.id, null);
+      if(Array.isArray(saved) && saved.length && saved.length <= images.length) pageTexts = [...Array(images.length - saved.length).fill(''), ...saved];
+      let materialsNicknames = [];
+      try{ materialsNicknames = ((await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [])).map(mi => mi.nickname).filter(Boolean); }catch(err){}
+      const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ images, pageTexts, jobNumber, materialsNicknames }) });
+      if(handleAuthFailure(res)) return;
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || !data.invoicePageFound){ alert(data.error || 'No invoice could be read from that file.'); return; }
+      if(!data.confident){ alert('The invoice was read, but the figures weren\u2019t confident enough to save. Check the invoice with View.'); return; }
+      const before = (stateTaxRecords.find(r => String(r.jobNumber) === String(jobNumber)) || {});
+      const { matched, unmatchedDescriptions } = await matchLineItemsToMaterials(data.lineItems);
+      await recordStateTaxData(jobNumber, data, matched, unmatchedDescriptions);
+      await loadStateTaxData();
+      const after = (stateTaxRecords.find(r => String(r.jobNumber) === String(jobNumber)) || {});
+      const m = n => '$' + (Number(n) || 0).toFixed(2);
+      alert(`Job ${jobNumber} re-read.\n\nTax Collected: ${m(before.taxCollected)} \u2192 ${m(after.taxCollected)}\nTotal Sales: ${m(before.totalSale)} \u2192 ${m(after.totalSale)}`);
+    }catch(err){ console.error('Re-read invoice failed:', err); alert('Could not re-read the invoice \u2014 check your connection.'); }
+    finally{ btn.disabled = false; btn.textContent = label; }
+  }
   function renderStateTaxData(){
     const container = document.getElementById('st_monthGroups');
     const emptyNote = document.getElementById('st_emptyNote');
@@ -27310,7 +27343,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${!r.state ? 'color:#B3261E;' : ''}">${stEsc(r.state ? STATE_LABELS_ST[r.state] : 'Unknown')}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${hasUnmatched || hasZeroValueItems ? 'color:#B3261E; font-weight:600;' : ''}">${stMoney(r.totalSale)}${(hasUnmatched || hasZeroValueItems) ? ' \u26a0\ufe0f' : ''}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${taxSuspicious ? 'color:#B3261E; font-weight:600;' : ''}" title="${tooltip}">${stMoney(r.taxCollected)}${taxSuspicious ? ' \u26a0\ufe0f' : ''}</td>
-                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:center;"><button type="button" class="st-view-invoice" data-job="${stEsc(r.jobNumber)}" title="Open this job's invoice to check the figures" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:2px 9px; font-size:11.5px; cursor:pointer;">View</button></td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:center;"><button type="button" class="st-view-invoice" data-job="${stEsc(r.jobNumber)}" title="Open this job's invoice to check the figures" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:2px 9px; font-size:11.5px; cursor:pointer;">View</button> <button type="button" class="st-reread-invoice" data-job="${stEsc(r.jobNumber)}" title="Read this job's invoice again and update its Total Sales and Tax Collected" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:2px 9px; font-size:11.5px; cursor:pointer;">Re-read</button></td>
               </tr>${hasUnmatched ? `
               <tr${r.needsReview ? ' style="background:#FFF4E5;"' : ''}>
                 <td colspan="6" style="padding:0 3px 6px; font-size:11px; color:#B3261E;">&#8627; Not matched to your materials catalog: ${r.unmatchedItems.map(u => stEsc(u)).join(', ')} &mdash; add a catalog item with a matching Nickname to include this in Total Sales.</td>
@@ -27346,6 +27379,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }).join('');
 
     container.querySelectorAll('.st-view-invoice').forEach(btn => btn.addEventListener('click', () => stViewInvoice(btn.dataset.job, btn)));
+    container.querySelectorAll('.st-reread-invoice').forEach(btn => btn.addEventListener('click', () => stRereadInvoice(btn.dataset.job, btn)));
     container.querySelectorAll('.st-month-toggle').forEach(btn => btn.addEventListener('click', ()=>{
       const month = btn.dataset.month;
       if(stExpandedMonths.has(month)) stExpandedMonths.delete(month);
