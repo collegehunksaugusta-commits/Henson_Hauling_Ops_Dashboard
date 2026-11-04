@@ -4173,7 +4173,7 @@ const DEFAULT_APP_SETTINGS = {
     finalEmailBody: 'Hi {{clientFirstName}},\n\nThank you for your patience while we reviewed your damage claim for job {{jobNumber}}. We\u2019ve completed our review using the photos provided and the valuation coverage you selected on your Bill of Lading: {{valuationOption}}.\n\nUnder Georgia Department of Public Safety Maximum Rate Tariff No. 7, the settlement amount for your claim is {{settlementAmount}}. The attached Settlement Summary explains how that amount was determined, item by item.\n\nThis will be refunded via the payment method you used for final billing. Please allow 5-7 business days for the refund to process.\n\nIf you have any questions, just reply to this email.\n\nThanks,\n' + LOCATION.emailSignature
   },
   teamTexts: {
-    forwardRepliesTo: '',      // a cell number that also gets every crew reply
+    forwardRepliesTo: '',      // cell number(s), comma-separated, that also get every crew reply
     optOutNote: true,          // "Reply STOP to opt out." on each person's first text
     brandPrefix: 'College Hunks Hauling Junk and Moving Augusta GA:'   // starts every text (the registered A2P brand)
   },
@@ -7079,8 +7079,12 @@ app.post('/api/twilio/inbound', async (req, res) => {
     const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
     inbox.push({ id: 'in_' + Date.now(), at: new Date().toISOString(), from, fromDisplay: prettyPhone(from), name: person ? person.name : '', text, read: false });
     await redis.set(TT_INBOX_KEY, JSON.stringify(inbox.slice(-1000)));
-    const fwd = toE164(((await getAppSettings()).teamTexts || {}).forwardRepliesTo);
-    if (fwd && fwd !== from && twilioReady()) await twilioSend(fwd, `Team reply from ${person ? person.name : prettyPhone(from)}: ${text}`.slice(0, 600)).catch(e => console.error('Reply forward failed:', e.message));
+    // Forward to every number on the list (except whoever sent the reply).
+    const fwds = [...new Set(String(((await getAppSettings()).teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].filter(n => n !== from).slice(0, 5);
+    if (fwds.length && twilioReady()) {
+      const msg = `Team reply from ${person ? person.name : prettyPhone(from)}: ${text}`.slice(0, 600);
+      for (const fwd of fwds) await twilioSend(fwd, msg).catch(e => console.error('Reply forward failed:', e.message));
+    }
   } catch (err) { console.error('Team text inbound failed:', err.message); }
 });
 
