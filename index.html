@@ -27180,6 +27180,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   const JOB_TYPE_LABELS_ST = { move: 'Move', movelabor: 'Move Labor', longdistance: 'Long Distance Move' };
   const STATE_LABELS_ST = { GA: 'Georgia', SC: 'South Carolina' };
 
+  // Opens the job's paperwork file at its invoice -- the invoice pages are
+  // added at the end of the scanned paperwork when it's uploaded.
+  async function stViewInvoice(jobNumber, btn){
+    const label = btn.textContent; btn.disabled = true; btn.textContent = 'Opening\u2026';
+    try{
+      const uploads = (window.paperworkUploads && window.paperworkUploads.length) ? window.paperworkUploads : (await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []) || []);
+      const up = uploads.filter(u => String(u.jobNumber) === String(jobNumber) && u.invoiceUploadedAt).sort((a, b) => String(b.invoiceUploadedAt).localeCompare(String(a.invoiceUploadedAt)))[0];
+      if(!up){ alert('No invoice on file for job ' + jobNumber + '.'); return; }
+      const dataUri = await window.dashboardApi.get('paperwork-upload-' + up.id, null);
+      if(!dataUri){ alert('The file for job ' + jobNumber + ' couldn\u2019t be found.'); return; }
+      let page = 1;
+      if(/^data:application\/pdf/.test(dataUri) && window.pdfjsLib){
+        try{
+          const bin = atob(dataUri.split(',')[1]); const bytes = new Uint8Array(bin.length); for(let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+          const total = (await pdfjsLib.getDocument({ data: bytes }).promise).numPages;
+          const texts = await window.dashboardApi.get('paperwork-upload-invoicetext-' + up.id, null);
+          const invPages = Array.isArray(texts) && texts.length ? texts.length : 1;
+          page = Math.max(1, total - invPages + 1);
+        }catch(err){ page = 1; }
+      }
+      const url = window.fleetDataUriToBlobUrl(dataUri);
+      window.showPhotoModal(/^data:application\/pdf/.test(dataUri) ? url + '#page=' + page : url, { isPdf: /^data:application\/pdf/.test(dataUri) });
+    }catch(err){ console.error('Open invoice failed:', err); alert('Could not open the invoice \u2014 check your connection.'); }
+    finally{ btn.disabled = false; btn.textContent = label; }
+  }
   function renderStateTaxData(){
     const container = document.getElementById('st_monthGroups');
     const emptyNote = document.getElementById('st_emptyNote');
@@ -27266,6 +27291,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
               ${sortHeader('state', 'State')}
               <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line); cursor:pointer;" class="st-sort-header" data-field="totalSale">Total Sales <span style="font-size:9px;">${sortArrow('totalSale')}</span></th>
               <th style="text-align:right; padding:5px 3px; border-bottom:1px solid var(--line); cursor:pointer;" class="st-sort-header" data-field="taxCollected">Tax Collected <span style="font-size:9px;">${sortArrow('taxCollected')}</span></th>
+              <th style="text-align:center; padding:5px 3px; border-bottom:1px solid var(--line);">Invoice</th>
             </tr></thead>
             <tbody>
               ${rows.map(r => {
@@ -27284,12 +27310,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); ${!r.state ? 'color:#B3261E;' : ''}">${stEsc(r.state ? STATE_LABELS_ST[r.state] : 'Unknown')}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${hasUnmatched || hasZeroValueItems ? 'color:#B3261E; font-weight:600;' : ''}">${stMoney(r.totalSale)}${(hasUnmatched || hasZeroValueItems) ? ' \u26a0\ufe0f' : ''}</td>
                 <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:right; ${taxSuspicious ? 'color:#B3261E; font-weight:600;' : ''}" title="${tooltip}">${stMoney(r.taxCollected)}${taxSuspicious ? ' \u26a0\ufe0f' : ''}</td>
+                <td style="padding:4px 3px; border-bottom:1px solid var(--line); text-align:center;"><button type="button" class="st-view-invoice" data-job="${stEsc(r.jobNumber)}" title="Open this job's invoice to check the figures" style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:2px 9px; font-size:11.5px; cursor:pointer;">View</button></td>
               </tr>${hasUnmatched ? `
               <tr${r.needsReview ? ' style="background:#FFF4E5;"' : ''}>
-                <td colspan="5" style="padding:0 3px 6px; font-size:11px; color:#B3261E;">&#8627; Not matched to your materials catalog: ${r.unmatchedItems.map(u => stEsc(u)).join(', ')} &mdash; add a catalog item with a matching Nickname to include this in Total Sales.</td>
+                <td colspan="6" style="padding:0 3px 6px; font-size:11px; color:#B3261E;">&#8627; Not matched to your materials catalog: ${r.unmatchedItems.map(u => stEsc(u)).join(', ')} &mdash; add a catalog item with a matching Nickname to include this in Total Sales.</td>
               </tr>` : ''}${hasZeroValueItems ? `
               <tr${r.needsReview ? ' style="background:#FFF4E5;"' : ''}>
-                <td colspan="5" style="padding:0 3px 6px; font-size:11px; color:#B3261E;">&#8627; ${r.zeroValueItemCount} matched item(s) had a billed amount that couldn\u2019t be confirmed against the invoice text, so they\u2019re showing as $0 in Total Sales &mdash; check this job\u2019s invoice by hand.</td>
+                <td colspan="6" style="padding:0 3px 6px; font-size:11px; color:#B3261E;">&#8627; ${r.zeroValueItemCount} matched item(s) had a billed amount that couldn\u2019t be confirmed against the invoice text, so they\u2019re showing as $0 in Total Sales &mdash; check this job\u2019s invoice by hand.</td>
               </tr>` : ''}`;
               }).join('')}
             </tbody>
@@ -27318,6 +27345,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       </div>`;
     }).join('');
 
+    container.querySelectorAll('.st-view-invoice').forEach(btn => btn.addEventListener('click', () => stViewInvoice(btn.dataset.job, btn)));
     container.querySelectorAll('.st-month-toggle').forEach(btn => btn.addEventListener('click', ()=>{
       const month = btn.dataset.month;
       if(stExpandedMonths.has(month)) stExpandedMonths.delete(month);
