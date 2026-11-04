@@ -7378,6 +7378,7 @@ window.openEmailDraft = function(o){
 
         <div>
           <label>Search by Client Name or Job # <input type="text" id="pu_search" placeholder="Start typing..."></label>
+          <div style="overflow-x:auto;">
           <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;">
             <thead><tr>
               <th class="pu-sort-header" data-field="clientName" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); cursor:pointer;">Client Name <span class="pu-sort-arrow" data-field="clientName"></span></th>
@@ -7391,6 +7392,7 @@ window.openEmailDraft = function(o){
             </tr></thead>
             <tbody id="pu_listRows"></tbody>
           </table>
+          </div>
         </div>
         </div>
       </div>
@@ -26370,7 +26372,19 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return true;
   }
 
+  // Jobs whose Materials review was Passed in Manager Review -- the manager
+  // has accepted the materials as billed, so they don't block close-out.
+  let puMaterialsPassed = new Set();
+  async function loadPuMaterialsPassed(){
+    try{
+      const items = await window.dashboardApi.get('manager-review-items', []) || [];
+      puMaterialsPassed = new Set(items.filter(i => i.type === 'underbilled' && i.source === 'materials' && i.outcome === 'pass').map(i => String(i.jobNumber)));
+    }catch(err){}
+  }
+  const puMaterialsOk = u => u.requiresMaterials !== true || (Array.isArray(u.materialsBilled) && u.materialsBilled.length > 0) || u.materialsBilledOverridden || puMaterialsPassed.has(String(u.jobNumber));
+  window.refreshPuMaterialsPassed = async () => { await loadPuMaterialsPassed(); if(paperworkUploads) renderPaperworkUploadsList(); };
   async function loadPaperworkUploads(){
+    await loadPuMaterialsPassed();
     try{
       paperworkUploads = await window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []);
       if(await pruneOldPaperworkUploads()) await savePaperworkUploadsList();
@@ -26871,6 +26885,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   }
   window.matchLineItemsToMaterials = matchLineItemsToMaterials;
 
+  // Some invoice PDFs' text is missing the Products & Services rows, so the
+  // materials billed can't be read from it. Read the page images instead.
+  async function puReadInvoiceImagesForLineItems(images, jobNumber){
+    let materialsNicknames = [];
+    try{ materialsNicknames = ((await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [])).map(mi => mi.nickname).filter(Boolean); }catch(err){}
+    const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),
+      body: JSON.stringify({ images, pageTexts: [], jobNumber, materialsNicknames }) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || data.invoicePageFound === false) throw new Error(data.error || 'Could not read the invoice.');
+    return data;
+  }
+  async function puRereadInvoiceMaterials(upload){
+    const dataUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
+    if(!dataUri) throw new Error('No file on record.');
+    const images = await window.getImagesForAssessment(window.dataUriToFile(dataUri, upload.fileName));
+    if(!images.length) throw new Error('No pages.');
+    const data = await puReadInvoiceImagesForLineItems(images, upload.jobNumber);
+    const { matched, unmatchedDescriptions } = await matchLineItemsToMaterials(data.lineItems);
+    console.log('[INVOICE-REREAD] job', upload.jobNumber, 'line items:', data.lineItems, 'materials matched:', matched);
+    if(!matched.length) return false;
+    upload.materialsBilled = matched;
+    upload.invoiceLineItems = (data.lineItems || []).map(li => ({ description: li.description, quantity: Number(li.quantity) || 0, lineTotal: Number(li.lineTotal) || 0 }));
+    if(data.confident) await recordStateTaxData(upload.jobNumber, data, matched, unmatchedDescriptions);
+    return true;
+  }
   async function recordStateTaxData(jobNumber, extractData, matchedMaterialsBilled, unmatchedDescriptions){
     if(!jobNumber) return;
     try{
@@ -27359,7 +27398,18 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
       console.log('[INVOICE-UPLOAD] step 5 done, merged size:', mergedDataUri.length, 'chars (base64)');
 
-      const { matched: matchedMaterialsBilled, unmatchedDescriptions } = await matchLineItemsToMaterials(extractData.lineItems);
+      let { matched: matchedMaterialsBilled, unmatchedDescriptions } = await matchLineItemsToMaterials(extractData.lineItems);
+      // Materials were checked out for this job but none were read from the
+      // invoice's text -- that text is sometimes missing the services rows,
+      // so read the page images before calling the materials unbilled.
+      if(!matchedMaterialsBilled.length && upload.requiresMaterials === true && extractData.invoicePageFound !== false && invoicePageTexts.length){
+        try{
+          const viaImages = await puReadInvoiceImagesForLineItems(invoicePages, upload.jobNumber);
+          const again = await matchLineItemsToMaterials(viaImages.lineItems);
+          console.log('[INVOICE-UPLOAD] step 6b: materials via page images:', again.matched);
+          if(again.matched.length){ matchedMaterialsBilled = again.matched; unmatchedDescriptions = again.unmatchedDescriptions; extractData.lineItems = viaImages.lineItems; }
+        }catch(err){ console.error('Materials image read failed:', err); }
+      }
       console.log('[INVOICE-UPLOAD] step 6: materials matched:', matchedMaterialsBilled, 'unmatched:', unmatchedDescriptions);
 
       const blobOk = await window.dashboardApi.set('paperwork-upload-' + uploadId, mergedDataUri);
@@ -27531,7 +27581,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       <tr>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); font-weight:600;">${esc(u.clientName)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(u.jobNumber)}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(u.fileName)}${u.weightTickets && u.weightTickets.netWeight !== null ? `<div style="font-size:11px; color:var(--muted);" title="Full ${Number(u.weightTickets.fullWeight).toLocaleString()} lbs \u2212 empty ${Number(u.weightTickets.emptyWeight).toLocaleString()} lbs">\u2696 Load ${Number(u.weightTickets.netWeight).toLocaleString()} lbs (tickets attached${u.weightTickets.uploadedByOffice ? ' \u2014 uploaded by office, not the Captain' : ''})</div>` : ''}${u.weightTicketsWaived ? `<div style="font-size:11px; color:#b3261e;" title="${esc(u.weightTicketsWaived.reason || '')}">\u2696 Closed without weight tickets (admin override ${window.fmtDate((u.weightTicketsWaived.at || '').slice(0,10))})</div>` : ''}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); max-width:210px; overflow-wrap:anywhere;">${esc(u.fileName)}${u.weightTickets && u.weightTickets.netWeight !== null ? `<div style="font-size:11px; color:var(--muted);" title="Full ${Number(u.weightTickets.fullWeight).toLocaleString()} lbs \u2212 empty ${Number(u.weightTickets.emptyWeight).toLocaleString()} lbs">\u2696 Load ${Number(u.weightTickets.netWeight).toLocaleString()} lbs (tickets attached${u.weightTickets.uploadedByOffice ? ' \u2014 uploaded by office, not the Captain' : ''})</div>` : ''}${u.weightTicketsWaived ? `<div style="font-size:11px; color:#b3261e;" title="${esc(u.weightTicketsWaived.reason || '')}">\u2696 Closed without weight tickets (admin override ${window.fmtDate((u.weightTicketsWaived.at || '').slice(0,10))})</div>` : ''}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${esc(new Date(u.uploadedAt).toLocaleDateString())}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap;">
           <button type="button" class="pu-face" data-id="${u.id}" data-value="happy" title="Satisfied" style="background:#fff; border:2px solid ${u.satisfaction === 'happy' ? '#00612C' : 'transparent'}; line-height:1; padding:3px; border-radius:6px; cursor:pointer; vertical-align:middle;">
@@ -27550,11 +27600,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap;">
           ${puInvoiceCell(u)}
         </td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; min-width:150px; line-height:2;">
           <button type="button" class="pu-view" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">View</button>
           ${(() => {
             const balanceOk = u.invoiceUploadedAt && (Number(u.invoiceBalanceDue) < 1 || u.balanceDueOverridden);
-            const materialsOk = u.requiresMaterials !== true || (Array.isArray(u.materialsBilled) && u.materialsBilled.length > 0) || u.materialsBilledOverridden;
+            const materialsOk = puMaterialsOk(u);
             if(u.invoiceUploadedAt && u.invoiceNotFound){
               return `<span style="font-size:10.5px; margin-right:4px; color:#B3261E; font-weight:700;" title="The file uploaded as the invoice has no invoice page in it (it looks like the work order or other paperwork). Upload the HunkWare invoice again.">\u26a0 Not an invoice \u2014 re-upload</span>`;
             }
@@ -27574,7 +27624,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
             const overrideNote = u.materialsBilledOverridden
               ? ` <span title="Materials requirement overridden by an administrator" style="cursor:help; color:var(--muted);">(overridden)</span>`
               : ` <button type="button" class="pu-materials-override" data-id="${u.id}" style="display:inline; background:none; border:none; color:var(--muted); text-decoration:underline; font-size:10px; cursor:pointer; padding:0;">Override</button>`;
-            return `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="This job's checked-out materials haven't been billed for yet -- complete the Materials Billed section, or have an administrator override it.">Materials not billed${overrideNote}</span>`;
+            const reread = ` <button type="button" class="pu-materials-reread" data-id="${u.id}" title="Read the invoice page images again for billed materials (the text of some invoices is missing its line items)" style="display:inline; background:none; border:none; color:#00612C; text-decoration:underline; font-size:10px; cursor:pointer; padding:0;">Re-read invoice</button>`;
+            return `<span class="form-note" style="font-size:10.5px; margin-right:4px;" title="This job's checked-out materials haven't been billed for yet -- complete the Materials Billed section, or have an administrator override it.">Materials not billed${reread}${overrideNote}</span>`;
           })()}
           <button type="button" class="pu-delete" data-id="${u.id}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Delete</button>
         </td>
@@ -27642,6 +27693,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       }
     }));
 
+    tbody.querySelectorAll('.pu-materials-reread').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const upload = paperworkUploads.find(u => u.id === e.currentTarget.dataset.id); if(!upload) return;
+      const b = e.currentTarget; b.disabled = true; b.textContent = 'Reading\u2026';
+      try{
+        const found = await puRereadInvoiceMaterials(upload);
+        if(found){ await savePaperworkUploadsList(); renderPaperworkUploadsList(); }
+        else { b.disabled = false; b.textContent = 'Re-read invoice'; alert('The invoice was read again from its page images, and no billed materials were found on it. If materials were used on this job, they need to be added to the invoice in HunkWare (then use Replace Invoice) \u2014 or an administrator can Override.'); }
+      }catch(err){ console.error('Re-read invoice failed:', err); b.disabled = false; b.textContent = 'Re-read invoice'; alert('Could not re-read the invoice \u2014 check your connection and try again.'); }
+    }));
     tbody.querySelectorAll('.pu-materials-override').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.dataset.id;
       const upload = paperworkUploads.find(u => u.id === id);
@@ -27703,7 +27763,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       // An administrator can also override this directly from the row
       // (see the .pu-materials-override handler) when the gap is a false
       // positive or has been knowingly waived.
-      if(upload.requiresMaterials === true && (!Array.isArray(upload.materialsBilled) || upload.materialsBilled.length === 0) && !upload.materialsBilledOverridden){
+      if(!puMaterialsOk(upload)){
         alert('This job requires packing materials to be billed before an email can be sent \u2014 please complete the Materials Billed section for this job, or have an administrator override it.');
         return;
       }
@@ -35429,6 +35489,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     item.reviewedAt = new Date().toISOString();
     item.reviewedBy = localStorage.getItem('henson_auth_email') || '';
     item.outcome = outcome;
+    if(item.type === 'underbilled' && item.source === 'materials') setTimeout(() => { try{ window.refreshPuMaterialsPassed && window.refreshPuMaterialsPassed(); }catch(e){} }, 800);
     const ok = await window.dashboardApi.set(MANAGER_REVIEW_ITEMS_KEY, managerReviewItems);
     if(ok){
       renderMgrReviewTabCounts();
