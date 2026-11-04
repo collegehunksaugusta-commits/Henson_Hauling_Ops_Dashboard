@@ -5717,10 +5717,19 @@ const IDENTIFY_INVOICE_PAGES_TOOL = {
 // every figure, cents or not. Requiring a decimal previously meant every
 // single figure on that second document type silently failed to ground,
 // regardless of how correct the reading was.
+// Some documents' text comes through with spaces inside numbers --
+// "$ 0 . 88", "$ 1 , 250 . 00" -- which would otherwise be read as separate
+// numbers (0 and 88). Close those gaps before comparing amounts.
+function closeUpSpacedNumbers(str) {
+  return String(str || '')
+    .replace(/\$\s+(?=\d)/g, '$')
+    .replace(/(\d)\s*\.\s*(\d)/g, '$1.$2')
+    .replace(/(\d)\s*,\s*(\d{3})(?!\d)/g, '$1,$2');
+}
 function validateAgainstQuote(amount, quotedLine, keyword) {
   const amt = Number(amount) || 0;
   if (amt <= 0) return amt;
-  const quote = (quotedLine || '').trim();
+  const quote = closeUpSpacedNumbers(quotedLine).trim();
   if (!quote) return 0;
   if (!new RegExp(keyword, 'i').test(quote)) return 0;
   const numbersInQuote = (quote.match(/[\d,]+(?:\.\d{1,2})?/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
@@ -5754,6 +5763,7 @@ function validateAgainstQuote(amount, quotedLine, keyword) {
 function verifyAgainstSourceText(sourceText, amount, keyword) {
   const amt = Number(amount) || 0;
   if (amt <= 0) return amt;
+  sourceText = closeUpSpacedNumbers(sourceText).replace(/,/g, '');
   const candidates = [amt.toFixed(2)];
   if (Number.isInteger(amt)) candidates.push(String(amt));
   for (const amountStr of candidates) {
