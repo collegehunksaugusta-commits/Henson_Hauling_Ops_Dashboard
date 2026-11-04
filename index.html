@@ -7607,9 +7607,10 @@ window.openEmailDraft = function(o){
     </div>
     <div class="panel">
       <h3>Settings</h3>
-      <label>Every text starts with <input type="text" id="tt_prefix" maxlength="80" placeholder="College Hunks Hauling Junk and Moving Augusta GA:" style="max-width:420px;"></label>
+      <label>Every text starts with <input type="text" id="tt_prefix" maxlength="80" placeholder="College Hunks Hauling Junk and Moving Augusta GA:" style="max-width:420px; width:100%;"></label>
       <p class="form-note" style="margin:-4px 0 8px;">Your registered business name, so carriers and employees know who it&rsquo;s from. Added automatically &mdash; don&rsquo;t type it in messages.</p>
-      <label>Also forward every reply to this cell (optional) <input type="tel" id="tt_forward" placeholder="(706) 555-0100" style="max-width:200px;"></label>
+      <label>Also forward every reply to these cells (optional) <input type="text" inputmode="tel" id="tt_forward" placeholder="(706) 555-0100, (706) 555-0200" style="max-width:420px; width:100%;"></label>
+      <p class="form-note" style="margin:-4px 0 8px;">Up to 5 numbers, separated by commas.</p>
       <label style="display:flex; gap:8px; align-items:center; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="checkbox" id="tt_optNote"> Add &ldquo;Reply STOP to opt out.&rdquo; to each person&rsquo;s first text (recommended by the carriers)</label>
       <button type="button" id="tt_saveSettings" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Save Settings</button> <span class="status-msg" id="tt_settingsStatus"></span>
     </div>
@@ -11372,10 +11373,14 @@ window.openEmailDraft = function(o){
     });
     $('tt_markRead').addEventListener('click', async () => { await fetch(`${API_BASE}/api/admin/team-texts/read`, { method: 'POST', headers: authHeaders() }).catch(() => {}); load(); });
     $('tt_saveSettings').addEventListener('click', async () => {
-      const st = $('tt_settingsStatus'), raw = $('tt_forward').value.trim(), d = raw.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-      if(raw && d.length !== 10){ st.textContent = 'Enter a 10-digit phone number (or leave it blank).'; st.className = 'status-msg err'; return; }
+      const st = $('tt_settingsStatus'), raw = $('tt_forward').value.trim();
+      const parts = raw ? raw.split(/[,;\n]+/).map(x => x.trim()).filter(Boolean) : [];
+      const nums = parts.map(x => x.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''));
+      if(nums.some(n => n.length !== 10)){ st.textContent = 'Each number needs 10 digits \u2014 separate numbers with commas (or leave it blank).'; st.className = 'status-msg err'; return; }
+      if(nums.length > 5){ st.textContent = 'Up to 5 numbers.'; st.className = 'status-msg err'; return; }
+      const fwdList = [...new Set(nums)].map(n => `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}`).join(', ');
       try{
-        const r = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { teamTexts: { brandPrefix: $('tt_prefix').value.trim(), forwardRepliesTo: d ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : '', optOutNote: $('tt_optNote').checked } } }) });
+        const r = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { teamTexts: { brandPrefix: $('tt_prefix').value.trim(), forwardRepliesTo: fwdList, optOutNote: $('tt_optNote').checked } } }) });
         const j = await r.json(); if(!r.ok) throw new Error(j.error || 'Could not save.');
         window.appSettings = j.settings || window.appSettings;
         st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; load();
