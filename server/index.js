@@ -7065,6 +7065,17 @@ app.post('/api/twilio/inbound', async (req, res) => {
     if (/^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT)$/.test(word)) o.add(from);
     if (/^(START|UNSTOP|YES)$/.test(word)) o.delete(from);
     await redis.set(TT_OPTOUT_KEY, JSON.stringify([...o]));
+    // Opting in (or out) by text: START / YES from a roster employee's
+    // number records their consent -- the keywords registered with the
+    // Campaign. STOP records them as declined.
+    const kwIn = /^(START|UNSTOP|YES)$/.test(word), kwOut = /^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT)$/.test(word);
+    if (person && (kwIn || kwOut)) {
+      const all = await teamTextConsents();
+      all[nameCoreKey(person.name)] = { name: person.name, agree: kwIn, phone: prettyPhone(from), at: new Date().toISOString(), version: SMS_CONSENT_VERSION,
+        text: kwIn ? `Opted in by texting "${word}" to the company number. ${SMS_CONSENT_TEXT}` : '', method: kwIn ? 'text-keyword' : 'text-stop' };
+      await redis.set(TT_CONSENT_KEY, JSON.stringify(all));
+      console.log(`[sms-consent] ${person.name} ${kwIn ? 'opted in' : 'opted out'} by text (${word})`);
+    }
     const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
     inbox.push({ id: 'in_' + Date.now(), at: new Date().toISOString(), from, fromDisplay: prettyPhone(from), name: person ? person.name : '', text, read: false });
     await redis.set(TT_INBOX_KEY, JSON.stringify(inbox.slice(-1000)));
