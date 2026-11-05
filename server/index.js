@@ -6995,6 +6995,54 @@ app.get('/api/admin/team-texts', requireAuth, requireAdmin, async (req, res) => 
     res.json({ configured: twilioReady(), sent, inbox, unread: inbox.filter(m => !m.read).length });
   } catch (err) { res.status(500).json({ error: 'Could not load messages.' }); }
 });
+// ---- Team Messages threads in the HUNK Portal ----
+// Messages this crew member received (last 60 days), each with the replies
+// to it -- a reply belongs to the latest message sent to that person before
+// it arrived (the same rule as the office's view).
+app.get('/api/crew/team-threads', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const myKey = nameCoreKey(me);
+    const sent = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
+    const cutoff = new Date(Date.now() - 60 * 864e5).toISOString();
+    const firstName = n => { const [last, rest] = String(n || '').split(','); const first = (rest || '').trim().split(/\s+/)[0] || String(n || '').trim(); return rest ? `${first} ${String(last || '').trim().charAt(0)}.` : first; };
+    const replies = new Map();
+    inbox.forEach(m => {
+      const e = m.threadId ? sent.find(x => x.id === m.threadId) : sent.find(x => String(x.at) <= String(m.at) && (x.recipients || []).some(r => r.phone && r.phone === m.from));
+      if (!e) return;
+      const name = m.name || '';
+      (replies.get(e.id) || replies.set(e.id, []).get(e.id)).push({ at: m.at, text: m.text, from: name ? firstName(name) : 'Teammate', mine: !!name && nameCoreKey(name) === myKey });
+    });
+    const threads = sent.filter(e => String(e.at) >= cutoff && (e.recipients || []).some(r => nameCoreKey(r.name || '') === myKey && !/failed/.test(r.status || '')))
+      .map(e => ({ id: e.id, at: e.at, message: e.message, replies: (replies.get(e.id) || []).sort((a, b) => String(a.at).localeCompare(String(b.at))) }));
+    const c = (await teamTextConsents())[myKey] || null;
+    res.json({ threads, number: process.env.TWILIO_FROM_DISPLAY || '(706) 556-7066', optedIn: !!(c && c.agree) });
+  } catch (err) { console.error('Team threads failed:', err.message); res.status(500).json({ error: 'Could not load messages.' }); }
+});
+// A crew member replies to a thread from inside the HUNK Portal.
+app.post('/api/crew/team-threads/:id/reply', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const text = String((req.body || {}).text || '').trim().slice(0, 1000);
+    if (!text) return res.status(400).json({ error: 'Type a reply first.' });
+    const entry = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').find(x => x.id === req.params.id);
+    const mine = entry && (entry.recipients || []).find(r => nameCoreKey(r.name || '') === nameCoreKey(me));
+    if (!mine) return res.status(404).json({ error: 'That message wasn\u2019t sent to you.' });
+    const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
+    inbox.push({ id: 'in_' + Date.now(), at: new Date().toISOString(), from: mine.phone || '', fromDisplay: mine.phone ? prettyPhone(mine.phone) : '', name: me, text, read: false, via: 'app', threadId: entry.id });
+    await redis.set(TT_INBOX_KEY, JSON.stringify(inbox.slice(-1000)));
+    console.log(`[team-texts] app reply from ${me} on ${entry.id}`);
+    res.json({ ok: true });
+    // Forward to the office's forwarding numbers, like a texted reply.
+    try {
+      const fwds = [...new Set(String(((await getAppSettings()).teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].filter(n => n !== mine.phone).slice(0, 5);
+      if (fwds.length && twilioReady()) for (const f of fwds) await twilioSend(f, `Team reply from ${me} (in app): ${text}`.slice(0, 600)).catch(e => console.error('Reply forward failed:', e.message));
+    } catch (e) {}
+  } catch (err) { console.error('App reply failed:', err.message); res.status(500).json({ error: 'Could not send \u2014 try again.' }); }
+});
 app.post('/api/admin/team-texts/read', requireAuth, requireAdmin, async (req, res) => {
   try { const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]'); inbox.forEach(m => { m.read = true; }); await redis.set(TT_INBOX_KEY, JSON.stringify(inbox)); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: 'Could not save.' }); }
