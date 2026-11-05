@@ -3180,6 +3180,17 @@ window.openEmailDraft = function(o){
     ov.querySelector('#smsSetClose').onclick = close;
   }
   document.querySelectorAll('.smsSettingsBtn').forEach(b => b.addEventListener('click', openTeamThreads));
+  // A phone reaction (tapback) arrives as text repeating the whole message.
+  function ttReaction(text){
+    const t = String(text || '').trim(), Q = '["\u201c\u201d\u201e\u00ab\u00bb\u2018\u2019\']';
+    const words = { 'liked': '\ud83d\udc4d', 'loved': '\u2764\ufe0f', 'laughed at': '\ud83d\ude02', 'emphasized': '\u203c\ufe0f', 'questioned': '\u2753', 'disliked': '\ud83d\udc4e' };
+    let m = new RegExp('^(liked|loved|laughed at|emphasized|questioned|disliked)\\s+' + Q + '[\\s\\S]*' + Q + '\\s*$', 'i').exec(t);
+    if(m) return words[m[1].toLowerCase()];
+    m = new RegExp('^(?:reacted\\s+)?(\\S{1,8})\\s+to\\s+' + Q + '[\\s\\S]*' + Q + '\\s*$', 'i').exec(t);
+    if(m && !/[a-z0-9]/i.test(m[1])) return m[1];
+    return null;
+  }
+  window.ttReaction = ttReaction;
   // ---- Team Messages for the crew: text-style threads ----
   const ttSeenKey = () => 'tt_seen_' + (localStorage.getItem('henson_driver_name') || '');
   const ttLatest = d => (d.threads || []).reduce((t, th) => [th.at, ...th.replies.filter(r => !r.mine).map(r => r.at)].reduce((u, x) => String(x) > u ? String(x) : u, t), '');
@@ -3205,11 +3216,15 @@ window.openEmailDraft = function(o){
         ${who ? `<div style="font-size:12px; color:#8e8e93; margin:0 12px 2px;">${driverEsc(who)}</div>` : ''}
         <div style="max-width:80%; background:${color}; color:${fg}; padding:9px 13px; border-radius:18px; ${side === 'right' ? 'border-bottom-right-radius:5px;' : 'border-bottom-left-radius:5px;'} font-size:15.5px; line-height:1.35; white-space:pre-wrap; overflow-wrap:anywhere;">${driverEsc(text)}</div>
         <div style="font-size:11px; color:#8e8e93; margin:2px 12px 0;">${t(at)}</div></div>`;
+    const reaction = (emoji, side, who, at) => `<div style="display:flex; flex-direction:column; align-items:${side === 'right' ? 'flex-end' : 'flex-start'}; margin:4px 0;">
+        <div style="display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #e5e5ea; border-radius:16px; padding:3px 10px 3px 6px; box-shadow:0 1px 1px rgba(0,0,0,.04);"><span style="font-size:20px; line-height:1;">${emoji}</span><span style="font-size:12.5px; color:#3c3c43;">${driverEsc(who)} reacted</span></div>
+        <div style="font-size:11px; color:#8e8e93; margin:2px 12px 0;">${t(at)}</div></div>`;
     const threads = (d.threads || []).map(th => `<div style="background:#fff; border-radius:16px; padding:10px 10px 6px; margin:0 0 14px; box-shadow:0 1px 2px rgba(0,0,0,.06);">
         <div style="text-align:center; font-size:12px; color:#8e8e93; font-weight:600; margin:2px 0 4px;">${day(th.at)}</div>
         ${(th.photos || []).length ? `<div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; margin:6px 0 0;"><div style="font-size:12px; color:#8e8e93; margin:0 12px 0;">College Hunks Office</div>${th.photos.map(u => `<img src="${driverEsc(u)}" alt="Photo from the office" loading="lazy" onclick="window.showPhotoModal(this.src)" style="max-width:72%; max-height:260px; border-radius:16px; border:1px solid #e5e5ea; object-fit:cover; cursor:zoom-in;">`).join('')}</div>` : ''}
         ${th.message ? bubble(th.message, 'left', '#e9e9eb', '#111', (th.photos || []).length ? '' : 'College Hunks Office', th.at) : ''}
-        ${th.replies.map(r => r.mine ? bubble(r.text, 'right', '#00843D', '#fff', '', r.at) : bubble(r.text, 'left', '#e9e9eb', '#111', r.from, r.at)).join('')}
+        ${th.replies.map(r => { const rx = window.ttReaction(r.text); if(rx) return reaction(rx, r.mine ? 'right' : 'left', r.mine ? 'You' : r.from, r.at);
+            return r.mine ? bubble(r.text, 'right', '#00843D', '#fff', '', r.at) : bubble(r.text, 'left', '#e9e9eb', '#111', r.from, r.at); }).join('')}
         <div style="display:flex; align-items:flex-end; gap:8px; margin:8px 2px 4px; border-top:1px solid #efeff4; padding-top:8px;">
           <textarea class="ttReplyBox" data-id="${driverEsc(th.id)}" rows="1" maxlength="1000" placeholder="Reply\u2026" style="flex:1; resize:none; border:1px solid #d1d1d6; border-radius:18px; padding:8px 14px; font-size:16px; font-family:inherit; line-height:1.3; max-height:120px; background:#fff;"></textarea>
           <button type="button" class="ttReplySend" data-id="${driverEsc(th.id)}" aria-label="Send" style="flex-shrink:0; width:36px; height:36px; border-radius:50%; border:none; background:#00843D; color:#fff; font-size:18px; font-weight:800; cursor:pointer; line-height:1;">\u2191</button>
@@ -11396,7 +11411,7 @@ window.openEmailDraft = function(o){
           const mine = m.threadId ? sent.find(e => e.id === m.threadId) : sent.find(e => String(e.at) <= String(m.at) && (e.recipients || []).some(r => r.phone && r.phone === m.from));
           if(mine) byEntry.get(mine).push(m); else other.push(m);
         });
-        const replyRow = m => `<div style="border-top:1px solid var(--line); padding:7px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${!m.read ? '<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#b3261e; margin-right:5px; vertical-align:middle;"></span>' : ''}${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}${m.via === 'app' ? ' <span style="font-size:10.5px; font-weight:700; color:#00612C; background:#e3f4ea; border-radius:8px; padding:1px 7px;">via app</span>' : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div><div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div></div>`;
+        const replyRow = m => { const rx = window.ttReaction(m.text); return `<div style="border-top:1px solid var(--line); padding:7px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${!m.read ? '<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#b3261e; margin-right:5px; vertical-align:middle;"></span>' : ''}${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}${m.via === 'app' ? ' <span style="font-size:10.5px; font-weight:700; color:#00612C; background:#e3f4ea; border-radius:8px; padding:1px 7px;">via app</span>' : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div>${rx ? `<div style="font-size:14px;"><span style="font-size:20px; vertical-align:middle;">${rx}</span> <span style="color:var(--muted); font-weight:400;">reacted to this message</span></div>` : `<div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div>`}</div>`; };
         const byTime = (x, y) => String(x.at).localeCompare(String(y.at));
         $('tt_inbox').innerHTML = other.length ? `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${other.some(m => !m.read) ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>Other replies</strong> <span style="color:var(--muted);">\u00b7 texts that didn\u2019t answer a message sent from here</span> \u00b7 \ud83d\udcac ${other.length}${other.some(m => !m.read) ? ` <span style="color:#b3261e; font-weight:700;">(${other.filter(m => !m.read).length} new)</span>` : ''}</summary><div style="margin:6px 0 0 14px;">${other.sort(byTime).map(replyRow).join('')}</div></details>` : '';
         const audLabel = { everyone: 'Everyone', captains: 'Captains', wingmen: 'Wingmen', custom: 'Chosen people' };
