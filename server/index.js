@@ -7011,6 +7011,17 @@ app.get('/api/tt-media/:id', async (req, res) => {
     res.send(Buffer.from(m[2], 'base64'));
   } catch (err) { res.status(500).end(); }
 });
+// A phone reaction (tapback) arrives as text that repeats the whole message,
+// like 'Liked "..."' or '[emoji] to "..."'. Returns just the emoji, or null.
+function ttReaction(text){
+  const t = String(text || '').trim(), Q = '["\u201c\u201d\u201e\u00ab\u00bb\u2018\u2019\']';
+  const words = { 'liked': '\ud83d\udc4d', 'loved': '\u2764\ufe0f', 'laughed at': '\ud83d\ude02', 'emphasized': '\u203c\ufe0f', 'questioned': '\u2753', 'disliked': '\ud83d\udc4e' };
+  let m = new RegExp('^(liked|loved|laughed at|emphasized|questioned|disliked)\\s+' + Q + '[\\s\\S]*' + Q + '\\s*$', 'i').exec(t);
+  if(m) return words[m[1].toLowerCase()];
+  m = new RegExp('^(?:reacted\\s+)?(\\S{1,8})\\s+to\\s+' + Q + '[\\s\\S]*' + Q + '\\s*$', 'i').exec(t);
+  if(m && !/[a-z0-9]/i.test(m[1])) return m[1];
+  return null;
+}
 // ---- Team Messages threads in the HUNK Portal ----
 // Messages this crew member received (last 60 days), each with the replies
 // to it -- a reply belongs to the latest message sent to that person before
@@ -7153,7 +7164,8 @@ app.post('/api/twilio/inbound', async (req, res) => {
     // Forward to every number on the list (except whoever sent the reply).
     const fwds = [...new Set(String(((await getAppSettings()).teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].filter(n => n !== from).slice(0, 5);
     if (fwds.length && twilioReady()) {
-      const msg = `Team reply from ${person ? person.name : prettyPhone(from)}: ${text}`.slice(0, 600);
+      const rx = ttReaction(text);
+      const msg = `Team reply from ${person ? person.name : prettyPhone(from)}: ${rx ? 'reacted ' + rx : text}`.slice(0, 600);
       for (const fwd of fwds) await twilioSend(fwd, msg).catch(e => console.error('Reply forward failed:', e.message));
     }
   } catch (err) { console.error('Team text inbound failed:', err.message); }
