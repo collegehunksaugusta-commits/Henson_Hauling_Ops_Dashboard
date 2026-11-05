@@ -6913,9 +6913,10 @@ const twilioReady = () => { const c = twilioCfg(); return !!(c.sid && c.token &&
 function toE164(phone) { const d = String(phone || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? '+1' + d : ''; }
 const prettyPhone = e => { const d = String(e || '').replace(/\D/g, '').slice(-10); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(e || ''); };
 const publicBase = req => `${(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0]}://${req.get('host')}`;
-async function twilioSend(to, body, statusCallback) {
+async function twilioSend(to, body, statusCallback, mediaUrls) {
   const c = twilioCfg();
   const params = new URLSearchParams({ To: to, Body: body });
+  (mediaUrls || []).forEach(u => params.append('MediaUrl', u));   // picture message (MMS)
   if (c.svc) params.set('MessagingServiceSid', c.svc); else params.set('From', c.from);
   if (statusCallback) params.set('StatusCallback', statusCallback);
   const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${c.sid}/Messages.json`, { method: 'POST', headers: { Authorization: 'Basic ' + Buffer.from(c.sid + ':' + c.token).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
@@ -6995,6 +6996,21 @@ app.get('/api/admin/team-texts', requireAuth, requireAdmin, async (req, res) => 
     res.json({ configured: twilioReady(), sent, inbox, unread: inbox.filter(m => !m.read).length });
   } catch (err) { res.status(500).json({ error: 'Could not load messages.' }); }
 });
+// Team Messages photos, at a public address (Twilio fetches them to deliver
+// the picture message; the HUNK Portal and dashboard show them). The id is
+// 36 random hex characters, so the address can't be guessed.
+const TT_MEDIA_PREFIX = 'team-text-media-';
+app.get('/api/tt-media/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!/^[a-f0-9]{36}$/.test(id)) return res.status(404).end();
+    const uri = await redis.get(TT_MEDIA_PREFIX + id);
+    const m = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(uri || '');
+    if (!m) return res.status(404).end();
+    res.set('Content-Type', m[1]); res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(Buffer.from(m[2], 'base64'));
+  } catch (err) { res.status(500).end(); }
+});
 // ---- Team Messages threads in the HUNK Portal ----
 // Messages this crew member received (last 60 days), each with the replies
 // to it -- a reply belongs to the latest message sent to that person before
@@ -7016,7 +7032,7 @@ app.get('/api/crew/team-threads', async (req, res) => {
       (replies.get(e.id) || replies.set(e.id, []).get(e.id)).push({ at: m.at, text: m.text, from: name ? firstName(name) : 'Teammate', mine: !!name && nameCoreKey(name) === myKey });
     });
     const threads = sent.filter(e => String(e.at) >= cutoff && (e.recipients || []).some(r => nameCoreKey(r.name || '') === myKey && !/failed/.test(r.status || '')))
-      .map(e => ({ id: e.id, at: e.at, message: e.message, replies: (replies.get(e.id) || []).sort((a, b) => String(a.at).localeCompare(String(b.at))) }));
+      .map(e => ({ id: e.id, at: e.at, message: e.message, photos: (e.media || []).map(id => publicBase(req) + '/api/tt-media/' + id), replies: (replies.get(e.id) || []).sort((a, b) => String(a.at).localeCompare(String(b.at))) }));
     const c = (await teamTextConsents())[myKey] || null;
     res.json({ threads, number: process.env.TWILIO_FROM_DISPLAY || '(706) 556-7066', optedIn: !!(c && c.agree) });
   } catch (err) { console.error('Team threads failed:', err.message); res.status(500).json({ error: 'Could not load messages.' }); }
@@ -7052,8 +7068,12 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
     if (!twilioReady()) return res.status(400).json({ error: 'Texting isn\u2019t connected yet \u2014 the Twilio account details still need to be added.' });
     const message = String((req.body || {}).message || '').trim();
     const audience = String((req.body || {}).audience || 'everyone');
+    // Photos (picture message): saved under long random ids and served at a
+    // public address so Twilio can fetch them.
+    const photos = ((req.body || {}).photos || []).filter(x => /^data:image\/(jpeg|png|gif|webp);base64,/.test(String(x))).slice(0, 3);
+    if (photos.some(x => x.length > 2_000_000)) return res.status(400).json({ error: 'A photo is too large \u2014 try a smaller one.' });
     const picked = new Set(((req.body || {}).names || []).map(String));
-    if (!message) return res.status(400).json({ error: 'Type a message first.' });
+    if (!message && !photos.length) return res.status(400).json({ error: 'Type a message first.' });
     if (message.length > 1200) return res.status(400).json({ error: 'That message is too long (1,200 characters max).' });
     const people = (await teamTextPeople()).filter(p => audience === 'captains' ? p.captain : audience === 'wingmen' ? p.wingman : audience === 'custom' ? picked.has(p.name) : true);
     // Only employees who agreed to texts in the HUNK Portal.
@@ -7062,7 +7082,10 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
     const settings = await getAppSettings();
     const noted = new Set(JSON.parse(await redis.get(TT_NOTICED_KEY) || '[]'));
     const cb = publicBase(req) + '/api/twilio/status';
-    const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, prefix: String((settings.teamTexts || {}).brandPrefix || '').trim(), recipients: [] };
+    const media = [];
+    for (const ph of photos) { const id = crypto.randomBytes(18).toString('hex'); await redis.set(TT_MEDIA_PREFIX + id, ph); media.push(id); }
+    const mediaUrls = media.map(id => publicBase(req) + '/api/tt-media/' + id);
+    const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, media, prefix: String((settings.teamTexts || {}).brandPrefix || '').trim(), recipients: [] };
     for (const p of sendable) {
       const firstTime = !noted.has(p.phone);
       // Every text identifies the business by its registered brand name.
@@ -7070,7 +7093,7 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
       const branded = prefix && !message.toLowerCase().startsWith(prefix.toLowerCase()) ? `${prefix} ${message}` : message;
       const body = branded + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
       try {
-        const d = await twilioSend(p.phone, body, cb);
+        const d = await twilioSend(p.phone, body, cb, mediaUrls);
         entry.recipients.push({ name: p.name, phone: p.phone, sid: d.sid, status: d.status || 'queued' });
         noted.add(p.phone);
       } catch (e) {
