@@ -7593,12 +7593,10 @@ window.openEmailDraft = function(o){
       <button type="button" id="tt_send" class="btn-primary">Send Text</button> <span class="status-msg" id="tt_status"></span>
     </div>
     <div class="panel">
-      <div style="display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">Replies <span id="tt_unread" style="font-size:13px; color:#b3261e;"></span></h3><button type="button" id="tt_markRead" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12.5px;">Mark all read</button></div>
-      <div id="tt_inbox" style="margin-top:10px;"></div>
-    </div>
-    <div class="panel">
-      <h3>Sent</h3>
-      <div id="tt_sent"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">Messages <span id="tt_unread" style="font-size:13px; color:#b3261e;"></span></h3><button type="button" id="tt_markRead" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12.5px;">Mark all read</button></div>
+      <p class="form-note" style="margin:4px 0 0;">Each message you sent, with its replies underneath. Click a message to see who it went to and the replies.</p>
+      <div id="tt_inbox" style="margin-top:6px;"></div>
+      <div id="tt_sent" style="margin-top:6px;"></div>
     </div>
     <div class="panel">
       <h3>Settings</h3>
@@ -11324,12 +11322,27 @@ window.openEmailDraft = function(o){
         $('tt_pick').innerHTML = people.map(p => `<label style="display:flex; gap:8px; align-items:center; margin:3px 0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:13.5px; color:${p.phone && !p.optedOut && p.consent === 'agreed' ? 'var(--charcoal)' : 'var(--muted)'};"><input type="checkbox" class="tt-person" value="${esc(p.name)}" ${p.phone && !p.optedOut && p.consent === 'agreed' ? '' : 'disabled'}> ${esc(p.name)} <span style="font-size:12px; color:var(--muted);">${p.phone ? esc(p.phoneDisplay) : 'no phone number'}${p.optedOut ? ' \u00b7 opted out (STOP)' : p.consent === 'agreed' ? ' \u00b7 <span style="color:var(--brand-green-dark);">\u2713 agreed ' + new Date(p.consentAt).toLocaleDateString() + '</span>' : p.consent === 'declined' ? ' \u00b7 declined texts' : ' \u00b7 hasn\u2019t answered yet'}</span></label>`).join('');
         renderPreview();
         $('tt_unread').textContent = md.unread ? `(${md.unread} new)` : '';
-        $('tt_inbox').innerHTML = (md.inbox || []).length ? md.inbox.map(m => `<div style="border-bottom:1px solid var(--line); padding:8px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div><div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div></div>`).join('') : '<p class="form-note" style="margin:0;">No replies yet.</p>';
+        // Each reply belongs to the latest message sent to that person before it arrived.
+        const sent = (md.sent || []).slice().sort((x, y) => String(y.at).localeCompare(String(x.at)));
+        const byEntry = new Map(sent.map(e => [e, []])), other = [];
+        (md.inbox || []).forEach(m => {
+          const mine = sent.find(e => String(e.at) <= String(m.at) && (e.recipients || []).some(r => r.phone && r.phone === m.from));
+          if(mine) byEntry.get(mine).push(m); else other.push(m);
+        });
+        const replyRow = m => `<div style="border-top:1px solid var(--line); padding:7px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${!m.read ? '<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#b3261e; margin-right:5px; vertical-align:middle;"></span>' : ''}${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div><div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div></div>`;
+        const byTime = (x, y) => String(x.at).localeCompare(String(y.at));
+        $('tt_inbox').innerHTML = other.length ? `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${other.some(m => !m.read) ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>Other replies</strong> <span style="color:var(--muted);">\u00b7 texts that didn\u2019t answer a message sent from here</span> \u00b7 \ud83d\udcac ${other.length}${other.some(m => !m.read) ? ` <span style="color:#b3261e; font-weight:700;">(${other.filter(m => !m.read).length} new)</span>` : ''}</summary><div style="margin:6px 0 0 14px;">${other.sort(byTime).map(replyRow).join('')}</div></details>` : '';
         const audLabel = { everyone: 'Everyone', captains: 'Captains', wingmen: 'Wingmen', custom: 'Chosen people' };
-        $('tt_sent').innerHTML = (md.sent || []).length ? md.sent.map(e => {
+        $('tt_sent').innerHTML = sent.length ? sent.map(e => {
           const rs = e.recipients || [], del = rs.filter(r => r.status === 'delivered').length, fail = rs.filter(r => /failed|undelivered/.test(r.status)).length;
-          return `<details style="border-bottom:1px solid var(--line); padding:8px 0;"><summary style="cursor:pointer; font-size:13.5px;"><strong>${new Date(e.at).toLocaleString()}</strong> \u00b7 ${audLabel[e.audience] || ''} \u00b7 ${rs.length} sent${del ? `, ${del} delivered` : ''}${fail ? `, <span style="color:#b3261e;">${fail} failed</span>` : ''}<div style="font-size:13.5px; white-space:pre-wrap; margin:4px 0 0 14px;">${esc(e.message)}</div></summary>
-            <div style="font-size:12.5px; margin:6px 0 0 14px;">${rs.map(r => `${esc(r.name)}: ${esc(r.status)}${r.error ? ' \u2014 ' + esc(r.error) : ''}`).join('<br>')}${(e.skipped || []).length ? '<br><span style="color:var(--muted);">Skipped: ' + e.skipped.map(x => `${esc(x.name)} (${esc(x.reason)})`).join(', ') + '</span>' : ''}</div></details>`;
+          const reps = byEntry.get(e).sort(byTime), unread = reps.filter(m => !m.read).length;
+          return `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${unread ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>${new Date(e.at).toLocaleString()}</strong> \u00b7 ${audLabel[e.audience] || ''} \u00b7 ${rs.length} sent${del ? `, ${del} delivered` : ''}${fail ? `, <span style="color:#b3261e;">${fail} failed</span>` : ''} \u00b7 \ud83d\udcac ${reps.length} repl${reps.length === 1 ? 'y' : 'ies'}${unread ? ` <span style="color:#b3261e; font-weight:700;">(${unread} new)</span>` : ''}<div style="font-size:13.5px; white-space:pre-wrap; margin:4px 0 0 14px;">${esc(e.message)}</div></summary>
+            <div style="margin:8px 0 0 14px;">
+              <div style="font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--muted); text-transform:uppercase;">Sent to</div>
+              <div style="font-size:12.5px; margin:2px 0 8px;">${rs.map(r => `${esc(r.name)}: ${esc(r.status)}${r.error ? ' \u2014 ' + esc(r.error) : ''}`).join('<br>')}${(e.skipped || []).length ? '<br><span style="color:var(--muted);">Skipped: ' + e.skipped.map(x => `${esc(x.name)} (${esc(x.reason)})`).join(', ') + '</span>' : ''}</div>
+              <div style="font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--muted); text-transform:uppercase;">Replies</div>
+              ${reps.length ? reps.map(replyRow).join('') : '<div class="form-note" style="margin:2px 0 0;">No replies.</div>'}
+            </div></details>`;
         }).join('') : '<p class="form-note" style="margin:0;">Nothing sent yet.</p>';
         await (window.ensureAppSettingsLoaded ? window.ensureAppSettingsLoaded() : Promise.resolve());
         const ts = (window.appSettings || {}).teamTexts || {};
