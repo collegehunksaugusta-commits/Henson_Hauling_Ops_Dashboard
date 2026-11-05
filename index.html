@@ -3207,7 +3207,8 @@ window.openEmailDraft = function(o){
         <div style="font-size:11px; color:#8e8e93; margin:2px 12px 0;">${t(at)}</div></div>`;
     const threads = (d.threads || []).map(th => `<div style="background:#fff; border-radius:16px; padding:10px 10px 6px; margin:0 0 14px; box-shadow:0 1px 2px rgba(0,0,0,.06);">
         <div style="text-align:center; font-size:12px; color:#8e8e93; font-weight:600; margin:2px 0 4px;">${day(th.at)}</div>
-        ${bubble(th.message, 'left', '#e9e9eb', '#111', 'College Hunks Office', th.at)}
+        ${(th.photos || []).length ? `<div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; margin:6px 0 0;"><div style="font-size:12px; color:#8e8e93; margin:0 12px 0;">College Hunks Office</div>${th.photos.map(u => `<img src="${driverEsc(u)}" alt="Photo from the office" loading="lazy" onclick="window.showPhotoModal(this.src)" style="max-width:72%; max-height:260px; border-radius:16px; border:1px solid #e5e5ea; object-fit:cover; cursor:zoom-in;">`).join('')}</div>` : ''}
+        ${th.message ? bubble(th.message, 'left', '#e9e9eb', '#111', (th.photos || []).length ? '' : 'College Hunks Office', th.at) : ''}
         ${th.replies.map(r => r.mine ? bubble(r.text, 'right', '#00843D', '#fff', '', r.at) : bubble(r.text, 'left', '#e9e9eb', '#111', r.from, r.at)).join('')}
         <div style="display:flex; align-items:flex-end; gap:8px; margin:8px 2px 4px; border-top:1px solid #efeff4; padding-top:8px;">
           <textarea class="ttReplyBox" data-id="${driverEsc(th.id)}" rows="1" maxlength="1000" placeholder="Reply\u2026" style="flex:1; resize:none; border:1px solid #d1d1d6; border-radius:18px; padding:8px 14px; font-size:16px; font-family:inherit; line-height:1.3; max-height:120px; background:#fff;"></textarea>
@@ -7639,7 +7640,12 @@ window.openEmailDraft = function(o){
     <div id="tt_notConnected" style="display:none; background:#FFF6E0; border:1px solid #E7C66B; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:13.5px;"><strong>Texting isn&rsquo;t connected yet.</strong> Once the Twilio account is approved and its details are added to the server, the Send button turns on. You can still look around and preview who&rsquo;d receive a message.</div>
     <div class="panel">
       <h3>New Message</h3>
-      <textarea id="tt_message" rows="4" maxlength="1200" placeholder="e.g. Reminder: team meeting Saturday at 8am at the shop." style="width:100%; box-sizing:border-box; font-size:15px; padding:10px;"></textarea>
+      <textarea id="tt_message" rows="4" maxlength="1200" placeholder="e.g. Reminder: team meeting Saturday at 8am at the shop." style="font-family:inherit; width:100%; box-sizing:border-box; font-size:15px; padding:10px;"></textarea>
+      <div id="tt_photos" style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 0;"></div>
+      <div style="display:flex; align-items:center; gap:10px; margin:6px 0 2px;">
+        <label style="margin:0; display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:13px; cursor:pointer; text-transform:none; letter-spacing:normal; font-family:inherit; color:var(--charcoal);">&#128206; Add Photo<input type="file" id="tt_photoInput" accept="image/*" multiple style="display:none;"></label>
+        <span class="form-note" style="margin:0;">or paste a photo into the message box (Ctrl+V). Up to 3 photos &mdash; sent as a picture message.</span>
+      </div>
       <div id="tt_asSent" style="font-size:13px; margin:4px 0 2px; white-space:pre-wrap;"></div>
       <div id="tt_count" style="font-size:12px; color:var(--muted); margin:2px 0 10px;"></div>
       <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px; font-size:14px;">
@@ -11397,7 +11403,7 @@ window.openEmailDraft = function(o){
         $('tt_sent').innerHTML = sent.length ? sent.map(e => {
           const rs = e.recipients || [], del = rs.filter(r => r.status === 'delivered').length, fail = rs.filter(r => /failed|undelivered/.test(r.status)).length;
           const reps = byEntry.get(e).sort(byTime), unread = reps.filter(m => !m.read).length;
-          return `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${unread ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>${new Date(e.at).toLocaleString()}</strong> \u00b7 ${audLabel[e.audience] || ''} \u00b7 ${rs.length} sent${del ? `, ${del} delivered` : ''}${fail ? `, <span style="color:#b3261e;">${fail} failed</span>` : ''} \u00b7 \ud83d\udcac ${reps.length} repl${reps.length === 1 ? 'y' : 'ies'}${unread ? ` <span style="color:#b3261e; font-weight:700;">(${unread} new)</span>` : ''}<div style="font-size:13.5px; white-space:pre-wrap; margin:4px 0 0 14px;">${esc(e.message)}</div></summary>
+          return `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${unread ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>${new Date(e.at).toLocaleString()}</strong> \u00b7 ${audLabel[e.audience] || ''} \u00b7 ${rs.length} sent${del ? `, ${del} delivered` : ''}${fail ? `, <span style="color:#b3261e;">${fail} failed</span>` : ''} \u00b7 \ud83d\udcac ${reps.length} repl${reps.length === 1 ? 'y' : 'ies'}${unread ? ` <span style="color:#b3261e; font-weight:700;">(${unread} new)</span>` : ''}<div style="font-size:13.5px; white-space:pre-wrap; margin:4px 0 0 14px;">${esc(e.message)}</div>${(e.media || []).length ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 0 14px;">${e.media.map(id => `<img src="${API_BASE}/api/tt-media/${esc(id)}" alt="Photo sent" loading="lazy" onclick="event.preventDefault(); window.showPhotoModal(this.src)" style="width:96px; height:96px; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:zoom-in;">`).join('')}</div>` : ''}</summary>
             <div style="margin:8px 0 0 14px;">
               <div style="font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--muted); text-transform:uppercase;">Sent to</div>
               <div style="font-size:12.5px; margin:2px 0 8px;">${rs.map(r => `${esc(r.name)}: ${esc(r.status)}${r.error ? ' \u2014 ' + esc(r.error) : ''}`).join('<br>')}${(e.skipped || []).length ? '<br><span style="color:var(--muted);">Skipped: ' + e.skipped.map(x => `${esc(x.name)} (${esc(x.reason)})`).join(', ') + '</span>' : ''}</div>
@@ -11425,18 +11431,39 @@ window.openEmailDraft = function(o){
     $('tt_pick').addEventListener('change', renderPreview);
     $('tt_message').addEventListener('input', renderCount);
     $('tt_prefix').addEventListener('input', renderCount);
+    // Photos to send with the message (pasted or picked), shrunk so carriers
+    // deliver them reliably.
+    let ttPhotos = [];
+    function renderTtPhotos(){
+      $('tt_photos').innerHTML = ttPhotos.map((u, k) => `<div style="position:relative;"><img src="${u}" alt="Photo to send" style="width:84px; height:84px; object-fit:cover; border-radius:8px; border:1px solid var(--line);"><button type="button" class="tt-photo-rm" data-k="${k}" title="Remove" style="position:absolute; top:3px; right:3px; width:22px; height:22px; border-radius:50%; border:none; background:rgba(0,0,0,.65); color:#fff; cursor:pointer; line-height:1;">&times;</button></div>`).join('');
+      $('tt_photos').querySelectorAll('.tt-photo-rm').forEach(b => b.onclick = () => { ttPhotos.splice(Number(b.dataset.k), 1); renderTtPhotos(); });
+    }
+    async function addTtPhotos(files){
+      const st = $('tt_status');
+      for(const f of files){
+        if(!/^image\//.test(f.type)) continue;
+        if(ttPhotos.length >= 3){ st.textContent = 'Up to 3 photos per message.'; st.className = 'status-msg err'; break; }
+        try{ ttPhotos.push(await window.compressImageForUpload(f, 1280, 0.72)); }catch(err){ st.textContent = 'That photo couldn\u2019t be added.'; st.className = 'status-msg err'; }
+      }
+      renderTtPhotos();
+    }
+    $('tt_photoInput').addEventListener('change', e => { addTtPhotos([...e.target.files]); e.target.value = ''; });
+    $('tt_message').addEventListener('paste', e => {
+      const imgs = [...(e.clipboardData || {}).items || []].filter(it => it.kind === 'file' && /^image\//.test(it.type)).map(it => it.getAsFile()).filter(Boolean);
+      if(imgs.length){ e.preventDefault(); addTtPhotos(imgs); }
+    });
     $('tt_send').addEventListener('click', async () => {
       const msg = $('tt_message').value.trim(), st = $('tt_status');
-      if(!msg){ st.textContent = 'Type a message first.'; st.className = 'status-msg err'; return; }
+      if(!msg && !ttPhotos.length){ st.textContent = 'Type a message first.'; st.className = 'status-msg err'; return; }
       const n = group().filter(p => p.phone && !p.optedOut).length;
-      if(!confirm(`Send this text to ${n} ${n === 1 ? 'person' : 'people'}?\n\n${msg}`)) return;
+      if(!confirm(`Send this text${ttPhotos.length ? ` with ${ttPhotos.length} photo${ttPhotos.length === 1 ? '' : 's'}` : ''} to ${n} ${n === 1 ? 'person' : 'people'}?\n\n${msg}`)) return;
       $('tt_send').disabled = true; st.textContent = 'Sending\u2026'; st.className = 'status-msg';
       try{
-        const r = await fetch(`${API_BASE}/api/admin/team-texts/send`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ message: msg, audience: aud(), names: [...chosen()] }) });
+        const r = await fetch(`${API_BASE}/api/admin/team-texts/send`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ photos: ttPhotos, message: msg, audience: aud(), names: [...chosen()] }) });
         if(handleAuthFailure(r)) return;
         const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not send.');
         st.textContent = `\u2713 Sent to ${d.sent}${d.failed ? ` \u2014 ${d.failed} failed (see Sent below)` : ''}.`; st.className = 'status-msg ' + (d.failed ? 'err' : 'ok');
-        $('tt_message').value = ''; renderCount(); await load();
+        $('tt_message').value = ''; ttPhotos = []; renderTtPhotos(); renderCount(); await load();
       }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; renderPreview(); }
     });
     $('tt_markRead').addEventListener('click', async () => { await fetch(`${API_BASE}/api/admin/team-texts/read`, { method: 'POST', headers: authHeaders() }).catch(() => {}); load(); });
