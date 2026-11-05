@@ -6449,6 +6449,7 @@ window.openEmailDraft = function(o){
   </div>
   <div class="clock" id="clockLine"></div>
   <div style="display:flex; align-items:center; gap:8px; margin-left:12px;">
+    <button id="teamTextsHeaderBtn" type="button" title="Team Messages" aria-label="Open Team Messages" style="display:none; position:relative; background:#fff; border:1px solid var(--line); color:var(--muted); font-size:16px; width:32px; height:32px; border-radius:6px; cursor:pointer; align-items:center; justify-content:center; line-height:1;">&#128227;<span id="teamTextsHeaderBadge" style="display:none; position:absolute; top:-6px; right:-6px; min-width:16px; height:16px; padding:0 4px; box-sizing:border-box; background:#b3261e; color:#fff; border-radius:8px; font-size:10.5px; font-weight:800; line-height:16px; text-align:center;"></span></button>
     <button id="settingsGearBtn" type="button" title="Settings" aria-label="Open Settings" style="background:#fff; border:1px solid var(--line); color:var(--muted); font-size:16px; width:32px; height:32px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">⚙️</button>
     <button id="logoutBtn" type="button" style="background:#fff; border:1px solid var(--line); color:var(--muted); font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;">Log Out</button>
   </div>
@@ -6562,7 +6563,7 @@ window.openEmailDraft = function(o){
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(8)</span>
+            <span class="dashSectionCount">(7)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
           <div class="dashSectionTileList">Ops Manager Metrics, Captain Metrics, Wingman Metrics, Attendance Tracking, Injury Reports, Employee Roster, Hiring</div>
@@ -6599,12 +6600,6 @@ window.openEmailDraft = function(o){
         <span class="icon">&#128101;</span>
         <h3>Employee Roster</h3>
         <p>Everyone on the last two payroll weeks plus manual additions &mdash; who&rsquo;s a Captain, and who can sign in to the HUNK Portal.</p>
-      </div>
-      <div class="tile" id="tile-teamtexts" tabindex="0" role="button" aria-label="Open Team Messages" style="display:none; position:relative;">
-        <span class="icon">&#128227;</span>
-        <h3>Team Messages</h3>
-        <p>Text the whole crew, Captains, Wingmen or anyone you pick &mdash; straight to their phones from the Employee Roster, with replies here.</p>
-        <span id="tile-teamtexts-badge" style="display:none; position:absolute; top:10px; right:10px; background:#b3261e; color:#fff; border-radius:12px; padding:2px 8px; font-size:12px; font-weight:800;"></span>
       </div>
       <div class="tile" id="tile-hiring" tabindex="0" role="button" aria-label="Open Hiring">
         <span class="icon">📋</span>
@@ -11292,8 +11287,7 @@ window.openEmailDraft = function(o){
   document.getElementById('kidsDriveBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-roster').addEventListener('click', ()=> navigateTo('roster'));
   // ---- Team Messages (Administrator) ----
-  document.getElementById('tile-teamtexts').addEventListener('click', ()=> navigateTo('teamtexts'));
-  document.getElementById('tile-teamtexts').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('teamtexts'); }});
+  document.getElementById('teamTextsHeaderBtn').addEventListener('click', ()=> navigateTo('teamtexts'));
   document.getElementById('teamTextsBackBtn').addEventListener('click', ()=> history.back());
   (function(){
     const $ = id => document.getElementById(id);
@@ -11345,11 +11339,11 @@ window.openEmailDraft = function(o){
       }catch(err){ $('tt_preview').textContent = 'Could not load \u2014 check your connection.'; }
     }
     window.loadTeamTexts = load;
-    function updateBadge(n){ const b = $('tile-teamtexts-badge'); b.textContent = n; b.style.display = n ? 'inline-block' : 'none'; }
+    function updateBadge(n){ const b = $('teamTextsHeaderBadge'); b.textContent = n > 99 ? '99+' : n; b.style.display = n ? 'block' : 'none'; $('teamTextsHeaderBtn').title = n ? `Team Messages \u2014 ${n} new repl${n === 1 ? 'y' : 'ies'}` : 'Team Messages'; }
     let badgeAt = 0;
     window.refreshTeamTextsBadge = async function(){
       const admin = localStorage.getItem('henson_auth_role') === 'admin';
-      $('tile-teamtexts').style.display = admin ? '' : 'none';
+      $('teamTextsHeaderBtn').style.display = admin ? 'flex' : 'none';
       if(!admin || Date.now() - badgeAt < 120000) return; badgeAt = Date.now();
       try{ const r = await fetch(`${API_BASE}/api/admin/team-texts`, { headers: authHeaders() }); if(r.ok) updateBadge((await r.json()).unread || 0); }catch(err){}
     };
