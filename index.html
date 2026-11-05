@@ -607,7 +607,7 @@
   <div id="driverMenuView" style="display:none; max-width:380px; width:100%; margin:60px auto 0;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h2 class="display" style="margin:0; font-size:18px;">Driver Tools</h2>
-      <div style="display:flex; gap:6px;"><button type="button" class="smsSettingsBtn" title="Work text messages: opt in or out" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 10px; border-radius:4px; cursor:pointer;">&#128241; Texts</button><button type="button" id="driverMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button></div>
+      <div style="display:flex; gap:6px;"><button type="button" class="smsSettingsBtn" title="Team Messages" aria-label="Team Messages" style="position:relative; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:17px; width:38px; height:34px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">&#128227;<span class="ttCrewDot" style="display:none; position:absolute; top:-4px; right:-4px; width:12px; height:12px; border-radius:50%; background:#b3261e; border:2px solid #fff;"></span></button><button type="button" id="driverMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button></div>
     </div>
 
     <div class="portal-welcome" data-role="Captain" style="background:var(--brand-green); color:#fff; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
@@ -773,7 +773,7 @@
   <div id="wingmanMenuView" style="display:none; max-width:380px; width:100%; margin:60px auto 0;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h2 class="display" style="margin:0; font-size:18px;">Wingman Tools</h2>
-      <div style="display:flex; gap:6px;"><button type="button" class="smsSettingsBtn" title="Work text messages: opt in or out" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 10px; border-radius:4px; cursor:pointer;">&#128241; Texts</button><button type="button" id="wingmanMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button></div>
+      <div style="display:flex; gap:6px;"><button type="button" class="smsSettingsBtn" title="Team Messages" aria-label="Team Messages" style="position:relative; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:17px; width:38px; height:34px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">&#128227;<span class="ttCrewDot" style="display:none; position:absolute; top:-4px; right:-4px; width:12px; height:12px; border-radius:50%; background:#b3261e; border:2px solid #fff;"></span></button><button type="button" id="wingmanMenuLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button></div>
     </div>
 
     <div id="wmDriveToday" style="display:none; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px;">
@@ -3179,7 +3179,66 @@ window.openEmailDraft = function(o){
     document.body.appendChild(ov);
     ov.querySelector('#smsSetClose').onclick = close;
   }
-  document.querySelectorAll('.smsSettingsBtn').forEach(b => b.addEventListener('click', openSmsSettings));
+  document.querySelectorAll('.smsSettingsBtn').forEach(b => b.addEventListener('click', openTeamThreads));
+  // ---- Team Messages for the crew: text-style threads ----
+  const ttSeenKey = () => 'tt_seen_' + (localStorage.getItem('henson_driver_name') || '');
+  const ttLatest = d => (d.threads || []).reduce((t, th) => [th.at, ...th.replies.filter(r => !r.mine).map(r => r.at)].reduce((u, x) => String(x) > u ? String(x) : u, t), '');
+  async function ttFetch(){ const r = await fetch(API_BASE_AUTH + '/api/crew/team-threads', { headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) throw new Error(); return r.json(); }
+  async function refreshTeamDot(){
+    if(!driverToken) return;
+    try{ const d = await ttFetch(); const on = ttLatest(d) > (localStorage.getItem(ttSeenKey()) || ''); document.querySelectorAll('.ttCrewDot').forEach(x => { x.style.display = on ? 'block' : 'none'; }); }catch(err){}
+  }
+  window.refreshTeamDot = refreshTeamDot;
+  async function openTeamThreads(scrollToY){
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed; inset:0; z-index:199996; background:#f2f2f7; overflow-y:auto; -webkit-overflow-scrolling:touch;';
+    ov.innerHTML = '<div style="padding:40px; text-align:center; color:#8e8e93;">Loading\u2026</div>';
+    document.body.appendChild(ov);
+    let d;
+    try{ d = await ttFetch(); }catch(err){ ov.innerHTML = '<div style="padding:40px; text-align:center;">Couldn\u2019t load messages \u2014 check your connection. <br><br><button type="button" id="ttClose0" style="padding:8px 16px;">Close</button></div>'; ov.querySelector('#ttClose0').onclick = () => ov.remove(); return; }
+    try{ localStorage.setItem(ttSeenKey(), ttLatest(d) || new Date().toISOString()); }catch(e){}
+    document.querySelectorAll('.ttCrewDot').forEach(x => { x.style.display = 'none'; });
+    const t = iso => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const day = iso => { const x = new Date(iso), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+      return x.toDateString() === now.toDateString() ? 'Today' : x.toDateString() === y.toDateString() ? 'Yesterday' : x.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); };
+    const bubble = (text, side, color, fg, who, at) => `<div style="display:flex; flex-direction:column; align-items:${side === 'right' ? 'flex-end' : 'flex-start'}; margin:6px 0;">
+        ${who ? `<div style="font-size:12px; color:#8e8e93; margin:0 12px 2px;">${driverEsc(who)}</div>` : ''}
+        <div style="max-width:80%; background:${color}; color:${fg}; padding:9px 13px; border-radius:18px; ${side === 'right' ? 'border-bottom-right-radius:5px;' : 'border-bottom-left-radius:5px;'} font-size:15.5px; line-height:1.35; white-space:pre-wrap; overflow-wrap:anywhere;">${driverEsc(text)}</div>
+        <div style="font-size:11px; color:#8e8e93; margin:2px 12px 0;">${t(at)}</div></div>`;
+    const threads = (d.threads || []).map(th => `<div style="background:#fff; border-radius:16px; padding:10px 10px 6px; margin:0 0 14px; box-shadow:0 1px 2px rgba(0,0,0,.06);">
+        <div style="text-align:center; font-size:12px; color:#8e8e93; font-weight:600; margin:2px 0 4px;">${day(th.at)}</div>
+        ${bubble(th.message, 'left', '#e9e9eb', '#111', 'College Hunks Office', th.at)}
+        ${th.replies.map(r => r.mine ? bubble(r.text, 'right', '#00843D', '#fff', '', r.at) : bubble(r.text, 'left', '#e9e9eb', '#111', r.from, r.at)).join('')}
+        <div style="display:flex; align-items:flex-end; gap:8px; margin:8px 2px 4px; border-top:1px solid #efeff4; padding-top:8px;">
+          <textarea class="ttReplyBox" data-id="${driverEsc(th.id)}" rows="1" maxlength="1000" placeholder="Reply\u2026" style="flex:1; resize:none; border:1px solid #d1d1d6; border-radius:18px; padding:8px 14px; font-size:16px; font-family:inherit; line-height:1.3; max-height:120px; background:#fff;"></textarea>
+          <button type="button" class="ttReplySend" data-id="${driverEsc(th.id)}" aria-label="Send" style="flex-shrink:0; width:36px; height:36px; border-radius:50%; border:none; background:#00843D; color:#fff; font-size:18px; font-weight:800; cursor:pointer; line-height:1;">\u2191</button>
+        </div>
+      </div>`).join('');
+    ov.innerHTML = `<div style="position:sticky; top:0; z-index:2; background:rgba(242,242,247,.95); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); border-bottom:1px solid #d1d1d6; padding:calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; max-width:560px; margin:0 auto;">
+          <div style="font-size:19px; font-weight:800;">\ud83d\udce3 Team Messages</div>
+          <button type="button" id="ttClose" style="background:none; border:none; color:#00843D; font-size:16px; font-weight:700; cursor:pointer;">Done</button></div>
+        <div style="max-width:560px; margin:6px auto 0; font-size:13px; color:#3c3c43;">${d.optedIn ? `Work texts: <strong style="color:#00843D;">On</strong>` : `Work texts: <strong style="color:#b3261e;">Off</strong>`} \u00b7 <a href="#" id="ttChange" style="color:#00843D; font-weight:700;">${d.optedIn ? 'Change' : 'Sign up'}</a></div>
+      </div>
+      <div style="max-width:560px; margin:0 auto; padding:14px 12px calc(28px + env(safe-area-inset-bottom, 0px));">
+        ${threads || `<div style="text-align:center; color:#8e8e93; padding:40px 10px;">${d.optedIn ? 'No messages yet. Office messages and the team\u2019s replies will show here.' : 'Sign up for work texts to get messages from the office.'}</div>`}
+        ${threads ? `<p style="text-align:center; font-size:12px; color:#8e8e93; margin:8px 0 0;">Reply by text to ${driverEsc(d.number || '')}. Replies are seen by everyone who got the message. Showing the last 60 days.</p>` : ''}
+      </div>`;
+    ov.querySelector('#ttClose').onclick = () => ov.remove();
+    ov.querySelector('#ttChange').onclick = e => { e.preventDefault(); ov.remove(); openSmsSettings(); };
+    ov.querySelectorAll('.ttReplyBox').forEach(ta => ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; }));
+    ov.querySelectorAll('.ttReplySend').forEach(btn => btn.addEventListener('click', async () => {
+      const ta = ov.querySelector(`.ttReplyBox[data-id="${CSS.escape(btn.dataset.id)}"]`), text = ta.value.trim(); if(!text) return;
+      btn.disabled = true; ta.disabled = true; btn.textContent = '\u2026';
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/crew/team-threads/' + encodeURIComponent(btn.dataset.id) + '/reply', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ text }) });
+        const res = await r.json().catch(() => ({})); if(!r.ok) throw new Error(res.error || 'Could not send \u2014 try again.');
+        const card = btn.closest('div[style*="border-radius:16px"]'), top = card ? card.offsetTop : 0;
+        ov.remove(); await openTeamThreads(top);
+      }catch(err){ alert(err.message); btn.disabled = false; ta.disabled = false; btn.textContent = '\u2191'; }
+    }));
+    if(typeof scrollToY === 'number') ov.scrollTop = Math.max(0, scrollToY - 70);
+  }
   // ---- One-time text-message opt-in (Team Messages) ----
   let smsConsentOpen = false;
   async function checkSmsConsent(){
@@ -3285,6 +3344,7 @@ window.openEmailDraft = function(o){
   window.checkInjuryToSign = checkInjuryToSign;
   function showDriverMenu(){
     setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
+    setTimeout(() => { try{ refreshTeamDot(); }catch(e){} }, 1200);
     setTimeout(() => { try{ hunkResumeAfterReload(); }catch(e){} }, 400);   // back from a reload mid-photo?
     setTimeout(() => { try{ loadMyWorkPackages(); }catch(e){} }, 300);
     setTimeout(() => { try{ showMaterialsReminder(); }catch(e){} }, 900);
@@ -4394,6 +4454,7 @@ window.openEmailDraft = function(o){
 
   function showWingmanMenu(flashMsg){
     setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
+    setTimeout(() => { try{ refreshTeamDot(); }catch(e){} }, 1200);
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     loadDriveTodayOption();
     driverActiveTask = null;
@@ -11326,10 +11387,10 @@ window.openEmailDraft = function(o){
         const sent = (md.sent || []).slice().sort((x, y) => String(y.at).localeCompare(String(x.at)));
         const byEntry = new Map(sent.map(e => [e, []])), other = [];
         (md.inbox || []).forEach(m => {
-          const mine = sent.find(e => String(e.at) <= String(m.at) && (e.recipients || []).some(r => r.phone && r.phone === m.from));
+          const mine = m.threadId ? sent.find(e => e.id === m.threadId) : sent.find(e => String(e.at) <= String(m.at) && (e.recipients || []).some(r => r.phone && r.phone === m.from));
           if(mine) byEntry.get(mine).push(m); else other.push(m);
         });
-        const replyRow = m => `<div style="border-top:1px solid var(--line); padding:7px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${!m.read ? '<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#b3261e; margin-right:5px; vertical-align:middle;"></span>' : ''}${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div><div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div></div>`;
+        const replyRow = m => `<div style="border-top:1px solid var(--line); padding:7px 0; ${m.read ? '' : 'font-weight:700;'}"><div style="display:flex; justify-content:space-between; gap:8px; font-size:13px;"><span>${!m.read ? '<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#b3261e; margin-right:5px; vertical-align:middle;"></span>' : ''}${esc(m.name || m.fromDisplay)}${m.name ? ` <span style="color:var(--muted); font-weight:400;">${esc(m.fromDisplay)}</span>` : ''}${m.via === 'app' ? ' <span style="font-size:10.5px; font-weight:700; color:#00612C; background:#e3f4ea; border-radius:8px; padding:1px 7px;">via app</span>' : ''}</span><span style="color:var(--muted); font-weight:400;">${new Date(m.at).toLocaleString()}</span></div><div style="font-size:14px; white-space:pre-wrap;">${esc(m.text)}</div></div>`;
         const byTime = (x, y) => String(x.at).localeCompare(String(y.at));
         $('tt_inbox').innerHTML = other.length ? `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${other.some(m => !m.read) ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>Other replies</strong> <span style="color:var(--muted);">\u00b7 texts that didn\u2019t answer a message sent from here</span> \u00b7 \ud83d\udcac ${other.length}${other.some(m => !m.read) ? ` <span style="color:#b3261e; font-weight:700;">(${other.filter(m => !m.read).length} new)</span>` : ''}</summary><div style="margin:6px 0 0 14px;">${other.sort(byTime).map(replyRow).join('')}</div></details>` : '';
         const audLabel = { everyone: 'Everyone', captains: 'Captains', wingmen: 'Wingmen', custom: 'Chosen people' };
