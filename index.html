@@ -28778,7 +28778,14 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const allDays = [...Object.keys(otData.manual), ...Object.keys(otData.appByDay)].sort();
     const first = allDays.length ? otMonday(allDays[0]) : cur;
     const full = weeks.filter(w => w.ws < cur && w.ws >= first);
-    const avg = full.length ? full.reduce((t, w) => t + w.total, 0) / full.length : null;
+    // Averages count only days with time typed in -- a blank day means it
+    // wasn't filled in, not that no work was done. That day's app time counts too.
+    const typedOn = d => Object.values(otData.manual[d] || {}).reduce((t, m) => t + (Number(m) || 0), 0) > 0;
+    const dayTotal = d => Object.values(otData.manual[d] || {}).reduce((t, m) => t + (Number(m) || 0), 0) + (Number(otData.appByDay[d]) || 0);
+    const avgOver = (from, to) => { const days = Object.keys(otData.manual).filter(d => d >= from && d < to && typedOn(d));
+      return days.length ? { perDay: days.reduce((t, d) => t + dayTotal(d), 0) / days.length, days: days.length } : null; };
+    const allAvg = full.length ? avgOver(first, cur) : null;
+    const avg = allAvg ? allAvg.perDay * 7 : null;
     const thisW = weeks[weeks.length - 1];
     const max = Math.max(60, ...weeks.map(w => w.total));
     const hint = document.getElementById('val_ownerHoursHint');
@@ -28787,7 +28794,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // Prior 4 complete weeks; weeks with no time at all are left out.
     const prior4 = weeks.filter(w => w.ws < cur).slice(-4);
     const recent = prior4.filter(w => w.total > 0);
-    const avg4 = recent.length ? recent.reduce((t, w) => t + w.total, 0) / recent.length : null;
+    const a4 = avgOver(otAdd(cur, -28), cur);
+    const avg4 = a4 ? a4.perDay * 7 : null;
     const hrsBox = document.getElementById('val_ownerHours');
     if(hrsBox && avg4 != null && !hrsBox.dataset.typed){
       hrsBox.value = (Math.round(avg4 / 60 * 10) / 10).toString();
@@ -28795,13 +28803,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!hrsBox.dataset.wired){ hrsBox.dataset.wired = '1'; hrsBox.addEventListener('input', () => { hrsBox.dataset.typed = '1'; const h = document.getElementById('val_ownerHoursHint'); if(h) h.textContent = 'Your own number (tracked average not used).'; }); }
     }
     if(hint) hint.textContent = avg4 != null
-      ? (hrsBox && hrsBox.dataset.typed ? 'Your own number (tracked average not used).' : `From ${recent.length === 4 ? 'the last 4 weeks' : recent.length + ' of the last 4 weeks'} of tracked time (logged + app)${recent.length < 4 ? '; empty weeks left out' : ''}.`)
+      ? (hrsBox && hrsBox.dataset.typed ? 'Your own number (tracked average not used).' : `From the last 4 weeks: ${a4 ? a4.days : 0} day${a4 && a4.days === 1 ? '' : 's'} with time typed in (logged + app), averaged per day \u00d7 7. Days left blank aren\u2019t counted.`)
       : 'Track your time in Owner Time above to fill this in automatically.';
     const card = (label, val, sub) => `<div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">${label}</div><div style="font-size:26px; font-weight:800;">${val}</div>${sub ? `<div style="font-size:11.5px; color:var(--muted);">${sub}</div>` : ''}</div>`;
     document.getElementById('ot_summary').innerHTML = `
       <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
         ${card('This week so far', otHrs(thisW.total) + ' hrs', `${otHrs(thisW.manual)} logged \u00b7 ${otHrs(thisW.app)} in the app`)}
-        ${card('Weekly average', avg != null ? otHrs(avg) + ' hrs' : '\u2014', full.length ? `${full.length} full week${full.length === 1 ? '' : 's'}` : 'after your first full week')}
+        ${card('Weekly average', avg != null ? otHrs(avg) + ' hrs' : '\u2014', allAvg ? `${otHrs(allAvg.perDay)} hrs a day \u00d7 7 \u00b7 from ${allAvg.days} day${allAvg.days === 1 ? '' : 's'} with time typed in` : 'after your first full week')}
       </div>
       <div style="display:flex; align-items:flex-end; gap:6px; height:120px; border-bottom:1px solid var(--line);">
         ${weeks.map(w => `<div title="Week of ${new Date(w.ws + 'T12:00:00').toLocaleDateString()}: ${otHrs(w.manual)} logged + ${otHrs(w.app)} app = ${otHrs(w.total)} hrs" style="flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; cursor:pointer;" data-ws="${w.ws}" class="ot-bar">
