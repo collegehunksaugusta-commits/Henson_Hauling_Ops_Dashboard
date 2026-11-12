@@ -111,7 +111,8 @@ const ALLOWED_KEYS = new Set([
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
-  'ops-manager-metrics-monthly-locks'
+  'ops-manager-metrics-monthly-locks',
+  'ops-manager-scorecards'          // Ops Manager weekly scorecard (goal set & review)
 ]);
 const ALLOWED_KEY_PREFIXES = ['injury-file-', 'wp-doc-file-', 'interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
