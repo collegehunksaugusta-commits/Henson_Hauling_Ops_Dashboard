@@ -92,6 +92,8 @@
      headings freeze there too. */
   table thead th{ position:sticky; top:0; z-index:3; background:var(--brand-orange-dark) !important; color:#fff !important; font-weight:700; letter-spacing:.04em; box-shadow:inset 0 -2px 0 rgba(0,0,0,.18); border-bottom-color:transparent !important; }
   table thead th a, table thead th button{ color:#fff !important; }
+  /* The Ops Manager Weekly Scorecard keeps a soft look: no orange header row. */
+  #omScorecardPanel table thead th{ background:transparent !important; color:#6b7a70 !important; box-shadow:none !important; position:static; }
   div[style*="overflow-x:auto"]:has(> table), div[style*="overflow-x: auto"]:has(> table), .mail-table-wrap{ max-height:75vh; overflow-y:auto; }
   thead th.mail-sticky-col, thead th.mail-sticky-col-2{ z-index:4; }
   /* Driver Tools cards: icon tile, title, arrow; task tray with status chips */
@@ -7919,6 +7921,12 @@ window.openEmailDraft = function(o){
       <p class="form-note" id="om_trendEmptyNote" style="display:none;">Not enough weekly data yet to show a trend.</p>
     </div>
 
+    <div class="panel" id="omScorecardPanel" style="background:#fffefb;">
+      <h3>Weekly Scorecard</h3>
+      <p class="form-note" style="margin-top:0;">Goal set &amp; review for the week. Each production line with a goal scores <em>actual ÷ goal</em> (up to 100%), and the average is the Scorecard % — part of the overall score at the weight set in Configuration → Ops Manager Metrics.</p>
+      <div id="omsc_body"><p class="form-note">Loading…</p></div>
+    </div>
+
     <div class="panel" id="omPaperworkCloseoutPanel">
       <h3>Timely Job Closeout</h3>
       <p class="form-note" id="om_closeoutDesc"></p>
@@ -10681,6 +10689,7 @@ window.openEmailDraft = function(o){
     }
     if(view === 'opsmetrics'){
       window.loadOpsMetricsData();
+      if(window.loadOmScorecardPanel) window.loadOmScorecardPanel();
       if(window.loadOpsManagerCommissionPanel) window.loadOpsManagerCommissionPanel();
     }
     if(view === 'wingmanmetrics'){
@@ -13997,6 +14006,7 @@ window.openEmailDraft = function(o){
       const mostRecentWeekStart = extraPayGetMostRecentCompleteWeekStart();
       await window.ensureAppSettingsLoaded();
       const commission = window.appSettings.commission || {};
+      try{ if(window.loadOmScorecards) await window.loadOmScorecards(); }catch(err){}
       const omSettings = window.appSettings.opsManagerMetrics || {};
       const omWeights = omSettings.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 };
       const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
@@ -14211,7 +14221,9 @@ window.openEmailDraft = function(o){
           const captainScores = captainScoresByWeek[w.weekStart] || {};
           const captainScoreValues = Object.values(captainScores).map(s => s && s.overall).filter(v => typeof v === 'number');
           const captainScoresPct = captainScoreValues.length > 0 ? Math.round(captainScoreValues.reduce((sum, v) => sum + v, 0) / captainScoreValues.length) : null;
-          const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, omWeights);
+          const nextDay = (() => { const d = new Date(priorWeekBounds.weekEnd + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-CA'); })();
+          const scorecardPct = window.omScorecardPctForRange ? window.omScorecardPctForRange(priorWeekBounds.weekStart, nextDay) : null;
+          const opsManagerScore = window.computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, omWeights, scorecardPct);
           omScoreVal = opsManagerScore;
           if(opsManagerAssignmentKey){
             // Salaried: pay but no hourly hours on the payroll report -> full-time (40).
@@ -30235,9 +30247,184 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   const OPS_METRIC_CATEGORIES = [
     { weightKey: 'timelyCloseout', label: 'Timely Job Closeout', description: 'Percentage of jobs closed out -- uploaded, emailed to the client, and HunkWare invoice reconciled -- within the configured window of their scheduled job date. A job still inside that window isn\u2019t counted yet either way.' },
     { weightKey: 'reviewCloseout', label: 'Manager Review Item Closeout', description: 'Percentage of Manager Review items (Underbilled Jobs, Truck Conditions) closed out within the configured window of being created. An item still inside that window isn\u2019t counted yet either way.' },
-    { weightKey: 'captainScores', label: 'Captain Scores Average', description: 'The average of every active Captain\u2019s own overall Captain Metrics score.' }
+    { weightKey: 'captainScores', label: 'Captain Scores Average', description: 'The average of every active Captain\u2019s own overall Captain Metrics score.' },
+    { weightKey: 'scorecard', label: 'Weekly Scorecard', description: 'The Ops Manager\u2019s Weekly Scorecard (goal set & review): each production line with a goal scores actual \u00f7 goal, capped at 100%, and the lines are averaged. Weeks with no scorecard filled in are left out.' }
   ];
   window.OPS_METRIC_CATEGORIES = OPS_METRIC_CATEGORIES;
+  // ======================================================================
+  // OPS MANAGER WEEKLY SCORECARD (goal set & review), adapted from the
+  // College Hunks Sales Consultant GSR sheet: Networking/Marketing left out,
+  // Open Lead Calls added. Each scored line = actual / goal (capped 100%);
+  // the scorecard % = the average of those lines, and it's a weighted
+  // category in the Ops Manager's overall score.
+  // ======================================================================
+  const OMSC_KEY = 'ops-manager-scorecards';
+  const OMSC_DEFAULT_GOALS = { estSched: 25, estClosed: 15, closingPct: 60, dollarsClosed: null, avgJob: 1200, leadCalls: 25, leadConv: 5, leadConvPct: 20 };
+  // kind: count | money | pct.  src: input (typed) | auto (figured from others).
+  const OMSC_ROWS = [
+    { group: 'Estimates' },
+    { key: 'estSched', label: 'Total Estimates Scheduled', kind: 'count', src: 'input', scored: true },
+    { key: 'estClosed', label: 'Total Estimates Converted', kind: 'count', src: 'input', scored: true },
+    { key: 'estLost', label: 'Total Estimates Lost', kind: 'count', src: 'input', scored: false },
+    { key: 'estPending', label: 'Total Estimates Pending', kind: 'count', src: 'input', scored: false },
+    { key: 'closingPct', label: 'Estimate Conversion %', kind: 'pct', src: 'auto', scored: true, note: 'Converted \u00f7 (converted + lost)' },
+    { key: 'dollarsClosed', label: 'Total $ Closed Business', kind: 'money', src: 'input', scored: true },
+    { key: 'avgJob', label: 'Average Job Size', kind: 'money', src: 'auto', scored: true, note: '$ closed \u00f7 estimates converted' },
+    { group: 'Open Lead Calls' },
+    { key: 'leadCalls', label: 'Open Lead Calls Made', kind: 'count', src: 'input', scored: true },
+    { key: 'leadConv', label: 'Converted to an Estimate or Job', kind: 'count', src: 'input', scored: true },
+    { key: 'leadConvPct', label: 'Lead Conversion %', kind: 'pct', src: 'auto', scored: true, note: 'Converted \u00f7 calls made' }
+  ];
+  let omsc = null, omscLoadedAt = 0, omscWeek = null;
+  const omscEsc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const omscMon = d => { const x = new Date(String(d).slice(0, 10) + 'T12:00:00'); const w = x.getDay(); x.setDate(x.getDate() + (w === 0 ? -6 : 1 - w)); return x.toLocaleDateString('en-CA'); };
+  const omscAdd = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('en-CA'); };
+  const omscNum = v => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
+  window.loadOmScorecards = async function(force){
+    if(!force && omsc && Date.now() - omscLoadedAt < 30000) return omsc;
+    const d = await window.dashboardApi.get(OMSC_KEY, null);
+    omsc = Object.assign({ goals: {}, months: {}, weeks: {} }, d || {});
+    omsc.goals = Object.assign({}, OMSC_DEFAULT_GOALS, omsc.goals || {});
+    omscLoadedAt = Date.now(); return omsc;
+  };
+  // Actuals (typed + figured) and goals for a week.
+  function omscFigures(ws){
+    const w = (omsc.weeks || {})[ws] || {}, g = Object.assign({}, omsc.goals, w.goals || {});
+    const a = {}; ['estSched', 'estClosed', 'estLost', 'estPending', 'dollarsClosed', 'leadCalls', 'leadConv'].forEach(k => a[k] = omscNum(w[k]));
+    a.closingPct = (a.estClosed != null && (a.estClosed + (a.estLost || 0)) > 0) ? Math.round(a.estClosed / (a.estClosed + (a.estLost || 0)) * 1000) / 10 : null;
+    a.avgJob = (a.dollarsClosed != null && a.estClosed > 0) ? Math.round(a.dollarsClosed / a.estClosed) : null;
+    a.leadConvPct = (a.leadConv != null && a.leadCalls > 0) ? Math.round(a.leadConv / a.leadCalls * 1000) / 10 : null;
+    const month = ((omsc.months || {})[ws.slice(0, 7)] || {});
+    const goals = Object.assign({}, g);
+    if(!(Number(goals.dollarsClosed) > 0)) goals.dollarsClosed = Number(month.revenueGoal) > 0 ? Math.round(Number(month.revenueGoal) * 0.5 / 8) : null;   // the sheet's rule: half the monthly goal \u00f7 8
+    return { a, goals };
+  }
+  function omscRowPct(row, a, goals){
+    const act = a[row.key], goal = Number(goals[row.key]);
+    if(!row.scored || act == null || !(goal > 0)) return null;
+    return Math.min(100, Math.round(act / goal * 100));
+  }
+  function omscWeekPct(ws){
+    if(!omsc || !(omsc.weeks || {})[ws]) return null;
+    const { a, goals } = omscFigures(ws);
+    const p = OMSC_ROWS.filter(r => r.key).map(r => omscRowPct(r, a, goals)).filter(v => v != null);
+    return p.length ? Math.round(p.reduce((t, v) => t + v, 0) / p.length) : null;
+  }
+  // Average of the weekly scorecards whose week starts in [start, end).
+  window.omScorecardPctForRange = function(start, end){
+    if(!omsc) return null;
+    const vals = Object.keys(omsc.weeks || {}).filter(ws => ws >= String(start).slice(0, 10) && ws < String(end).slice(0, 10)).map(omscWeekPct).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((t, v) => t + v, 0) / vals.length) : null;
+  };
+  const omscFmt = (kind, v) => v == null ? '\u2014' : kind === 'money' ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : kind === 'pct' ? (Math.round(v * 10) / 10) + '%' : String(v);
+  const omscPctColor = p => p == null ? 'var(--muted)' : p >= 90 ? '#2e7d4f' : p >= 70 ? '#9a6b16' : '#b0473b';
+  window.loadOmScorecardPanel = async function(){
+    const panel = document.getElementById('omScorecardPanel'); if(!panel) return;
+    try{ await window.loadOmScorecards(true); }catch(err){ panel.querySelector('#omsc_body').innerHTML = '<p class="form-note">Could not load the scorecard.</p>'; return; }
+    if(!omscWeek) omscWeek = omscMon(new Date().toLocaleDateString('en-CA'));
+    omscRender();
+  };
+  function omscRender(){
+    const ws = omscWeek, we = omscAdd(ws, 6), w = (omsc.weeks || {})[ws] || {};
+    const { a, goals } = omscFigures(ws);
+    const monthKey = ws.slice(0, 7), month = (omsc.months || {})[monthKey] || {};
+    const monthName = new Date(ws + 'T12:00:00').toLocaleDateString(undefined, { month: 'long' }).toUpperCase();
+    // monthly revenue snapshot (the sheet's projection)
+    const [yy, mm] = monthKey.split('-').map(Number), dim = new Date(yy, mm, 0).getDate();
+    const today = new Date().toLocaleDateString('en-CA'), monthEnd = `${monthKey}-${String(dim).padStart(2, '0')}`;
+    const through = today < `${monthKey}-01` ? 0 : today > monthEnd ? dim : Number(today.slice(8, 10));
+    const revGoal = omscNum(month.revenueGoal), revActual = omscNum(month.revenueActual);
+    const projected = revActual != null && through > 0 ? Math.round(revActual / through * dim) : null;
+    const projPct = projected != null && revGoal > 0 ? Math.round(projected / revGoal * 100) : null;
+    const pct = omscWeekPct(ws);
+    const fmtD = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const inp = (id, v, kind, extra = '') => `<input type="number" class="omsc-in" data-k="${id}" value="${v == null ? '' : v}" ${kind === 'money' ? 'step="1" min="0"' : 'step="1" min="0"'} style="width:100%; max-width:110px; box-sizing:border-box; padding:6px 8px; border:1px solid #d8d4cc; border-radius:8px; background:#fff; text-align:right; font-size:14px;" ${extra}>`;
+    const goalIn = (k, v, kind) => `<input type="number" class="omsc-goal" data-k="${k}" value="${v == null ? '' : v}" step="${kind === 'pct' ? '1' : '1'}" min="0" ${k === 'dollarsClosed' && !(Number(omsc.goals.dollarsClosed) > 0) && !((w.goals || {}).dollarsClosed > 0) ? `placeholder="${goals.dollarsClosed || ''}" title="From the monthly revenue goal \u00d7 50% \u00f7 8. Type a number to set your own."` : ''} style="width:100%; max-width:100px; box-sizing:border-box; padding:6px 8px; border:1px dashed #cfc9bd; border-radius:8px; background:#fbfaf7; text-align:right; font-size:13.5px; color:#555;">`;
+    const rows = OMSC_ROWS.map(r => {
+      if(r.group) return `<tr><td colspan="5" style="padding:14px 8px 6px; font-size:12px; font-weight:800; letter-spacing:.06em; color:#5f7a68; text-transform:uppercase;">${omscEsc(r.group)}</td></tr>`;
+      const p = omscRowPct(r, a, goals);
+      const goalShown = r.key === 'dollarsClosed' && !(Number((w.goals || {}).dollarsClosed || omsc.goals.dollarsClosed) > 0) ? '' : goals[r.key];
+      return `<tr style="border-top:1px solid #efece5;">
+        <td style="padding:8px; font-weight:600; font-size:14px;">${omscEsc(r.label)}${r.note ? `<div style="font-size:11.5px; font-weight:400; color:var(--muted);">${omscEsc(r.note)}</div>` : ''}</td>
+        <td style="padding:8px; text-align:right;">${r.src === 'input' ? inp(r.key, w[r.key], r.kind) : `<span style="font-size:14px; font-weight:700;">${omscFmt(r.kind, a[r.key])}</span>`}</td>
+        <td style="padding:8px; text-align:right;">${r.scored ? goalIn(r.key, goalShown, r.kind) : '<span style="color:var(--muted); font-size:12px;">info only</span>'}</td>
+        <td style="padding:8px; text-align:right; font-weight:800; color:${omscPctColor(p)}; white-space:nowrap;">${p == null ? (r.scored ? '\u2014' : '') : p + '%'}</td>
+        <td style="padding:8px;"><input type="text" class="omsc-why" data-k="${r.key}" value="${omscEsc((w.why || {})[r.key] || '')}" placeholder="Why?" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #e3dfd6; border-radius:8px; font-size:13px; background:#fff;"></td>
+      </tr>`;
+    }).join('');
+    const area = (k, label, val, rows = 2) => `<label style="display:block; margin:0 0 10px; font-weight:700; font-size:13.5px; color:#3d4a42; text-transform:none; letter-spacing:normal;">${label}<textarea class="omsc-text" data-k="${k}" rows="${rows}" style="display:block; width:100%; box-sizing:border-box; margin-top:4px; padding:8px 10px; border:1px solid #e3dfd6; border-radius:10px; font-family:inherit; font-size:14px; font-weight:400; background:#fff; resize:vertical;">${omscEsc(val || '')}</textarea></label>`;
+    const lastWs = omscAdd(ws, -7), last = (omsc.weeks || {})[lastWs] || {};
+    const todos = (w.todos || [{}, {}, {}]).concat([{}, {}, {}]).slice(0, 3);
+    const lastTodos = (last.todos || []).filter(t => t && t.text);
+    const card = (title, inner, tint) => `<div style="background:${tint}; border:1px solid #e9e5dc; border-radius:14px; padding:14px 16px; margin:0 0 14px;"><div style="font-size:13px; font-weight:800; letter-spacing:.06em; color:#4c5d52; text-transform:uppercase; margin:0 0 10px;">${title}</div>${inner}</div>`;
+    const feelOpts = [['great', '\ud83d\ude00'], ['good', '\ud83d\ude42'], ['ok', '\ud83d\ude10'], ['rough', '\ud83d\ude15'], ['bad', '\ud83d\ude2b']];
+    document.getElementById('omsc_body').innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin:0 0 14px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" id="omsc_prev" style="background:#fff; border:1px solid #ddd8ce; border-radius:8px; padding:6px 11px; cursor:pointer;">\u2039</button>
+          <div style="font-weight:800; font-size:15px;">Week of ${fmtD(ws)} \u2013 ${fmtD(we)}</div>
+          <button type="button" id="omsc_next" style="background:#fff; border:1px solid #ddd8ce; border-radius:8px; padding:6px 11px; cursor:pointer;">\u203a</button>
+        </div>
+        <div style="text-align:right;"><div style="font-size:12px; color:var(--muted); font-weight:700; letter-spacing:.05em;">SCORECARD</div><div style="font-size:28px; font-weight:800; color:${omscPctColor(pct)};">${pct == null ? '\u2014' : pct + '%'}</div></div>
+      </div>
+      ${card(`${monthName} Move Revenue Snapshot`, `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px;">
+          <label style="margin:0; font-size:12.5px; color:var(--muted); text-transform:none; letter-spacing:normal;">Revenue goal<br>$<input type="number" class="omsc-month" data-k="revenueGoal" value="${revGoal == null ? '' : revGoal}" min="0" step="100" style="width:80%; padding:6px 8px; border:1px solid #d8d4cc; border-radius:8px; font-size:15px;"></label>
+          <label style="margin:0; font-size:12.5px; color:var(--muted); text-transform:none; letter-spacing:normal;">Revenue actual (so far)<br>$<input type="number" class="omsc-month" data-k="revenueActual" value="${revActual == null ? '' : revActual}" min="0" step="1" style="width:80%; padding:6px 8px; border:1px solid #d8d4cc; border-radius:8px; font-size:15px;"></label>
+          <div style="font-size:12.5px; color:var(--muted);">Projected revenue<div style="font-size:18px; font-weight:800; color:var(--charcoal);">${projected == null ? '\u2014' : '$' + projected.toLocaleString()}</div><div style="font-size:11px;">${through} of ${dim} days</div></div>
+          <div style="font-size:12.5px; color:var(--muted);">Projected % of goal<div style="font-size:18px; font-weight:800; color:${omscPctColor(projPct)};">${projPct == null ? '\u2014' : projPct + '%'}</div></div>
+        </div>`, '#f7faf8')}
+      ${card('Personal Production', `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; min-width:620px;">
+          <thead><tr>${['', 'Actual', 'Goal', '% of goal', 'Explanation \u2014 the why'].map((h, k) => `<th style="padding:6px 8px; font-size:11.5px; color:#6b7a70; background:transparent; border:none; border-bottom:1px solid #e6e1d7; font-family:inherit; font-weight:700; letter-spacing:.04em; text-align:${k === 0 || k === 4 ? 'left' : 'right'}; text-transform:uppercase;">${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows}</tbody></table></div>
+          <p class="form-note" style="margin:8px 0 0;">Typed lines in the Actual column; % lines and average job size are figured for you. Goals carry forward week to week \u2014 change one here and it applies from this week on.</p>`, '#fdfbf7')}
+      ${card('General', area('victories', '1. Victories (what\u2019s going well)', w.victories) + area('bottlenecks', '2. Bottlenecks (what\u2019s not going well)', w.bottlenecks) + area('help', '3. What do I need help with?', w.help), '#f7faf8')}
+      ${card('Big Picture Items to Discuss', area('bigPicture', '', w.bigPicture, 3), '#fdfbf7')}
+      ${card('Week\u2019s Top 3 To-Dos', `${lastTodos.length ? `<div style="margin:0 0 12px; padding:10px 12px; background:#fff; border:1px solid #eee9df; border-radius:10px;"><div style="font-size:12px; font-weight:700; color:var(--muted); margin-bottom:6px;">LAST WEEK\u2019S \u2014 DONE?</div>${(last.todos || []).map((t, k) => t && t.text ? `<label style="display:flex; align-items:center; gap:8px; margin:4px 0; font-size:14px; text-transform:none; letter-spacing:normal; font-weight:400;"><input type="checkbox" class="omsc-lastdone" data-i="${k}" ${t.done ? 'checked' : ''} style="width:18px; height:18px;"> ${omscEsc(t.text)}</label>` : '').join('')}</div>` : ''}
+          ${todos.map((t, k) => `<div style="display:flex; align-items:center; gap:8px; margin:6px 0;"><span style="font-weight:800; color:#5f7a68;">${k + 1}.</span><input type="text" class="omsc-todo" data-i="${k}" value="${omscEsc(t.text || '')}" placeholder="Goal for this week" style="flex:1; padding:7px 10px; border:1px solid #e3dfd6; border-radius:8px; font-size:14px;"></div>`).join('')}`, '#f7faf8')}
+      ${card('Week in Sync Notes', area('syncVictories', 'Victories from last week', (w.sync || {}).victories) + area('syncPriorities', 'Priorities for this week', (w.sync || {}).priorities) + area('syncSuccess', 'I will be successful this week if\u2026', (w.sync || {}).success), '#fdfbf7')}
+      ${card('How do I feel?', `<div style="display:flex; gap:10px;">${feelOpts.map(([k, e]) => `<button type="button" class="omsc-feel" data-k="${k}" title="${k}" style="font-size:26px; width:52px; height:52px; border-radius:50%; cursor:pointer; border:2px solid ${w.feel === k ? '#5f7a68' : '#e3dfd6'}; background:${w.feel === k ? '#e8f1eb' : '#fff'};">${e}</button>`).join('')}</div>`, '#f7faf8')}
+      <div style="display:flex; align-items:center; gap:10px; margin-top:4px;"><button type="button" class="btn-primary" id="omsc_save">Save Scorecard</button><span class="status-msg" id="omsc_status"></span></div>`;
+    const body = document.getElementById('omsc_body');
+    body.querySelector('#omsc_prev').onclick = () => { omscWeek = omscAdd(omscWeek, -7); omscRender(); };
+    body.querySelector('#omsc_next').onclick = () => { omscWeek = omscAdd(omscWeek, 7); omscRender(); };
+    body.querySelectorAll('.omsc-feel').forEach(b => b.onclick = () => { omscCollect(); const wk = omsc.weeks[omscWeek] || (omsc.weeks[omscWeek] = {}); wk.feel = wk.feel === b.dataset.k ? '' : b.dataset.k; omscRender(); });
+    // live update of the figured numbers / %s as you type
+    body.querySelectorAll('.omsc-in, .omsc-goal, .omsc-month').forEach(i => i.addEventListener('change', () => { omscCollect(); omscRender(); }));
+    body.querySelector('#omsc_save').onclick = omscSave;
+  }
+  // Read the form into the week's record (and goals / month).
+  function omscCollect(){
+    const body = document.getElementById('omsc_body'), ws = omscWeek;
+    const w = omsc.weeks[ws] || (omsc.weeks[ws] = {});
+    body.querySelectorAll('.omsc-in').forEach(i => { w[i.dataset.k] = omscNum(i.value); });
+    w.why = w.why || {}; body.querySelectorAll('.omsc-why').forEach(i => { w.why[i.dataset.k] = i.value.trim(); });
+    const sync = w.sync || (w.sync = {});
+    body.querySelectorAll('.omsc-text').forEach(t => { const k = t.dataset.k, v = t.value;
+      if(k === 'syncVictories') sync.victories = v; else if(k === 'syncPriorities') sync.priorities = v; else if(k === 'syncSuccess') sync.success = v; else w[k] = v; });
+    w.todos = [...body.querySelectorAll('.omsc-todo')].map((i, k) => ({ text: i.value.trim(), done: !!((w.todos || [])[k] || {}).done }));
+    const last = omsc.weeks[omscAdd(ws, -7)];
+    if(last && last.todos) body.querySelectorAll('.omsc-lastdone').forEach(c => { if(last.todos[c.dataset.i]) last.todos[c.dataset.i].done = c.checked; });
+    // goals: changing one applies from this week on (saved on the week, and as the new default)
+    body.querySelectorAll('.omsc-goal').forEach(i => { const v = omscNum(i.value), k = i.dataset.k;
+      const cur = Object.assign({}, omsc.goals, w.goals || {})[k];
+      if(v !== (cur == null ? null : Number(cur))){ w.goals = Object.assign({}, w.goals || {}, { [k]: v }); omsc.goals[k] = v; } });
+    const m = omsc.months[ws.slice(0, 7)] || (omsc.months[ws.slice(0, 7)] = {});
+    body.querySelectorAll('.omsc-month').forEach(i => { m[i.dataset.k] = omscNum(i.value); });
+    w.updatedAt = new Date().toISOString(); w.updatedBy = localStorage.getItem('henson_auth_email') || '';
+  }
+  async function omscSave(){
+    const st = document.getElementById('omsc_status');
+    omscCollect();
+    // goals as of this week travel with the week, so later goal changes don't rewrite history
+    const w = omsc.weeks[omscWeek]; w.goals = Object.assign({}, omsc.goals, w.goals || {});
+    st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+    if(await window.dashboardApi.set(OMSC_KEY, omsc)){
+      omscLoadedAt = Date.now(); omscRender();
+      const s2 = document.getElementById('omsc_status'); s2.textContent = '\u2713 Saved.'; s2.className = 'status-msg ok';
+      try{ window.loadOpsMetricsData && window.loadOpsMetricsData(); }catch(e){}
+    } else { st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; }
+  }
+
 
   function renderOmOverallScore(byCategory, weights){
     const applicable = OPS_METRIC_CATEGORIES
@@ -30287,8 +30474,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(values.length > 0) captainScoresPct = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
       }
     }catch(err){ console.error('Captain Metrics for-range fetch failed:', err); }
-    const overall = window.computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, weights);
-    return { timelyCloseout: timelyCloseoutPct, reviewCloseout: reviewPct, captainScores: captainScoresPct, overall };
+    try{ await window.loadOmScorecards(); }catch(err){}
+    const scorecardPct = window.omScorecardPctForRange ? window.omScorecardPctForRange(rangeStart, rangeEnd) : null;
+    const overall = window.computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, weights, scorecardPct);
+    return { timelyCloseout: timelyCloseoutPct, reviewCloseout: reviewPct, captainScores: captainScoresPct, scorecard: scorecardPct, overall };
   }
 
   // Client-side counterpart to the backend's getActiveMetricsMonth --
@@ -33996,11 +34185,12 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     return Math.round((passCount / statused.length) * 100);
   }
 
-  function computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, weights){
+  function computeOpsManagerOverallScoreForWeek(timelyCloseoutPct, reviewPct, captainScoresPct, weights, scorecardPct){
     const categories = [
       { pct: timelyCloseoutPct, weight: Number(weights.timelyCloseout) || 0 },
       { pct: reviewPct, weight: Number(weights.reviewCloseout) || 0 },
-      { pct: captainScoresPct, weight: Number(weights.captainScores) || 0 }
+      { pct: captainScoresPct, weight: Number(weights.captainScores) || 0 },
+      { pct: scorecardPct == null ? null : scorecardPct, weight: Number(weights.scorecard) || 0 }
     ].filter(c => c.pct !== null && c.weight > 0);
     if(categories.length === 0) return null;
     const weightSum = categories.reduce((s,c)=>s+c.weight, 0);
