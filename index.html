@@ -616,6 +616,7 @@
       <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
       <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Captain. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
     </div>
+    <div class="crewActionItems"></div>
     <div id="dqNag" style="display:none; background:#fff; border:2px solid #b3261e; border-radius:10px; padding:14px 16px; margin-bottom:16px;"></div>
     <button type="button" id="esignTile" style="display:none; width:100%; text-align:left; background:#fff; border:2px solid #b3261e; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; align-items:center; gap:14px;">
       <span style="font-size:32px; line-height:1;">&#128221;</span>
@@ -788,6 +789,7 @@
       <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
       <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Wingman. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
     </div>
+    <div class="crewActionItems"></div>
     <button type="button" class="my-money-tile" style="width:100%; text-align:left; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:14px;">
       <span style="font-size:34px; line-height:1;">&#128176;</span>
       <span style="flex:1;">
@@ -3202,6 +3204,30 @@ window.openEmailDraft = function(o){
     try{ const d = await ttFetch(); const on = ttLatest(d) > (localStorage.getItem(ttSeenKey()) || ''); document.querySelectorAll('.ttCrewDot').forEach(x => { x.style.display = on ? 'block' : 'none'; }); }catch(err){}
   }
   window.refreshTeamDot = refreshTeamDot;
+  // ---- Links the office sent this employee (e.g. an Amazon background check) ----
+  async function loadCrewLinks(){
+    if(!driverToken) return;
+    let links = [];
+    try{ const r = await fetch(API_BASE_AUTH + '/api/crew/links', { headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) return; links = (await r.json()).links || []; }catch(err){ return; }
+    const html = links.map(l => `<div class="crewLinkCard" data-id="${driverEsc(l.id)}" style="background:#fff; border:2px solid #e0a43a; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
+        <div style="font-size:12px; font-weight:800; letter-spacing:.05em; color:#a86a00;">\ud83d\udccb ACTION NEEDED</div>
+        <div style="font-size:16px; font-weight:800; margin-top:3px; line-height:1.3;">${driverEsc(l.subject || l.label)}</div>
+        ${l.note ? `<div style="font-size:14px; margin-top:6px; background:#fff8ec; border-radius:8px; padding:7px 10px;"><strong>From the office:</strong> ${driverEsc(l.note)}</div>` : ''}
+        <a href="${driverEsc(l.url)}" target="_blank" rel="noopener noreferrer" class="crewLinkOpen" data-id="${driverEsc(l.id)}" style="display:block; text-align:center; margin-top:10px; padding:13px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border-radius:10px; text-decoration:none;">${driverEsc(l.label || 'Open link')} \u2197</a>
+        <button type="button" class="crewLinkDone" data-id="${driverEsc(l.id)}" style="width:100%; margin-top:8px; padding:10px; font-size:14px; font-weight:700; background:#fff; border:1px solid var(--line); border-radius:10px;">\u2713 I\u2019ve finished this</button>
+      </div>`).join('');
+    document.querySelectorAll('.crewActionItems').forEach(box => {
+      box.innerHTML = html;
+      box.querySelectorAll('.crewLinkOpen').forEach(a => a.addEventListener('click', () => { fetch(API_BASE_AUTH + '/api/crew/links/' + encodeURIComponent(a.dataset.id) + '/opened', { method: 'POST', headers: { 'Authorization': 'Bearer ' + driverToken } }).catch(() => {}); }));
+      box.querySelectorAll('.crewLinkDone').forEach(b => b.addEventListener('click', async () => {
+        if(!confirm('Mark this as finished?')) return;
+        b.disabled = true;
+        try{ const r = await fetch(API_BASE_AUTH + '/api/crew/links/' + encodeURIComponent(b.dataset.id) + '/done', { method: 'POST', headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) throw new Error(); loadCrewLinks(); }
+        catch(err){ b.disabled = false; alert('Could not save \u2014 check your connection.'); }
+      }));
+    });
+  }
+  window.loadCrewLinks = loadCrewLinks;
   async function openTeamThreads(scrollToY){
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed; inset:0; z-index:199996; background:#f2f2f7; overflow-y:auto; -webkit-overflow-scrolling:touch;';
@@ -3363,6 +3389,7 @@ window.openEmailDraft = function(o){
   function showDriverMenu(){
     setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
     setTimeout(() => { try{ refreshTeamDot(); }catch(e){} }, 1200);
+    setTimeout(() => { try{ loadCrewLinks(); }catch(e){} }, 900);
     setTimeout(() => { try{ hunkResumeAfterReload(); }catch(e){} }, 400);   // back from a reload mid-photo?
     setTimeout(() => { try{ loadMyWorkPackages(); }catch(e){} }, 300);
     setTimeout(() => { try{ showMaterialsReminder(); }catch(e){} }, 900);
@@ -4473,6 +4500,7 @@ window.openEmailDraft = function(o){
   function showWingmanMenu(flashMsg){
     setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
     setTimeout(() => { try{ refreshTeamDot(); }catch(e){} }, 1200);
+    setTimeout(() => { try{ loadCrewLinks(); }catch(e){} }, 900);
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     loadDriveTodayOption();
     driverActiveTask = null;
@@ -18046,7 +18074,25 @@ window.openEmailDraft = function(o){
 
   // ---------- Employee Inbox (email to the company's employee addresses) ----------
   (function(){
-    let eiMsgs = [], eiFilter = '', eiOpen = null;
+    let eiMsgs = [], eiFilter = '', eiOpen = null, eiLinks = [], eiRoster = [], eiSending = null;
+    // The links in an email (parsed, never run), the main one first.
+    function emailLinks(m){
+      const out = [];
+      try{
+        const doc = new DOMParser().parseFromString(m.html || '', 'text/html');
+        doc.querySelectorAll('a[href]').forEach(a => { const href = a.getAttribute('href') || '', text = (a.textContent || '').replace(/\s+/g, ' ').trim();
+          if(/^https?:\/\//i.test(href) && !/unsubscribe|privacy|preferences|terms|help|support|facebook|twitter|instagram|linkedin|youtube/i.test(href + ' ' + text) && !out.some(x => x.url === href)) out.push({ url: href, text: text || href }); });
+      }catch(e){}
+      if(!out.length) (String(m.text || '').match(/https?:\/\/[^\s<>"')]+/g) || []).forEach(u => { if(!out.some(x => x.url === u)) out.push({ url: u, text: u }); });
+      const score = l => (/start|begin|complete|background|verify|click here|get started|continue|accept|sign/i.test(l.text) ? 2 : 0) + (l.text.length < 60 ? 1 : 0);
+      return out.sort((a, b) => score(b) - score(a)).slice(0, 12);
+    }
+    // crew.prestonguay -> "Guay, Preston"
+    function guessEmployee(addr){
+      const local = String(addr || '').split('@')[0].replace(/^crew\./, '').replace(/[^a-z]/g, '');
+      return eiRoster.find(n => { const p = n.split(',').map(x => x.trim()); const first = (p[1] || '').split(/\s+/)[0] || ''; return (first + p[0]).toLowerCase().replace(/[^a-z]/g, '') === local; }) || '';
+    }
+    const linkStatus = l => l.doneAt ? `<span style="color:#00612C; font-weight:700;">\u2713 Done ${esc(when(l.doneAt))}</span>` : l.openedAt ? `<span style="color:#9a6b16; font-weight:700;">Opened ${esc(when(l.openedAt))}</span>` : `<span style="color:var(--muted);">Not opened yet</span>`;
     const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const when = iso => { const d = new Date(iso), now = new Date(); return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
     const fromName = f => { const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>/.exec(f || ''); return m ? (m[1].trim() || m[2]) : (f || ''); };
@@ -18064,6 +18110,8 @@ window.openEmailDraft = function(o){
         const r = await fetch(`${API_BASE}/api/admin/employee-inbox`, { headers: authHeaders() }); const d = await r.json();
         if(!r.ok) throw new Error(d.error);
         eiMsgs = d.messages || []; document.getElementById('ei_setupNote').style.display = d.configured ? 'none' : 'block';
+        try{ const r2 = await fetch(`${API_BASE}/api/admin/crew-links`, { headers: authHeaders() }); eiLinks = r2.ok ? (await r2.json()).links || [] : []; }catch(e){ eiLinks = []; }
+        try{ eiRoster = (await window.getCurrentEmployeeRoster()) || []; }catch(e){ eiRoster = []; }
       }catch(err){ box.innerHTML = '<p class="form-note">Could not load the inbox.</p>'; return; }
       render(); updateBadge();
     };
@@ -18078,13 +18126,22 @@ window.openEmailDraft = function(o){
             <div style="min-width:0; ${m.read ? '' : 'font-weight:700;'}">${m.read ? '' : '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#b3261e; margin-right:6px;"></span>'}${esc(m.subject)}</div>
             <div style="font-size:12px; color:var(--muted); white-space:nowrap;">${esc(when(m.at))}</div></div>
           <div style="display:flex; justify-content:space-between; gap:10px; margin-top:3px; font-size:12.5px; color:var(--muted);">
-            <span>To <strong style="color:var(--charcoal); font-weight:600;">${esc(m.to.split('@')[0])}</strong> \u00b7 from ${esc(fromName(m.from))}</span>
+            <span>To <strong style="color:var(--charcoal); font-weight:600;">${esc(m.to.split('@')[0])}</strong> \u00b7 from ${esc(fromName(m.from))}${(() => { const ls = eiLinks.filter(l => l.emailId === m.id); if(!ls.length) return ''; const l = ls[ls.length - 1]; return ` \u00b7 <span style="font-weight:700; color:${l.doneAt ? '#00612C' : l.openedAt ? '#9a6b16' : '#5f6b63'};">\ud83d\udcf2 ${l.doneAt ? 'Done' : l.openedAt ? 'Opened' : 'Sent'}</span>`; })()}</span>
             ${m.code ? `<span style="font-family:'IBM Plex Mono',monospace; font-weight:800; color:#00612C; background:#e3f4ea; border-radius:6px; padding:1px 8px;">${esc(m.code)}</span>` : ''}</div>
           ${eiOpen === m.id ? `<div style="margin-top:10px; border-top:1px solid var(--line); padding-top:10px; cursor:auto;" onclick="event.stopPropagation()">
             ${m.code ? `<div style="display:flex; align-items:center; gap:12px; margin:0 0 10px;"><div style="font-size:12px; color:var(--muted); font-weight:700;">CODE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:800; letter-spacing:.12em; color:#00612C;">${esc(m.code)}</div><button type="button" class="ei-copy" data-code="${esc(m.code)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer;">Copy</button></div>` : ''}
             <div style="font-size:12.5px; color:var(--muted); margin-bottom:8px;">From ${esc(m.from)} \u00b7 to ${esc(m.to)} \u00b7 ${esc(new Date(m.at).toLocaleString())}</div>
             ${m.html ? `<iframe class="ei-frame" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" style="width:100%; height:480px; border:1px solid var(--line); border-radius:8px; background:#fff;"></iframe>` : `<div style="white-space:pre-wrap; font-size:14px; line-height:1.5;">${esc(m.text)}</div>`}
-            <div style="display:flex; gap:8px; margin-top:8px;"><button type="button" class="ei-del" data-id="${esc(m.id)}" style="background:#fff; border:1px solid #f0d2cd; color:#b0473b; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px;">Delete</button></div>
+            ${(() => { const ls = eiLinks.filter(l => l.emailId === m.id); return ls.length ? `<div style="margin:10px 0 0; padding:8px 10px; background:#f6faf7; border:1px solid #dfece3; border-radius:8px; font-size:13px;">${ls.map(l => `\ud83d\udcf2 Sent to <strong>${esc(l.name)}</strong> ${esc(when(l.at))} \u2014 ${linkStatus(l)}`).join('<br>')}</div>` : ''; })()}
+            ${eiSending === m.id ? (() => { const links = emailLinks(m), guess = guessEmployee(m.to);
+              return `<div style="margin:10px 0 0; padding:12px; border:2px solid #9fb8a7; border-radius:10px; background:#fff;">
+                <div style="font-weight:800; margin-bottom:8px;">\ud83d\udcf2 Send a link to the employee\u2019s HUNK Portal</div>
+                <label style="display:block; font-size:13px; margin:0 0 8px;">Employee <select id="ei_sendWho" style="display:block; margin-top:3px; padding:6px 8px; min-width:240px;"><option value="">Choose\u2026</option>${eiRoster.map(n => `<option ${n === guess ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+                <label style="display:block; font-size:13px; margin:0 0 8px;">Link ${links.length ? `<select id="ei_sendLink" style="display:block; margin-top:3px; padding:6px 8px; max-width:100%;">${links.map((l, k) => `<option value="${k}">${esc(l.text.slice(0, 70))}${l.text !== l.url ? ' \u2014 ' + esc(l.url.replace(/^https?:\/\//, '').slice(0, 40)) + '\u2026' : ''}</option>`).join('')}</select>` : '<div class="form-note" style="margin:3px 0 0;">No links found in this email.</div>'}</label>
+                <label style="display:block; font-size:13px; margin:0 0 8px;">Note (optional) <input type="text" id="ei_sendNote" maxlength="300" placeholder="e.g. Please finish this by Friday" style="display:block; width:100%; box-sizing:border-box; margin-top:3px; padding:6px 8px;"></label>
+                <div style="display:flex; gap:8px; align-items:center;"><button type="button" class="btn-primary" id="ei_sendGo" ${links.length ? '' : 'disabled'}>Send to HUNK Portal</button><button type="button" id="ei_sendCancel" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Cancel</button><span class="status-msg" id="ei_sendStatus"></span></div>
+              </div>`; })() : ''}
+            <div style="display:flex; gap:8px; margin-top:8px;">${eiSending === m.id ? '' : `<button type="button" class="ei-send" data-id="${esc(m.id)}" style="background:#00843D; border:1px solid #00843D; color:#fff; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px; font-weight:700;">\ud83d\udcf2 Send to employee</button>`}<button type="button" class="ei-del" data-id="${esc(m.id)}" style="background:#fff; border:1px solid #f0d2cd; color:#b0473b; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px;">Delete</button></div>
           </div>` : ''}
         </div>`).join('') : `<p class="form-note" style="margin:0;">No emails yet${eiFilter ? ' for this address' : ''}.</p>`;
       // the email itself, isolated in a sandboxed frame (no scripts, no outside requests from it)
@@ -18096,6 +18153,23 @@ window.openEmailDraft = function(o){
         if(m && !m.read){ m.read = true; updateBadge(); fetch(`${API_BASE}/api/admin/employee-inbox/read`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ ids: [id] }) }).catch(() => {}); }
         render();
       });
+      document.querySelectorAll('#ei_list .ei-send').forEach(b => b.onclick = () => { eiSending = b.dataset.id; render(); });
+      const go = document.getElementById('ei_sendGo');
+      if(go){
+        document.getElementById('ei_sendCancel').onclick = () => { eiSending = null; render(); };
+        go.onclick = async () => {
+          const m = eiMsgs.find(x => x.id === eiSending), links = emailLinks(m), st = document.getElementById('ei_sendStatus');
+          const who = document.getElementById('ei_sendWho').value, l = links[Number(document.getElementById('ei_sendLink').value)];
+          if(!who){ st.textContent = 'Choose the employee.'; st.className = 'status-msg err'; return; }
+          go.disabled = true; st.textContent = 'Sending\u2026'; st.className = 'status-msg';
+          try{
+            const label = /^https?:/i.test(l.text) || l.text.length > 50 ? 'Open link' : l.text;
+            const r = await fetch(`${API_BASE}/api/admin/employee-inbox/${encodeURIComponent(m.id)}/push`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ employee: who, url: l.url, label, note: document.getElementById('ei_sendNote').value }) });
+            const d = await r.json().catch(() => ({})); if(!r.ok) throw new Error(d.error || 'Could not send.');
+            eiLinks.push(d.item); eiSending = null; render();
+          }catch(err){ go.disabled = false; st.textContent = err.message; st.className = 'status-msg err'; }
+        };
+      }
       document.querySelectorAll('#ei_list .ei-copy').forEach(b => b.onclick = async () => { try{ await navigator.clipboard.writeText(b.dataset.code); b.textContent = 'Copied \u2713'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); }catch(e){} });
       document.querySelectorAll('#ei_list .ei-del').forEach(b => b.onclick = async () => {
         if(!confirm('Delete this email?')) return;
