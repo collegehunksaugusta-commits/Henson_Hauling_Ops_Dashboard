@@ -11462,7 +11462,8 @@ window.openEmailDraft = function(o){
     if(!isCurrentUserAdmin()) return;
     try{ const r = await fetch(`${API_BASE}/api/admin/bios`, { headers: authHeaders() }); if(!r.ok) return; const d = await r.json(); rosterBios = {}; (d.bios || []).forEach(b => { rosterBios[b.key] = b; }); window.__bioQuestions = d.questions || []; }catch(e){}
   };
-  const bioKeyOf = n => String(n).replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ').replace(/[^a-z0-9]+/g, '-');
+  // Same matching as the server (nameCoreKey): middle initials and periods dropped.
+  const bioKeyOf = n => String(n || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ').replace(/[^a-z0-9]+/g, '-');
   window.bioCellHtml = function(n){
     if(window.empDuties && window.empDuties.classify(n, (rosterRoles || {})[n]) === 'owner') return '<span style="color:var(--muted);">\u2014</span>';
     const b = rosterBios[bioKeyOf(n)], esc = rosterManualEsc;
