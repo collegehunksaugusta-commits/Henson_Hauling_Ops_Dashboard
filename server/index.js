@@ -7082,6 +7082,121 @@ app.post('/api/crew/links/:id/:what', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
 
+// ======================================================================
+// EMPLOYEE BIO & PHOTO (for HunkWare's bio page and Amazon's technician
+// photo). The office requests it (or it's requested automatically 3 days
+// after a new hire's start date); the employee answers three questions and
+// uploads a photo in the HUNK Portal; AI writes the bio; the office approves.
+// ======================================================================
+const BIOS_KEY = 'employee-bios';
+const BIO_PHOTO_PREFIX = 'employee-bio-photo-';          // + key  (background replaced)
+const BIO_PHOTO_ORIG_PREFIX = 'employee-bio-photo-orig-'; // + key  (as taken)
+const BIO_QUESTIONS = [
+  'Where are you from, and what do you enjoy doing when you\u2019re not on a job?',
+  'What do you like most about working at College Hunks, or what made you want to join the team?',
+  'What\u2019s a fun fact about you, or a goal you\u2019re working toward?'
+];
+const bioKey = name => nameCoreKey(name).replace(/[^a-z0-9]+/g, '-');
+async function loadBios() { return JSON.parse(await redis.get(BIOS_KEY) || '{}'); }
+async function saveBios(b) { await redis.set(BIOS_KEY, JSON.stringify(b)); }
+function bioRequest(bios, name, by, auto) {
+  const k = bioKey(name);
+  const cur = bios[k];
+  if (cur && (cur.status === 'requested' || cur.status === 'submitted' || cur.status === 'approved')) return false;
+  bios[k] = Object.assign({}, cur || {}, { key: k, name, status: 'requested', requestedAt: new Date().toISOString(), requestedBy: by || '', auto: !!auto });
+  return true;
+}
+async function writeBio(firstName, answers) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const fallback = () => answers.filter(Boolean).map(a => a.trim().replace(/([^.!?])$/, '$1.')).join(' ');
+  if (!apiKey) return fallback();
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 400, messages: [{ role: 'user', content:
+        `Write a short, friendly bio (3 to 5 sentences) for a College Hunks Hauling Junk & Moving team member in Augusta, GA, for the company's website and customer-facing profiles. ` +
+        `Write in the third person using only the first name "${firstName}". Warm, upbeat and professional; plain language; no exaggeration or invented facts -- use only what is in the answers below. ` +
+        `Leave out anything inappropriate for customers. Reply with the bio text only.\n\n` +
+        BIO_QUESTIONS.map((q, i) => `Q: ${q}\nA: ${answers[i] || '(no answer)'}`).join('\n\n') }] })
+    });
+    if (!r.ok) return fallback();
+    const d = await r.json();
+    const text = ((d.content || []).find(c => c.type === 'text') || {}).text || '';
+    return text.trim() || fallback();
+  } catch (e) { return fallback(); }
+}
+const bioPublic = b => ({ key: b.key, name: b.name, status: b.status, requestedAt: b.requestedAt, auto: !!b.auto, submittedAt: b.submittedAt || null, approvedAt: b.approvedAt || null,
+  answers: b.answers || [], bio: b.bio || '', bgReplaced: b.bgReplaced !== false, hasPhoto: !!b.hasPhoto });
+// Office
+app.get('/api/admin/bios', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ bios: Object.values(await loadBios()).map(bioPublic), questions: BIO_QUESTIONS }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/bios/request', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const names = ((req.body || {}).names || []).map(String).filter(Boolean).slice(0, 200), again = !!(req.body || {}).again;
+    const bios = await loadBios(); let n = 0;
+    names.forEach(name => { if (again) { const k = bioKey(name); if (bios[k]) bios[k].status = 'none'; } if (bioRequest(bios, name, req.userEmail, false)) n++; });
+    await saveBios(bios); res.json({ ok: true, requested: n });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+app.get('/api/admin/bios/:key/photo', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ photo: await redis.get((req.query.orig ? BIO_PHOTO_ORIG_PREFIX : BIO_PHOTO_PREFIX) + req.params.key) }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/bios/:key', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const bios = await loadBios(), b = bios[req.params.key];
+    if (!b) return res.status(404).json({ error: 'Not found.' });
+    const { bio, approve, photo, cancel } = req.body || {};
+    if (cancel) { delete bios[req.params.key]; await saveBios(bios); return res.json({ ok: true }); }
+    if (typeof bio === 'string') b.bio = bio.trim().slice(0, 2000);
+    if (photo && /^data:image\/(jpeg|png);base64,/.test(photo) && photo.length < 6_000_000) { await redis.set(BIO_PHOTO_PREFIX + b.key, photo); b.bgReplaced = true; b.hasPhoto = true; }
+    if (approve) { b.status = 'approved'; b.approvedAt = new Date().toISOString(); b.approvedBy = req.userEmail || ''; }
+    await saveBios(bios); res.json({ ok: true, bio: bioPublic(b) });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+// Employee (HUNK Portal)
+app.get('/api/crew/bio', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const b = (await loadBios())[bioKey(me)];
+    res.json({ pending: !!(b && b.status === 'requested'), status: b ? b.status : 'none', questions: BIO_QUESTIONS, answers: b ? (b.answers || []) : [] });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/bio', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const { answers, photo, photoOriginal, bgReplaced } = req.body || {};
+    const ans = (Array.isArray(answers) ? answers : []).slice(0, 3).map(a => String(a || '').trim().slice(0, 800));
+    if (ans.filter(Boolean).length < 3) return res.status(400).json({ error: 'Please answer all three questions.' });
+    if (!/^data:image\/(jpeg|png);base64,/.test(String(photo || '')) || photo.length > 6_000_000) return res.status(400).json({ error: 'Please add your photo.' });
+    const bios = await loadBios(), k = bioKey(me);
+    const b = bios[k] || (bios[k] = { key: k, name: me, requestedAt: new Date().toISOString(), requestedBy: 'self' });
+    await redis.set(BIO_PHOTO_PREFIX + k, photo);
+    if (/^data:image\/(jpeg|png);base64,/.test(String(photoOriginal || '')) && photoOriginal.length < 6_000_000) await redis.set(BIO_PHOTO_ORIG_PREFIX + k, photoOriginal);
+    const parts = String(me).split(','), first = ((parts[1] || parts[0] || '').trim().split(/\s+/)[0]) || me;
+    Object.assign(b, { name: b.name || me, answers: ans, bio: await writeBio(first, ans), status: 'submitted', submittedAt: new Date().toISOString(), bgReplaced: bgReplaced !== false, hasPhoto: true });
+    await saveBios(bios);
+    console.log(`[bio] ${me} submitted bio & photo`);
+    res.json({ ok: true, bio: b.bio });
+  } catch (err) { console.error('Bio submit failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+// New hires: requested automatically 3 days after the scheduled start date.
+async function autoRequestNewHireBios() {
+  try {
+    const cands = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const cutoff = new Date(Date.now() - 3 * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const earliest = new Date(Date.now() - 45 * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });   // don't sweep up old hires
+    const bios = await loadBios(); let n = 0;
+    cands.filter(c => c.startingDate && c.startingDate <= cutoff && c.startingDate >= earliest && !/withdrawn|declined|cancel/i.test(String(c.status || '')) && c.firstName && c.lastName)
+      .forEach(c => { const name = `${c.lastName}, ${c.firstName}`; if (!bios[bioKey(name)] && bioRequest(bios, name, 'automatic', true)) n++; });
+    if (n) { await saveBios(bios); console.log(`[bio] requested automatically for ${n} new hire(s)`); }
+  } catch (e) { console.error('Auto bio request failed:', e.message); }
+}
+setTimeout(autoRequestNewHireBios, 60 * 1000);
+setInterval(autoRequestNewHireBios, 6 * 3600 * 1000);
+
 // ---- Text-message consent (opt-in), collected in the HUNK Portal ----
 // The exact wording each employee agreed to is kept with their answer.
 const TT_CONSENT_KEY = 'team-text-consents';
