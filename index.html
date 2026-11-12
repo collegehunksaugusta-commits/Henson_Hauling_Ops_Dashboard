@@ -7961,7 +7961,7 @@ window.openEmailDraft = function(o){
         <h3 style="margin:0;">Scripts</h3>
         <button type="button" class="btn-primary" id="omsc_newScript" style="display:none;">+ New Script</button>
       </div>
-      <p class="form-note" id="omsc_scriptsNote" style="margin:4px 0 12px;">What to say when talking with clients.</p>
+      <p class="form-note" id="omsc_scriptsNote" style="margin:4px 0 12px;">Scripts for talking with clients. Only the Owner can add or change them.</p>
       <div id="omsc_scripts"><p class="form-note">Loading…</p></div>
     </div>
   </div>
@@ -30460,7 +30460,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   function renderOmScripts(){
     const wrap = document.getElementById('omsc_scripts');
     document.getElementById('omsc_newScript').style.display = omScriptsOwner ? '' : 'none';
-    document.getElementById('omsc_scriptsNote').textContent = omScriptsOwner ? 'What to say when talking with clients. Everyone can read these; only you can add or change them.' : 'What to say when talking with clients.';
+    document.getElementById('omsc_scriptsNote').textContent = 'Scripts for talking with clients. Only the Owner can add or change them.';
     const editor = s => `<div style="background:#fff; border:2px solid #9fb8a7; border-radius:14px; padding:14px 16px; margin:0 0 14px;">
         <input type="text" id="omsc_editTitle" value="${omscEsc(s.title || '')}" placeholder="Title (e.g. Calling Open Leads)" maxlength="120" style="width:100%; box-sizing:border-box; padding:9px 12px; border:1px solid #d8d4cc; border-radius:10px; font-size:17px; font-weight:700; margin-bottom:10px;">
         <textarea id="omsc_editBody" rows="12" placeholder="The script\u2026" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d8d4cc; border-radius:10px; font-family:inherit; font-size:15px; line-height:1.5; resize:vertical;">${omscEsc(s.body || '')}</textarea>
