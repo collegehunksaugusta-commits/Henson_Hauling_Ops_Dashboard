@@ -6585,10 +6585,10 @@ window.openEmailDraft = function(o){
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">⚙️</span>
             <span>Operations</span>
-            <span class="dashSectionCount">(7)</span>
+            <span class="dashSectionCount">(8)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-operations">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Inventory Management, Manager Review</div>
+          <div class="dashSectionTileList">HunkWare, LiveSwitch Virtual Estimates, Long Distance Estimates, Job Paperwork, Inventory Management, Manager Review, Ops Manager Toolkit</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -6632,6 +6632,11 @@ window.openEmailDraft = function(o){
         <h3>Manager Review</h3>
         <p>Credit card transactions, underbilled jobs, flagged truck conditions, junk removal jobs, and moving damage documentation, pulled in from across the app for close-out.</p>
       </div>
+      <div class="tile" id="tile-opsmetrics" tabindex="0" role="button" aria-label="Open Ops Manager Toolkit">
+        <span class="icon">🧰</span>
+        <h3>Ops Manager Toolkit</h3>
+        <p>Ops Manager metrics and score, the weekly scorecard, and call scripts for talking with clients.</p>
+      </div>
         </div>
       </div>
     </div>
@@ -6642,19 +6647,14 @@ window.openEmailDraft = function(o){
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(7)</span>
+            <span class="dashSectionCount">(6)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Ops Manager Metrics, Captain Metrics, Wingman Metrics, Attendance Tracking, Injury Reports, Employee Roster, Hiring</div>
+          <div class="dashSectionTileList">Captain Metrics, Wingman Metrics, Attendance Tracking, Injury Reports, Employee Roster, Hiring</div>
         </div>
       </button>
       <div class="dashSectionBody">
         <div class="tiles tilesCategory" id="tilesContainer-people">
-      <div class="tile" id="tile-opsmetrics" tabindex="0" role="button" aria-label="Open Ops Manager Metrics">
-        <span class="icon">📊</span>
-        <h3>Ops Manager Metrics</h3>
-        <p>Timely job closeout and Manager Review item closeout tracking, weighted into a single overall score.</p>
-      </div>
       <div class="tile" id="tile-captain" tabindex="0" role="button" aria-label="Open Captain Metrics">
         <span class="icon">&#9875;</span>
         <h3>Captain Metrics</h3>
@@ -7887,18 +7887,23 @@ window.openEmailDraft = function(o){
   <div id="opsMetricsDetail" style="display:none;">
     <button class="backlink" id="opsMetricsBackBtn">&larr; Dispatch</button>
     <div class="detail-head">
-      <h2 class="display">Ops Manager Metrics</h2>
+      <h2 class="display">Ops Manager Toolkit</h2>
     </div>
-    <p class="form-note" id="om_assignedToNote"></p>
-    <p class="form-note" id="om_activeMonthNote" style="font-weight:600;"></p>
+    <div class="dashTabs" id="omtk_tabs" role="tablist" aria-label="Ops Manager Toolkit" style="margin-bottom:14px;">
+      <button type="button" class="dashTab omtk-tab" role="tab" data-tab="metrics" aria-selected="true"><span aria-hidden="true">📊</span><span>Ops Manager Metrics</span></button>
+      <button type="button" class="dashTab omtk-tab" role="tab" data-tab="scorecard" aria-selected="false"><span aria-hidden="true">📝</span><span>Weekly Scorecard</span></button>
+      <button type="button" class="dashTab omtk-tab" role="tab" data-tab="scripts" aria-selected="false"><span aria-hidden="true">💬</span><span>Scripts</span></button>
+    </div>
+    <p class="form-note" id="om_assignedToNote" data-omtab="metrics"></p>
+    <p class="form-note" id="om_activeMonthNote" data-omtab="metrics" style="font-weight:600;"></p>
 
-    <div class="panel" id="omCommissionPanel" style="border:2px solid var(--brand-orange);">
+    <div class="panel" data-omtab="metrics" id="omCommissionPanel" style="border:2px solid var(--brand-orange);">
       <h3>Your Commission</h3>
       <p class="form-note" style="margin-top:0;">Your commission starts with <strong>the revenue from estimates you convert</strong>. Each pay week: converted revenue &times; the Ops Manager rate &times; your overall score &times; your hours out of 40 (salaried counts as 40; hours over 40 don&rsquo;t add more).</p>
       <div id="om_commissionRows"></div>
     </div>
 
-    <div class="panel" id="omOverallScorePanel">
+    <div class="panel" data-omtab="metrics" id="omOverallScorePanel">
       <h3>Overall Score</h3>
       <div style="display:flex; gap:28px; align-items:flex-end; flex-wrap:wrap;">
         <div>
@@ -7914,20 +7919,20 @@ window.openEmailDraft = function(o){
       <p class="form-note" style="margin:6px 0 0;">The month score covers everything since the 1st (it&rsquo;s the one used for commission); the trend chart below shows each week on its own.</p>
     </div>
 
-    <div class="panel" id="omTrendPanel">
+    <div class="panel" data-omtab="metrics" id="omTrendPanel">
       <h3>Score Trend</h3>
       <p class="form-note">The Ops Manager's overall weighted score, by week. Weeks with no applicable data for a category are skipped for it, rather than shown as a 0.</p>
       <canvas id="om_trendChart"></canvas>
       <p class="form-note" id="om_trendEmptyNote" style="display:none;">Not enough weekly data yet to show a trend.</p>
     </div>
 
-    <div class="panel" id="omScorecardPanel" style="background:#fffefb;">
+    <div class="panel" data-omtab="scorecard" id="omScorecardPanel" style="background:#fffefb;">
       <h3>Weekly Scorecard</h3>
       <p class="form-note" style="margin-top:0;">Goal set &amp; review for the week. Each production line with a goal scores <em>actual ÷ goal</em> (up to 100%), and the average is the Scorecard % — part of the overall score at the weight set in Configuration → Ops Manager Metrics.</p>
       <div id="omsc_body"><p class="form-note">Loading…</p></div>
     </div>
 
-    <div class="panel" id="omPaperworkCloseoutPanel">
+    <div class="panel" data-omtab="metrics" id="omPaperworkCloseoutPanel">
       <h3>Timely Job Closeout</h3>
       <p class="form-note" id="om_closeoutDesc"></p>
       <p class="form-note" id="om_closeoutSummary" style="font-weight:600;"></p>
@@ -7935,7 +7940,7 @@ window.openEmailDraft = function(o){
       <p class="form-note" id="om_closeoutEmptyNote" style="display:none;">No job-paperwork records due for closeout yet.</p>
     </div>
 
-    <div class="panel" id="omReviewCloseoutPanel">
+    <div class="panel" data-omtab="metrics" id="omReviewCloseoutPanel">
       <h3>Manager Review Item Closeout</h3>
       <p class="form-note" id="om_reviewCloseoutDesc"></p>
       <p class="form-note" id="om_reviewCloseoutSummary" style="font-weight:600;"></p>
@@ -7943,12 +7948,21 @@ window.openEmailDraft = function(o){
       <p class="form-note" id="om_reviewCloseoutEmptyNote" style="display:none;">No Manager Review items due for closeout yet.</p>
     </div>
 
-    <div class="panel" id="omCaptainScoresPanel">
+    <div class="panel" data-omtab="metrics" id="omCaptainScoresPanel">
       <h3>Captain Scores Average</h3>
       <p class="form-note">The average of every active Captain's own current overall Captain Metrics score.</p>
       <p class="form-note" id="om_captainScoresSummary" style="font-weight:600;"></p>
       <div id="om_captainScoresRows"></div>
       <p class="form-note" id="om_captainScoresEmptyNote" style="display:none;">No Captain scores available yet.</p>
+    </div>
+
+    <div class="panel" data-omtab="scripts" id="omScriptsPanel" style="background:#fffefb;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3 style="margin:0;">Scripts</h3>
+        <button type="button" class="btn-primary" id="omsc_newScript" style="display:none;">+ New Script</button>
+      </div>
+      <p class="form-note" id="omsc_scriptsNote" style="margin:4px 0 12px;">What to say when talking with clients.</p>
+      <div id="omsc_scripts"><p class="form-note">Loading…</p></div>
     </div>
   </div>
 
@@ -10689,7 +10703,7 @@ window.openEmailDraft = function(o){
     }
     if(view === 'opsmetrics'){
       window.loadOpsMetricsData();
-      if(window.loadOmScorecardPanel) window.loadOmScorecardPanel();
+      if(window.openOmToolkit) window.openOmToolkit();
       if(window.loadOpsManagerCommissionPanel) window.loadOpsManagerCommissionPanel();
     }
     if(view === 'wingmanmetrics'){
@@ -30412,6 +30426,89 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     body.querySelectorAll('.omsc-month').forEach(i => { m[i.dataset.k] = omscNum(i.value); });
     w.updatedAt = new Date().toISOString(); w.updatedBy = localStorage.getItem('henson_auth_email') || '';
   }
+  // ---------- Ops Manager Toolkit: tabs ----------
+  const OMTK_TAB_KEY = 'henson_omtk_tab';
+  window.showOmTab = function(tab){
+    tab = ['metrics', 'scorecard', 'scripts'].includes(tab) ? tab : 'metrics';
+    try{ localStorage.setItem(OMTK_TAB_KEY, tab); }catch(e){}
+    document.querySelectorAll('#omtk_tabs .omtk-tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    document.querySelectorAll('#opsMetricsDetail [data-omtab]').forEach(el => { el.style.display = el.dataset.omtab === tab ? '' : 'none'; });
+    if(tab === 'scorecard' && window.loadOmScorecardPanel) window.loadOmScorecardPanel();
+    if(tab === 'scripts') loadOmScripts();
+  };
+  document.querySelectorAll('#omtk_tabs .omtk-tab').forEach(b => b.addEventListener('click', () => window.showOmTab(b.dataset.tab)));
+  window.openOmToolkit = () => { let t = 'metrics'; try{ t = localStorage.getItem(OMTK_TAB_KEY) || 'metrics'; }catch(e){} window.showOmTab(t); };
+
+  // ---------- Scripts: anyone can read; only the Owner can add or edit ----------
+  const OMSCRIPTS_KEY = 'ops-manager-scripts';
+  let omScripts = [], omScriptsOwner = false, omScriptEditing = null;
+  async function loadOmScripts(){
+    const wrap = document.getElementById('omsc_scripts');
+    try{
+      const [d, me] = await Promise.all([
+        window.dashboardApi.get(OMSCRIPTS_KEY, null),
+        fetch(`${API_BASE}/api/owner/me`, { headers: authHeaders() }).then(r => r.ok ? r.json() : {}).catch(() => ({}))
+      ]);
+      omScripts = (d && Array.isArray(d.scripts)) ? d.scripts : [];
+      omScriptsOwner = !!me.isOwner;
+    }catch(err){ wrap.innerHTML = '<p class="form-note">Could not load the scripts.</p>'; return; }
+    renderOmScripts();
+  }
+  async function saveOmScripts(){
+    return await window.dashboardApi.set(OMSCRIPTS_KEY, { scripts: omScripts, updatedAt: new Date().toISOString() });
+  }
+  function renderOmScripts(){
+    const wrap = document.getElementById('omsc_scripts');
+    document.getElementById('omsc_newScript').style.display = omScriptsOwner ? '' : 'none';
+    document.getElementById('omsc_scriptsNote').textContent = omScriptsOwner ? 'What to say when talking with clients. Everyone can read these; only you can add or change them.' : 'What to say when talking with clients.';
+    const editor = s => `<div style="background:#fff; border:2px solid #9fb8a7; border-radius:14px; padding:14px 16px; margin:0 0 14px;">
+        <input type="text" id="omsc_editTitle" value="${omscEsc(s.title || '')}" placeholder="Title (e.g. Calling Open Leads)" maxlength="120" style="width:100%; box-sizing:border-box; padding:9px 12px; border:1px solid #d8d4cc; border-radius:10px; font-size:17px; font-weight:700; margin-bottom:10px;">
+        <textarea id="omsc_editBody" rows="12" placeholder="The script\u2026" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d8d4cc; border-radius:10px; font-family:inherit; font-size:15px; line-height:1.5; resize:vertical;">${omscEsc(s.body || '')}</textarea>
+        <div style="display:flex; gap:8px; align-items:center; margin-top:10px;"><button type="button" class="btn-primary" id="omsc_editSave">Save Script</button>
+          <button type="button" id="omsc_editCancel" style="background:#fff; border:1px solid #d8d4cc; border-radius:8px; padding:8px 14px; cursor:pointer;">Cancel</button><span class="status-msg" id="omsc_editStatus"></span></div></div>`;
+    const card = (s, k) => `<div style="background:#fff; border:1px solid #e9e5dc; border-radius:14px; padding:14px 18px; margin:0 0 14px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+          <div style="font-size:18px; font-weight:800; color:#2f3d34;">${omscEsc(s.title || 'Untitled')}</div>
+          <div style="display:flex; gap:6px; flex-shrink:0;">
+            <button type="button" class="omsc-copy" data-i="${k}" title="Copy the script" style="background:#f4f7f5; border:1px solid #dfe8e2; border-radius:8px; padding:4px 10px; font-size:12.5px; cursor:pointer;">Copy</button>
+            ${omScriptsOwner ? `<button type="button" class="omsc-up" data-i="${k}" title="Move up" ${k === 0 ? 'disabled' : ''} style="background:#fff; border:1px solid #e3dfd6; border-radius:8px; padding:4px 8px; cursor:pointer;">\u2191</button>
+            <button type="button" class="omsc-down" data-i="${k}" title="Move down" ${k === omScripts.length - 1 ? 'disabled' : ''} style="background:#fff; border:1px solid #e3dfd6; border-radius:8px; padding:4px 8px; cursor:pointer;">\u2193</button>
+            <button type="button" class="omsc-edit" data-i="${k}" style="background:#fff; border:1px solid #e3dfd6; border-radius:8px; padding:4px 10px; font-size:12.5px; cursor:pointer;">Edit</button>
+            <button type="button" class="omsc-del" data-i="${k}" style="background:#fff; border:1px solid #f0d2cd; color:#b0473b; border-radius:8px; padding:4px 10px; font-size:12.5px; cursor:pointer;">Delete</button>` : ''}
+          </div></div>
+        <div style="margin-top:8px; font-size:15px; line-height:1.6; color:#2a2a2a; white-space:pre-wrap;">${omscEsc(s.body || '')}</div></div>`;
+    const list = omScripts.map((s, k) => omScriptEditing === s.id ? editor(s) : card(s, k)).join('');
+    const adding = omScriptEditing === '__new' ? editor({}) : '';
+    wrap.innerHTML = adding + (list || (adding ? '' : `<p class="form-note" style="margin:0;">${omScriptsOwner ? 'No scripts yet \u2014 click <strong>+ New Script</strong> to add the first one.' : 'No scripts yet.'}</p>`));
+    const save = wrap.querySelector('#omsc_editSave');
+    if(save){
+      wrap.querySelector('#omsc_editTitle').focus();
+      wrap.querySelector('#omsc_editCancel').onclick = () => { omScriptEditing = null; renderOmScripts(); };
+      save.onclick = async () => {
+        const title = wrap.querySelector('#omsc_editTitle').value.trim(), body = wrap.querySelector('#omsc_editBody').value.replace(/\s+$/, ''), st = wrap.querySelector('#omsc_editStatus');
+        if(!title){ st.textContent = 'Give it a title.'; st.className = 'status-msg err'; return; }
+        const before = JSON.parse(JSON.stringify(omScripts));
+        if(omScriptEditing === '__new') omScripts.push({ id: 'scr_' + Date.now(), title, body, updatedAt: new Date().toISOString() });
+        else { const x = omScripts.find(s => s.id === omScriptEditing); if(x) Object.assign(x, { title, body, updatedAt: new Date().toISOString() }); }
+        st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+        if(await saveOmScripts()){ omScriptEditing = null; renderOmScripts(); }
+        else { omScripts = before; st.textContent = 'Could not save \u2014 only the Owner can change scripts.'; st.className = 'status-msg err'; }
+      };
+    }
+    wrap.querySelectorAll('.omsc-copy').forEach(b => b.onclick = async () => {
+      const s = omScripts[Number(b.dataset.i)]; try{ await navigator.clipboard.writeText(`${s.title}\n\n${s.body}`); b.textContent = 'Copied \u2713'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); }catch(e){}
+    });
+    wrap.querySelectorAll('.omsc-edit').forEach(b => b.onclick = () => { omScriptEditing = omScripts[Number(b.dataset.i)].id; renderOmScripts(); });
+    const move = async (k, d) => { const before = omScripts.slice(); [omScripts[k], omScripts[k + d]] = [omScripts[k + d], omScripts[k]]; renderOmScripts(); if(!(await saveOmScripts())){ omScripts = before; renderOmScripts(); alert('Could not save the new order.'); } };
+    wrap.querySelectorAll('.omsc-up').forEach(b => b.onclick = () => move(Number(b.dataset.i), -1));
+    wrap.querySelectorAll('.omsc-down').forEach(b => b.onclick = () => move(Number(b.dataset.i), 1));
+    wrap.querySelectorAll('.omsc-del').forEach(b => b.onclick = async () => {
+      const k = Number(b.dataset.i), s = omScripts[k]; if(!confirm(`Delete the script "${s.title}"?`)) return;
+      const before = omScripts.slice(); omScripts.splice(k, 1);
+      if(await saveOmScripts()) renderOmScripts(); else { omScripts = before; alert('Could not delete \u2014 check your connection.'); }
+    });
+  }
+  document.getElementById('omsc_newScript').addEventListener('click', () => { omScriptEditing = '__new'; renderOmScripts(); });
   async function omscSave(){
     const st = document.getElementById('omsc_status');
     omscCollect();
