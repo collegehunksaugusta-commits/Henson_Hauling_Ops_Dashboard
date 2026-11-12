@@ -6647,10 +6647,10 @@ window.openEmailDraft = function(o){
           <div class="dashSectionTitleRow">
             <span class="dashSectionEmoji" aria-hidden="true">👥</span>
             <span>People</span>
-            <span class="dashSectionCount">(6)</span>
+            <span class="dashSectionCount">(7)</span>
             <span class="dashSectionAttention" id="dashSectionAttention-people">Attention Needed</span>
           </div>
-          <div class="dashSectionTileList">Captain Metrics, Wingman Metrics, Attendance Tracking, Injury Reports, Employee Roster, Hiring</div>
+          <div class="dashSectionTileList">Captain Metrics, Wingman Metrics, Attendance Tracking, Injury Reports, Employee Inbox, Employee Roster, Hiring</div>
         </div>
       </button>
       <div class="dashSectionBody">
@@ -6674,6 +6674,12 @@ window.openEmailDraft = function(o){
         <span class="icon">&#129657;</span>
         <h3>Injury Reports</h3>
         <p>Report and document injuries, signed reports, and the OSHA 300 log and 300A summary.</p>
+      </div>
+      <div class="tile" id="tile-empinbox" tabindex="0" role="button" aria-label="Open Employee Inbox" style="display:none;">
+        <span class="badge" id="tile-empinbox-badge" style="display:none;"></span>
+        <span class="icon">&#128231;</span>
+        <h3>Employee Inbox</h3>
+        <p>Email sent to the employee addresses (Amazon Seller Central): verification codes and notices.</p>
       </div>
       <div class="tile" id="tile-roster" tabindex="0" role="button" aria-label="Open Employee Roster">
         <span class="icon">&#128101;</span>
@@ -8706,6 +8712,25 @@ window.openEmailDraft = function(o){
   </div>
 
   <!-- ============ ATTENDANCE TRACKING DETAIL ============ -->
+  <div id="empInboxDetail" style="display:none;">
+    <button class="backlink" id="empInboxBackBtn">&larr; Dispatch</button>
+    <div class="wrap">
+      <div class="detail-head">
+        <h2 class="display">Employee Inbox</h2>
+        <p>Email sent to the company&rsquo;s employee addresses (like crew.jsmith@hensonhauling.com) for Amazon Seller Central. Codes are pulled out for you, and a text alert goes to the Team Messages forwarding numbers.</p>
+      </div>
+      <div class="panel">
+        <p class="form-note" id="ei_setupNote" style="display:none; color:#8a6100; font-weight:600;">Not connected yet &mdash; the Cloudflare Email Worker still needs to be set up.</p>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+          <select id="ei_filter" style="padding:6px 8px; max-width:100%;"></select>
+          <button type="button" id="ei_refresh" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer;">Refresh</button>
+          <button type="button" id="ei_markAll" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer;">Mark all read</button>
+        </div>
+        <div id="ei_list"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="injuryDetail" style="display:none;">
     <button class="backlink" id="injuryBackBtn">&larr; Dispatch</button>
     <div class="wrap">
@@ -10562,6 +10587,7 @@ window.openEmailDraft = function(o){
   const paperworkDetail = document.getElementById('paperworkDetail');
   const attendanceDetail = document.getElementById('attendanceDetail');
   const injuryDetail = document.getElementById('injuryDetail');
+  const empInboxDetail = document.getElementById('empInboxDetail');
   const complianceDetail = document.getElementById('complianceDetail');
   const settingsDetail = document.getElementById('settingsDetail');
   const mailListDetail = document.getElementById('mailListDetail');
@@ -10615,6 +10641,8 @@ window.openEmailDraft = function(o){
     attendanceDetail.style.display = view === 'attendance' ? 'block' : 'none';
     injuryDetail.style.display = view === 'injuries' ? 'block' : 'none';
     if(view === 'injuries') window.loadInjuries && window.loadInjuries();
+    empInboxDetail.style.display = view === 'empinbox' ? 'block' : 'none';
+    if(view === 'empinbox') window.loadEmpInbox && window.loadEmpInbox();
     const compArea = /^compliance-(business|trucks|drivers|insurance)$/.exec(view);
     complianceDetail.style.display = (view === 'compliance' || compArea) ? 'block' : 'none';
     settingsDetail.style.display = view === 'settings' ? 'block' : 'none';
@@ -11364,6 +11392,9 @@ window.openEmailDraft = function(o){
   document.getElementById('attendanceBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('injuryBackBtn').addEventListener('click', ()=> history.back());
   document.getElementById('tile-injuries').addEventListener('click', ()=> navigateTo('injuries'));
+  document.getElementById('tile-empinbox').addEventListener('click', ()=> navigateTo('empinbox'));
+  document.getElementById('empInboxBackBtn').addEventListener('click', ()=> history.back());
+  if((localStorage.getItem('henson_auth_role') || '') === 'admin') document.getElementById('tile-empinbox').style.display = '';
   document.getElementById('tile-injuries').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); navigateTo('injuries'); }});
 
   document.querySelectorAll('.comp-area-tile').forEach(t => {
@@ -18013,6 +18044,73 @@ window.openEmailDraft = function(o){
     }
   })();
 
+  // ---------- Employee Inbox (email to the company's employee addresses) ----------
+  (function(){
+    let eiMsgs = [], eiFilter = '', eiOpen = null;
+    const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const when = iso => { const d = new Date(iso), now = new Date(); return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+    const fromName = f => { const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>/.exec(f || ''); return m ? (m[1].trim() || m[2]) : (f || ''); };
+    function updateBadge(){
+      const n = eiMsgs.filter(m => !m.read).length, b = document.getElementById('tile-empinbox-badge');
+      if(b){ b.textContent = n + ' new'; b.style.display = n ? 'inline-block' : 'none'; }
+    }
+    window.refreshEmpInboxBadge = async function(){
+      if((localStorage.getItem('henson_auth_role') || '') !== 'admin') return;
+      try{ const r = await fetch(`${API_BASE}/api/admin/employee-inbox`, { headers: authHeaders() }); if(!r.ok) return; eiMsgs = (await r.json()).messages || []; updateBadge(); }catch(e){}
+    };
+    window.loadEmpInbox = async function(){
+      const box = document.getElementById('ei_list'); box.innerHTML = '<p class="form-note">Loading\u2026</p>';
+      try{
+        const r = await fetch(`${API_BASE}/api/admin/employee-inbox`, { headers: authHeaders() }); const d = await r.json();
+        if(!r.ok) throw new Error(d.error);
+        eiMsgs = d.messages || []; document.getElementById('ei_setupNote').style.display = d.configured ? 'none' : 'block';
+      }catch(err){ box.innerHTML = '<p class="form-note">Could not load the inbox.</p>'; return; }
+      render(); updateBadge();
+    };
+    function render(){
+      const addrs = [...new Set(eiMsgs.map(m => m.to).filter(Boolean))].sort();
+      const sel = document.getElementById('ei_filter');
+      sel.innerHTML = `<option value="">All addresses (${eiMsgs.length})</option>` + addrs.map(a => `<option value="${esc(a)}" ${a === eiFilter ? 'selected' : ''}>${esc(a)} (${eiMsgs.filter(m => m.to === a).length})</option>`).join('');
+      const list = eiMsgs.filter(m => !eiFilter || m.to === eiFilter);
+      document.getElementById('ei_list').innerHTML = list.length ? list.map(m => `
+        <div class="ei-row" data-id="${esc(m.id)}" style="border:1px solid ${eiOpen === m.id ? '#9fb8a7' : 'var(--line)'}; border-radius:10px; padding:10px 12px; margin:0 0 8px; background:#fff; cursor:pointer;">
+          <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+            <div style="min-width:0; ${m.read ? '' : 'font-weight:700;'}">${m.read ? '' : '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#b3261e; margin-right:6px;"></span>'}${esc(m.subject)}</div>
+            <div style="font-size:12px; color:var(--muted); white-space:nowrap;">${esc(when(m.at))}</div></div>
+          <div style="display:flex; justify-content:space-between; gap:10px; margin-top:3px; font-size:12.5px; color:var(--muted);">
+            <span>To <strong style="color:var(--charcoal); font-weight:600;">${esc(m.to.split('@')[0])}</strong> \u00b7 from ${esc(fromName(m.from))}</span>
+            ${m.code ? `<span style="font-family:'IBM Plex Mono',monospace; font-weight:800; color:#00612C; background:#e3f4ea; border-radius:6px; padding:1px 8px;">${esc(m.code)}</span>` : ''}</div>
+          ${eiOpen === m.id ? `<div style="margin-top:10px; border-top:1px solid var(--line); padding-top:10px; cursor:auto;" onclick="event.stopPropagation()">
+            ${m.code ? `<div style="display:flex; align-items:center; gap:12px; margin:0 0 10px;"><div style="font-size:12px; color:var(--muted); font-weight:700;">CODE</div><div style="font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:800; letter-spacing:.12em; color:#00612C;">${esc(m.code)}</div><button type="button" class="ei-copy" data-code="${esc(m.code)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer;">Copy</button></div>` : ''}
+            <div style="font-size:12.5px; color:var(--muted); margin-bottom:8px;">From ${esc(m.from)} \u00b7 to ${esc(m.to)} \u00b7 ${esc(new Date(m.at).toLocaleString())}</div>
+            ${m.html ? `<iframe class="ei-frame" sandbox="" referrerpolicy="no-referrer" style="width:100%; height:480px; border:1px solid var(--line); border-radius:8px; background:#fff;"></iframe>` : `<div style="white-space:pre-wrap; font-size:14px; line-height:1.5;">${esc(m.text)}</div>`}
+            <div style="display:flex; gap:8px; margin-top:8px;"><button type="button" class="ei-del" data-id="${esc(m.id)}" style="background:#fff; border:1px solid #f0d2cd; color:#b0473b; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px;">Delete</button></div>
+          </div>` : ''}
+        </div>`).join('') : `<p class="form-note" style="margin:0;">No emails yet${eiFilter ? ' for this address' : ''}.</p>`;
+      // the email itself, isolated in a sandboxed frame (no scripts, no outside requests from it)
+      const fr = document.querySelector('#ei_list .ei-frame');
+      if(fr){ const m = eiMsgs.find(x => x.id === eiOpen); fr.srcdoc = `<!doctype html><meta charset="utf-8"><base target="_blank"><style>body{font-family:Arial,sans-serif;font-size:14px;margin:12px;}img{max-width:100%;height:auto;}</style>` + (m.html || ''); }
+      document.querySelectorAll('#ei_list .ei-row').forEach(row => row.onclick = async () => {
+        const id = row.dataset.id; eiOpen = eiOpen === id ? null : id;
+        const m = eiMsgs.find(x => x.id === id);
+        if(m && !m.read){ m.read = true; updateBadge(); fetch(`${API_BASE}/api/admin/employee-inbox/read`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ ids: [id] }) }).catch(() => {}); }
+        render();
+      });
+      document.querySelectorAll('#ei_list .ei-copy').forEach(b => b.onclick = async () => { try{ await navigator.clipboard.writeText(b.dataset.code); b.textContent = 'Copied \u2713'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); }catch(e){} });
+      document.querySelectorAll('#ei_list .ei-del').forEach(b => b.onclick = async () => {
+        if(!confirm('Delete this email?')) return;
+        const r = await fetch(`${API_BASE}/api/admin/employee-inbox/delete`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ ids: [b.dataset.id] }) });
+        if(r.ok){ eiMsgs = eiMsgs.filter(m => m.id !== b.dataset.id); eiOpen = null; render(); updateBadge(); } else alert('Could not delete.');
+      });
+    }
+    document.getElementById('ei_filter').addEventListener('change', e => { eiFilter = e.target.value; eiOpen = null; render(); });
+    document.getElementById('ei_refresh').addEventListener('click', () => window.loadEmpInbox());
+    document.getElementById('ei_markAll').addEventListener('click', async () => {
+      await fetch(`${API_BASE}/api/admin/employee-inbox/read`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ all: true }) }).catch(() => {});
+      eiMsgs.forEach(m => { m.read = true; }); render(); updateBadge();
+    });
+    setTimeout(() => window.refreshEmpInboxBadge(), 3000);
+  })();
   // ---------- Home Tile Reordering (admin, "wiggle mode") ----------
   let tileWiggleActive = false;
   let tileSortableInstances = [];
