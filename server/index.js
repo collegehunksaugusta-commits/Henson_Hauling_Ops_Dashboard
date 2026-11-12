@@ -6936,6 +6936,108 @@ function twilioSignatureOk(req) {
   try { return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig)); } catch (e) { return false; }
 }
 // Everyone on the roster, with phone, role and opt-out status.
+// ======================================================================
+// EMPLOYEE INBOX: email sent to the company's employee addresses (e.g.
+// crew.jsmith@hensonhauling.com, used for Amazon Seller Central) arrives
+// here from a Cloudflare Email Worker, is kept for the dashboard, and a
+// text alert goes to the office's forwarding numbers.
+// ======================================================================
+const EMP_INBOX_KEY = 'employee-inbox';
+function mimeDecodeWords(s) {
+  return String(s || '').replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (m, cs, enc, txt) => {
+    try {
+      const buf = /b/i.test(enc) ? Buffer.from(txt, 'base64') : Buffer.from(txt.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (x, h) => String.fromCharCode(parseInt(h, 16))), 'latin1');
+      return new TextDecoder(cs.toLowerCase()).decode(buf);
+    } catch (e) { return txt; }
+  }).replace(/\?=\s+=\?/g, '');
+}
+function mimeHeaders(block) {
+  const h = {};
+  block.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/).forEach(line => { const i = line.indexOf(':'); if (i > 0) { const k = line.slice(0, i).trim().toLowerCase(); if (!(k in h)) h[k] = line.slice(i + 1).trim(); } });
+  return h;
+}
+function mimeParam(v, name) { const m = new RegExp(name + '\\s*=\\s*"?([^";]+)"?', 'i').exec(v || ''); return m ? m[1] : ''; }
+function mimeBodyToText(body, headers) {
+  const te = String(headers['content-transfer-encoding'] || '').toLowerCase(), cs = (mimeParam(headers['content-type'], 'charset') || 'utf-8').toLowerCase();
+  let buf;
+  if (te === 'base64') buf = Buffer.from(body.replace(/\s+/g, ''), 'base64');
+  else if (te === 'quoted-printable') buf = Buffer.from(body.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (x, hh) => String.fromCharCode(parseInt(hh, 16))), 'latin1');
+  else buf = Buffer.from(body, 'latin1');
+  try { return new TextDecoder(cs).decode(buf); } catch (e) { return buf.toString('utf8'); }
+}
+// Collects the first text/plain and text/html parts (walks multipart).
+function mimeParse(raw, out = { text: '', html: '' }, depth = 0) {
+  const sep = raw.search(/\r?\n\r?\n/);
+  const headerBlock = sep < 0 ? raw : raw.slice(0, sep), body = sep < 0 ? '' : raw.slice(sep).replace(/^\r?\n\r?\n/, '');
+  const h = mimeHeaders(headerBlock), ct = String(h['content-type'] || 'text/plain').toLowerCase();
+  if (depth === 0) out.headers = h;
+  if (/^multipart\//.test(ct) && depth < 6) {
+    const b = mimeParam(h['content-type'], 'boundary');
+    if (b) body.split('--' + b).slice(1).forEach(part => { if (!/^--/.test(part)) mimeParse(part.replace(/^\r?\n/, ''), out, depth + 1); });
+  } else if (/^text\/html/.test(ct) && !out.html && !/attachment/i.test(h['content-disposition'] || '')) out.html = mimeBodyToText(body, h);
+  else if (/^text\/plain/.test(ct) && !out.text && !/attachment/i.test(h['content-disposition'] || '')) out.text = mimeBodyToText(body, h);
+  return out;
+}
+const htmlToText = html => String(html || '').replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi, '\n').replace(/<[^>]+>/g, ' ')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&#(\d+);/g, (m, n) => String.fromCharCode(n))
+  .replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+// A verification / one-time code, if the email has one.
+function findEmailCode(subject, text) {
+  const s = `${subject}\n${text}`;
+  const near = /(code|passcode|verification|verify|one[- ]time|OTP|PIN)[^0-9]{0,120}?\b([0-9]{4,8})\b/i.exec(s) || /\b([0-9]{4,8})\b[^0-9\n]{0,40}(is your|is the|code)/i.exec(s);
+  if (!near) return '';
+  const code = /^[0-9]+$/.test(near[2] || '') ? near[2] : near[1];
+  return /^(19|20)\d\d$/.test(code) ? '' : code;   // not a year
+}
+app.post('/api/inbound-email', async (req, res) => {
+  try {
+    const token = process.env.INBOUND_EMAIL_TOKEN;
+    const given = String(req.headers['x-inbound-token'] || '');
+    if (!token || given.length !== token.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(token))) return res.status(401).json({ error: 'Not allowed.' });
+    const { to, from, raw } = req.body || {};
+    if (!raw) return res.status(400).json({ error: 'No message.' });
+    const rawStr = Buffer.from(String(raw), 'base64').toString('latin1').slice(0, 6_000_000);
+    const p = mimeParse(rawStr), hd = p.headers || {};
+    const subject = mimeDecodeWords(hd.subject || '(no subject)').slice(0, 300);
+    const text = (p.text || htmlToText(p.html)).slice(0, 20000);
+    const msg = { id: 'em_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex'), at: new Date().toISOString(),
+      to: String(to || hd.to || '').toLowerCase().slice(0, 200), from: mimeDecodeWords(hd.from || from || '').slice(0, 200),
+      subject, text, html: String(p.html || '').slice(0, 250000), code: findEmailCode(subject, text), read: false };
+    const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]');
+    list.push(msg);
+    await redis.set(EMP_INBOX_KEY, JSON.stringify(list.slice(-300)));
+    console.log(`[employee-inbox] ${msg.to} <- ${msg.from}: ${subject}${msg.code ? ' (code)' : ''}`);
+    res.json({ ok: true });
+    // Text alert to the office's forwarding numbers.
+    try {
+      const st = await getAppSettings();
+      if ((st.employeeInbox || {}).textAlerts === false || !twilioReady()) return;
+      const nums = [...new Set(String((st.teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].slice(0, 5);
+      const who = msg.to.split('@')[0] || 'employee';
+      const body = msg.code ? `Employee Inbox: email for ${who} \u2014 code ${msg.code} (${subject.slice(0, 60)})` : `Employee Inbox: email for ${who} \u2014 ${subject.slice(0, 100)}`;
+      for (const n of nums) await twilioSend(n, body).catch(e => console.error('Inbox alert failed:', e.message));
+    } catch (e) {}
+  } catch (err) { console.error('Inbound email failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+app.get('/api/admin/employee-inbox', requireAuth, requireAdmin, async (req, res) => {
+  try { const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]'); res.json({ messages: list.slice().reverse(), configured: !!process.env.INBOUND_EMAIL_TOKEN }); }
+  catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/employee-inbox/read', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const ids = new Set(((req.body || {}).ids || []).map(String)), all = !!(req.body || {}).all;
+    const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]'); list.forEach(m => { if (all || ids.has(m.id)) m.read = true; });
+    await redis.set(EMP_INBOX_KEY, JSON.stringify(list)); res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+app.post('/api/admin/employee-inbox/delete', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const ids = new Set(((req.body || {}).ids || []).map(String));
+    const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]').filter(m => !ids.has(m.id));
+    await redis.set(EMP_INBOX_KEY, JSON.stringify(list)); res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not delete.' }); }
+});
+
 // ---- Text-message consent (opt-in), collected in the HUNK Portal ----
 // The exact wording each employee agreed to is kept with their answer.
 const TT_CONSENT_KEY = 'team-text-consents';
