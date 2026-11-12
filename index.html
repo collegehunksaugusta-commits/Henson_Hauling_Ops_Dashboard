@@ -418,6 +418,22 @@
     text-transform:uppercase; color:var(--muted); border-bottom:2px solid var(--line); padding:8px 10px;
   }
   td{padding:9px 10px; border-bottom:1px solid var(--line); font-family:'Inter',sans-serif;}
+  /* ---------- Tables always fit their page (see the fitter script) ----------
+     When a table would run past the edge of its page, it's tightened in
+     steps until it fits: tbl-fit-1 (spacing), -2 (wrapping, shrinking text
+     boxes), -3 (smaller type). Tables that already fit are untouched. */
+  table.tbl-fit-1 th, table.tbl-fit-1 td{ padding:6px 5px; }
+  table.tbl-fit-1 thead th{ letter-spacing:.02em; white-space:normal; }
+  table.tbl-fit-1 td input:not([type=checkbox]):not([type=radio]):not([type=hidden]), table.tbl-fit-1 td select, table.tbl-fit-1 td textarea{ width:100% !important; min-width:6.5em; box-sizing:border-box; }
+  table.tbl-fit-1 td input[type=email]{ min-width:13.5em !important; }
+  table.tbl-fit-2{ font-size:12px; }
+  table.tbl-fit-2 th, table.tbl-fit-2 td{ padding:5px 3px; white-space:normal !important; overflow-wrap:break-word; }
+  table.tbl-fit-1 td button, table.tbl-fit-1 td .btn, table.tbl-fit-1 th button{ white-space:nowrap !important; }
+  table.tbl-fit-2 td input:not([type=checkbox]):not([type=radio]):not([type=hidden]), table.tbl-fit-2 td select{ font-size:12px !important; padding:4px !important; min-width:4.5em; }
+  table.tbl-fit-3{ font-size:11px; }
+  table.tbl-fit-3 th, table.tbl-fit-3 td{ padding:4px 2px; }
+  table.tbl-fit-3 thead th{ font-size:9.5px; letter-spacing:0; }
+  table.tbl-fit-3 td input:not([type=checkbox]):not([type=radio]):not([type=hidden]), table.tbl-fit-3 td select{ font-size:11px !important; min-width:3.5em; }
   td.num{font-family:'IBM Plex Mono',monospace; text-align:right;}
   tr.ot-row{background:#FFF6EC;}
   .ot-tag{
@@ -3273,11 +3289,12 @@ window.openEmailDraft = function(o){
     if(!driverToken) return;
     let d;
     try{ const r = await fetch(API_BASE_AUTH + '/api/crew/bio', { headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) return; d = await r.json(); }catch(err){ return; }
+    const answersDone = (d.answers || []).filter(a => String(a || '').trim().length >= 3).length === 3;
     const card = d.pending ? `<div style="background:#fff; border:2px solid #f0a35b; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
         <div style="font-size:12px; font-weight:800; letter-spacing:.05em; color:#b4610f;">\ud83d\udcf8 ACTION NEEDED</div>
         <div style="font-size:16px; font-weight:800; margin-top:3px;">Your Bio &amp; Photo</div>
-        <div style="font-size:13.5px; color:var(--muted); margin-top:3px;">Answer 3 quick questions and add a photo for your profile. About 5 minutes.</div>
-        <button type="button" class="bioStartBtn" style="width:100%; margin-top:10px; padding:13px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Start</button></div>` : '';
+        ${answersDone ? `<div style="font-size:13.5px; margin-top:3px;"><span style="color:#00612C; font-weight:700;">\u2713 Questions done</span> \u2014 just your photo left.</div>` : `<div style="font-size:13.5px; color:var(--muted); margin-top:3px;">Answer 3 quick questions and add a photo for your profile. About 5 minutes.</div>`}
+        <button type="button" class="bioStartBtn" style="width:100%; margin-top:10px; padding:13px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">${answersDone ? '\ud83d\udcf7 Add my photo' : (d.answers || []).some(Boolean) ? 'Continue' : 'Start'}</button></div>` : '';
     document.querySelectorAll('.crewBioTask').forEach(box => { box.innerHTML = card; box.querySelectorAll('.bioStartBtn').forEach(b => b.onclick = () => openBioFlow(d)); });
     // Once a day until it's done: a full-screen reminder.
     const nagKey = 'bio_nag_' + (localStorage.getItem('henson_driver_name') || ''), today = new Date().toLocaleDateString('en-CA');
@@ -3286,8 +3303,8 @@ window.openEmailDraft = function(o){
       ov.style.cssText = 'position:fixed; inset:0; z-index:199990; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:18px;';
       ov.innerHTML = `<div style="background:#fff; border-radius:16px; max-width:400px; width:100%; padding:22px 20px; text-align:center;">
         <div style="font-size:44px;">\ud83d\udcf8</div>
-        <div style="font-size:20px; font-weight:800; margin-top:6px;">We need your bio &amp; photo</div>
-        <div style="font-size:14.5px; color:var(--muted); margin:8px 0 16px;">It\u2019s for your College Hunks profile. Three quick questions and one photo \u2014 about 5 minutes.</div>
+        <div style="font-size:20px; font-weight:800; margin-top:6px;">${answersDone ? 'We still need your photo' : 'We need your bio &amp; photo'}</div>
+        <div style="font-size:14.5px; color:var(--muted); margin:8px 0 16px;">${answersDone ? 'Your answers are saved \u2014 just add one photo to finish.' : 'It\u2019s for your College Hunks profile. Three quick questions and one photo \u2014 about 5 minutes.'}</div>
         <button type="button" id="bioNagGo" style="width:100%; padding:14px; font-size:17px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Do it now</button>
         <button type="button" id="bioNagLater" style="width:100%; margin-top:8px; padding:11px; font-size:14px; background:#fff; border:1px solid var(--line); border-radius:10px;">Remind me later</button></div>`;
       document.body.appendChild(ov);
@@ -3311,8 +3328,20 @@ window.openEmailDraft = function(o){
         <p style="margin:0 0 12px; font-size:14px; color:var(--muted);">A few sentences each is perfect. We\u2019ll turn your answers into a short bio for your profile.</p>
         ${d.questions.map((q, k) => `<label style="display:block; font-weight:700; font-size:15px; margin:12px 0 4px; text-transform:none; letter-spacing:normal;">${k + 1}. ${driverEsc(q)}</label>
           <textarea class="bioAns" data-k="${k}" rows="3" maxlength="800" style="width:100%; box-sizing:border-box; padding:10px 12px; font-size:16px; font-family:inherit; border:1px solid var(--line); border-radius:10px;">${driverEsc(answers[k])}</textarea>`).join('')}
-        <p id="bioQErr" style="color:#b3261e; font-weight:700; margin:8px 0 0;"></p>${btn('bioQNext', 'Next: your photo')}`);
+        <p id="bioQErr" style="color:#b3261e; font-weight:700; margin:8px 0 0;"></p>${btn('bioQNext', 'Next: your photo')}${btn('bioQSave', 'Save \u2014 I\u2019ll do the photo later', false)}`);
       wire();
+      ov.querySelector('#bioQSave').onclick = async () => {
+        ov.querySelectorAll('.bioAns').forEach(t => { answers[Number(t.dataset.k)] = t.value.trim(); });
+        const err = ov.querySelector('#bioQErr'), b = ov.querySelector('#bioQSave');
+        if(!answers.some(Boolean)){ err.textContent = 'Answer at least one question first.'; return; }
+        b.disabled = true; b.textContent = 'Saving\u2026';
+        try{
+          const r = await fetch(API_BASE_AUTH + '/api/crew/bio', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ answers, saveAnswersOnly: true }) });
+          const res = await r.json().catch(() => ({})); if(!r.ok) throw new Error(res.error || 'Could not save \u2014 try again.');
+          d.answers = answers.slice(); ov.remove(); loadBioTask();
+          alert(answers.every(a => a.length >= 3) ? '\u2713 Your answers are saved. Add your photo whenever you can \u2014 we\u2019ll keep reminding you until it\u2019s in.' : '\u2713 Saved. Finish the rest whenever you can \u2014 we\u2019ll keep reminding you until it\u2019s all done.');
+        }catch(err2){ b.disabled = false; b.textContent = 'Save \u2014 I\u2019ll do the photo later'; err.textContent = err2.message; }
+      };
       ov.querySelector('#bioQNext').onclick = () => {
         ov.querySelectorAll('.bioAns').forEach(t => { answers[Number(t.dataset.k)] = t.value.trim(); });
         if(answers.some(a => a.length < 3)){ ov.querySelector('#bioQErr').textContent = 'Please answer all three questions.'; return; }
@@ -3328,8 +3357,10 @@ window.openEmailDraft = function(o){
           \ud83d\ude42 Chest up, look at the camera, and smile.</div>
         <p style="font-size:13px; color:var(--muted); margin:0 0 6px;">We\u2019ll swap the background for a College Hunks orange one automatically.</p>
         <label style="display:block; text-align:center; padding:16px; font-size:16.5px; font-weight:800; background:var(--brand-green); color:#fff; border-radius:10px; cursor:pointer; text-transform:none; letter-spacing:normal;">\ud83d\udcf7 Take or choose a photo<input type="file" id="bioFile" accept="image/*" style="display:none;"></label>
-        <div id="bioPhotoArea" style="margin-top:14px;"></div>`);
+        <div id="bioPhotoArea" style="margin-top:14px;"></div>
+        <button type="button" id="bioBackQ" style="display:block; margin:14px auto 0; background:none; border:none; color:#00612C; font-weight:700; text-decoration:underline; font-size:14px;">\u2190 Edit my answers</button>`);
       wire();
+      ov.querySelector('#bioBackQ').onclick = stepQuestions;
       ov.querySelector('#bioFile').onchange = async e => {
         const f = e.target.files && e.target.files[0]; if(!f) return;
         const area = ov.querySelector('#bioPhotoArea');
@@ -3359,7 +3390,7 @@ window.openEmailDraft = function(o){
       }catch(err){ b.disabled = false; b.textContent = 'Looks good \u2014 Submit'; alert(err.message); }
     }
     document.body.appendChild(ov);
-    stepQuestions();
+    if(answers.filter(a => String(a || '').trim().length >= 3).length === 3) stepPhoto(); else stepQuestions();
   }
   // ---- Links the office sent this employee (e.g. an Amazon background check) ----
   async function loadCrewLinks(){
@@ -11468,7 +11499,7 @@ window.openEmailDraft = function(o){
     const b = rosterBios[bioKeyOf(n)], esc = rosterManualEsc;   // anyone on the roster can be asked (owners too, one at a time)
     const btn = (label, cls, style) => `<button type="button" class="${cls}" data-name="${esc(n)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; ${style || ''}">${label}</button>`;
     if(!b || b.status === 'none') return btn('Request', 'bio-req');
-    if(b.status === 'requested') return `<span style="color:#9a6b16; font-weight:700;">Requested</span><div style="font-size:11.5px; color:var(--muted);">${esc(new Date(b.requestedAt).toLocaleDateString())}${b.auto ? ' \u00b7 auto' : ''}</div>`;
+    if(b.status === 'requested') return `<span style="color:#9a6b16; font-weight:700;">Requested</span><div style="font-size:11.5px; color:var(--muted);">${esc(new Date(b.requestedAt).toLocaleDateString())}${b.auto ? ' \u00b7 auto' : ''}${b.answersSavedAt ? ' \u00b7 <span style="color:#00612C; font-weight:700;">questions done</span>' : ''}</div>`;
     if(b.status === 'submitted') return btn('\ud83d\udcf8 Review', 'bio-view', 'border-color:#f0a35b; color:#b4610f; font-weight:800;');
     return `<span style="color:#00612C; font-weight:700;">\u2713 Approved</span> ${btn('View', 'bio-view')}`;
   };
@@ -18430,6 +18461,50 @@ window.openEmailDraft = function(o){
       eiMsgs.forEach(m => { m.read = true; }); render(); updateBadge();
     });
     setTimeout(() => window.refreshEmpInboxBadge(), 3000);
+  })();
+  // ---------- Table fitter: no table ever runs past the edge of its page ----------
+  // Whenever tables appear or change, or the window is resized, each visible
+  // table that's wider than the space it sits in gets, in order:
+  //   1. more room -- its page is allowed to widen toward the screen's width
+  //      (pages are normally capped near 1,080px), then
+  //   2. tightening in steps (tbl-fit-1 .. -3) until it fits.
+  // Everything is re-worked out each time, so pages that don't need it look
+  // exactly as before. Phones (tables scroll there on purpose) and the
+  // spreadsheet-style lists (.mail-table-wrap) are left alone.
+  (function(){
+    const LEVELS = ['tbl-fit-1', 'tbl-fit-2', 'tbl-fit-3'];
+    const contentWidth = el => { const cs = getComputedStyle(el); return el.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0); };
+    const tooWide = t => t.offsetWidth > contentWidth(t.parentElement) + 1 || t.scrollWidth > t.clientWidth + 1;
+    const widened = new Set();
+    function widenFor(t){
+      const room = Math.min(window.innerWidth - 40, 1600);
+      for(let el = t.parentElement; el && el !== document.body; el = el.parentElement){
+        const mws = getComputedStyle(el).maxWidth;   // only a fixed (px) cap holds a page in; 'none' / '100%' don't
+        const mw = /px$/.test(mws) ? parseFloat(mws) : 0;
+        if(mw && mw < room && el.offsetWidth >= mw - 2){
+          if(!widened.has(el)){ el.dataset.fitOrigMaxWidth = el.style.maxWidth || ''; widened.add(el); }
+          el.style.maxWidth = room + 'px';
+          return;
+        }
+      }
+    }
+    function fitAll(){
+      // start from scratch
+      widened.forEach(el => { el.style.maxWidth = el.dataset.fitOrigMaxWidth || ''; delete el.dataset.fitOrigMaxWidth; });
+      widened.clear();
+      document.querySelectorAll('table.tbl-fit-1, table.tbl-fit-2, table.tbl-fit-3').forEach(t => LEVELS.forEach(c => t.classList.remove(c)));
+      if(window.innerWidth <= 600) return;
+      const tables = [...document.querySelectorAll('table')].filter(t => t.offsetParent && t.parentElement && !t.closest('.mail-table-wrap') && t.dataset.noFit === undefined);
+      tables.forEach(t => { try{ if(tooWide(t)) widenFor(t); }catch(e){} });
+      tables.forEach(t => { try{ for(const c of LEVELS){ if(!tooWide(t)) break; t.classList.add(c); } }catch(e){} });
+    }
+    window.fitTablesToPage = fitAll;
+    let timer = null, busy = false;
+    const soon = () => { clearTimeout(timer); timer = setTimeout(() => { busy = true; try{ fitAll(); } finally { setTimeout(() => { busy = false; }, 0); } }, 120); };
+    new MutationObserver(() => { if(!busy) soon(); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+    window.addEventListener('resize', soon);
+    window.addEventListener('load', soon);
+    setTimeout(soon, 1500);
   })();
   // ---------- Home Tile Reordering (admin, "wiggle mode") ----------
   let tileWiggleActive = false;
