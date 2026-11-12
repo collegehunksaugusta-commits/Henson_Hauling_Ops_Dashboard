@@ -7014,7 +7014,7 @@ app.post('/api/inbound-email', async (req, res) => {
       if ((st.employeeInbox || {}).textAlerts === false || !twilioReady()) return;
       const nums = [...new Set(String((st.teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].slice(0, 5);
       const who = msg.to.split('@')[0] || 'employee';
-      const body = msg.code ? `Employee Inbox: email for ${who} \u2014 code ${msg.code} (${subject.slice(0, 60)})` : `Employee Inbox: email for ${who} \u2014 ${subject.slice(0, 100)}`;
+      const body = msg.code ? `Amazon Service: email for ${who} \u2014 code ${msg.code} (${subject.slice(0, 60)})` : `Amazon Service: email for ${who} \u2014 ${subject.slice(0, 100)}`;
       for (const n of nums) await twilioSend(n, body).catch(e => console.error('Inbox alert failed:', e.message));
     } catch (e) {}
   } catch (err) { console.error('Inbound email failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
