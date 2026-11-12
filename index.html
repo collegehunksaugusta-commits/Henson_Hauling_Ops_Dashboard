@@ -11465,8 +11465,7 @@ window.openEmailDraft = function(o){
   // Same matching as the server (nameCoreKey): middle initials and periods dropped.
   const bioKeyOf = n => String(n || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ').replace(/[^a-z0-9]+/g, '-');
   window.bioCellHtml = function(n){
-    if(window.empDuties && window.empDuties.classify(n, (rosterRoles || {})[n]) === 'owner') return '<span style="color:var(--muted);">\u2014</span>';
-    const b = rosterBios[bioKeyOf(n)], esc = rosterManualEsc;
+    const b = rosterBios[bioKeyOf(n)], esc = rosterManualEsc;   // anyone on the roster can be asked (owners too, one at a time)
     const btn = (label, cls, style) => `<button type="button" class="${cls}" data-name="${esc(n)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; ${style || ''}">${label}</button>`;
     if(!b || b.status === 'none') return btn('Request', 'bio-req');
     if(b.status === 'requested') return `<span style="color:#9a6b16; font-weight:700;">Requested</span><div style="font-size:11.5px; color:var(--muted);">${esc(new Date(b.requestedAt).toLocaleDateString())}${b.auto ? ' \u00b7 auto' : ''}</div>`;
