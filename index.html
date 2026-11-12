@@ -616,6 +616,7 @@
       <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
       <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Captain. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
     </div>
+    <div class="crewBioTask"></div>
     <div class="crewActionItems"></div>
     <div id="dqNag" style="display:none; background:#fff; border:2px solid #b3261e; border-radius:10px; padding:14px 16px; margin-bottom:16px;"></div>
     <button type="button" id="esignTile" style="display:none; width:100%; text-align:left; background:#fff; border:2px solid #b3261e; border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; align-items:center; gap:14px;">
@@ -789,6 +790,7 @@
       <div style="font-size:20px; font-weight:800; line-height:1.2;">&#128075; Welcome, <span class="portal-welcome-first"></span>!</div>
       <div style="font-size:12.5px; margin-top:4px; opacity:.95;">Signed in as <strong class="portal-welcome-full"></strong> &middot; Wingman. Not you? <button type="button" class="portal-welcome-logout" style="background:none; border:none; padding:0; color:#fff; text-decoration:underline; font-size:12.5px; cursor:pointer; font-family:inherit;">Log out</button></div>
     </div>
+    <div class="crewBioTask"></div>
     <div class="crewActionItems"></div>
     <button type="button" class="my-money-tile" style="width:100%; text-align:left; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:14px 16px; margin-bottom:16px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:14px;">
       <span style="font-size:34px; line-height:1;">&#128176;</span>
@@ -3204,6 +3206,161 @@ window.openEmailDraft = function(o){
     try{ const d = await ttFetch(); const on = ttLatest(d) > (localStorage.getItem(ttSeenKey()) || ''); document.querySelectorAll('.ttCrewDot').forEach(x => { x.style.display = on ? 'block' : 'none'; }); }catch(err){}
   }
   window.refreshTeamDot = refreshTeamDot;
+  // ---------- Bio photo: replace the background with a soft orange gradient ----------
+  // Google's MediaPipe selfie segmenter runs right in the browser (free, no
+  // upload anywhere); if it can't load, the original photo is used.
+  (function(){
+    const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+    const MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
+    let segP = null;
+    function getSegmenter(){
+      if(!segP) segP = (async () => {
+        const v = await import(MP + '/vision_bundle.mjs');
+        const files = await v.FilesetResolver.forVisionTasks(MP + '/wasm');
+        return await v.ImageSegmenter.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', outputConfidenceMasks: true, outputCategoryMask: false });
+      })().catch(err => { segP = null; throw err; });
+      return segP;
+    }
+    const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+    // The soft orange backdrop: a warm radial glow, gentle diagonal light bands, soft edges.
+    function paintBackdrop(ctx, w, h){
+      const g = ctx.createRadialGradient(w * 0.5, h * 0.32, Math.min(w, h) * 0.05, w * 0.5, h * 0.45, Math.max(w, h) * 0.85);
+      g.addColorStop(0, '#FFF3E6'); g.addColorStop(0.45, '#FCD7AE'); g.addColorStop(1, '#F2A65E');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+      ctx.save(); ctx.globalAlpha = 0.07; ctx.fillStyle = '#ffffff';
+      const step = Math.max(w, h) / 9;
+      for(let x = -h; x < w + h; x += step){ ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + step * 0.45, 0); ctx.lineTo(x + step * 0.45 - h, h); ctx.lineTo(x - h, h); ctx.closePath(); ctx.fill(); }
+      ctx.restore();
+      const v = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.45, w / 2, h / 2, Math.max(w, h) * 0.75);
+      v.addColorStop(0, 'rgba(180,90,20,0)'); v.addColorStop(1, 'rgba(180,90,20,0.18)');
+      ctx.fillStyle = v; ctx.fillRect(0, 0, w, h);
+    }
+    // Returns { photo, original, bgReplaced } -- JPEG data URLs, longest side 1280.
+    window.bioReplaceBackground = async function(src, opts = {}){
+      const img = await loadImg(src);
+      const scale = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
+      const base = document.createElement('canvas'); base.width = w; base.height = h; base.getContext('2d').drawImage(img, 0, 0, w, h);
+      const original = base.toDataURL('image/jpeg', 0.9);
+      try{
+        const seg = opts.segmenter || await getSegmenter();
+        const result = seg.segment(base);
+        const masks = result.confidenceMasks || [];
+        if(!masks.length) throw new Error('no mask');
+        const mw = masks[0].width, mh = masks[0].height, bg = masks[0].getAsFloat32Array();   // multiclass: mask 0 = background
+        const md = document.createElement('canvas'); md.width = mw; md.height = mh;
+        const mctx = md.getContext('2d'), id = mctx.createImageData(mw, mh);
+        for(let i = 0; i < bg.length; i++){ const p = 1 - bg[i]; const a = Math.max(0, Math.min(1, (p - 0.35) / 0.35)); id.data[i * 4 + 3] = Math.round(a * a * (3 - 2 * a) * 255); }
+        mctx.putImageData(id, 0, 0);
+        masks.forEach(m => { try{ m.close(); }catch(e){} });
+        let coverage = 0; for(let i = 3; i < id.data.length; i += 4) coverage += id.data[i]; coverage /= (id.data.length / 4) * 255;
+        if(coverage < 0.04 || coverage > 0.97) throw new Error('no person found');
+        const person = document.createElement('canvas'); person.width = w; person.height = h;
+        const pctx = person.getContext('2d'); pctx.drawImage(base, 0, 0);
+        pctx.globalCompositeOperation = 'destination-in'; pctx.filter = 'blur(1.2px)'; pctx.drawImage(md, 0, 0, w, h); pctx.filter = 'none';
+        const out = document.createElement('canvas'); out.width = w; out.height = h;
+        const octx = out.getContext('2d'); paintBackdrop(octx, w, h); octx.drawImage(person, 0, 0);
+        return { photo: out.toDataURL('image/jpeg', 0.9), original, bgReplaced: true };
+      }catch(err){
+        console.warn('Background replacement unavailable:', err);
+        return { photo: original, original, bgReplaced: false };
+      }
+    };
+    window.bioPaintBackdrop = paintBackdrop;
+  })();
+  // ---- Bio & Photo request (HunkWare bio + Amazon technician photo) ----
+  async function loadBioTask(){
+    if(!driverToken) return;
+    let d;
+    try{ const r = await fetch(API_BASE_AUTH + '/api/crew/bio', { headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) return; d = await r.json(); }catch(err){ return; }
+    const card = d.pending ? `<div style="background:#fff; border:2px solid #f0a35b; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
+        <div style="font-size:12px; font-weight:800; letter-spacing:.05em; color:#b4610f;">\ud83d\udcf8 ACTION NEEDED</div>
+        <div style="font-size:16px; font-weight:800; margin-top:3px;">Your Bio &amp; Photo</div>
+        <div style="font-size:13.5px; color:var(--muted); margin-top:3px;">Answer 3 quick questions and add a photo for your profile. About 5 minutes.</div>
+        <button type="button" class="bioStartBtn" style="width:100%; margin-top:10px; padding:13px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Start</button></div>` : '';
+    document.querySelectorAll('.crewBioTask').forEach(box => { box.innerHTML = card; box.querySelectorAll('.bioStartBtn').forEach(b => b.onclick = () => openBioFlow(d)); });
+    // Once a day until it's done: a full-screen reminder.
+    const nagKey = 'bio_nag_' + (localStorage.getItem('henson_driver_name') || ''), today = new Date().toLocaleDateString('en-CA');
+    if(d.pending && localStorage.getItem(nagKey) !== today && !document.getElementById('bioNag') && !document.getElementById('bioFlow')){
+      const ov = document.createElement('div'); ov.id = 'bioNag';
+      ov.style.cssText = 'position:fixed; inset:0; z-index:199990; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:18px;';
+      ov.innerHTML = `<div style="background:#fff; border-radius:16px; max-width:400px; width:100%; padding:22px 20px; text-align:center;">
+        <div style="font-size:44px;">\ud83d\udcf8</div>
+        <div style="font-size:20px; font-weight:800; margin-top:6px;">We need your bio &amp; photo</div>
+        <div style="font-size:14.5px; color:var(--muted); margin:8px 0 16px;">It\u2019s for your College Hunks profile. Three quick questions and one photo \u2014 about 5 minutes.</div>
+        <button type="button" id="bioNagGo" style="width:100%; padding:14px; font-size:17px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Do it now</button>
+        <button type="button" id="bioNagLater" style="width:100%; margin-top:8px; padding:11px; font-size:14px; background:#fff; border:1px solid var(--line); border-radius:10px;">Remind me later</button></div>`;
+      document.body.appendChild(ov);
+      try{ localStorage.setItem(nagKey, today); }catch(e){}
+      ov.querySelector('#bioNagGo').onclick = () => { ov.remove(); openBioFlow(d); };
+      ov.querySelector('#bioNagLater').onclick = () => ov.remove();
+    }
+  }
+  window.loadBioTask = loadBioTask;
+  function openBioFlow(d){
+    const answers = (d.answers || []).slice(0, 3); while(answers.length < 3) answers.push('');
+    let photo = null;
+    const ov = document.createElement('div'); ov.id = 'bioFlow';
+    ov.style.cssText = 'position:fixed; inset:0; z-index:199995; background:#f4f1ea; overflow-y:auto; -webkit-overflow-scrolling:touch;';
+    const shell = (step, inner) => `<div style="max-width:520px; margin:0 auto; padding:calc(18px + env(safe-area-inset-top, 0px)) 18px calc(28px + env(safe-area-inset-bottom, 0px));">
+        <div style="display:flex; justify-content:space-between; align-items:center;"><div style="font-size:13px; font-weight:800; color:var(--muted);">STEP ${step} OF 3</div><button type="button" id="bioClose" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 12px;">Close</button></div>${inner}</div>`;
+    const btn = (id, label, primary = true) => `<button type="button" id="${id}" style="width:100%; margin-top:12px; padding:14px; font-size:16.5px; font-weight:800; border-radius:10px; ${primary ? 'background:var(--brand-green); color:#fff; border:none;' : 'background:#fff; border:1px solid var(--line);'}">${label}</button>`;
+    const wire = () => { const c = ov.querySelector('#bioClose'); if(c) c.onclick = () => { ov.remove(); }; };
+    function stepQuestions(){
+      ov.innerHTML = shell(1, `<h2 style="margin:10px 0 4px; font-size:22px;">About you</h2>
+        <p style="margin:0 0 12px; font-size:14px; color:var(--muted);">A few sentences each is perfect. We\u2019ll turn your answers into a short bio for your profile.</p>
+        ${d.questions.map((q, k) => `<label style="display:block; font-weight:700; font-size:15px; margin:12px 0 4px; text-transform:none; letter-spacing:normal;">${k + 1}. ${driverEsc(q)}</label>
+          <textarea class="bioAns" data-k="${k}" rows="3" maxlength="800" style="width:100%; box-sizing:border-box; padding:10px 12px; font-size:16px; font-family:inherit; border:1px solid var(--line); border-radius:10px;">${driverEsc(answers[k])}</textarea>`).join('')}
+        <p id="bioQErr" style="color:#b3261e; font-weight:700; margin:8px 0 0;"></p>${btn('bioQNext', 'Next: your photo')}`);
+      wire();
+      ov.querySelector('#bioQNext').onclick = () => {
+        ov.querySelectorAll('.bioAns').forEach(t => { answers[Number(t.dataset.k)] = t.value.trim(); });
+        if(answers.some(a => a.length < 3)){ ov.querySelector('#bioQErr').textContent = 'Please answer all three questions.'; return; }
+        stepPhoto();
+      };
+    }
+    function stepPhoto(){
+      ov.innerHTML = shell(2, `<h2 style="margin:10px 0 4px; font-size:22px;">Your photo</h2>
+        <div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:10px 0; font-size:15px; line-height:1.55;">
+          \ud83d\udc55 Wear your <strong>College Hunks shirt</strong>.<br>
+          \ud83e\uddd1\u200d\ud83e\udd1d\u200d\ud83e\uddd1 Have <strong>someone else take the photo</strong> \u2014 no selfies.<br>
+          \ud83e\uddf1 Stand in front of a <strong>plain, solid-colored wall</strong> in good light.<br>
+          \ud83d\ude42 Chest up, look at the camera, and smile.</div>
+        <p style="font-size:13px; color:var(--muted); margin:0 0 6px;">We\u2019ll swap the background for a College Hunks orange one automatically.</p>
+        <label style="display:block; text-align:center; padding:16px; font-size:16.5px; font-weight:800; background:var(--brand-green); color:#fff; border-radius:10px; cursor:pointer; text-transform:none; letter-spacing:normal;">\ud83d\udcf7 Take or choose a photo<input type="file" id="bioFile" accept="image/*" style="display:none;"></label>
+        <div id="bioPhotoArea" style="margin-top:14px;"></div>`);
+      wire();
+      ov.querySelector('#bioFile').onchange = async e => {
+        const f = e.target.files && e.target.files[0]; if(!f) return;
+        const area = ov.querySelector('#bioPhotoArea');
+        area.innerHTML = '<div style="text-align:center; padding:24px; color:var(--muted);">\u2728 Working on your photo\u2026 this can take a few seconds.</div>';
+        try{
+          const src = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+          photo = await window.bioReplaceBackground(src);
+          area.innerHTML = `<img src="${photo.photo}" alt="Your photo" style="display:block; width:100%; max-width:360px; margin:0 auto; border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.12);">
+            ${photo.bgReplaced ? '' : '<p style="font-size:13px; color:#9a6b16; text-align:center; margin:8px 0 0;">The background couldn\u2019t be changed on this phone \u2014 the office will take care of it.</p>'}
+            ${btn('bioPNext', 'Looks good \u2014 Submit')}<p style="text-align:center; font-size:13.5px; color:var(--muted); margin:10px 0 0;">Not happy with it? Tap <strong>Take or choose a photo</strong> again.</p>`;
+          ov.querySelector('#bioPNext').onclick = submit;
+        }catch(err){ area.innerHTML = '<p style="color:#b3261e; font-weight:700;">That photo couldn\u2019t be opened \u2014 try another.</p>'; }
+        e.target.value = '';
+      };
+    }
+    async function submit(){
+      const b = ov.querySelector('#bioPNext'); b.disabled = true; b.textContent = 'Sending\u2026';
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/crew/bio', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken },
+          body: JSON.stringify({ answers, photo: photo.photo, photoOriginal: photo.original, bgReplaced: photo.bgReplaced }) });
+        const res = await r.json().catch(() => ({})); if(!r.ok) throw new Error(res.error || 'Could not send \u2014 try again.');
+        ov.innerHTML = shell(3, `<div style="text-align:center; margin-top:16px;"><div style="font-size:48px;">\ud83c\udf89</div><h2 style="margin:6px 0; font-size:23px;">All done \u2014 thank you!</h2>
+          <img src="${photo.photo}" alt="" style="width:160px; border-radius:12px; margin:8px 0;"></div>
+          <div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:15px; line-height:1.55;"><div style="font-size:12px; font-weight:800; color:var(--muted); margin-bottom:4px;">YOUR BIO (the office may polish it)</div>${driverEsc(res.bio || '')}</div>${btn('bioDone', 'Done')}`);
+        ov.querySelector('#bioDone').onclick = () => { ov.remove(); loadBioTask(); };
+        wire();
+      }catch(err){ b.disabled = false; b.textContent = 'Looks good \u2014 Submit'; alert(err.message); }
+    }
+    document.body.appendChild(ov);
+    stepQuestions();
+  }
   // ---- Links the office sent this employee (e.g. an Amazon background check) ----
   async function loadCrewLinks(){
     if(!driverToken) return;
@@ -3390,6 +3547,7 @@ window.openEmailDraft = function(o){
     setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
     setTimeout(() => { try{ refreshTeamDot(); }catch(e){} }, 1200);
     setTimeout(() => { try{ loadCrewLinks(); }catch(e){} }, 900);
+    setTimeout(() => { try{ loadBioTask(); }catch(e){} }, 2500);
     setTimeout(() => { try{ hunkResumeAfterReload(); }catch(e){} }, 400);   // back from a reload mid-photo?
     setTimeout(() => { try{ loadMyWorkPackages(); }catch(e){} }, 300);
     setTimeout(() => { try{ showMaterialsReminder(); }catch(e){} }, 900);
@@ -4501,6 +4659,7 @@ window.openEmailDraft = function(o){
     setTimeout(() => { try{ checkInjuryToSign(); }catch(e){} }, 200);   // a report to sign comes before everything else
     setTimeout(() => { try{ refreshTeamDot(); }catch(e){} }, 1200);
     setTimeout(() => { try{ loadCrewLinks(); }catch(e){} }, 900);
+    setTimeout(() => { try{ loadBioTask(); }catch(e){} }, 2500);
     hideAllDriverGateViews();   // newer screens (My Money, Onboarding Paperwork, ...) included
     loadDriveTodayOption();
     driverActiveTask = null;
@@ -7735,7 +7894,8 @@ window.openEmailDraft = function(o){
     <p class="form-note">The roster every Captain, driver and employee dropdown in the app uses: everyone on the last two payroll weeks (so someone who happened to be off one week still shows up), plus anyone added by hand below.</p>
 
     <div class="panel" id="rosterListPanel">
-      <h3>Current Roster (<span id="rosterListCount">0</span>)</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="margin:0;">Current Roster (<span id="rosterListCount">0</span>)</h3>
+        <button type="button" class="roster-admin-col" id="bioRequestAllBtn" style="background:#fff; border:1px solid #f0a35b; color:#b4610f; border-radius:6px; padding:6px 12px; font-weight:700; cursor:pointer;">&#128248; Request Bio &amp; Photo from everyone</button></div>
       <div style="margin:0 0 10px;"><input type="text" id="rosterListSearch" placeholder="Search names..." style="max-width:260px;"></div>
       <div id="rosterRemovedWrap" style="display:none; margin:0 0 12px; font-size:13px; background:var(--offwhite); border:1px solid var(--line); border-radius:8px; padding:8px 12px;"></div>
       <div style="overflow-x:auto;"><table class="stack-mobile" style="width:100%; border-collapse:collapse; font-size:13px;">
@@ -7746,6 +7906,7 @@ window.openEmailDraft = function(o){
           <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Signs in to Driver Tools, and is scored in Captain Metrics">Captain</th>
           <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Can be reviewed as a wingman, handed tasks, and is scored in Wingman Metrics">Wingman</th>
           <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); min-width:220px;" title="For insurance (Workers' Comp): Operations Manager, Driver (Captain), or Non-driver (Wingman). Edit the descriptions in Compliance \u2192 Insurance.">Job Duties</th>
+          <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);" title="Bio &amp; photo for HunkWare and Amazon &mdash; requested in the HUNK Portal">Bio &amp; Photo</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Source</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">HUNK Portal sign-in</th>
           <th class="roster-admin-col" style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);" title="First payroll week on file, and when commission starts under the New Employee waiting period">Started &middot; Commission</th>
@@ -11210,6 +11371,7 @@ window.openEmailDraft = function(o){
           const t = window.empDuties.text(c);
           return `<div style="font-weight:700;">${rosterManualEsc(window.empDuties.label(c))}</div><div style="font-size:12px; color:var(--muted); line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="${rosterManualEsc(t)}">${rosterManualEsc(t)}</div>`;
         })()}</td>
+        ${admin ? `<td style="${cell} white-space:nowrap;">${window.bioCellHtml ? window.bioCellHtml(n) : ''}</td>` : ''}
         ${admin ? `<td style="${cell}">${isManual ? 'Added manually' : 'Payroll'}</td>
         <td style="${cell}">${access}</td>
         <td style="${cell}">${(() => {
@@ -11276,6 +11438,7 @@ window.openEmailDraft = function(o){
   async function loadRosterRoles(){
     try{ const r = await fetch(`${API_BASE}/api/employee-roles`, { headers: authHeaders() }); rosterRoles = r.ok ? (await r.json()).roles : null; }catch(err){ rosterRoles = null; }
     try{ if(window.empDuties) await window.empDuties.load(); }catch(err){}
+    try{ if(window.loadRosterBios) await window.loadRosterBios(); }catch(err){}
   }
   document.getElementById('rosterListRows').addEventListener('change', async (e) => {
     const cb = e.target.closest && e.target.closest('.role-cb'); if(!cb) return;
@@ -11293,6 +11456,89 @@ window.openEmailDraft = function(o){
     row.querySelectorAll('.role-cb').forEach(x => x.disabled = false);
   });
 
+  // ---------- Employee Bio & Photo: office side (Employee Roster) ----------
+  let rosterBios = {};
+  window.loadRosterBios = async function(){
+    if(!isCurrentUserAdmin()) return;
+    try{ const r = await fetch(`${API_BASE}/api/admin/bios`, { headers: authHeaders() }); if(!r.ok) return; const d = await r.json(); rosterBios = {}; (d.bios || []).forEach(b => { rosterBios[b.key] = b; }); window.__bioQuestions = d.questions || []; }catch(e){}
+  };
+  const bioKeyOf = n => String(n).replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ').replace(/[^a-z0-9]+/g, '-');
+  window.bioCellHtml = function(n){
+    if(window.empDuties && window.empDuties.classify(n, (rosterRoles || {})[n]) === 'owner') return '<span style="color:var(--muted);">\u2014</span>';
+    const b = rosterBios[bioKeyOf(n)], esc = rosterManualEsc;
+    const btn = (label, cls, style) => `<button type="button" class="${cls}" data-name="${esc(n)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; ${style || ''}">${label}</button>`;
+    if(!b || b.status === 'none') return btn('Request', 'bio-req');
+    if(b.status === 'requested') return `<span style="color:#9a6b16; font-weight:700;">Requested</span><div style="font-size:11.5px; color:var(--muted);">${esc(new Date(b.requestedAt).toLocaleDateString())}${b.auto ? ' \u00b7 auto' : ''}</div>`;
+    if(b.status === 'submitted') return btn('\ud83d\udcf8 Review', 'bio-view', 'border-color:#f0a35b; color:#b4610f; font-weight:800;');
+    return `<span style="color:#00612C; font-weight:700;">\u2713 Approved</span> ${btn('View', 'bio-view')}`;
+  };
+  async function bioRequest(names, again){
+    const r = await fetch(`${API_BASE}/api/admin/bios/request`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ names, again: !!again }) });
+    const d = await r.json().catch(() => ({})); if(!r.ok) throw new Error(d.error || 'Could not save.');
+    await window.loadRosterBios(); renderEmployeeRosterView(); return d.requested || 0;
+  }
+  document.getElementById('rosterListRows').addEventListener('click', async e => {
+    const req = e.target.closest('.bio-req'), view = e.target.closest('.bio-view');
+    if(req){ req.disabled = true; try{ await bioRequest([req.dataset.name]); }catch(err){ alert(err.message); req.disabled = false; } }
+    if(view) openBioReview(view.dataset.name);
+  });
+  document.getElementById('bioRequestAllBtn').addEventListener('click', async () => {
+    const names = (rosterViewNames || []).filter(n => !(window.empDuties && window.empDuties.classify(n, (rosterRoles || {})[n]) === 'owner') && !rosterBios[bioKeyOf(n)]);
+    if(!names.length){ alert('Everyone on the roster has already been asked (or is an owner).'); return; }
+    if(!confirm(`Ask ${names.length} employee${names.length === 1 ? '' : 's'} for their bio & photo? They\u2019ll see it in the HUNK Portal, with a daily reminder until it\u2019s done.`)) return;
+    try{ const n = await bioRequest(names); alert(`\u2713 Requested from ${n} employee${n === 1 ? '' : 's'}.`); }catch(err){ alert(err.message); }
+  });
+  async function openBioReview(name){
+    const b = rosterBios[bioKeyOf(name)]; if(!b) return;
+    const esc = rosterManualEsc, qs = window.__bioQuestions || [];
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed; inset:0; z-index:100000; background:rgba(0,0,0,.5); display:flex; align-items:flex-start; justify-content:center; overflow-y:auto; padding:30px 14px;';
+    ov.innerHTML = `<div style="background:#fff; border-radius:14px; width:100%; max-width:760px; padding:18px 20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">Bio &amp; Photo \u2014 ${esc(name)}</h3><button type="button" id="brClose" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer;">Close</button></div>
+      <div style="display:flex; gap:18px; flex-wrap:wrap; margin-top:14px;">
+        <div style="flex:0 0 260px;"><div id="brPhoto" style="width:260px; min-height:200px; border-radius:12px; background:#f4f1ea; display:flex; align-items:center; justify-content:center; color:var(--muted);">Loading\u2026</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+            <a id="brDownload" download="${esc(name.replace(/,\s*/, ' ').split(' ').reverse().join('-'))}.jpg" style="background:#00843D; color:#fff; border-radius:6px; padding:6px 12px; font-size:13px; font-weight:700; text-decoration:none;">Download photo</a>
+            <button type="button" id="brOrig" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12.5px; cursor:pointer;">See original</button>
+            <button type="button" id="brRerun" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12.5px; cursor:pointer;">Re-do background</button></div>
+          ${b.bgReplaced ? '' : '<p class="form-note" style="color:#9a6b16; margin:6px 0 0;">The background wasn\u2019t replaced on the employee\u2019s phone \u2014 click <strong>Re-do background</strong>.</p>'}
+          <p class="status-msg" id="brPhotoStatus" style="margin:6px 0 0;"></p></div>
+        <div style="flex:1; min-width:260px;">
+          <div style="font-size:12px; font-weight:800; color:var(--muted);">BIO (edit as needed)</div>
+          <textarea id="brBio" rows="7" style="width:100%; box-sizing:border-box; margin-top:4px; padding:10px; font-family:inherit; font-size:14.5px; line-height:1.5; border:1px solid var(--line); border-radius:8px;">${esc(b.bio || '')}</textarea>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+            <button type="button" class="btn-primary" id="brApprove">${b.status === 'approved' ? 'Save' : 'Approve'}</button>
+            <button type="button" id="brCopy" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Copy bio</button>
+            <button type="button" id="brAgain" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Ask them to redo it</button>
+            <span class="status-msg" id="brStatus"></span></div>
+          <div style="margin-top:14px; font-size:12px; font-weight:800; color:var(--muted);">THEIR ANSWERS</div>
+          ${(b.answers || []).map((a, k) => `<div style="margin-top:6px; font-size:13px;"><div style="color:var(--muted);">${esc(qs[k] || '')}</div><div>${esc(a)}</div></div>`).join('')}
+          <p class="form-note" style="margin:10px 0 0;">Submitted ${b.submittedAt ? esc(new Date(b.submittedAt).toLocaleString()) : '\u2014'}${b.approvedAt ? ' \u00b7 approved ' + esc(new Date(b.approvedAt).toLocaleDateString()) : ''}</p>
+        </div></div></div>`;
+    document.body.appendChild(ov);
+    const $ = id => ov.querySelector('#' + id), close = () => ov.remove();
+    $('brClose').onclick = close; ov.addEventListener('click', e => { if(e.target === ov) close(); });
+    let shown = 'final', finalSrc = null, origSrc = null;
+    const getPhoto = async orig => { const r = await fetch(`${API_BASE}/api/admin/bios/${encodeURIComponent(b.key)}/photo${orig ? '?orig=1' : ''}`, { headers: authHeaders() }); return r.ok ? (await r.json()).photo : null; };
+    const show = src => { $('brPhoto').innerHTML = src ? `<img src="${src}" alt="" style="width:260px; border-radius:12px; display:block;">` : 'No photo'; $('brDownload').href = src || '#'; };
+    finalSrc = await getPhoto(false); show(finalSrc);
+    $('brOrig').onclick = async () => { if(shown === 'final'){ origSrc = origSrc || await getPhoto(true); show(origSrc || finalSrc); shown = 'orig'; $('brOrig').textContent = 'See final'; } else { show(finalSrc); shown = 'final'; $('brOrig').textContent = 'See original'; } };
+    $('brRerun').onclick = async () => {
+      const st = $('brPhotoStatus'); st.textContent = 'Working\u2026 (a few seconds)'; st.className = 'status-msg';
+      origSrc = origSrc || await getPhoto(true) || finalSrc;
+      const out = await window.bioReplaceBackground(origSrc);
+      if(!out.bgReplaced){ st.textContent = 'Couldn\u2019t separate the person from the background in this photo \u2014 ask them to redo it against a plain wall.'; st.className = 'status-msg err'; return; }
+      const r = await fetch(`${API_BASE}/api/admin/bios/${encodeURIComponent(b.key)}`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ photo: out.photo }) });
+      if(r.ok){ finalSrc = out.photo; show(finalSrc); shown = 'final'; $('brOrig').textContent = 'See original'; st.textContent = '\u2713 Background replaced.'; st.className = 'status-msg ok'; } else { st.textContent = 'Could not save.'; st.className = 'status-msg err'; }
+    };
+    $('brCopy').onclick = async () => { try{ await navigator.clipboard.writeText($('brBio').value); $('brCopy').textContent = 'Copied \u2713'; setTimeout(() => { $('brCopy').textContent = 'Copy bio'; }, 1500); }catch(e){} };
+    $('brApprove').onclick = async () => {
+      const st = $('brStatus');
+      const r = await fetch(`${API_BASE}/api/admin/bios/${encodeURIComponent(b.key)}`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ bio: $('brBio').value, approve: true }) });
+      if(r.ok){ st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; await window.loadRosterBios(); renderEmployeeRosterView(); setTimeout(close, 600); } else { st.textContent = 'Could not save.'; st.className = 'status-msg err'; }
+    };
+    $('brAgain').onclick = async () => { if(!confirm(`Ask ${name} to redo their bio & photo? It goes back on their HUNK Portal.`)) return; try{ await bioRequest([name], true); close(); }catch(err){ alert(err.message); } };
+  }
   async function loadAndRenderRosterManualList(){
     try{ rosterManualAdditions = await window.dashboardApi.get(ROSTER_MANUAL_KEY, []) || []; }
     catch(err){ console.error('Could not load manually-added roster names:', err); rosterManualAdditions = []; }
