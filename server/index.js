@@ -112,7 +112,8 @@ const ALLOWED_KEYS = new Set([
   'hiring-candidates',
   'hiring-reveal-log',
   'ops-manager-metrics-monthly-locks',
-  'ops-manager-scorecards'          // Ops Manager weekly scorecard (goal set & review)
+  'ops-manager-scorecards',         // Ops Manager weekly scorecard (goal set & review)
+  'ops-manager-scripts'             // client call scripts -- everyone can read, only the Owner can change
 ]);
 const ALLOWED_KEY_PREFIXES = ['injury-file-', 'wp-doc-file-', 'interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
@@ -7751,6 +7752,8 @@ app.get('/health', async (req, res) => {
 // response goes out, not just hidden in the UI.
 const ADMIN_ONLY_KEYS = new Set(['labor-employee-rates', 'labor-last-admin-gross']);
 const ADMIN_WRITE_ONLY_KEYS = new Set(['labor-weeks']);
+// Readable by every dashboard login, but only the Owner can save them.
+const OWNER_WRITE_ONLY_KEYS = new Set(['ops-manager-scripts']);
 
 async function isRequestingUserAdmin(req) {
   const users = await getUsers();
@@ -9752,6 +9755,10 @@ app.put('/api/data/:key', requireAuth, async (req, res) => {
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
   if (!(await checkAdminOnlyKey(req, res, key))) return;
   if (!(await checkAdminWriteOnlyKey(req, res, key))) return;
+  if (OWNER_WRITE_ONLY_KEYS.has(key)) {
+    const owner = await ownerEmailSetting();
+    if (!owner || owner !== String(req.userEmail || '').toLowerCase()) return res.status(403).json({ error: 'Only the Owner can change this.' });
+  }
   try {
     await redis.set(key, JSON.stringify(req.body.value));
     if (key === 'labor-weeks' || key === 'compliance-drivers' || key === 'roster-manual-additions') {
