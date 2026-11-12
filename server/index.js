@@ -7038,6 +7038,50 @@ app.post('/api/admin/employee-inbox/delete', requireAuth, requireAdmin, async (r
   } catch (err) { res.status(500).json({ error: 'Could not delete.' }); }
 });
 
+// ---- Links sent to an employee's HUNK Portal (e.g. an Amazon background-check link) ----
+const CREW_LINKS_KEY = 'crew-link-pushes';
+app.post('/api/admin/employee-inbox/:id/push', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { employee, url, label, note } = req.body || {};
+    if (!employee || !/^https?:\/\//i.test(String(url || ''))) return res.status(400).json({ error: 'Choose an employee and a link.' });
+    const msg = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]').find(m => m.id === req.params.id);
+    const links = JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]');
+    const item = { id: 'lk_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex'), at: new Date().toISOString(), by: req.userEmail || '',
+      name: String(employee).slice(0, 120), url: String(url).slice(0, 2000), label: String(label || 'Open link').slice(0, 120), note: String(note || '').trim().slice(0, 500),
+      subject: msg ? msg.subject : '', emailId: req.params.id, openedAt: null, doneAt: null };
+    links.push(item);
+    await redis.set(CREW_LINKS_KEY, JSON.stringify(links.slice(-500)));
+    console.log(`[crew-links] sent to ${item.name}: ${item.subject || item.label}`);
+    res.json({ ok: true, item });
+  } catch (err) { console.error('Send link failed:', err.message); res.status(500).json({ error: 'Could not send.' }); }
+});
+app.get('/api/admin/crew-links', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ links: JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]') }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.get('/api/crew/links', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const k = nameCoreKey(me);
+    res.json({ links: JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]').filter(l => nameCoreKey(l.name) === k && !l.doneAt)
+      .map(l => ({ id: l.id, at: l.at, url: l.url, label: l.label, note: l.note, subject: l.subject, opened: !!l.openedAt })) });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/links/:id/:what', async (req, res) => {
+  try {
+    if (!['opened', 'done'].includes(req.params.what)) return res.status(404).json({ error: 'Not found.' });
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const links = JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]');
+    const l = links.find(x => x.id === req.params.id && nameCoreKey(x.name) === nameCoreKey(me));
+    if (!l) return res.status(404).json({ error: 'Not found.' });
+    if (req.params.what === 'opened') { if (!l.openedAt) l.openedAt = new Date().toISOString(); }
+    else { l.doneAt = new Date().toISOString(); if (!l.openedAt) l.openedAt = l.doneAt; }
+    await redis.set(CREW_LINKS_KEY, JSON.stringify(links));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
 // ---- Text-message consent (opt-in), collected in the HUNK Portal ----
 // The exact wording each employee agreed to is kept with their answer.
 const TT_CONSENT_KEY = 'team-text-consents';
