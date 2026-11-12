@@ -7125,7 +7125,7 @@ async function writeBio(firstName, answers) {
     return text.trim() || fallback();
   } catch (e) { return fallback(); }
 }
-const bioPublic = b => ({ key: b.key, name: b.name, status: b.status, requestedAt: b.requestedAt, auto: !!b.auto, submittedAt: b.submittedAt || null, approvedAt: b.approvedAt || null,
+const bioPublic = b => ({ key: b.key, name: b.name, status: b.status, requestedAt: b.requestedAt, auto: !!b.auto, submittedAt: b.submittedAt || null, approvedAt: b.approvedAt || null, answersSavedAt: b.answersSavedAt || null,
   answers: b.answers || [], bio: b.bio || '', bgReplaced: b.bgReplaced !== false, hasPhoto: !!b.hasPhoto });
 // Office
 app.get('/api/admin/bios', requireAuth, requireAdmin, async (req, res) => {
@@ -7167,8 +7167,17 @@ app.post('/api/crew/bio', async (req, res) => {
   try {
     const me = await crewName(req);
     if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
-    const { answers, photo, photoOriginal, bgReplaced } = req.body || {};
+    const { answers, photo, photoOriginal, bgReplaced, saveAnswersOnly } = req.body || {};
     const ans = (Array.isArray(answers) ? answers : []).slice(0, 3).map(a => String(a || '').trim().slice(0, 800));
+    // "Save -- I'll do the photo later": keep the answers; the request stays open (and the reminders keep coming).
+    if (saveAnswersOnly) {
+      if (!ans.some(Boolean)) return res.status(400).json({ error: 'Answer at least one question first.' });
+      const bios0 = await loadBios(), k0 = bioKey(me);
+      const b0 = bios0[k0] || (bios0[k0] = { key: k0, name: me, status: 'requested', requestedAt: new Date().toISOString(), requestedBy: 'self' });
+      b0.answers = ans; b0.answersSavedAt = new Date().toISOString();
+      await saveBios(bios0);
+      return res.json({ ok: true, saved: true });
+    }
     if (ans.filter(Boolean).length < 3) return res.status(400).json({ error: 'Please answer all three questions.' });
     if (!/^data:image\/(jpeg|png);base64,/.test(String(photo || '')) || photo.length > 6_000_000) return res.status(400).json({ error: 'Please add your photo.' });
     const bios = await loadBios(), k = bioKey(me);
