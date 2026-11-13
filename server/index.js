@@ -7126,7 +7126,8 @@ async function writeBio(firstName, answers) {
   } catch (e) { return fallback(); }
 }
 const bioPublic = b => ({ key: b.key, name: b.name, status: b.status, requestedAt: b.requestedAt, auto: !!b.auto, submittedAt: b.submittedAt || null, approvedAt: b.approvedAt || null, answersSavedAt: b.answersSavedAt || null,
-  answers: b.answers || [], bio: b.bio || '', bgReplaced: b.bgReplaced !== false, hasPhoto: !!b.hasPhoto, photoFlags: b.photoFlags || [] });
+  answers: b.answers || [], bio: b.bio || '', bgReplaced: b.bgReplaced !== false, hasPhoto: !!b.hasPhoto, photoFlags: b.photoFlags || [],
+  photoRedo: b.photoRedo || null, photoRedoneAt: b.photoRedoneAt || null });
 // Office
 app.get('/api/admin/bios', requireAuth, requireAdmin, async (req, res) => {
   try { res.json({ bios: Object.values(await loadBios()).map(bioPublic), questions: BIO_QUESTIONS }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
@@ -7134,8 +7135,19 @@ app.get('/api/admin/bios', requireAuth, requireAdmin, async (req, res) => {
 app.post('/api/admin/bios/request', requireAuth, requireAdmin, async (req, res) => {
   try {
     const names = ((req.body || {}).names || []).map(String).filter(Boolean).slice(0, 200), again = !!(req.body || {}).again;
+    const photoOnly = !!(req.body || {}).photoOnly, reason = String((req.body || {}).reason || '').trim().slice(0, 500);
     const bios = await loadBios(); let n = 0;
-    names.forEach(name => { if (again) { const k = bioKey(name); if (bios[k]) bios[k].status = 'none'; } if (bioRequest(bios, name, req.userEmail, false)) n++; });
+    names.forEach(name => {
+      const k = bioKey(name);
+      // "Ask for a new photo": the written answers and bio stay; only the photo is redone.
+      if (photoOnly && bios[k]) {
+        Object.assign(bios[k], { status: 'requested', requestedAt: new Date().toISOString(), requestedBy: req.userEmail || '', auto: false,
+          photoRedo: { reason, at: new Date().toISOString(), by: req.userEmail || '' } });
+        n++; return;
+      }
+      if (again && bios[k]) bios[k].status = 'none';
+      if (bioRequest(bios, name, req.userEmail, false)) n++;
+    });
     await saveBios(bios); res.json({ ok: true, requested: n });
   } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
@@ -7160,7 +7172,8 @@ app.get('/api/crew/bio', async (req, res) => {
     const me = await crewName(req);
     if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
     const b = (await loadBios())[bioKey(me)];
-    res.json({ pending: !!(b && b.status === 'requested'), status: b ? b.status : 'none', questions: BIO_QUESTIONS, answers: b ? (b.answers || []) : [] });
+    res.json({ pending: !!(b && b.status === 'requested'), status: b ? b.status : 'none', questions: BIO_QUESTIONS, answers: b ? (b.answers || []) : [],
+      photoRedo: b && b.status === 'requested' && b.photoRedo ? { reason: b.photoRedo.reason || '' } : null });
   } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
 });
 app.post('/api/crew/bio', async (req, res) => {
@@ -7185,7 +7198,10 @@ app.post('/api/crew/bio', async (req, res) => {
     await redis.set(BIO_PHOTO_PREFIX + k, photo);
     if (/^data:image\/(jpeg|png);base64,/.test(String(photoOriginal || '')) && photoOriginal.length < 6_000_000) await redis.set(BIO_PHOTO_ORIG_PREFIX + k, photoOriginal);
     const parts = String(me).split(','), first = ((parts[1] || parts[0] || '').trim().split(/\s+/)[0]) || me;
-    Object.assign(b, { name: b.name || me, answers: ans, bio: await writeBio(first, ans), status: 'submitted', submittedAt: new Date().toISOString(), bgReplaced: bgReplaced !== false, hasPhoto: true,
+    // A photo-only redo keeps the bio as it was (including any office edits).
+    const keepBio = !!(b.photoRedo && b.bio);
+    if (b.photoRedo) { b.photoRedoneAt = new Date().toISOString(); b.lastPhotoRedo = b.photoRedo; delete b.photoRedo; }
+    Object.assign(b, { name: b.name || me, answers: ans, bio: keepBio ? b.bio : await writeBio(first, ans), status: 'submitted', submittedAt: new Date().toISOString(), bgReplaced: bgReplaced !== false, hasPhoto: true,
       photoFlags: (Array.isArray(photoFlags) ? photoFlags : []).map(String).filter(k => BIO_PHOTO_ISSUES[k] || /^(dark|small|blurry|noface)$/.test(k)).slice(0, 8) });
     await saveBios(bios);
     console.log(`[bio] ${me} submitted bio & photo`);
