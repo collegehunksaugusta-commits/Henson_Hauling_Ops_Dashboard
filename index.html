@@ -3222,23 +3222,24 @@ window.openEmailDraft = function(o){
     try{ const d = await ttFetch(); const on = ttLatest(d) > (localStorage.getItem(ttSeenKey()) || ''); document.querySelectorAll('.ttCrewDot').forEach(x => { x.style.display = on ? 'block' : 'none'; }); }catch(err){}
   }
   window.refreshTeamDot = refreshTeamDot;
-  // ---------- Bio photo: replace the background with a soft orange gradient ----------
-  // Google's MediaPipe selfie segmenter runs right in the browser (free, no
-  // upload anywhere); if it can't load, the original photo is used.
+  // ---------- Bio photo: find the face, frame it, clean it up, orange background ----------
+  // Runs on the phone (free Google MediaPipe models, nothing uploaded to them):
+  //   1. find the face  2. check it (found / one person / close enough / light enough)
+  //   3. crop to a standard 4:5 head-and-shoulders portrait  4. even out the light
+  //   5. separate the person, keeping ONLY the person whose face was found
+  //      (drops signs, other people's arms, objects)  6. soft orange background.
+  // If the models can't load, the original is used and flagged for the office.
   (function(){
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
-    const MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
-    let segP = null;
-    function getSegmenter(){
-      if(!segP) segP = (async () => {
-        const v = await import(MP + '/vision_bundle.mjs');
-        const files = await v.FilesetResolver.forVisionTasks(MP + '/wasm');
-        return await v.ImageSegmenter.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', outputConfidenceMasks: true, outputCategoryMask: false });
-      })().catch(err => { segP = null; throw err; });
-      return segP;
-    }
+    const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
+    const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite';
+    let visionP = null, segP = null, faceP = null;
+    const vision = () => visionP || (visionP = (async () => { const v = await import(MP + '/vision_bundle.mjs'); return { v, files: await v.FilesetResolver.forVisionTasks(MP + '/wasm') }; })().catch(e => { visionP = null; throw e; }));
+    const getSegmenter = () => segP || (segP = vision().then(({ v, files }) => v.ImageSegmenter.createFromOptions(files, { baseOptions: { modelAssetPath: SEG_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', outputConfidenceMasks: true, outputCategoryMask: false })).catch(e => { segP = null; throw e; }));
+    const getFaceDetector = () => faceP || (faceP = vision().then(({ v, files }) => v.FaceDetector.createFromOptions(files, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', minDetectionConfidence: 0.5 })).catch(e => { faceP = null; throw e; }));
+    window.bioWarmUpModels = () => { getFaceDetector().catch(() => {}); getSegmenter().catch(() => {}); };
     const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
-    // The soft orange backdrop: a warm radial glow, gentle diagonal light bands, soft edges.
+    const canvasOf = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
     function paintBackdrop(ctx, w, h){
       const g = ctx.createRadialGradient(w * 0.5, h * 0.32, Math.min(w, h) * 0.05, w * 0.5, h * 0.45, Math.max(w, h) * 0.85);
       g.addColorStop(0, '#FFF3E6'); g.addColorStop(0.45, '#FCD7AE'); g.addColorStop(1, '#F2A65E');
@@ -3251,37 +3252,107 @@ window.openEmailDraft = function(o){
       v.addColorStop(0, 'rgba(180,90,20,0)'); v.addColorStop(1, 'rgba(180,90,20,0.18)');
       ctx.fillStyle = v; ctx.fillRect(0, 0, w, h);
     }
-    // Returns { photo, original, bgReplaced } -- JPEG data URLs, longest side 1280.
-    window.bioReplaceBackground = async function(src, opts = {}){
+    // average brightness (0-255) of a region
+    function luminance(c, x, y, w, h){
+      const s = canvasOf(48, 48), sx = s.getContext('2d'); sx.drawImage(c, x, y, w, h, 0, 0, 48, 48);
+      const d = sx.getImageData(0, 0, 48, 48).data; let t = 0; for(let i = 0; i < d.length; i += 4) t += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      return t / (d.length / 4);
+    }
+    // sharpness (variance of a simple edge filter) of a region
+    function sharpness(c, x, y, w, h){
+      const n = 96, s = canvasOf(n, n), sx = s.getContext('2d'); sx.drawImage(c, x, y, w, h, 0, 0, n, n);
+      const d = sx.getImageData(0, 0, n, n).data, g = new Float32Array(n * n); for(let i = 0; i < n * n; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+      let sum = 0, sum2 = 0, cnt = 0;
+      for(let yy = 1; yy < n - 1; yy++) for(let xx = 1; xx < n - 1; xx++){ const i = yy * n + xx, l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - n] - g[i + n]; sum += l; sum2 += l * l; cnt++; }
+      return sum2 / cnt - (sum / cnt) ** 2;
+    }
+    // Keep only the mask region connected to the face (drops signs, other people).
+    function keepFaceComponent(alpha, mw, mh, fx, fy, fw, fh){
+      const on = new Uint8Array(mw * mh); for(let i = 0; i < on.length; i++) on[i] = alpha[i] > 0.45 ? 1 : 0;
+      const keep = new Uint8Array(mw * mh), q = [];
+      let sx = Math.max(0, Math.min(mw - 1, Math.round(fx))), sy = Math.max(0, Math.min(mh - 1, Math.round(fy)));
+      if(!on[sy * mw + sx]){ // nudge to the nearest "person" pixel near the face center
+        let best = -1, bd = 1e9; for(let yy = Math.max(0, sy - 12); yy < Math.min(mh, sy + 12); yy++) for(let xx = Math.max(0, sx - 12); xx < Math.min(mw, sx + 12); xx++){ const dd = (xx - sx) ** 2 + (yy - sy) ** 2; if(on[yy * mw + xx] && dd < bd){ bd = dd; best = yy * mw + xx; } }
+        if(best < 0) return alpha; sy = Math.floor(best / mw); sx = best % mw;
+      }
+      q.push(sy * mw + sx); keep[sy * mw + sx] = 1;
+      // also seed from the area just below the face (neck and shoulders), in
+      // case a shadow or collar separates them from the head in the mask
+      if(fw && fh){ const x0 = Math.max(0, Math.round(fx - fw * 0.9)), x1 = Math.min(mw - 1, Math.round(fx + fw * 0.9)), y0 = Math.min(mh - 1, Math.round(fy + fh * 0.55)), y1 = Math.min(mh - 1, Math.round(fy + fh * 1.6));
+        for(let yy = y0; yy <= y1; yy += 2) for(let xx = x0; xx <= x1; xx += 2){ const i = yy * mw + xx; if(on[i] && !keep[i]){ keep[i] = 1; q.push(i); } } }
+      while(q.length){ const i = q.pop(), x = i % mw, y = (i - x) / mw;
+        if(x > 0 && on[i - 1] && !keep[i - 1]){ keep[i - 1] = 1; q.push(i - 1); }
+        if(x < mw - 1 && on[i + 1] && !keep[i + 1]){ keep[i + 1] = 1; q.push(i + 1); }
+        if(y > 0 && on[i - mw] && !keep[i - mw]){ keep[i - mw] = 1; q.push(i - mw); }
+        if(y < mh - 1 && on[i + mw] && !keep[i + mw]){ keep[i + mw] = 1; q.push(i + mw); } }
+      // grow the kept region by 2px so soft edges (hair) survive, then mask
+      const grown = new Uint8Array(keep); for(let pass = 0; pass < 2; pass++){ const src = new Uint8Array(grown); for(let y = 0; y < mh; y++) for(let x = 0; x < mw; x++){ const i = y * mw + x; if(!src[i] && ((x > 0 && src[i - 1]) || (x < mw - 1 && src[i + 1]) || (y > 0 && src[i - mw]) || (y < mh - 1 && src[i + mw]))) grown[i] = 1; } }
+      const out = new Float32Array(alpha.length); for(let i = 0; i < out.length; i++) out[i] = grown[i] ? alpha[i] : 0;
+      return out;
+    }
+    // Returns { photo, original, bgReplaced, problems:[codes], notes } -- problems block (retake), notes are FYI.
+    window.bioProcessPhoto = async function(src, opts = {}){
       const img = await loadImg(src);
-      const scale = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
-      const base = document.createElement('canvas'); base.width = w; base.height = h; base.getContext('2d').drawImage(img, 0, 0, w, h);
-      const original = base.toDataURL('image/jpeg', 0.9);
+      const sc = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+      const W = Math.round(img.naturalWidth * sc), H = Math.round(img.naturalHeight * sc);
+      const full = canvasOf(W, H); full.getContext('2d').drawImage(img, 0, 0, W, H);
+      const originalSmall = canvasOf(Math.round(W * Math.min(1, 1280 / Math.max(W, H))), Math.round(H * Math.min(1, 1280 / Math.max(W, H))));
+      originalSmall.getContext('2d').drawImage(full, 0, 0, originalSmall.width, originalSmall.height);
+      const original = originalSmall.toDataURL('image/jpeg', 0.9);
+      const problems = [], notes = [];
+      // 1-2. face
+      let face = null;
       try{
+        const fd = opts.faceDetector || await getFaceDetector();
+        const dets = (fd.detect(full).detections || []).map(d => d.boundingBox).filter(Boolean).sort((a, b) => b.width * b.height - a.width * a.height);
+        if(!dets.length) problems.push('noface');
+        else { face = dets[0]; if(dets.length > 1 && dets[1].width > face.width * 0.5) problems.push('others'); }
+      }catch(err){ notes.push('nofacecheck'); }
+      // 3. frame: 4:5 portrait, face centered, room for shoulders
+      let cx = 0, cy = 0, cw = W, ch = H;
+      if(face){
+        if(face.width < W * 0.07 && face.width < 120) problems.push('small');
+        cw = Math.min(W, face.width * 3.1); ch = cw * 1.25;
+        if(ch > H){ ch = H; cw = ch / 1.25; }
+        cx = Math.max(0, Math.min(W - cw, face.originX + face.width / 2 - cw / 2));
+        cy = Math.max(0, Math.min(H - ch, face.originY - face.height * 0.85));
+        const lum = luminance(full, face.originX, face.originY, face.width, face.height);
+        if(lum < 55) problems.push('dark');
+        if(sharpness(full, face.originX, face.originY, face.width, face.height) < 18) problems.push('blurry');
+      } else { // no face: centered 4:5
+        if(W / H > 0.8){ cw = H * 0.8; cx = (W - cw) / 2; } else { ch = W * 1.25; cy = 0; }
+      }
+      const OW = 1080, OH = 1350;
+      const framed = canvasOf(OW, OH), fctx = framed.getContext('2d');
+      // 4. even out the light (gentle, based on the face)
+      let filt = 'none';
+      if(face){ const lum = luminance(full, face.originX, face.originY, face.width, face.height); const k = Math.max(0.96, Math.min(1.6, 150 / Math.max(30, lum))); if(Math.abs(k - 1) > 0.06) filt = `brightness(${k.toFixed(2)}) contrast(1.05)`; }
+      fctx.filter = filt; fctx.drawImage(full, cx, cy, cw, ch, 0, 0, OW, OH); fctx.filter = 'none';
+      // 5-6. person only, on orange
+      try{
+        if(!face) throw new Error('no face to anchor on');
         const seg = opts.segmenter || await getSegmenter();
-        const result = seg.segment(base);
-        const masks = result.confidenceMasks || [];
+        const res = seg.segment(framed), masks = res.confidenceMasks || [];
         if(!masks.length) throw new Error('no mask');
-        const mw = masks[0].width, mh = masks[0].height, bg = masks[0].getAsFloat32Array();   // multiclass: mask 0 = background
-        const md = document.createElement('canvas'); md.width = mw; md.height = mh;
-        const mctx = md.getContext('2d'), id = mctx.createImageData(mw, mh);
-        for(let i = 0; i < bg.length; i++){ const p = 1 - bg[i]; const a = Math.max(0, Math.min(1, (p - 0.35) / 0.35)); id.data[i * 4 + 3] = Math.round(a * a * (3 - 2 * a) * 255); }
-        mctx.putImageData(id, 0, 0);
+        const mw = masks[0].width, mh = masks[0].height, bg = masks[0].getAsFloat32Array();
+        let alpha = new Float32Array(bg.length); for(let i = 0; i < bg.length; i++) alpha[i] = 1 - bg[i];
         masks.forEach(m => { try{ m.close(); }catch(e){} });
-        let coverage = 0; for(let i = 3; i < id.data.length; i += 4) coverage += id.data[i]; coverage /= (id.data.length / 4) * 255;
-        if(coverage < 0.04 || coverage > 0.97) throw new Error('no person found');
-        const person = document.createElement('canvas'); person.width = w; person.height = h;
-        const pctx = person.getContext('2d'); pctx.drawImage(base, 0, 0);
-        pctx.globalCompositeOperation = 'destination-in'; pctx.filter = 'blur(1.2px)'; pctx.drawImage(md, 0, 0, w, h); pctx.filter = 'none';
-        const out = document.createElement('canvas'); out.width = w; out.height = h;
-        const octx = out.getContext('2d'); paintBackdrop(octx, w, h); octx.drawImage(person, 0, 0);
-        return { photo: out.toDataURL('image/jpeg', 0.9), original, bgReplaced: true };
+        const fxm = ((face.originX + face.width / 2 - cx) / cw) * mw, fym = ((face.originY + face.height / 2 - cy) / ch) * mh;
+        alpha = keepFaceComponent(alpha, mw, mh, fxm, fym, face.width / cw * mw, face.height / ch * mh);
+        const md = canvasOf(mw, mh), mctx = md.getContext('2d'), id = mctx.createImageData(mw, mh);
+        let cover = 0; for(let i = 0; i < alpha.length; i++){ const a = Math.max(0, Math.min(1, (alpha[i] - 0.35) / 0.35)); const v = a * a * (3 - 2 * a); id.data[i * 4 + 3] = Math.round(v * 255); cover += v; }
+        cover /= alpha.length; if(cover < 0.05 || cover > 0.97) throw new Error('no person found');
+        mctx.putImageData(id, 0, 0);
+        const person = canvasOf(OW, OH), pctx = person.getContext('2d'); pctx.drawImage(framed, 0, 0);
+        pctx.globalCompositeOperation = 'destination-in'; pctx.filter = 'blur(1.4px)'; pctx.drawImage(md, 0, 0, OW, OH); pctx.filter = 'none';
+        const out = canvasOf(OW, OH), octx = out.getContext('2d'); paintBackdrop(octx, OW, OH); octx.drawImage(person, 0, 0);
+        return { photo: out.toDataURL('image/jpeg', 0.9), original, bgReplaced: true, problems, notes };
       }catch(err){
         console.warn('Background replacement unavailable:', err);
-        return { photo: original, original, bgReplaced: false };
+        return { photo: face ? framed.toDataURL('image/jpeg', 0.9) : original, original, bgReplaced: false, problems, notes };
       }
     };
+    window.bioReplaceBackground = (src, opts) => window.bioProcessPhoto(src, opts);   // older name, same job
     window.bioPaintBackdrop = paintBackdrop;
   })();
   // ---- Bio & Photo request (HunkWare bio + Amazon technician photo) ----
@@ -3349,45 +3420,103 @@ window.openEmailDraft = function(o){
       };
     }
     function stepPhoto(){
+      let stream = null, facing = 'environment';
+      const stopCam = () => { if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; } };
+      const MSG = { noface: 'We can\u2019t find your face \u2014 face the camera in good light and try again.', small: 'You\u2019re too far away \u2014 move closer so your head and shoulders fill the outline.',
+        dark: 'Too dark \u2014 face a window or turn on a light.', blurry: 'A little blurry \u2014 hold the phone still and try again.', others: 'Only you in the photo, please \u2014 no one else in the shot.' };
       ov.innerHTML = shell(2, `<h2 style="margin:10px 0 4px; font-size:22px;">Your photo</h2>
-        <div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:10px 0; font-size:15px; line-height:1.55;">
-          \ud83d\udc55 Wear your <strong>College Hunks shirt</strong>.<br>
-          \ud83e\uddd1\u200d\ud83e\udd1d\u200d\ud83e\uddd1 Have <strong>someone else take the photo</strong> \u2014 no selfies.<br>
-          \ud83e\uddf1 Stand in front of a <strong>plain, solid-colored wall</strong> in good light.<br>
-          \ud83d\ude42 Chest up, look at the camera, and smile.</div>
-        <p style="font-size:13px; color:var(--muted); margin:0 0 6px;">We\u2019ll swap the background for a College Hunks orange one automatically.</p>
-        <label style="display:block; text-align:center; padding:16px; font-size:16.5px; font-weight:800; background:var(--brand-green); color:#fff; border-radius:10px; cursor:pointer; text-transform:none; letter-spacing:normal;">\ud83d\udcf7 Take or choose a photo<input type="file" id="bioFile" accept="image/*" style="display:none;"></label>
-        <div id="bioPhotoArea" style="margin-top:14px;"></div>
+        <p style="margin:0 0 10px; font-size:14.5px; line-height:1.45;">\ud83d\udc55 College Hunks shirt on \u00b7 \ud83d\udd76\ufe0f no sunglasses or hat \u00b7 \ud83e\udd1d have someone else take it if you can</p>
+        <div id="camArea">
+          <div id="camBox" style="position:relative; background:#111; border-radius:16px; overflow:hidden; aspect-ratio:4/5;">
+            <video id="camVid" playsinline muted autoplay style="width:100%; height:100%; object-fit:cover; display:block;"></video>
+            <svg viewBox="0 0 400 500" preserveAspectRatio="xMidYMid slice" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;">
+              <defs><mask id="camHole"><rect width="400" height="500" fill="white"/><ellipse cx="200" cy="190" rx="78" ry="98" fill="black"/><path d="M58 500 C62 380 120 318 200 312 C280 318 338 380 342 500 Z" fill="black"/></mask></defs>
+              <rect width="400" height="500" fill="rgba(0,0,0,.38)" mask="url(#camHole)"/>
+              <ellipse cx="200" cy="190" rx="78" ry="98" fill="none" stroke="#fff" stroke-width="3" stroke-dasharray="10 7"/>
+              <path d="M58 500 C62 380 120 318 200 312 C280 318 338 380 342 500" fill="none" stroke="#fff" stroke-width="3" stroke-dasharray="10 7"/>
+            </svg>
+            <div id="camMsg" style="position:absolute; left:0; right:0; top:10px; text-align:center; color:#fff; font-weight:800; font-size:15px; text-shadow:0 1px 3px rgba(0,0,0,.7);">Line up the face and shoulders in the outline</div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:center; gap:26px; margin-top:12px;">
+            <button type="button" id="camFlip" aria-label="Switch camera" style="width:52px; height:52px; border-radius:50%; border:1px solid var(--line); background:#fff; font-size:22px;">\ud83d\udd04</button>
+            <button type="button" id="camShoot" aria-label="Take photo" style="width:76px; height:76px; border-radius:50%; border:6px solid #fff; background:var(--brand-green); box-shadow:0 0 0 2px var(--brand-green);"></button>
+            <span style="width:52px;"></span>
+          </div>
+        </div>
+        <label style="display:block; text-align:center; margin-top:12px; font-size:14px; color:#00612C; font-weight:700; text-decoration:underline; cursor:pointer; text-transform:none; letter-spacing:normal;">Choose a photo from my phone instead<input type="file" id="bioFile" accept="image/*" style="display:none;"></label>
+        <div id="bioPhotoArea" style="margin-top:12px;"></div>
         <button type="button" id="bioBackQ" style="display:block; margin:14px auto 0; background:none; border:none; color:#00612C; font-weight:700; text-decoration:underline; font-size:14px;">\u2190 Edit my answers</button>`);
-      wire();
-      ov.querySelector('#bioBackQ').onclick = stepQuestions;
-      ov.querySelector('#bioFile').onchange = async e => {
-        const f = e.target.files && e.target.files[0]; if(!f) return;
-        const area = ov.querySelector('#bioPhotoArea');
-        area.innerHTML = '<div style="text-align:center; padding:24px; color:var(--muted);">\u2728 Working on your photo\u2026 this can take a few seconds.</div>';
+      const closeBtn = ov.querySelector('#bioClose'); if(closeBtn) closeBtn.onclick = () => { stopCam(); ov.remove(); };
+      ov.querySelector('#bioBackQ').onclick = () => { stopCam(); stepQuestions(); };
+      const area = ov.querySelector('#bioPhotoArea'), camArea = ov.querySelector('#camArea'), vid = ov.querySelector('#camVid');
+      try{ window.bioWarmUpModels && window.bioWarmUpModels(); }catch(e){}
+      async function startCam(){
+        stopCam();
         try{
-          const src = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-          photo = await window.bioReplaceBackground(src);
-          area.innerHTML = `<img src="${photo.photo}" alt="Your photo" style="display:block; width:100%; max-width:360px; margin:0 auto; border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.12);">
-            ${photo.bgReplaced ? '' : '<p style="font-size:13px; color:#9a6b16; text-align:center; margin:8px 0 0;">The background couldn\u2019t be changed on this phone \u2014 the office will take care of it.</p>'}
-            ${btn('bioPNext', 'Looks good \u2014 Submit')}<p style="text-align:center; font-size:13.5px; color:var(--muted); margin:10px 0 0;">Not happy with it? Tap <strong>Take or choose a photo</strong> again.</p>`;
-          ov.querySelector('#bioPNext').onclick = submit;
-        }catch(err){ area.innerHTML = '<p style="color:#b3261e; font-weight:700;">That photo couldn\u2019t be opened \u2014 try another.</p>'; }
-        e.target.value = '';
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1920 } }, audio: false });
+          vid.srcObject = stream; vid.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none'; camArea.style.display = '';
+        }catch(err){
+          camArea.style.display = 'none';
+          area.innerHTML = '<p style="font-size:14px; color:var(--muted); text-align:center;">The camera couldn\u2019t open here \u2014 tap <strong>Choose a photo from my phone</strong> above (a new photo works best).</p>';
+        }
+      }
+      ov.querySelector('#camFlip').onclick = () => { facing = facing === 'environment' ? 'user' : 'environment'; startCam(); };
+      ov.querySelector('#camShoot').onclick = () => {
+        if(!vid.videoWidth) return;
+        const c = document.createElement('canvas'); c.width = vid.videoWidth; c.height = vid.videoHeight;
+        c.getContext('2d').drawImage(vid, 0, 0);
+        handle(c.toDataURL('image/jpeg', 0.92));
       };
+      ov.querySelector('#bioFile').onchange = async e => {
+        const f = e.target.files && e.target.files[0]; e.target.value = ''; if(!f) return;
+        const src = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); }).catch(() => null);
+        if(src) handle(src);
+      };
+      async function handle(src){
+        stopCam(); camArea.style.display = 'none';
+        area.innerHTML = '<div style="text-align:center; padding:28px; color:var(--muted);">\u2728 Working on your photo\u2026 a few seconds.</div>';
+        let p;
+        try{ p = await window.bioProcessPhoto(src); }catch(err){ area.innerHTML = '<p style="color:#b3261e; font-weight:700; text-align:center;">That photo couldn\u2019t be opened \u2014 try again.</p>' + retakeBtn(); wireRetake(); return; }
+        let issues = p.problems.map(code => ({ code, message: MSG[code] || '' }));
+        // AI look (sunglasses, hat, others, shirt) -- only if the photo itself passed
+        if(!issues.length){
+          area.innerHTML = '<div style="text-align:center; padding:28px; color:var(--muted);">\ud83d\udd0d Checking your photo\u2026</div>';
+          try{
+            const r = await fetch(API_BASE_AUTH + '/api/crew/bio/check', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ photo: p.photo }) });
+            if(r.ok) issues = ((await r.json()).issues || []);
+          }catch(e){}
+        }
+        photo = { photo: p.photo, original: p.original, bgReplaced: p.bgReplaced, flags: [] };
+        const img = `<img src="${p.photo}" alt="Your photo" style="display:block; width:100%; max-width:340px; margin:0 auto; border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.12);">`;
+        if(issues.length){
+          area.innerHTML = img + `<div style="margin-top:12px; background:#fff4e5; border:1px solid #f0c48a; border-radius:12px; padding:12px 14px;">
+              <div style="font-weight:800; margin-bottom:4px;">Let\u2019s try that again:</div>${issues.map(i => `<div style="font-size:15px; margin-top:3px;">\u2022 ${driverEsc(i.message)}</div>`).join('')}</div>
+            ${btn('bioRetake', '\ud83d\udcf7 Retake')}${btn('bioAnyway', 'Send it anyway', false)}`;
+          ov.querySelector('#bioRetake').onclick = () => { area.innerHTML = ''; startCam(); };
+          ov.querySelector('#bioAnyway').onclick = () => { photo.flags = issues.map(i => i.code); submit(); };
+        } else {
+          area.innerHTML = img + (p.bgReplaced ? '' : '<p style="font-size:13px; color:#9a6b16; text-align:center; margin:8px 0 0;">The background couldn\u2019t be changed on this phone \u2014 the office will take care of it.</p>')
+            + btn('bioPNext', 'Looks good \u2014 Submit') + btn('bioRetake', '\ud83d\udcf7 Retake', false);
+          ov.querySelector('#bioPNext').onclick = submit;
+          ov.querySelector('#bioRetake').onclick = () => { area.innerHTML = ''; startCam(); };
+        }
+      }
+      const retakeBtn = () => btn('bioRetake', '\ud83d\udcf7 Retake');
+      const wireRetake = () => { const b = ov.querySelector('#bioRetake'); if(b) b.onclick = () => { area.innerHTML = ''; startCam(); }; };
+      startCam();
     }
     async function submit(){
-      const b = ov.querySelector('#bioPNext'); b.disabled = true; b.textContent = 'Sending\u2026';
+      const b = ov.querySelector('#bioPNext') || ov.querySelector('#bioAnyway'), bLabel = b ? b.textContent : ''; if(b){ b.disabled = true; b.textContent = 'Sending\u2026'; }
       try{
         const r = await fetch(API_BASE_AUTH + '/api/crew/bio', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken },
-          body: JSON.stringify({ answers, photo: photo.photo, photoOriginal: photo.original, bgReplaced: photo.bgReplaced }) });
+          body: JSON.stringify({ answers, photo: photo.photo, photoOriginal: photo.original, bgReplaced: photo.bgReplaced, photoFlags: photo.flags || [] }) });
         const res = await r.json().catch(() => ({})); if(!r.ok) throw new Error(res.error || 'Could not send \u2014 try again.');
         ov.innerHTML = shell(3, `<div style="text-align:center; margin-top:16px;"><div style="font-size:48px;">\ud83c\udf89</div><h2 style="margin:6px 0; font-size:23px;">All done \u2014 thank you!</h2>
           <img src="${photo.photo}" alt="" style="width:160px; border-radius:12px; margin:8px 0;"></div>
           <div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:15px; line-height:1.55;"><div style="font-size:12px; font-weight:800; color:var(--muted); margin-bottom:4px;">YOUR BIO (the office may polish it)</div>${driverEsc(res.bio || '')}</div>${btn('bioDone', 'Done')}`);
         ov.querySelector('#bioDone').onclick = () => { ov.remove(); loadBioTask(); };
         wire();
-      }catch(err){ b.disabled = false; b.textContent = 'Looks good \u2014 Submit'; alert(err.message); }
+      }catch(err){ if(b){ b.disabled = false; b.textContent = bLabel; } alert(err.message); }
     }
     document.body.appendChild(ov);
     if(answers.filter(a => String(a || '').trim().length >= 3).length === 3) stepPhoto(); else stepQuestions();
@@ -11533,6 +11662,7 @@ window.openEmailDraft = function(o){
             <button type="button" id="brOrig" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12.5px; cursor:pointer;">See original</button>
             <button type="button" id="brRerun" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12.5px; cursor:pointer;">Re-do background</button></div>
           ${b.bgReplaced ? '' : '<p class="form-note" style="color:#9a6b16; margin:6px 0 0;">The background wasn\u2019t replaced on the employee\u2019s phone \u2014 click <strong>Re-do background</strong>.</p>'}
+          ${(b.photoFlags || []).length ? `<p style="margin:6px 0 0; font-size:12.5px; background:#fff4e5; border:1px solid #f0c48a; border-radius:8px; padding:6px 8px;"><strong>\u26a0 Sent anyway:</strong> ${b.photoFlags.map(k => ({ sunglasses: 'sunglasses', hat: 'wearing a hat', others: 'other people in the shot', no_shirt: 'no College Hunks shirt', face: 'face not clear', not_photo: 'not a photo of them', noface: 'no face found', small: 'too far away', dark: 'too dark', blurry: 'blurry' }[k] || k)).join(', ')}. Consider <em>Ask them to redo it</em>.</p>` : ''}
           <p class="status-msg" id="brPhotoStatus" style="margin:6px 0 0;"></p></div>
         <div style="flex:1; min-width:260px;">
           <div style="font-size:12px; font-weight:800; color:var(--muted);">BIO (edit as needed)</div>
