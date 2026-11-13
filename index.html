@@ -29303,8 +29303,13 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const dayTotal = d => Object.values(otData.manual[d] || {}).reduce((t, m) => t + (Number(m) || 0), 0) + (Number(otData.appByDay[d]) || 0);
     const avgOver = (from, to) => { const days = Object.keys(otData.manual).filter(d => d >= from && d < to && typedOn(d));
       return days.length ? { perDay: days.reduce((t, d) => t + dayTotal(d), 0) / days.length, days: days.length } : null; };
-    const allAvg = full.length ? avgOver(first, cur) : null;
-    const avg = allAvg ? allAvg.perDay * 7 : null;
+    // Week by week: that week's daily average (only days with time typed in)
+    // x 5 work days; the weekly average is the average of those week figures.
+    const weekEst = ws => { const a = avgOver(ws, otAdd(ws, 7)); return a ? { est: a.perDay * 5, perDay: a.perDay, days: a.days } : null; };
+    const estOver = wss => { const e = wss.map(weekEst).filter(Boolean);
+      return e.length ? { est: e.reduce((t, x) => t + x.est, 0) / e.length, perDay: e.reduce((t, x) => t + x.perDay, 0) / e.length, weeks: e.length, days: e.reduce((t, x) => t + x.days, 0) } : null; };
+    const allAvg = estOver(full.map(w => w.ws));
+    const avg = allAvg ? allAvg.est : null;
     const thisW = weeks[weeks.length - 1];
     const max = Math.max(60, ...weeks.map(w => w.total));
     const hint = document.getElementById('val_ownerHoursHint');
@@ -29313,8 +29318,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     // Prior 4 complete weeks; weeks with no time at all are left out.
     const prior4 = weeks.filter(w => w.ws < cur).slice(-4);
     const recent = prior4.filter(w => w.total > 0);
-    const a4 = avgOver(otAdd(cur, -28), cur);
-    const avg4 = a4 ? a4.perDay * 7 : null;
+    const a4 = estOver(prior4.map(w => w.ws));
+    const avg4 = a4 ? a4.est : null;
     const hrsBox = document.getElementById('val_ownerHours');
     if(hrsBox && avg4 != null && !hrsBox.dataset.typed){
       hrsBox.value = (Math.round(avg4 / 60 * 10) / 10).toString();
@@ -29322,16 +29327,16 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!hrsBox.dataset.wired){ hrsBox.dataset.wired = '1'; hrsBox.addEventListener('input', () => { hrsBox.dataset.typed = '1'; const h = document.getElementById('val_ownerHoursHint'); if(h) h.textContent = 'Your own number (tracked average not used).'; }); }
     }
     if(hint) hint.textContent = avg4 != null
-      ? (hrsBox && hrsBox.dataset.typed ? 'Your own number (tracked average not used).' : `From the last 4 weeks: ${a4 ? a4.days : 0} day${a4 && a4.days === 1 ? '' : 's'} with time typed in (logged + app), averaged per day \u00d7 7. Days left blank aren\u2019t counted.`)
+      ? (hrsBox && hrsBox.dataset.typed ? 'Your own number (tracked average not used).' : `From the last 4 weeks: ${a4 ? a4.days : 0} day${a4 && a4.days === 1 ? '' : 's'} with time typed in (logged + app), each week\u2019s daily average \u00d7 5, averaged over ${a4 ? a4.weeks : 0} week${a4 && a4.weeks === 1 ? '' : 's'}. Days left blank aren\u2019t counted.`)
       : 'Track your time in Owner Time above to fill this in automatically.';
     const card = (label, val, sub) => `<div style="flex:1; min-width:150px; border:1px solid var(--line); border-radius:8px; padding:10px 12px;"><div style="font-size:12px; color:var(--muted);">${label}</div><div style="font-size:26px; font-weight:800;">${val}</div>${sub ? `<div style="font-size:11.5px; color:var(--muted);">${sub}</div>` : ''}</div>`;
     document.getElementById('ot_summary').innerHTML = `
       <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
         ${card('This week so far', otHrs(thisW.total) + ' hrs', `${otHrs(thisW.manual)} logged \u00b7 ${otHrs(thisW.app)} in the app`)}
-        ${card('Weekly average', avg != null ? otHrs(avg) + ' hrs' : '\u2014', allAvg ? `${otHrs(allAvg.perDay)} hrs a day \u00d7 7 \u00b7 from ${allAvg.days} day${allAvg.days === 1 ? '' : 's'} with time typed in` : 'after your first full week')}
+        ${card('Weekly average', avg != null ? otHrs(avg) + ' hrs' : '\u2014', allAvg ? `${otHrs(allAvg.perDay)} hrs a day \u00d7 5 \u00b7 from ${allAvg.weeks} week${allAvg.weeks === 1 ? '' : 's'} (${allAvg.days} day${allAvg.days === 1 ? '' : 's'} with time typed in)` : 'after your first full week')}
       </div>
       <div style="display:flex; align-items:flex-end; gap:6px; height:120px; border-bottom:1px solid var(--line);">
-        ${weeks.map(w => `<div title="Week of ${new Date(w.ws + 'T12:00:00').toLocaleDateString()}: ${otHrs(w.manual)} logged + ${otHrs(w.app)} app = ${otHrs(w.total)} hrs" style="flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; cursor:pointer;" data-ws="${w.ws}" class="ot-bar">
+        ${weeks.map(w => `<div title="Week of ${new Date(w.ws + 'T12:00:00').toLocaleDateString()}: ${otHrs(w.manual)} logged + ${otHrs(w.app)} app = ${otHrs(w.total)} hrs${(() => { const e = weekEst(w.ws); return e ? ` \u00b7 ${otHrs(e.perDay)} hrs a day (${e.days} day${e.days === 1 ? '' : 's'}) \u00d7 5 = ${otHrs(e.est)} hrs` : ''; })()}" style="flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; cursor:pointer;" data-ws="${w.ws}" class="ot-bar">
           <div style="font-size:10px; color:var(--muted); margin-bottom:2px;">${w.total ? otHrs(w.total) : ''}</div>
           <div style="width:100%; height:${Math.round(w.manual / max * 90)}px; background:#2f6db5;"></div>
           <div style="width:100%; height:${Math.round(w.app / max * 90)}px; background:#9fbbe0; border-radius:${w.manual ? 0 : '4px 4px'} 0 0;"></div></div>`).join('')}
