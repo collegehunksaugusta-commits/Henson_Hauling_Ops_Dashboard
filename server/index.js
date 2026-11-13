@@ -7126,7 +7126,7 @@ async function writeBio(firstName, answers) {
   } catch (e) { return fallback(); }
 }
 const bioPublic = b => ({ key: b.key, name: b.name, status: b.status, requestedAt: b.requestedAt, auto: !!b.auto, submittedAt: b.submittedAt || null, approvedAt: b.approvedAt || null, answersSavedAt: b.answersSavedAt || null,
-  answers: b.answers || [], bio: b.bio || '', bgReplaced: b.bgReplaced !== false, hasPhoto: !!b.hasPhoto });
+  answers: b.answers || [], bio: b.bio || '', bgReplaced: b.bgReplaced !== false, hasPhoto: !!b.hasPhoto, photoFlags: b.photoFlags || [] });
 // Office
 app.get('/api/admin/bios', requireAuth, requireAdmin, async (req, res) => {
   try { res.json({ bios: Object.values(await loadBios()).map(bioPublic), questions: BIO_QUESTIONS }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
@@ -7167,7 +7167,7 @@ app.post('/api/crew/bio', async (req, res) => {
   try {
     const me = await crewName(req);
     if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
-    const { answers, photo, photoOriginal, bgReplaced, saveAnswersOnly } = req.body || {};
+    const { answers, photo, photoOriginal, bgReplaced, saveAnswersOnly, photoFlags } = req.body || {};
     const ans = (Array.isArray(answers) ? answers : []).slice(0, 3).map(a => String(a || '').trim().slice(0, 800));
     // "Save -- I'll do the photo later": keep the answers; the request stays open (and the reminders keep coming).
     if (saveAnswersOnly) {
@@ -7185,11 +7185,57 @@ app.post('/api/crew/bio', async (req, res) => {
     await redis.set(BIO_PHOTO_PREFIX + k, photo);
     if (/^data:image\/(jpeg|png);base64,/.test(String(photoOriginal || '')) && photoOriginal.length < 6_000_000) await redis.set(BIO_PHOTO_ORIG_PREFIX + k, photoOriginal);
     const parts = String(me).split(','), first = ((parts[1] || parts[0] || '').trim().split(/\s+/)[0]) || me;
-    Object.assign(b, { name: b.name || me, answers: ans, bio: await writeBio(first, ans), status: 'submitted', submittedAt: new Date().toISOString(), bgReplaced: bgReplaced !== false, hasPhoto: true });
+    Object.assign(b, { name: b.name || me, answers: ans, bio: await writeBio(first, ans), status: 'submitted', submittedAt: new Date().toISOString(), bgReplaced: bgReplaced !== false, hasPhoto: true,
+      photoFlags: (Array.isArray(photoFlags) ? photoFlags : []).map(String).filter(k => BIO_PHOTO_ISSUES[k] || /^(dark|small|blurry|noface)$/.test(k)).slice(0, 8) });
     await saveBios(bios);
     console.log(`[bio] ${me} submitted bio & photo`);
     res.json({ ok: true, bio: b.bio });
   } catch (err) { console.error('Bio submit failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+// AI look at a bio photo before it's submitted: sunglasses, hat, other
+// people, no College Hunks shirt, face hidden. Friendly reasons come back to
+// the HUNK Portal; anything sent anyway is flagged for the office.
+const BIO_PHOTO_ISSUES = {
+  sunglasses: 'Please take off your sunglasses \u2014 customers like to see your eyes.',
+  hat: 'Please take off your hat for this one.',
+  others: 'Only you in the photo, please \u2014 no one else in the shot.',
+  no_shirt: 'Please wear your College Hunks shirt for this photo.',
+  face: 'We can\u2019t see your face clearly \u2014 face the camera and try again.',
+  not_photo: 'That doesn\u2019t look like a photo of you \u2014 please take a new one.'
+};
+async function reviewBioPhoto(dataUri) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const m = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(String(dataUri || ''));
+  if (!apiKey || !m) return { issues: [], checked: false };
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 300, messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+        { type: 'text', text: 'This is meant to be a professional profile photo of one College Hunks Hauling Junk & Moving employee (the company colors are green and orange; any College Hunks shirt, polo or tank top counts as their shirt). ' +
+          'Reply with JSON only, no other text: {"sunglasses":bool,"hat":bool,"others":bool,"no_shirt":bool,"face":bool,"not_photo":bool}. ' +
+          'sunglasses = wearing sunglasses or tinted glasses (clear eyeglasses are fine). hat = wearing a hat or cap. others = another person (or part of one, like an arm or face) is clearly visible. ' +
+          'no_shirt = not wearing a College Hunks shirt (green/orange company shirt). face = the face is not clearly visible (turned away, covered, very blurry). not_photo = not a real photo of a person. ' +
+          'Only mark something true when you are fairly sure.' }
+      ] }] })
+    });
+    if (!r.ok) return { issues: [], checked: false };
+    const d = await r.json();
+    const text = ((d.content || []).find(c => c.type === 'text') || {}).text || '';
+    const j = JSON.parse((text.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    const issues = Object.keys(BIO_PHOTO_ISSUES).filter(k => j[k] === true);
+    return { issues, checked: true };
+  } catch (e) { return { issues: [], checked: false }; }
+}
+app.post('/api/crew/bio/check', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const photo = String((req.body || {}).photo || '');
+    if (!/^data:image\/(jpeg|png);base64,/.test(photo) || photo.length > 6_000_000) return res.status(400).json({ error: 'No photo.' });
+    const r = await reviewBioPhoto(photo);
+    res.json({ issues: r.issues.map(k => ({ code: k, message: BIO_PHOTO_ISSUES[k] })), checked: r.checked });
+  } catch (err) { res.json({ issues: [], checked: false }); }
 });
 // New hires: requested automatically 3 days after the scheduled start date.
 async function autoRequestNewHireBios() {
