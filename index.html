@@ -11514,6 +11514,12 @@ window.openEmailDraft = function(o){
     // Who was added by hand and who has sign-in digits is admin-only.
     const admin = isCurrentUserAdmin();
     document.querySelectorAll('.roster-admin-col').forEach(th => th.style.display = admin ? '' : 'none');
+    // "Request Bio & Photo from everyone" goes away once everyone (owners
+    // aside) has an approved bio & photo -- new hires are asked automatically.
+    try{
+      const allBtn = document.getElementById('bioRequestAllBtn');
+      if(allBtn && admin && window.bioAllApproved) allBtn.style.display = window.bioAllApproved(rosterViewNames || []) ? 'none' : '';
+    }catch(e){}
     const key = n => String(n).replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
     const manual = new Set((rosterManualAdditions || []).map(key));
     const rows = rosterViewNames.filter(n => !q || n.toLowerCase().includes(q));
@@ -11641,6 +11647,10 @@ window.openEmailDraft = function(o){
   };
   // Same matching as the server (nameCoreKey): middle initials and periods dropped.
   const bioKeyOf = n => String(n || '').replace(/[,.]/g, ' ').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ').replace(/[^a-z0-9]+/g, '-');
+  window.bioAllApproved = names => {
+    const crew = names.filter(n => !(window.empDuties && window.empDuties.classify(n, (rosterRoles || {})[n]) === 'owner'));
+    return crew.length > 0 && crew.every(n => { const b = rosterBios[bioKeyOf(n)]; return b && b.status === 'approved'; });
+  };
   window.bioCellHtml = function(n){
     const b = rosterBios[bioKeyOf(n)], esc = rosterManualEsc;   // anyone on the roster can be asked (owners too, one at a time)
     const btn = (label, cls, style) => `<button type="button" class="${cls}" data-name="${esc(n)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; ${style || ''}">${label}</button>`;
