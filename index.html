@@ -3361,10 +3361,11 @@ window.openEmailDraft = function(o){
     let d;
     try{ const r = await fetch(API_BASE_AUTH + '/api/crew/bio', { headers: { 'Authorization': 'Bearer ' + driverToken } }); if(!r.ok) return; d = await r.json(); }catch(err){ return; }
     const answersDone = (d.answers || []).filter(a => String(a || '').trim().length >= 3).length === 3;
+    const redo = d.photoRedo, redoNote = redo && redo.reason ? `<div style="font-size:14px; margin-top:8px; background:#fff8ec; border-radius:8px; padding:7px 10px;"><strong>From the office:</strong> ${driverEsc(redo.reason)}</div>` : '';
     const card = d.pending ? `<div style="background:#fff; border:2px solid #f0a35b; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
         <div style="font-size:12px; font-weight:800; letter-spacing:.05em; color:#b4610f;">\ud83d\udcf8 ACTION NEEDED</div>
-        <div style="font-size:16px; font-weight:800; margin-top:3px;">Your Bio &amp; Photo</div>
-        ${answersDone ? `<div style="font-size:13.5px; margin-top:3px;"><span style="color:#00612C; font-weight:700;">\u2713 Questions done</span> \u2014 just your photo left.</div>` : `<div style="font-size:13.5px; color:var(--muted); margin-top:3px;">Answer 3 quick questions and add a photo for your profile. About 5 minutes.</div>`}
+        <div style="font-size:16px; font-weight:800; margin-top:3px;">${redo ? 'New Photo Needed' : 'Your Bio &amp; Photo'}</div>
+        ${redo ? `<div style="font-size:13.5px; margin-top:3px;">Your answers are all set \u2014 we just need a new photo.</div>${redoNote}` : answersDone ? `<div style="font-size:13.5px; margin-top:3px;"><span style="color:#00612C; font-weight:700;">\u2713 Questions done</span> \u2014 just your photo left.</div>` : `<div style="font-size:13.5px; color:var(--muted); margin-top:3px;">Answer 3 quick questions and add a photo for your profile. About 5 minutes.</div>`}
         <button type="button" class="bioStartBtn" style="width:100%; margin-top:10px; padding:13px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">${answersDone ? '\ud83d\udcf7 Add my photo' : (d.answers || []).some(Boolean) ? 'Continue' : 'Start'}</button></div>` : '';
     document.querySelectorAll('.crewBioTask').forEach(box => { box.innerHTML = card; box.querySelectorAll('.bioStartBtn').forEach(b => b.onclick = () => openBioFlow(d)); });
     // Once a day until it's done: a full-screen reminder.
@@ -3374,7 +3375,8 @@ window.openEmailDraft = function(o){
       ov.style.cssText = 'position:fixed; inset:0; z-index:199990; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:18px;';
       ov.innerHTML = `<div style="background:#fff; border-radius:16px; max-width:400px; width:100%; padding:22px 20px; text-align:center;">
         <div style="font-size:44px;">\ud83d\udcf8</div>
-        <div style="font-size:20px; font-weight:800; margin-top:6px;">${answersDone ? 'We still need your photo' : 'We need your bio &amp; photo'}</div>
+        <div style="font-size:20px; font-weight:800; margin-top:6px;">${redo ? 'We need a new photo' : answersDone ? 'We still need your photo' : 'We need your bio &amp; photo'}</div>
+        ${redo && redo.reason ? `<div style="font-size:14.5px; margin:8px 0 0; background:#fff8ec; border-radius:8px; padding:8px 10px; text-align:left;"><strong>From the office:</strong> ${driverEsc(redo.reason)}</div>` : ''}
         <div style="font-size:14.5px; color:var(--muted); margin:8px 0 16px;">${answersDone ? 'Your answers are saved \u2014 just add one photo to finish.' : 'It\u2019s for your College Hunks profile. Three quick questions and one photo \u2014 about 5 minutes.'}</div>
         <button type="button" id="bioNagGo" style="width:100%; padding:14px; font-size:17px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px;">Do it now</button>
         <button type="button" id="bioNagLater" style="width:100%; margin-top:8px; padding:11px; font-size:14px; background:#fff; border:1px solid var(--line); border-radius:10px;">Remind me later</button></div>`;
@@ -3419,13 +3421,28 @@ window.openEmailDraft = function(o){
         stepPhoto();
       };
     }
+    // Before the camera opens: the photo rules, every time the photo step starts.
     function stepPhoto(){
+      const redo = d.photoRedo;
+      ov.innerHTML = shell(2, `<h2 style="margin:10px 0 6px; font-size:22px;">Before you take your photo</h2>
+        ${redo && redo.reason ? `<div style="background:#fff4e5; border:1px solid #f0c48a; border-radius:12px; padding:10px 12px; margin:0 0 12px; font-size:15px;"><strong>From the office:</strong> ${driverEsc(redo.reason)}</div>` : ''}
+        <div style="background:#fff; border:1px solid var(--line); border-radius:14px; padding:6px 14px;">
+          ${[['\ud83d\udc55', 'Wear a College Hunks branded shirt'], ['\ud83e\udd1d', 'Have someone else take the photo'], ['\ud83e\uddf1', 'Stand in front of a solid-color background (preferably a light color)'], ['\ud83d\ude01', 'Smile for the love of all that\u2019s holy!']]
+            .map(([e, t], k) => `<div style="display:flex; gap:12px; align-items:center; padding:12px 0; ${k ? 'border-top:1px solid #f0ede6;' : ''} font-size:17px; font-weight:700; line-height:1.35;"><span style="font-size:28px; flex-shrink:0;">${e}</span><span>${t}</span></div>`).join('')}
+        </div>
+        ${btn('bioBriefGo', 'Got it \u2014 open the camera')}
+        <button type="button" id="bioBriefBack" style="display:${redo ? 'none' : 'block'}; margin:14px auto 0; background:none; border:none; color:#00612C; font-weight:700; text-decoration:underline; font-size:14px;">\u2190 Edit my answers</button>`);
+      ov.querySelector('#bioClose').onclick = () => ov.remove();
+      ov.querySelector('#bioBriefBack').onclick = stepQuestions;
+      ov.querySelector('#bioBriefGo').onclick = stepCamera;
+    }
+    function stepCamera(){
       let stream = null, facing = 'environment';
       const stopCam = () => { if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; } };
       const MSG = { noface: 'We can\u2019t find your face \u2014 face the camera in good light and try again.', small: 'You\u2019re too far away \u2014 move closer so your head and shoulders fill the outline.',
         dark: 'Too dark \u2014 face a window or turn on a light.', blurry: 'A little blurry \u2014 hold the phone still and try again.', others: 'Only you in the photo, please \u2014 no one else in the shot.' };
       ov.innerHTML = shell(2, `<h2 style="margin:10px 0 4px; font-size:22px;">Your photo</h2>
-        <p style="margin:0 0 10px; font-size:14.5px; line-height:1.45;">\ud83d\udc55 College Hunks shirt on \u00b7 \ud83d\udd76\ufe0f no sunglasses or hat \u00b7 \ud83e\udd1d have someone else take it if you can</p>
+        <p style="margin:0 0 10px; font-size:14px; line-height:1.45;">\ud83d\udc55 College Hunks shirt \u00b7 \ud83e\udd1d someone else takes it \u00b7 \ud83e\uddf1 light, solid background \u00b7 \ud83d\ude01 smile!</p>
         <div id="camArea">
           <div id="camBox" style="position:relative; background:#111; border-radius:16px; overflow:hidden; aspect-ratio:4/5;">
             <video id="camVid" playsinline muted autoplay style="width:100%; height:100%; object-fit:cover; display:block;"></video>
@@ -11628,7 +11645,7 @@ window.openEmailDraft = function(o){
     const b = rosterBios[bioKeyOf(n)], esc = rosterManualEsc;   // anyone on the roster can be asked (owners too, one at a time)
     const btn = (label, cls, style) => `<button type="button" class="${cls}" data-name="${esc(n)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; ${style || ''}">${label}</button>`;
     if(!b || b.status === 'none') return btn('Request', 'bio-req');
-    if(b.status === 'requested') return `<span style="color:#9a6b16; font-weight:700;">Requested</span><div style="font-size:11.5px; color:var(--muted);">${esc(new Date(b.requestedAt).toLocaleDateString())}${b.auto ? ' \u00b7 auto' : ''}${b.answersSavedAt ? ' \u00b7 <span style="color:#00612C; font-weight:700;">questions done</span>' : ''}</div>`;
+    if(b.status === 'requested') return `<span style="color:#9a6b16; font-weight:700;">Requested</span><div style="font-size:11.5px; color:var(--muted);">${esc(new Date(b.requestedAt).toLocaleDateString())}${b.auto ? ' \u00b7 auto' : ''}${b.photoRedo ? ' \u00b7 <span style="color:#b4610f; font-weight:700;">new photo</span>' : b.answersSavedAt ? ' \u00b7 <span style="color:#00612C; font-weight:700;">questions done</span>' : ''}</div>`;
     if(b.status === 'submitted') return btn('\ud83d\udcf8 Review', 'bio-view', 'border-color:#f0a35b; color:#b4610f; font-weight:800;');
     return `<span style="color:#00612C; font-weight:700;">\u2713 Approved</span> ${btn('View', 'bio-view')}`;
   };
@@ -11662,7 +11679,7 @@ window.openEmailDraft = function(o){
             <button type="button" id="brOrig" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12.5px; cursor:pointer;">See original</button>
             <button type="button" id="brRerun" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12.5px; cursor:pointer;">Re-do background</button></div>
           ${b.bgReplaced ? '' : '<p class="form-note" style="color:#9a6b16; margin:6px 0 0;">The background wasn\u2019t replaced on the employee\u2019s phone \u2014 click <strong>Re-do background</strong>.</p>'}
-          ${(b.photoFlags || []).length ? `<p style="margin:6px 0 0; font-size:12.5px; background:#fff4e5; border:1px solid #f0c48a; border-radius:8px; padding:6px 8px;"><strong>\u26a0 Sent anyway:</strong> ${b.photoFlags.map(k => ({ sunglasses: 'sunglasses', hat: 'wearing a hat', others: 'other people in the shot', no_shirt: 'no College Hunks shirt', face: 'face not clear', not_photo: 'not a photo of them', noface: 'no face found', small: 'too far away', dark: 'too dark', blurry: 'blurry' }[k] || k)).join(', ')}. Consider <em>Ask them to redo it</em>.</p>` : ''}
+          ${(b.photoFlags || []).length ? `<p style="margin:6px 0 0; font-size:12.5px; background:#fff4e5; border:1px solid #f0c48a; border-radius:8px; padding:6px 8px;"><strong>\u26a0 Sent anyway:</strong> ${b.photoFlags.map(k => ({ sunglasses: 'sunglasses', hat: 'wearing a hat', others: 'other people in the shot', no_shirt: 'no College Hunks shirt', face: 'face not clear', not_photo: 'not a photo of them', noface: 'no face found', small: 'too far away', dark: 'too dark', blurry: 'blurry' }[k] || k)).join(', ')}. Consider <em>Ask for a new photo</em>.</p>` : ''}
           <p class="status-msg" id="brPhotoStatus" style="margin:6px 0 0;"></p></div>
         <div style="flex:1; min-width:260px;">
           <div style="font-size:12px; font-weight:800; color:var(--muted);">BIO (edit as needed)</div>
@@ -11670,8 +11687,14 @@ window.openEmailDraft = function(o){
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
             <button type="button" class="btn-primary" id="brApprove">${b.status === 'approved' ? 'Save' : 'Approve'}</button>
             <button type="button" id="brCopy" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Copy bio</button>
-            <button type="button" id="brAgain" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer;">Ask them to redo it</button>
+            <button type="button" id="brAgain" style="background:#fff; border:1px solid #f0a35b; color:#b4610f; border-radius:6px; padding:7px 12px; cursor:pointer; font-weight:700;">\ud83d\udcf7 Ask for a new photo</button>
             <span class="status-msg" id="brStatus"></span></div>
+          <div id="brRedoBox" style="display:none; margin-top:10px; padding:10px 12px; border:1px solid #f0c48a; background:#fff8ef; border-radius:8px;">
+            <label style="display:block; font-size:13px; font-weight:700; margin:0 0 4px; text-transform:none; letter-spacing:normal;">Why does it need retaken? <span style="font-weight:400; color:var(--muted);">(they\u2019ll see this)</span></label>
+            <textarea id="brRedoReason" rows="2" maxlength="500" placeholder="e.g. Please take off the sunglasses and stand in front of a light-colored wall." style="width:100%; box-sizing:border-box; padding:8px; font-family:inherit; font-size:14px; border:1px solid var(--line); border-radius:6px;"></textarea>
+            <div style="display:flex; gap:8px; align-items:center; margin-top:6px;"><button type="button" class="btn-primary" id="brRedoSend">Send to their HUNK Portal</button><button type="button" id="brRedoCancel" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer;">Cancel</button>
+              <span class="form-note" style="margin:0;">Their answers and bio stay as they are.</span></div>
+          </div>
           <div style="margin-top:14px; font-size:12px; font-weight:800; color:var(--muted);">THEIR ANSWERS</div>
           ${(b.answers || []).map((a, k) => `<div style="margin-top:6px; font-size:13px;"><div style="color:var(--muted);">${esc(qs[k] || '')}</div><div>${esc(a)}</div></div>`).join('')}
           <p class="form-note" style="margin:10px 0 0;">Submitted ${b.submittedAt ? esc(new Date(b.submittedAt).toLocaleString()) : '\u2014'}${b.approvedAt ? ' \u00b7 approved ' + esc(new Date(b.approvedAt).toLocaleDateString()) : ''}</p>
@@ -11698,7 +11721,17 @@ window.openEmailDraft = function(o){
       const r = await fetch(`${API_BASE}/api/admin/bios/${encodeURIComponent(b.key)}`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ bio: $('brBio').value, approve: true }) });
       if(r.ok){ st.textContent = '\u2713 Saved.'; st.className = 'status-msg ok'; await window.loadRosterBios(); renderEmployeeRosterView(); setTimeout(close, 600); } else { st.textContent = 'Could not save.'; st.className = 'status-msg err'; }
     };
-    $('brAgain').onclick = async () => { if(!confirm(`Ask ${name} to redo their bio & photo? It goes back on their HUNK Portal.`)) return; try{ await bioRequest([name], true); close(); }catch(err){ alert(err.message); } };
+    $('brAgain').onclick = () => { $('brRedoBox').style.display = 'block'; $('brRedoReason').focus(); };
+    $('brRedoCancel').onclick = () => { $('brRedoBox').style.display = 'none'; };
+    $('brRedoSend').onclick = async () => {
+      const reason = $('brRedoReason').value.trim();
+      if(!reason){ $('brRedoReason').focus(); $('brRedoReason').style.borderColor = '#b3261e'; return; }
+      try{
+        const r = await fetch(`${API_BASE}/api/admin/bios/request`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ names: [name], photoOnly: true, reason }) });
+        if(!r.ok) throw new Error('Could not send \u2014 check your connection.');
+        await window.loadRosterBios(); renderEmployeeRosterView(); close();
+      }catch(err){ alert(err.message); }
+    };
   }
   async function loadAndRenderRosterManualList(){
     try{ rosterManualAdditions = await window.dashboardApi.get(ROSTER_MANUAL_KEY, []) || []; }
