@@ -36816,9 +36816,102 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         ${(!item.source || item.source === 'materials') && (item.unmatchedLines || []).length ? `<div style="font-size:12.5px; color:#8a6100; margin-top:4px;">\u26a0 Invoice lines not matched to any inventory item: ${item.unmatchedLines.map(l => '\u201c' + mgrReviewEsc(l) + '\u201d').join(', ')} \u2014 add or fix that item\u2019s HunkWare Nickname in Inventory Management.</div>` : ''}
         ${(!item.source || item.source === 'materials') ? ubChargeHtml(item, showButtons) : ''}
         ${(!item.source || item.source === 'materials') && showButtons ? `<div style="margin-top:6px;"><button type="button" class="ub-recheck" data-job="${mgrReviewEsc(item.jobNumber)}" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">\u21bb Re-check invoice</button> <span class="status-msg ub-recheck-status" style="font-size:12px;"></span></div>` : ''}
+        ${(!item.source || item.source === 'materials') ? `<div style="margin-top:6px;"><button type="button" class="ub-matlog" data-id="${mgrReviewEsc(item.id)}" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">\ud83d\udccb Check-out &amp; check-in record</button><div class="ub-matlog-box" style="display:none;"></div></div>` : ''}
         ${showButtons ? `<div style="display:flex; gap:8px; margin-top:8px;">${mgrReviewOutcomeButtonsHtml(item.id)}</div>` : mgrReviewReviewedNoteHtml(item)}
       </div>`;
   }
+
+  // ---- Underbilled materials: every check-out and check-in for that day ----
+  // Shows exactly what the Captain checked out, and every End of Day return
+  // and Material Checkin that day (any job number), with times, who did it
+  // and same-day changes -- so "I checked them back in" can be confirmed or not.
+  const ubNk = s => String(s || '').replace(/[,.]/g, '').split(/\s+/).filter(w => w.length > 1).map(w => w.toLowerCase()).sort().join(' ');
+  const ubTime = iso => iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) : '';
+  async function ubBuildMaterialsLog(item){
+    const J = String(item.jobNumber);
+    const [checkouts, eods, checkins] = await Promise.all([
+      window.dashboardApi.get('materials-checkouts', []), window.dashboardApi.get('compliance-eod-inspections', []), window.dashboardApi.get('materials-checkins', [])
+    ]);
+    const hasJ = r => (r.jobNumbers || []).map(String).includes(J);
+    const forJob = (checkouts || []).filter(hasJ);
+    const days = new Map();   // "driverKey|date" -> { name, date }
+    forJob.forEach(c => days.set(ubNk(c.driverName) + '|' + c.date, { name: c.driverName, date: c.date }));
+    if(!days.size && item.captainName && item.jobDate) days.set(ubNk(item.captainName) + '|' + item.jobDate, { name: item.captainName, date: item.jobDate });
+    const inDay = r => days.has(ubNk(r.driverName) + '|' + r.date) || hasJ(r);
+    const events = [];
+    (checkouts || []).filter(inDay).forEach(r => events.push({ kind: 'out', label: 'Checked out (Pre-Trip)', at: r.checkedOutAt, r, items: r.items || [] }));
+    (eods || []).filter(inDay).forEach(r => events.push({ kind: 'in', label: 'End of Day Inspection', at: r.submittedAt, r, items: r.returnedItems || [] }));
+    (checkins || []).filter(inDay).forEach(r => events.push({ kind: 'in', label: 'Material Checkin', at: r.submittedAt, r, items: r.returnedItems || [] }));
+    events.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+    // Per flagged item: out for this job / back for this job / back under other jobs that day.
+    const flagged = (item.items || []).map(d => {
+      let out = 0, back = 0, backOther = 0;
+      events.forEach(ev => ev.items.filter(i => i.itemId === d.itemId).forEach(i => {
+        const q = Number(i.quantity) || 0;
+        if(ev.kind === 'out'){ if(hasJ(ev.r)) out += q; }
+        else if(hasJ(ev.r)) back += q; else backOther += q;
+      }));
+      return { itemId: d.itemId, description: d.description, out, back, backOther, billed: d.billed };
+    });
+    const returnsLogged = events.some(e => e.kind === 'in');
+    return { J, days: [...days.values()], events, flagged, returnsLogged, flaggedIds: new Set((item.items || []).map(d => d.itemId)) };
+  }
+  function ubMaterialsLogHtml(L){
+    const who = r => mgrReviewEsc(r.driverName || '') + (r.completedByWingman ? ` <span style="color:var(--muted);">(entered by ${mgrReviewEsc(r.completedByWingman)})</span>` : '');
+    const jobs = r => (r.jobNumbers || []).map(n => String(n) === L.J ? `<strong>#${mgrReviewEsc(n)}</strong>` : `#${mgrReviewEsc(n)}`).join(', ') || '<span style="color:#b3261e;">no job number</span>';
+    const sum = L.flagged.map(f => {
+      let note = '';
+      if(f.back === 0 && f.backOther === 0) note = ` \u2014 <strong style="color:#b3261e;">never checked back in that day</strong>`;
+      else if(f.back === 0 && f.backOther > 0) note = ` \u2014 <strong style="color:#8a6100;">${f.backOther} checked back in under a different job number</strong>`;
+      else if(f.backOther > 0) note = ` (plus ${f.backOther} under a different job number)`;
+      return `<div>${mgrReviewEsc(f.description)}: checked out <strong>${f.out}</strong> for #${mgrReviewEsc(L.J)}, checked back in <strong>${f.back}</strong> for #${mgrReviewEsc(L.J)}${note}</div>`;
+    }).join('');
+    const rows = L.events.map(ev => {
+      const items = ev.items.length ? ev.items.map(i => { const hit = L.flaggedIds.has(i.itemId); return `<span style="${hit ? 'background:#FFF1C2; font-weight:700; padding:0 3px; border-radius:3px;' : ''}">${Number(i.quantity) || 0} \u00d7 ${mgrReviewEsc(i.description || '')}</span>`; }).join(', ')
+        : `<span style="color:var(--muted);">${ev.kind === 'out' ? 'nothing checked out' : 'nothing returned'}</span>`;
+      const edits = (ev.r.edits || []).map(e => `<div style="color:var(--muted); font-size:12px; margin-left:12px;">\u270e Changed ${ubTime(e.at)} by ${mgrReviewEsc(e.by || '')}: ${(e.changes || []).map(c => `${mgrReviewEsc(c.description)} ${c.from}\u2192${c.to}`).join(', ')}</div>`).join('');
+      return `<div style="padding:6px 0; border-top:1px solid var(--line);">
+        <div><strong style="color:${ev.kind === 'out' ? '#1a4d8f' : 'var(--brand-green-dark, #00612C)'};">${ev.kind === 'out' ? '\u2197' : '\u2199'} ${ev.label}</strong> \u00b7 ${window.fmtDate(ev.r.date)} ${ubTime(ev.at)} \u00b7 ${who(ev.r)}</div>
+        <div style="font-size:12.5px;">Jobs: ${jobs(ev.r)}</div>
+        <div style="font-size:12.5px;">${items}</div>${edits}</div>`;
+    }).join('');
+    return `<div style="margin-top:8px; padding:10px 12px; background:#fff; border:1px solid var(--line); border-radius:8px; font-size:13px;">
+      <div style="font-weight:700; margin-bottom:4px;">${L.days.map(d => `${mgrReviewEsc(d.name)} \u2014 ${window.fmtDate(d.date)}`).join('; ') || 'Materials record'}</div>
+      ${sum}
+      ${L.returnsLogged ? '' : '<div style="color:#b3261e; margin-top:4px;"><strong>No End of Day return or Material Checkin is on file for that day.</strong></div>'}
+      <div style="margin-top:8px;">${rows || '<span class="form-note">No check-outs or check-ins found for this job.</span>'}</div>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;"><button type="button" class="ub-matlog-copy" style="background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">Copy as text</button><span class="status-msg ub-matlog-copied" style="font-size:12px;"></span></div>
+    </div>`;
+  }
+  function ubMaterialsLogText(L){
+    const lines = [`Materials record \u2014 Job #${L.J}`, ...L.days.map(d => `${d.name}, ${window.fmtDate(d.date)}`), ''];
+    L.flagged.forEach(f => lines.push(`${f.description}: checked out ${f.out} for #${L.J}, checked back in ${f.back} for #${L.J}${f.backOther ? `, ${f.backOther} under a different job number` : ''}${!f.back && !f.backOther ? ' (never checked back in that day)' : ''}`));
+    if(!L.returnsLogged) lines.push('No End of Day return or Material Checkin on file for that day.');
+    lines.push('');
+    L.events.forEach(ev => {
+      lines.push(`${ubTime(ev.at)} ${ev.label} \u2014 ${ev.r.driverName || ''}${ev.r.completedByWingman ? ' (entered by ' + ev.r.completedByWingman + ')' : ''} \u2014 jobs ${(ev.r.jobNumbers || []).map(n => '#' + n).join(', ') || 'none'}`);
+      lines.push('   ' + (ev.items.length ? ev.items.map(i => `${Number(i.quantity) || 0} x ${i.description || ''}`).join(', ') : (ev.kind === 'out' ? 'nothing checked out' : 'nothing returned')));
+      (ev.r.edits || []).forEach(e => lines.push(`   changed ${ubTime(e.at)} by ${e.by || ''}: ${(e.changes || []).map(c => `${c.description} ${c.from}->${c.to}`).join(', ')}`));
+    });
+    return lines.join('\n');
+  }
+  document.addEventListener('click', async e => {
+    const b = e.target.closest && e.target.closest('.ub-matlog');
+    const cp = e.target.closest && e.target.closest('.ub-matlog-copy');
+    if(cp){
+      const box = cp.closest('.ub-matlog-box'), st = box.querySelector('.ub-matlog-copied');
+      try{ await navigator.clipboard.writeText(box.__text || ''); st.textContent = 'Copied \u2014 paste it into a text.'; st.className = 'status-msg ub-matlog-copied ok'; }
+      catch(err){ st.textContent = 'Could not copy.'; st.className = 'status-msg ub-matlog-copied err'; }
+      return;
+    }
+    if(!b) return;
+    const box = b.parentElement.querySelector('.ub-matlog-box');
+    if(box.style.display !== 'none'){ box.style.display = 'none'; return; }
+    const item = managerReviewItems.find(i => i.id === b.dataset.id); if(!item) return;
+    box.style.display = 'block'; box.innerHTML = '<div class="form-note">Loading\u2026</div>';
+    try{ const L = await ubBuildMaterialsLog(item); box.innerHTML = ubMaterialsLogHtml(L); box.__text = ubMaterialsLogText(L); }
+    catch(err){ console.error(err); box.innerHTML = '<div class="status-msg err">Could not load the materials record.</div>'; }
+  });
 
   // ---- Underbilled materials: charge the employee (paycheck) ----
   const ubMoney = n => '$' + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
