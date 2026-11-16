@@ -714,12 +714,6 @@
           <span style="min-width:0;"><span class="dt-title" style="display:block;">Pre-Trip Inspection</span><span class="dt-sub" style="display:block;">Your truck&rsquo;s daily checklist &mdash; starts with Materials Checkout</span></span>
           <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
         </button>
-        <div class="dt-tray">
-          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
-          <div class="driver-task-assign-rows" data-types="pretrip,materials-checkout"></div>
-          <button type="button" class="mat-change-btn dt-btn" data-kind="checkout" style="display:none; margin-top:6px;">&#9999;&#65039; Change today&rsquo;s Material Checkout</button>
-          <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
-        </div>
       </div>
 <div class="dt-card">
         <button type="button" id="driverGoToMovingBtn" class="dt-head">
@@ -727,11 +721,6 @@
           <span style="min-width:0;"><span class="dt-title" style="display:block;">Moving</span><span class="dt-sub" style="display:block;">Photo pre-existing damage before the move, and anything the crew caused after</span></span>
           <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
         </button>
-        <div class="dt-tray">
-          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
-          <div class="driver-task-assign-rows" data-types="moving-preexisting,moving-caused"></div>
-          <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
-        </div>
       </div>
 <div class="dt-card">
         <button type="button" id="driverGoToJunkRemovalBtn" class="dt-head">
@@ -758,17 +747,6 @@
           <span style="min-width:0;"><span class="dt-title" style="display:block;">End of Day Inspection</span><span class="dt-sub" style="display:block;">Truck photo, plus any unused supplies going back to the racks</span></span>
           <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
         </button>
-        <div class="dt-tray">
-          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
-          <div class="driver-task-assign-rows" data-types="eod,materials-checkin"></div>
-          <button type="button" class="mat-change-btn dt-btn" data-kind="checkin" style="display:none; margin-top:6px;">&#9999;&#65039; Change today&rsquo;s Material Checkin</button>
-          <div class="dt-tray-label" style="padding-top:12px;">YOUR CREW</div>
-          <div class="dt-row"><div class="dt-row-main">
-            <span class="dt-row-name">&#11088; Wingman Review</span>
-            <button type="button" id="driverReviewWingmenBtn" class="dt-btn solid">Review Wingmen</button>
-          </div></div>
-          <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
-        </div>
       </div>
     </div>
     <div class="pgrp-more"><button type="button" class="portalShowAllBtn">Don&rsquo;t see what you need? Show all tools</button></div>
@@ -1218,6 +1196,16 @@
       <h2 class="display" id="pti_title" style="margin:0; font-size:20px;">Pre-Trip Inspection</h2>
       <button type="button" id="driverLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
+    <!-- Hand off to a Wingman: only for the Captain himself (hidden when a Wingman does a handed-off task). -->
+    <div id="pti_handoff" class="handoff-box" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; margin-bottom:16px; overflow:hidden;">
+      <div class="dt-tray">
+          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
+          <div class="driver-task-assign-rows" data-types="pretrip,materials-checkout"></div>
+          <button type="button" class="mat-change-btn dt-btn" data-kind="checkout" style="display:none; margin-top:6px;">&#9999;&#65039; Change today&rsquo;s Material Checkout</button>
+          <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
+        </div>
+    </div>
+
 
     <div id="pti_truckPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <div class="form-grid">
@@ -1355,6 +1343,21 @@
       <h2 class="display" id="eod_title" style="margin:0; font-size:20px;">End of Day Inspection</h2>
       <button type="button" id="driverEodLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
+    <!-- Hand off to a Wingman: only for the Captain himself (hidden when a Wingman does a handed-off task). -->
+    <div id="eod_handoff" class="handoff-box" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; margin-bottom:16px; overflow:hidden;">
+      <div class="dt-tray">
+          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
+          <div class="driver-task-assign-rows" data-types="eod,materials-checkin"></div>
+          <button type="button" class="mat-change-btn dt-btn" data-kind="checkin" style="display:none; margin-top:6px;">&#9999;&#65039; Change today&rsquo;s Material Checkin</button>
+          <div class="dt-tray-label" style="padding-top:12px;">YOUR CREW</div>
+          <div class="dt-row"><div class="dt-row-main">
+            <span class="dt-row-name">&#11088; Wingman Review</span>
+            <button type="button" id="driverReviewWingmenBtn" class="dt-btn solid">Review Wingmen</button>
+          </div></div>
+          <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
+        </div>
+    </div>
+
 
     <div id="eod_truckPanel" style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
       <div class="form-grid">
@@ -1460,6 +1463,15 @@
     <h2 class="display" style="margin:0; font-size:20px;">Moving</h2>
     <button type="button" id="driverMovingLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
   </div>
+  <!-- Hand off to a Wingman: only for the Captain himself (hidden when a Wingman does a handed-off task). -->
+  <div id="moving_handoff" class="handoff-box" style="display:none; background:#fff; border:1px solid var(--line); border-radius:10px; margin-bottom:16px; overflow:hidden;">
+    <div class="dt-tray">
+          <div class="dt-tray-label">HAND OFF TO A WINGMAN</div>
+          <div class="driver-task-assign-rows" data-types="moving-preexisting,moving-caused"></div>
+          <p class="status-msg driver-task-assign-status" style="margin:4px 0 0;"></p>
+        </div>
+  </div>
+
 
   <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px;">
     <label style="font-size:12.5px; display:block; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-family:'IBM Plex Mono',monospace;">Driver
@@ -3968,6 +3980,7 @@ window.openEmailDraft = function(o){
     document.getElementById('driverMenuView').style.display = 'none';
     hideWingmanViews();
     document.getElementById('driverInspectionView').style.display = 'block';
+    document.getElementById('pti_handoff').style.display = (!driverActiveTask && driverRole !== 'wingman') ? 'block' : 'none';
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'none';
@@ -4103,6 +4116,7 @@ window.openEmailDraft = function(o){
     document.getElementById('driverNbhdView').style.display = 'none';
     document.getElementById('driverTruckDocsView').style.display = 'none';
     document.getElementById('driverEodView').style.display = 'block';
+    document.getElementById('eod_handoff').style.display = (!driverActiveTask && driverRole !== 'wingman') ? 'block' : 'none';
     document.getElementById('eod_submitStatus').textContent = '';
     eodCapturedPhoto = null;
     document.getElementById('eod_photoPreviewWrap').style.display = 'none';
@@ -6047,6 +6061,7 @@ window.openEmailDraft = function(o){
     document.getElementById('driverWingmanView').style.display = 'none';
     document.getElementById('driverJunkRemovalView').style.display = 'none';
     document.getElementById('driverMovingView').style.display = 'block';
+    document.getElementById('moving_handoff').style.display = (!driverActiveTask && driverRole !== 'wingman') ? 'block' : 'none';
     document.getElementById('mv_driverNameDisplay').textContent = (driverRole === 'wingman' && driverActiveTask) ? `${driverActiveTask.captainName} (for your Captain)` : (currentDriverName || '');
     const back = document.getElementById('driverMovingBackBtn');
     back.innerHTML = driverRole === 'wingman' ? '&larr; Wingman Tools' : '&larr; Driver Tools';
