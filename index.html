@@ -9396,7 +9396,6 @@ window.openEmailDraft = function(o){
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Date</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Description</th>
               <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
-              <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Next Due</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Invoice</th>
               <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
@@ -10564,7 +10563,7 @@ window.openEmailDraft = function(o){
         <div class="dashSectionBody" id="setGroupBody-compliance">
         <div class="panel" id="set_fleetServicePanel" data-collapsible="true">
           <h3>Fleet Service Interval</h3>
-          <p class="form-note" style="margin-top:0;">Miles between services. Fleet Vehicles compares each truck&rsquo;s current Motive mileage with its mileage at the last service and shows the miles left; a truck turns <strong>Due Soon</strong> within 10% of the interval (at least 500 miles) and <strong>Maintenance Due</strong> once it&rsquo;s reached.</p>
+          <p class="form-note" style="margin-top:0;">Miles between services. Fleet Vehicles compares each truck&rsquo;s current Motive mileage with its mileage at the last service and shows the miles left; a truck turns <strong>Due Soon</strong> within 500 miles and <strong>Maintenance Due</strong> once it&rsquo;s reached.</p>
           <label>Miles between services <input type="number" min="0" step="100" id="appset_serviceInterval" style="max-width:140px;"></label>
           <div class="form-actions">
             <button type="button" id="appset_serviceIntervalSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-family:inherit;">Save</button>
@@ -12894,7 +12893,7 @@ window.openEmailDraft = function(o){
     const live = fleetMotiveMiles(t);
     if(!interval || !last || !live) return null;
     const left = Math.round(last + interval - live.miles);
-    const soon = Math.max(500, Math.round(interval * 0.1));
+    const soon = 500;
     return { left, status: left <= 0 ? 'overdue' : left <= soon ? 'warning' : 'ok' };
   }
   function getTruckStatus(truckId){
@@ -12911,7 +12910,7 @@ window.openEmailDraft = function(o){
     const mostRecent = [...logsForTruck].sort((a,b)=> b.date.localeCompare(a.date))[0];
     const today = todayStr();
     if(mostRecent.nextDue <= today) return 'overdue';
-    if(oneMonthBefore(mostRecent.nextDue) <= today) return 'warning';
+    // No date-based "Due Soon" -- that comes only from mileage (500 miles out).
     return 'ok';
   }
 
@@ -13126,7 +13125,6 @@ window.openEmailDraft = function(o){
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.date)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${fleetEsc(l.description)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${l.mileage !== undefined && l.mileage !== null && l.mileage !== '' ? Number(l.mileage).toLocaleString() : '\u2014'}</td>
-        <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.nextDue ? fleetEsc(l.nextDue) : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${l.hasInvoice ? `<button type="button" class="invoice-view" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">View Invoice</button>` : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;">
           <button type="button" class="log-edit" data-id="${l.id}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
