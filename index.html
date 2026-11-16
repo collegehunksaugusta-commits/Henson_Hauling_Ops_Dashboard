@@ -1339,10 +1339,13 @@
     </div>
 
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px;">
-      <div id="tdocs_myLicense" style="margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--line);"></div>
-      <label>Truck <select id="tdocs_truck"></select></label>
+      <label for="tdocs_truck" style="display:block; font:500 11px 'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px;">Which truck are you in?</label>
+      <select id="tdocs_truck" style="width:100%; font-size:17px; font-weight:600; padding:13px 12px; border:2px solid var(--brand-green); border-radius:8px; background:#fff; color:var(--charcoal);"></select>
       <p class="form-note" id="tdocs_noTrucksNote" style="display:none;">No trucks are set up yet &mdash; ask your administrator to add one on the Regulatory Compliance tile, under Trucks.</p>
-      <div id="tdocs_docList" style="margin-top:14px;"></div>
+      <div id="tdocs_afterPick" style="display:none;">
+        <div id="tdocs_docList" style="margin-top:14px;"></div>
+        <div id="tdocs_myLicense" style="margin-top:6px; padding-top:14px; border-top:1px solid var(--line);"></div>
+      </div>
     </div>
   </div>
 
@@ -4138,8 +4141,11 @@ window.openEmailDraft = function(o){
         document.getElementById('tdocs_docList').innerHTML = '';
       } else {
         noTrucksNote.style.display = 'none';
-        sel.innerHTML = trucksList.map(t => `<option value="${t.id}">${t.nickname}</option>`).join('');
-        loadDriverTruckDocs(sel.value);
+        // Truck first: nothing shows until he picks the truck he's in.
+        sel.innerHTML = '<option value="">Choose your truck\u2026</option>' + trucksList.map(t => `<option value="${t.id}">${t.nickname}</option>`).join('');
+        sel.value = '';
+        document.getElementById('tdocs_afterPick').style.display = 'none';
+        document.getElementById('tdocs_docList').innerHTML = '';
       }
     }catch(err){
       console.error('Load trucks failed:', err);
@@ -4147,7 +4153,11 @@ window.openEmailDraft = function(o){
       noTrucksNote.style.display = 'block';
     }
   }
-  document.getElementById('tdocs_truck').addEventListener('change', (e)=> loadDriverTruckDocs(e.target.value));
+  document.getElementById('tdocs_truck').addEventListener('change', (e)=>{
+    const picked = !!e.target.value;
+    document.getElementById('tdocs_afterPick').style.display = picked ? 'block' : 'none';
+    if(picked) loadDriverTruckDocs(e.target.value); else document.getElementById('tdocs_docList').innerHTML = '';
+  });
 
   async function loadDriverTruckDocs(truckId){
     const container = document.getElementById('tdocs_docList');
@@ -4161,21 +4171,59 @@ window.openEmailDraft = function(o){
         { key: 'registration', label: 'Registration', rec: data.registration },
         { key: 'insuranceCard', label: 'Insurance Card', rec: data.insuranceCard }
       ];
+      // Shown right on the screen (no extra tap) -- quicker at a DOT stop.
+      // Tap a document to open it full screen and zoom.
       container.innerHTML = docs.map(d => `
-        <div style="border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px;">
-          <div style="font-weight:700; margin-bottom:8px;">${d.label}</div>
+        <div style="border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:12px; background:#fff;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+            <div style="font-weight:700;">${d.label}</div>
+            ${d.rec ? `<button type="button" class="tdocs-view-btn" data-key="${d.key}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12.5px;">Full screen</button>` : ''}
+          </div>
           ${d.rec
-            ? `<button type="button" class="tdocs-view-btn" data-key="${d.key}" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; width:100%; font-size:14px;">View ${d.label}</button>`
-            : `<span style="color:var(--muted); font-size:13.5px;">Not on file yet \u2014 ask your administrator to upload it.</span>`}
+            ? `<div class="tdocs-inline" data-key="${d.key}" style="cursor:zoom-in;"><p class="form-note" style="margin:0;">Loading…</p></div>`
+            : `<span style="color:var(--muted); font-size:13.5px;">Not on file yet — ask your administrator to upload it.</span>`}
         </div>`).join('');
 
-      container.querySelectorAll('.tdocs-view-btn').forEach(btn => btn.addEventListener('click', (e)=>{
-        const key = e.currentTarget.dataset.key;
+      const openFull = key => {
         const rec = key === 'registration' ? data.registration : data.insuranceCard;
         if(!rec) return;
         const isPdf = rec.dataUri.startsWith('data:application/pdf');
         window.showPhotoModal(isPdf ? tdocsDataUriToBlobUrl(rec.dataUri) : rec.dataUri, { isPdf, title: rec.fileName || '' });
-      }));
+      };
+      container.querySelectorAll('.tdocs-view-btn, .tdocs-inline').forEach(el => el.addEventListener('click', e => openFull(e.currentTarget.dataset.key)));
+
+      // Draw each document in place: a photo as is, a PDF page by page.
+      for(const d of docs){
+        if(!d.rec) continue;
+        const box = container.querySelector(`.tdocs-inline[data-key="${d.key}"]`);
+        if(!box) continue;
+        const uri = d.rec.dataUri || '';
+        const imgStyle = 'display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:6px; background:#fff;';
+        try{
+          if(uri.startsWith('data:application/pdf')){
+            if(!window.pdfjsLib) throw new Error('PDF reader not loaded');
+            if(!window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            const bytes = Uint8Array.from(atob(uri.split(',')[1]), c => c.charCodeAt(0));
+            const pdf = await window.pdfjsLib.getDocument({ data: bytes }).promise;
+            const width = Math.max(320, Math.min(1400, (box.clientWidth || 360) * 2));
+            let html = '';
+            for(let n = 1; n <= Math.min(pdf.numPages, 4); n++){
+              const page = await pdf.getPage(n);
+              const vp1 = page.getViewport({ scale: 1 });
+              const vp = page.getViewport({ scale: width / vp1.width });
+              const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+              await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+              html += `<img alt="${d.label} page ${n}" src="${cv.toDataURL('image/jpeg', 0.85)}" style="${imgStyle}${n > 1 ? ' margin-top:8px;' : ''}">`;
+            }
+            box.innerHTML = html;
+          } else {
+            box.innerHTML = `<img alt="${d.label}" src="${uri}" style="${imgStyle}">`;
+          }
+        }catch(err){
+          console.error('Inline document view failed:', err);
+          box.innerHTML = `<p class="form-note" style="margin:0;">Tap <strong>Full screen</strong> to view.</p>`;
+        }
+      }
     }catch(err){
       console.error('Load truck docs failed:', err);
       container.innerHTML = '<p class="form-note">Could not load documents \u2014 check your connection.</p>';
