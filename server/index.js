@@ -4138,6 +4138,11 @@ const DEFAULT_APP_SETTINGS = {
   extraPay: {
     mileageRate: 0
   },
+  // Fleet Maintenance: miles between services (compared with the live
+  // Motive odometer and the mileage at the last logged service).
+  fleet: {
+    serviceIntervalMiles: 5000
+  },
   // Monthly Financials: metrics switched off in Configuration -> Financials
   // (hidden from the chart and yearly tables; the data itself is kept).
   financials: {
@@ -10033,7 +10038,12 @@ async function fetchMotiveTruckLocations() {
           city: loc.city || null,
           state: loc.state || null,
           speed: typeof loc.kph === 'number' ? loc.kph : null,
-          vehicleState: loc.vehicle_state || null
+          vehicleState: loc.vehicle_state || null,
+          // For Fleet Maintenance's live mileage.
+          vin: v.vin || null,
+          year: v.year || null,
+          odometer: typeof loc.odometer === 'number' ? loc.odometer : null,
+          trueOdometer: typeof loc.true_odometer === 'number' ? loc.true_odometer : null
         };
       });
 
