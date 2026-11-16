@@ -10054,10 +10054,39 @@ async function fetchMotiveTruckLocations() {
   }
 }
 
+// Odometers: Motive's v3 locations leave them out, so they come from the v1
+// locations list (current_location.odometer / true_odometer, in miles).
+let motiveOdoFieldsLogged = false;
+async function fetchMotiveOdometers() {
+  const apiKey = process.env.MOTIVE_API_KEY; if (!apiKey) return {};
+  const out = {};
+  try {
+    for (let pageNo = 1; pageNo <= 10; pageNo++) {
+      const r = await fetch(`https://api.gomotive.com/v1/vehicle_locations?per_page=100&page_no=${pageNo}`, { headers: { 'X-Api-Key': apiKey, 'X-Metric-Units': 'false', 'Content-Type': 'application/json' } });
+      if (!r.ok) { console.error('Motive odometer request failed:', r.status, (await r.text().catch(() => '')).slice(0, 200)); break; }
+      const data = await r.json();
+      const list = data.vehicles || [];
+      list.forEach(entry => {
+        const v = entry.vehicle || entry;
+        const loc = v.current_location || entry.current_location || {};
+        if (!motiveOdoFieldsLogged) { motiveOdoFieldsLogged = true; console.log('[motive] v1 location fields:', Object.keys(loc).join(', ')); }
+        const num = x => (typeof x === 'number' ? x : (x != null && x !== '' && !isNaN(Number(x)) ? Number(x) : null));
+        out[String(v.id)] = { odometer: num(loc.odometer), trueOdometer: num(loc.true_odometer), vin: v.vin || null };
+      });
+      if (list.length < 100) break;
+    }
+  } catch (err) { console.error('Motive odometer fetch failed:', err.message); }
+  return out;
+}
+
 app.get('/api/motive-locations', requireAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store'); // live GPS data -- never serve a stale/cached copy
-  const result = await fetchMotiveTruckLocations();
+  const [result, odo] = await Promise.all([fetchMotiveTruckLocations(), fetchMotiveOdometers()]);
   if (result.error) return res.status(result.status).json({ error: result.error });
+  (result.trucks || []).forEach(t => { const o = odo[String(t.id)]; if (!o) return;
+    if (t.odometer == null) t.odometer = o.odometer;
+    if (t.trueOdometer == null) t.trueOdometer = o.trueOdometer;
+    if (!t.vin) t.vin = o.vin; });
   res.json({ trucks: result.trucks });
 });
 
