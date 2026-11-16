@@ -6602,6 +6602,7 @@ app.post('/api/hiring/package/:token/submit', async (req, res) => {
 let pdfLib = null;
 try { pdfLib = require('pdf-lib'); } catch (e) { console.log('[hiring] pdf-lib not installed -- completed-package PDFs unavailable'); }
 const HIRING_COMPLETED_PDF_KEY = id => `hiring-completed-pdf-${id}`;
+const HIRING_PACKAGE_SERVER_MAX = 3.5 * 1024 * 1024;   // stored characters
 const HIRING_FIELD_TITLES = {
   employee_full_name: 'Full name', employee_first_name: 'First name', employee_last_name: 'Last name', employee_address: 'Street address',
   employee_city: 'City', employee_state: 'State', employee_zip: 'ZIP', employee_phone: 'Phone', employee_email: 'Email', employee_dob: 'Date of birth',
@@ -6714,9 +6715,16 @@ async function storeCompletedPackagePdf(candidateId) {
   const c = candidates.find(x => x.id === candidateId);
   if (!c || c.status !== 'completed') return null;
   const uri = await buildCompletedPackagePdf(c);
+  // Copying the original form files whole makes a large package (the sum of
+  // every form). Over the limit, leave it for the dashboard, which draws the
+  // pages at a compact size and stores that instead.
+  if (uri.length > HIRING_PACKAGE_SERVER_MAX) {
+    console.log(`[hiring] server-built package for ${c.firstName} ${c.lastName} is ${Math.round(uri.length / 1024)} KB -- not stored; the dashboard will build a smaller one`);
+    return null;
+  }
   await redis.set(HIRING_COMPLETED_PDF_KEY(c.id), JSON.stringify(uri));
   const fresh = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
-  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); fc.completedPdfStale = false; fc.completedPdfV2 = true; await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
+  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); fc.completedPdfStale = false; fc.completedPdfV2 = true; delete fc.completedPdfBuiltBy; await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
   console.log(`[hiring] completed package PDF stored for ${c.firstName} ${c.lastName} (${Math.round(uri.length / 1024)} KB)`);
   return uri;
 }
@@ -6755,7 +6763,7 @@ app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async
     if (!c || c.status !== 'completed') return res.status(404).json({ error: 'This package hasn\u2019t been submitted yet.' });
     // Rebuilt if out of date, or built before Word documents were written out in full.
     let raw = (c.completedPdfStale || !c.completedPdfV2) ? null : await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
-    if (raw && raw.length > 8 * 1024 * 1024) { console.log(`[hiring] stored package for ${c.firstName} ${c.lastName} is oversized (${Math.round(raw.length / 1024)} KB) -- rebuilding smaller`); raw = null; }
+    if (raw && raw.length > (c.completedPdfBuiltBy ? 8 * 1024 * 1024 : HIRING_PACKAGE_SERVER_MAX)) { console.log(`[hiring] stored package for ${c.firstName} ${c.lastName} is oversized (${Math.round(raw.length / 1024)} KB) -- rebuilding smaller`); raw = null; }
     let uri = raw ? JSON.parse(raw) : null;
     if (!uri) { try { uri = await storeCompletedPackagePdf(c.id); } catch (e) { console.log(`[hiring] server PDF build failed for ${c.firstName} ${c.lastName} (${e.message}) -- the dashboard will build it`); } }
     if (!uri) {
@@ -6775,7 +6783,7 @@ app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async
       return res.json({ needsBuild: true, build, fileName: `Onboarding Package - ${c.lastName}, ${c.firstName}.pdf` });
     }
     const log = JSON.parse(await redis.get('hiring-reveal-log') || '[]');
-    log.push({ candidateId: c.id, candidateName: `${c.firstName} ${c.lastName}`, scope: 'completed-package', fieldKey: 'package-pdf', revealedBy: req.userEmail || '', revealedAt: new Date().toISOString() });
+    log.push({ candidateId: c.id, candidateName: `${c.firstName} ${c.lastName}`, scope: 'completed-package', fieldKey: req.query.purpose === 'shrink' ? 'package-shrink' : 'package-pdf', revealedBy: req.userEmail || '', revealedAt: new Date().toISOString() });
     await redis.set('hiring-reveal-log', JSON.stringify(log.slice(-1000)));
     console.log(`[hiring] completed package for ${c.firstName} ${c.lastName} opened by ${req.userEmail || ''}`);
     res.json({ dataUri: uri, fileName: `Onboarding Package - ${c.lastName}, ${c.firstName}.pdf` });
@@ -10200,6 +10208,35 @@ app.post('/api/claim/:token/photos', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Storage relief: the stored photos and onboarding packages large enough to
+// be worth shrinking, biggest first. The dashboard re-encodes each one and
+// saves it back only if it comes out meaningfully smaller. Read-only here.
+const SHRINK_PHOTO_PREFIXES = ['compliance-pti-photo-', 'compliance-eod-photo-', 'moving-photo-', 'junk-removal-photo-', 'damage-claim-photo-', 'weight-ticket-photo-', 'injury-file-'];
+app.get('/api/admin/storage/shrink-list', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const photos = [];
+    let cursor = '0';
+    do {
+      const [next, keys] = await redis.scan(cursor, 'COUNT', 500);
+      cursor = next;
+      for (const key of keys) {
+        if (!SHRINK_PHOTO_PREFIXES.some(p => key.startsWith(p)) || /sig/i.test(key)) continue;
+        let size = 0; try { size = await redis.strlen(key); } catch (e) { size = 0; }
+        if (size > 240 * 1024) photos.push({ key, size });
+      }
+    } while (cursor !== '0');
+    photos.sort((a, b) => b.size - a.size);
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const packages = [];
+    for (const c of candidates) {
+      if (c.status !== 'completed') continue;
+      let size = 0; try { size = await redis.strlen(HIRING_COMPLETED_PDF_KEY(c.id)); } catch (e) { size = 0; }
+      if (size > 3 * 1024 * 1024) packages.push({ id: c.id, name: `${c.firstName} ${c.lastName}`, size });
+    }
+    res.json({ photos, packages });
+  } catch (err) { console.error('Shrink list failed:', err.message); res.status(500).json({ error: 'Could not list stored files.' }); }
+});
 
 // Temporary diagnostic endpoint -- groups every Redis key by a normalized
 // prefix (trailing IDs/timestamps stripped) and sums actual memory usage
