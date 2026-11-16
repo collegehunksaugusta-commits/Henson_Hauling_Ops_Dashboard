@@ -10391,8 +10391,57 @@ app.get('/api/admin/storage-audit', requireAuth, async (req, res) => {
   }
 });
 
+// Usage check (read-only), run at every server start: for every group of
+// stored records, how many there are and the latest date found in them;
+// plus minutes per dashboard screen from the admin activity log. Written
+// to the server log only -- names and amounts are never printed. Used to
+// spot features nobody has touched in a while, as candidates for removal.
+async function logUsageReport() {
+  const nowIso = new Date(Date.now() + 864e5).toISOString();
+  const groups = new Map();
+  const groupOf = k => k.replace(/[-_:][^-_:]*\d[^-_:]*/g, '').replace(/[-_:]+$/, '') || k;
+  const actRe = /"(?:createdAt|submittedAt|updatedAt|uploadedAt|sentAt|completedAt|requestedAt|reviewedAt|savedAt|checkedOutAt|receivedAt|loggedAt|signedAt|approvedAt|addedAt|pushedAt|at|timestamp)"\s*:\s*"(20\d\d-\d\d-\d\d[^"]*)"/g;
+  const anyRe = /20\d\d-[01]\d-[0-3]\d(?:T[\d:.]+Z?)?/g;
+  let cursor = '0';
+  do {
+    const [next, keys] = await redis.scan(cursor, 'COUNT', 500);
+    cursor = next;
+    for (const key of keys) {
+      const g = groupOf(key);
+      const rec = groups.get(g) || { n: 0, act: '', any: '', bytes: 0, files: 0 };
+      rec.n++;
+      let len = 0; try { len = await redis.strlen(key); } catch (e) { len = 0; }
+      rec.bytes += len;
+      if (len > 0 && len < 3 * 1024 * 1024) {
+        const v = await redis.get(key);
+        if (v && !/^"data:/.test(v)) {
+          let m; actRe.lastIndex = 0;
+          while ((m = actRe.exec(v))) if (m[1] <= nowIso && m[1] > rec.act) rec.act = m[1];
+          const all = v.match(anyRe) || [];
+          for (const d of all) if (d <= nowIso && d > rec.any) rec.any = d;
+        } else rec.files++;
+      } else if (len) rec.files++;
+      groups.set(g, rec);
+    }
+  } while (cursor !== '0');
+  const rows = [...groups.entries()].sort((a, b) => (a[1].act || a[1].any).localeCompare(b[1].act || b[1].any));
+  console.log(`[usage] ${rows.length} record groups (oldest activity first)`);
+  for (const [g, r] of rows) console.log(`[usage] key ${g} | n=${r.n} | files=${r.files} | act=${(r.act || '-').slice(0, 10)} | any=${(r.any || '-').slice(0, 10)} | kb=${Math.round(r.bytes / 1024)}`);
+  const act = JSON.parse(await redis.get(APP_ACTIVITY_KEY) || '{}');
+  const views = {};
+  const cutoff = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
+  Object.values(act).forEach(byDay => Object.entries(byDay || {}).forEach(([d, v]) => Object.entries(v || {}).forEach(([view, min]) => {
+    const r = views[view] || (views[view] = { last: '', first: '', m14: 0, mAll: 0 });
+    if (d > r.last) r.last = d; if (!r.first || d < r.first) r.first = d;
+    r.mAll += min; if (d >= cutoff) r.m14 += min;
+  })));
+  Object.entries(views).sort((a, b) => a[1].last.localeCompare(b[1].last)).forEach(([v, r]) => console.log(`[usage] view ${v} | last=${r.last} | tracked since=${r.first} | min14=${r.m14} | minAll=${r.mAll}`));
+  console.log('[usage] done');
+}
+
 app.listen(PORT, async () => {
   console.log(`${LOCATION.name} dashboard backend listening on port ${PORT}`);
+  setTimeout(() => { logUsageReport().catch(err => console.error('[usage] report failed:', err.message)); }, 20000);
   await loadRosterRemoved();   // terminated employees stay off the roster from the first request
   console.log(process.env.LOB_API_KEY
     ? `LOB_API_KEY is set (starts with "${process.env.LOB_API_KEY.slice(0, 5)}...")`
