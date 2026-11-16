@@ -776,7 +776,7 @@
       <div class="dt-card">
         <button type="button" id="driverGoToTruckDocsBtn" class="dt-head">
           <span class="dt-icon" style="background:#F1F1EC;">&#128196;</span>
-          <span style="min-width:0;"><span class="dt-title" style="display:block;">Truck Documents</span><span class="dt-sub" style="display:block;">A truck&rsquo;s registration and insurance card</span></span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">DOT Documents</span><span class="dt-sub" style="display:block;">Your license and DOT physical, plus each truck&rsquo;s registration and insurance card</span></span>
           <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
         </button>
       </div>
@@ -798,7 +798,7 @@
 
     <div id="wmDriveToday" style="display:none; background:#fff; border:2px solid var(--brand-green); border-radius:10px; padding:12px 14px; margin-bottom:16px;">
       <div style="font-weight:800; font-size:15px;">&#128666; Driving today?</div>
-      <div style="font-size:12.5px; color:var(--muted); margin:3px 0 8px;">You&rsquo;re set up as a backup driver. Open Driver Tools for the Pre-Trip, End of Day and your Truck Documents.</div>
+      <div style="font-size:12.5px; color:var(--muted); margin:3px 0 8px;">You&rsquo;re set up as a backup driver. Open Driver Tools for the Pre-Trip, End of Day and your DOT Documents.</div>
       <button type="button" id="wmDriveTodayBtn" style="width:100%; padding:11px; font-size:15px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:8px; cursor:pointer; font-family:inherit;">Open Driver Tools</button>
       <p class="status-msg" id="wmDriveTodayStatus" style="margin:6px 0 0;"></p>
     </div>
@@ -883,7 +883,7 @@
 
     <div id="esignLicense" class="panel" style="display:none;">
       <h3 style="margin-top:0;">Driver&rsquo;s License</h3>
-      <p class="form-note" style="margin-top:0;">Add a clear photo or scan of the <strong>front</strong> and the <strong>back</strong> of your license &mdash; on a phone the buttons open the camera; on a computer, choose a photo or scan file. Once it&rsquo;s in, you&rsquo;ll always have it in <strong>Truck Documents</strong> on this app &mdash; handy if you&rsquo;re ever pulled over without your wallet.</p>
+      <p class="form-note" style="margin-top:0;">Add a clear photo or scan of the <strong>front</strong> and the <strong>back</strong> of your license &mdash; on a phone the buttons open the camera; on a computer, choose a photo or scan file. Once it&rsquo;s in, you&rsquo;ll always have it in <strong>DOT Documents</strong> on this app &mdash; handy if you&rsquo;re ever pulled over without your wallet.</p>
       <div style="display:flex; gap:10px;">
         <button type="button" class="esLicPick" data-side="front" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Front of License</button>
         <button type="button" class="esLicPick" data-side="back" style="flex:1; padding:13px 8px; font-size:14px; font-weight:700; background:#fff; border:2px dashed var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">&#128247; Back of License</button>
@@ -1270,7 +1270,7 @@
   <div id="driverTruckDocsView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin:20px 0 16px;">
       <button type="button" id="driverTruckDocsBackBtn" style="background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; padding:6px 0;">&larr; Driver Tools</button>
-      <h2 class="display" style="margin:0; font-size:20px;">Truck Documents</h2>
+      <h2 class="display" style="margin:0; font-size:20px;">DOT Documents</h2>
       <button type="button" id="driverTruckDocsLogoutBtn" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:12.5px; padding:7px 14px; border-radius:4px; cursor:pointer;">Log Out</button>
     </div>
 
@@ -2328,7 +2328,7 @@ window.openEmailDraft = function(o){
       const res = await fetch(`${API_BASE_AUTH}/api/driver/esign/${encodeURIComponent(esignCurrent.id)}/license`, { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ image }) });
       if(res.status === 401){ driverSessionExpired(); return; }
       const d = await res.json(); if(!res.ok) throw new Error(d.error || 'Could not submit.');
-      esStepDone(esignCurrent.id, 'License uploaded \u2014 it\u2019s now in Truck Documents.');
+      esStepDone(esignCurrent.id, 'License uploaded \u2014 it\u2019s now in DOT Documents.');
     }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
     finally{ btn.disabled = false; }
   });
@@ -2340,7 +2340,7 @@ window.openEmailDraft = function(o){
   });
 
   // ---- No current DOT physical: where to go, by when, and the receipt ----
-  // Used on the onboarding step and in Truck Documents. The receipt goes in
+  // Used on the onboarding step and in DOT Documents. The receipt goes in
   // as a "DOT Physical" expense (approved in Manager Review -> Expenses,
   // paid in Extra Pay), the same way My Money -> Expenses works.
   async function renderPhysicalHelp(box, dueByOverride){
@@ -3949,7 +3949,7 @@ window.openEmailDraft = function(o){
     loadDriverTruckDocsTrucks();
     loadMyLicense();
   }
-  // Truck Documents: the signed-in driver's own license.
+  // DOT Documents: the signed-in driver's own license.
   async function loadMyLicense(){
     const el = document.getElementById('tdocs_myLicense');
     el.innerHTML = '<div class="form-note" style="margin:0;">Loading your documents\u2026</div>';
@@ -8919,24 +8919,6 @@ window.openEmailDraft = function(o){
       </div>
     </div>
 
-    <div class="panel">
-      <h3>Backfill From Existing Invoices</h3>
-      <p class="form-note">Re-reads completed paperwork already on file that has an invoice attached, and pulls the same tax data from it as new jobs get going forward. Jobs already in the report below are skipped, so this is safe to run more than once. Only covers files still on file (180-day retention) &mdash; anything already pruned can't be recovered this way.</p>
-      <div class="form-actions">
-        <button class="btn-primary" id="st_backfillBtn" type="button">Backfill From Existing Invoices</button>
-        <span class="status-msg" id="st_backfillStatus"></span>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h3>Clear All Records</h3>
-      <p class="form-note">Permanently deletes every tax record below. Use this if the data needs to be rebuilt from scratch (e.g. after a fix to how it's calculated) before re-running the backfill above. This does not touch the underlying invoice files themselves &mdash; only this compiled report.</p>
-      <div class="form-actions">
-        <button type="button" id="st_clearAllBtn" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-weight:600; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px;">Clear All Records</button>
-        <span class="status-msg" id="st_clearAllStatus"></span>
-      </div>
-    </div>
-
     <div id="st_monthGroups"></div>
     <p class="form-note" id="st_emptyNote" style="display:none;">No tax data recorded yet. This builds up automatically as completed job invoices are processed in Job Paperwork.</p>
   </div>
@@ -8971,14 +8953,6 @@ window.openEmailDraft = function(o){
         </div>
       </div>
 
-      <div style="margin-top:18px; padding:14px; border:1px dashed var(--line); border-radius:8px; background:#fafaf6;">
-        <div style="font-weight:700;">Backfill Depreciation &amp; Amortization</div>
-        <p class="form-note" style="margin:4px 0 8px;">For months saved before D&amp;A was tracked. Upload a report (e.g. an ACUTE monthly report): months it prints get their exact D&amp;A, and the rest of that year gets an even share of its year-to-date total. Saving updates <strong>only the D&amp;A</strong> of months already on file. (Reading a report with &ldquo;Read Financial Statements&rdquo; above now does this automatically too.)</p>
-        <input type="file" id="daBackfill_files" accept="application/pdf,image/*" multiple style="display:none;">
-        <button type="button" id="daBackfill_chooseBtn" style="background:#fff; border:1px solid var(--line); padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:600;">Choose Reports&hellip;</button>
-        <span class="status-msg" id="daBackfill_status" style="margin-left:8px;"></span>
-        <div id="daBackfill_review" style="display:none; margin-top:12px;"></div>
-      </div>
     </div>
 
     <div class="panel">
@@ -10572,7 +10546,7 @@ window.openEmailDraft = function(o){
         </div>
         <div class="panel" id="set_dotProviderPanel" data-collapsible="true">
           <h3>DOT Physical Provider</h3>
-          <p class="form-note" style="margin-top:0;">Where a driver goes when he doesn&rsquo;t have a current DOT physical. Shown in his Onboarding Paperwork and in Truck Documents (when his medical card is missing or expired), with a deadline and a <strong>receipt upload</strong> &mdash; the receipt becomes a &ldquo;DOT Physical&rdquo; expense you approve in Manager Review &rarr; Expenses, paid in Extra Pay.</p>
+          <p class="form-note" style="margin-top:0;">Where a driver goes when he doesn&rsquo;t have a current DOT physical. Shown in his Onboarding Paperwork and in DOT Documents (when his medical card is missing or expired), with a deadline and a <strong>receipt upload</strong> &mdash; the receipt becomes a &ldquo;DOT Physical&rdquo; expense you approve in Manager Review &rarr; Expenses, paid in Extra Pay.</p>
           <div class="form-grid" style="grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));">
             <label>Provider name <input type="text" id="appset_dotProvName" placeholder="e.g. Concentra Urgent Care"></label>
             <label>Phone <input type="text" id="appset_dotProvPhone" placeholder="(706) 555-0100"></label>
@@ -10604,11 +10578,6 @@ window.openEmailDraft = function(o){
         <div class="panel" id="set_photoStoragePanel" data-collapsible="true">
           <h3>Photo Storage</h3>
           <p class="form-note" id="appset_storageUsageNote" style="margin-top:0;"></p>
-          <p class="form-note">Re-compresses every stored Pre-Trip, End of Day, Damage Claim, and Junk Removal photo at today's tighter settings &mdash; smaller file, same photo, still clear. Estimates, reasoning, and every other record are never touched, and a photo already smaller than the new setting is left alone. New uploads already use the tighter setting automatically; this catches up everything already stored. Can take a few minutes depending on how many photos there are &mdash; leave this tab open until it finishes.</p>
-          <div class="form-actions">
-            <button type="button" id="appset_compressPhotosBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13.5px;">Compress Existing Photos</button>
-            <span class="status-msg" id="appset_compressPhotosStatus"></span>
-          </div>
         </div>
         <div class="panel" id="set_overridePinPanel" data-collapsible="true">
           <h3>Administrator Override PIN</h3>
@@ -21520,82 +21489,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // Day, Damage Claim, and Junk Removal -- by walking each feature's own
   // record list rather than scanning storage directly, so it only ever
   // touches photos the app's own data model still references.
-  async function collectAllStoredPhotoKeys(){
-    const keys = [];
-    try{
-      const ptiRecords = await window.dashboardApi.get('compliance-pretrip-inspections', []) || [];
-      ptiRecords.forEach(r => { if(r.backPhotoKey) keys.push(r.backPhotoKey); });
-    }catch(err){ console.error('Could not list PTI photos:', err); }
-    try{
-      const eodRecords = await window.dashboardApi.get('compliance-eod-inspections', []) || [];
-      eodRecords.forEach(r => { if(r.backPhotoKey) keys.push(r.backPhotoKey); });
-    }catch(err){ console.error('Could not list EOD photos:', err); }
-    try{
-      const claims = await window.dashboardApi.get('damage-claims', []) || [];
-      claims.forEach(c => (c.photos || []).forEach(p => keys.push(`damage-claim-photo-${c.id}-${p.id}`)));
-    }catch(err){ console.error('Could not list Damage Claim photos:', err); }
-    try{
-      const junkJobs = await window.dashboardApi.get('junk-removal-jobs', []) || [];
-      junkJobs.forEach(j => {
-        (j.initialPhotoKeys || []).forEach(k => keys.push(k));
-        (j.finalPhotoKeys || []).forEach(k => keys.push(k));
-      });
-    }catch(err){ console.error('Could not list Junk Removal photos:', err); }
-    return keys;
-  }
+  
 
-  document.getElementById('appset_compressPhotosBtn').addEventListener('click', async (e)=>{
-    const btn = e.currentTarget;
-    if(btn.disabled) return;
-    const statusEl = document.getElementById('appset_compressPhotosStatus');
-    const origText = btn.textContent;
-    btn.disabled = true;
-    statusEl.textContent = 'Finding photos\u2026';
-    statusEl.className = 'status-msg';
-    try{
-      const keys = await collectAllStoredPhotoKeys();
-      if(keys.length === 0){
-        statusEl.textContent = 'No photos found to compress.';
-        statusEl.className = 'status-msg';
-        return;
-      }
-      let compressedCount = 0, bytesSaved = 0, failed = 0;
-      for(let i = 0; i < keys.length; i++){
-        btn.textContent = `Compressing ${i+1} of ${keys.length}\u2026`;
-        try{
-          const dataUri = await window.dashboardApi.get(keys[i], null);
-          if(!dataUri || !dataUri.startsWith('data:image/')) continue;
-          const originalSize = dataUriByteSize(dataUri);
-          const blob = await (await fetch(dataUri)).blob();
-          const recompressed = await compressImageForUpload(blob, 1280, 0.72);
-          const newSize = dataUriByteSize(recompressed);
-          // Only replace if meaningfully smaller -- an already-small or
-          // already-tightly-compressed photo isn't worth the churn or risk
-          // of a marginal or even slightly-larger re-encode.
-          if(newSize < originalSize * 0.9){
-            await window.dashboardApi.set(keys[i], recompressed);
-            compressedCount++;
-            bytesSaved += (originalSize - newSize);
-          }
-        }catch(err){
-          console.error('Could not compress photo', keys[i], err);
-          failed++;
-        }
-      }
-      statusEl.textContent = `Done \u2014 compressed ${compressedCount} of ${keys.length} photo${keys.length===1?'':'s'}, saving ${window.fmtBytes(bytesSaved)}.`
-        + (failed > 0 ? ` ${failed} could not be read and ${failed===1?'was':'were'} skipped.` : '');
-      statusEl.className = 'status-msg ok';
-      updateStorageUsageNote();
-      checkStorageUsage();
-    }catch(err){
-      console.error('Photo compression failed:', err);
-      statusEl.textContent = 'Something went wrong \u2014 check your connection and try again.';
-      statusEl.className = 'status-msg err';
-    }finally{
-      btn.textContent = origText;
-      btn.disabled = false;
-    }
-  });
+  
 
   // Descriptions live only here and on the admin Captain Metrics tile --
   // never sent to the Driver Portal, which only ever receives the
@@ -27869,7 +27765,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   // just flagged as Unknown for manual review in the report itself.
   // Matches AI-extracted invoice line items to the materials catalog by
   // Nickname. Shared by processInvoiceUpload (going forward) and
-  // backfillStateTaxData (historical jobs) -- both need this to compute the
+  // (and the invoice re-read) -- both need this to compute the
   // materials-only dollar total for State Taxes reporting.
   // Invoice line -> inventory item, forgivingly: spaces, punctuation, case
   // and a trailing plural don't matter ("TV Crate" = "TV-Crate" = "tv crates"),
@@ -28048,83 +27944,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   window.recordStateTaxData = recordStateTaxData;
   window.determineJobState = determineJobState;
 
-  // One-time (but safe to re-run) backfill: re-reads every already-uploaded
-  // completed-paperwork file that has an invoice merged into it, and runs
-  // the same extraction + recording used going forward, so existing jobs on
-  // file can populate the State Taxes report too. Skips any job already
-  // present in the tax records so re-running this doesn't burn extra AI
-  // calls re-processing the same files. onProgress(checked, total, recorded,
-  // skipped, failed) is called after every job.
-  async function backfillStateTaxData(onProgress){
-    let checked = 0, recorded = 0, skipped = 0, failed = 0;
-    let travelFlagsUpdated = false;
-    const existingRecords = await window.dashboardApi.get(FINANCIAL_TAX_RECORDS_KEY, []) || [];
-    const alreadyCovered = new Set(existingRecords.map(r => r.jobNumber));
-    const candidates = paperworkUploads.filter(u => u.jobNumber && u.invoiceUploadedAt && !alreadyCovered.has(u.jobNumber));
-    const total = candidates.length;
-    // The invoice extraction only looks for these exact item names -- a
-    // closed list, not an open-ended "does this look like a good" guess --
-    // so it never has to distinguish labor/fees/shipping from goods itself.
-    let materialsNicknames = [];
-    try{ materialsNicknames = ((await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || [])).map(mi => mi.nickname).filter(Boolean); }
-    catch(err){ console.error('Load materials nicknames for backfill failed:', err); }
-
-    for(const upload of candidates){
-      checked++;
-      try{
-        const dataUri = await window.dashboardApi.get('paperwork-upload-' + upload.id, null);
-        if(!dataUri){ skipped++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
-        const file = window.dataUriToFile(dataUri, upload.fileName);
-        const images = await window.getImagesForAssessment(file);
-        if(images.length === 0){ skipped++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
-        let pageTexts = [];
-        if(file.type === 'application/pdf'){
-          // The stored file has already been through mergeFilesToPdf, which
-          // rasterizes every page to an image and builds a new PDF with no
-          // text layer at all -- re-extracting text from it directly would
-          // always come back empty. If text was preserved at upload time
-          // (from the original, not-yet-merged invoice file), use that
-          // instead: the invoice pages are always appended last during the
-          // merge, so pad the earlier paperwork pages with empty strings
-          // and place the real text at the end to keep indices aligned
-          // with the images array.
-          const preservedInvoiceText = await window.dashboardApi.get('paperwork-upload-invoicetext-' + upload.id, null);
-          if(Array.isArray(preservedInvoiceText) && preservedInvoiceText.length > 0 && preservedInvoiceText.length <= images.length){
-            const paddingCount = images.length - preservedInvoiceText.length;
-            pageTexts = [...Array(paddingCount).fill(''), ...preservedInvoiceText];
-          } else {
-            pageTexts = await window.extractPdfPageTextsSafe(file);
-          }
-        }
-
-        const res = await fetch(`${API_BASE}/api/admin/extract-client-invoice`, {
-          method: 'POST',
-          headers: authHeaders({'Content-Type': 'application/json'}),
-          body: JSON.stringify({ images, pageTexts, jobNumber: upload.jobNumber, materialsNicknames })
-        });
-        if(handleAuthFailure(res)) return { checked, total, recorded, skipped, failed };
-        const data = await res.json();
-        // Saved even when the tax figures aren't confident -- the travel
-        // flag is decided independently of them.
-        if(res.ok && data.invoicePageFound && data.hasTravelLineItem === true && upload.hasTravelLineItem !== true){
-          upload.hasTravelLineItem = true;
-          travelFlagsUpdated = true;
-        }
-        if(!res.ok || !data.confident){ failed++; if(onProgress) onProgress(checked, total, recorded, skipped, failed); continue; }
-
-        const { matched: matchedMaterialsBilled, unmatchedDescriptions } = await matchLineItemsToMaterials(data.lineItems);
-        await recordStateTaxData(upload.jobNumber, data, matchedMaterialsBilled, unmatchedDescriptions);
-        recorded++;
-      }catch(err){
-        console.error('State tax backfill failed for job', upload.jobNumber, err);
-        failed++;
-      }
-      if(onProgress) onProgress(checked, total, recorded, skipped, failed);
-    }
-    if(travelFlagsUpdated) await savePaperworkUploadsList();
-    return { checked, total, recorded, skipped, failed };
-  }
-
   // Re-reads ONE job's invoice and re-matches its materials (Underbilled
   // Jobs -> "Re-check invoice"). Returns { ok, matched, unmatched, error }.
   window.recheckInvoiceForJob = async function(jobNumber){
@@ -28152,58 +27971,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return { ok: true, matched: matched.length, unmatched: unmatchedDescriptions };
   };
 
-  document.getElementById('st_backfillBtn').addEventListener('click', async ()=>{
-    const btn = document.getElementById('st_backfillBtn');
-    const statusEl = document.getElementById('st_backfillStatus');
-    if(!confirm('This will re-read every completed paperwork file already on file that has an invoice attached, and pull tax data from it \u2014 the same way new jobs are handled going forward. Jobs already covered below are skipped. This can take a while and makes one extraction call per job. Continue?')) return;
-    btn.disabled = true;
-    statusEl.textContent = 'Loading existing paperwork\u2026';
-    statusEl.className = 'status-msg';
-    try{
-      await loadPaperworkUploads();
-      const result = await backfillStateTaxData((checked, total, recorded, skipped, failed) => {
-        statusEl.textContent = `Checked ${checked} of ${total} \u2014 ${recorded} recorded, ${skipped} skipped, ${failed} failed\u2026`;
-      });
-      statusEl.textContent = result.total === 0
-        ? 'Done \u2014 no jobs needed backfilling (either none have an invoice on file, or they\u2019re already covered).'
-        : `Done. Checked ${result.checked} of ${result.total}, recorded ${result.recorded}, skipped ${result.skipped}, ${result.failed} failed.`;
-      statusEl.className = 'status-msg ok';
-      await loadStateTaxData();
-    }catch(err){
-      console.error('State tax backfill failed:', err);
-      statusEl.textContent = 'Something went wrong partway through \u2014 check your connection and try again. Jobs already recorded are saved; nothing is lost by re-running this.';
-      statusEl.className = 'status-msg err';
-    }finally{
-      btn.disabled = false;
-    }
-  });
+  
 
-  document.getElementById('st_clearAllBtn').addEventListener('click', async ()=>{
-    const btn = document.getElementById('st_clearAllBtn');
-    const statusEl = document.getElementById('st_clearAllStatus');
-    const count = stateTaxRecords.length;
-    if(!confirm(`This will permanently delete all ${count} tax record${count===1?'':'s'} currently in the report below. This cannot be undone. The underlying invoice files themselves are not affected \u2014 you can re-run the backfill afterward to rebuild this report. Continue?`)) return;
-    btn.disabled = true;
-    statusEl.textContent = 'Clearing\u2026';
-    statusEl.className = 'status-msg';
-    try{
-      const ok = await window.dashboardApi.set(FINANCIAL_TAX_RECORDS_KEY, []);
-      if(ok){
-        statusEl.textContent = 'Cleared. You can now re-run the backfill above.';
-        statusEl.className = 'status-msg ok';
-        await loadStateTaxData();
-      } else {
-        statusEl.textContent = 'Could not clear \u2014 check your connection and try again.';
-        statusEl.className = 'status-msg err';
-      }
-    }catch(err){
-      console.error('Clear state tax records failed:', err);
-      statusEl.textContent = 'Could not clear \u2014 check your connection and try again.';
-      statusEl.className = 'status-msg err';
-    }finally{
-      btn.disabled = false;
-    }
-  });
+  
 
   function stEsc(s){
     const d = document.createElement('div');
@@ -29357,69 +29127,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return { exact, est };
   }
 
-  // ---- D&A backfill: read every month's D&A from multi-month reports ----
-  let daBackfillFound = {};   // month -> { depreciation, amortization, total, lines, file }
-  let daBackfillYtds = [];
-  document.getElementById('daBackfill_chooseBtn').addEventListener('click', () => document.getElementById('daBackfill_files').click());
-  document.getElementById('daBackfill_files').addEventListener('change', async (e) => {
-    const files = Array.from(e.target.files || []); e.target.value = '';
-    if(!files.length) return;
-    const st = document.getElementById('daBackfill_status');
-    for(let n = 0; n < files.length; n++){
-      const file = files[n];
-      st.textContent = `Reading ${n + 1} of ${files.length}\u2026`; st.className = 'status-msg';
-      try{
-        let images, pageTexts = [];
-        if(file.type === 'application/pdf'){ images = await window.getImagesForAssessment(file); pageTexts = await window.extractPdfPageTextsSafe(file); }
-        else images = [await window.compressImageForUpload(file, 2000, 0.92)];
-        const res = await fetch(`${API_BASE}/api/admin/extract-da-history`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ images, pageTexts }) });
-        if(handleAuthFailure(res)) return;
-        const d = await res.json();
-        if(!res.ok) throw new Error(d.error || 'Could not read it.');
-        (d.months || []).forEach(m => { daBackfillFound[m.month] = { depreciation: m.depreciation, amortization: m.amortization, total: Math.round((m.depreciation + m.amortization) * 100) / 100, lines: m.linesAsPrinted, file: file.name }; });
-        if(d.ytd) daBackfillYtds.push(d.ytd);
-      }catch(err){ st.textContent = `${file.name}: ${err.message}`; st.className = 'status-msg err'; }
-    }
-    renderDaBackfill();
-  });
-  function renderDaBackfill(){
-    const wrap = document.getElementById('daBackfill_review'), st = document.getElementById('daBackfill_status');
-    const exact = {}; Object.keys(daBackfillFound).forEach(m => exact[m] = daBackfillFound[m].total);
-    const plan = mfPlanDA(monthlyFinancialsRecords, exact, daBackfillYtds);
-    const months = [...new Set([...Object.keys(daBackfillFound), ...Object.keys(plan)])].sort();
-    if(!months.length){ wrap.style.display = 'none'; st.textContent = 'No monthly D&A found in that report.'; st.className = 'status-msg err'; return; }
-    const nEst = Object.values(plan).filter(x => x.kind === 'estimated').length;
-    st.textContent = `Found D&A for ${Object.keys(daBackfillFound).length} month${Object.keys(daBackfillFound).length === 1 ? '' : 's'}${daBackfillYtds.length ? ' plus year-to-date totals' : ''}.`; st.className = 'status-msg ok';
-    const td = 'padding:5px 8px; border-bottom:1px solid var(--line);';
-    wrap.style.display = 'block';
-    wrap.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
-      <thead><tr><th style="padding:5px 8px;"></th><th style="text-align:left; padding:5px 8px;">Month</th><th style="text-align:right; padding:5px 8px;">D&amp;A to save</th><th style="text-align:left; padding:5px 8px;">From</th><th style="text-align:right; padding:5px 8px;">Saved now</th></tr></thead>
-      <tbody>${months.map(m => { const pl = plan[m], f = daBackfillFound[m], rec = monthlyFinancialsRecords.find(r => r.month === m);
-        const why = !rec ? 'not on file' : !pl ? 'already has exact D&A' : pl.kind === 'estimated' ? 'even share of the year-to-date total' : (f ? mfEsc(f.lines || 'its own column') : 'its own column');
-        return `<tr style="${pl ? '' : 'color:var(--muted);'}">
-          <td style="${td}"><input type="checkbox" class="da-pick" data-month="${m}" ${pl ? 'checked' : 'disabled'}></td>
-          <td style="${td}">${mfMonthLabel(m)}</td>
-          <td style="${td} text-align:right; font-weight:700;">${pl ? (pl.kind === 'estimated' ? '\u2248 ' : '') + mfMoney(pl.value) : (f ? mfMoney(f.total) : '\u2014')}</td>
-          <td style="${td} font-size:11.5px; color:var(--muted);">${why}</td>
-          <td style="${td} text-align:right;">${rec && rec.depreciationAmortization != null ? (rec.daEstimated ? '\u2248 ' : '') + mfMoney(rec.depreciationAmortization) : '\u2014'}</td></tr>`; }).join('')}</tbody></table></div>
-      ${nEst ? '<p class="form-note" style="margin:6px 0 0;">\u2248 = the report doesn\u2019t show that month by itself, so it gets an even share of what the year-to-date total leaves after the months it does show. Together they match the year\u2019s total exactly.</p>' : ''}
-      <div class="form-actions"><button class="btn-primary" id="daBackfill_saveBtn" type="button">Save D&amp;A to Checked Months</button><span class="status-msg" id="daBackfill_saveStatus"></span></div>`;
-    document.getElementById('daBackfill_saveBtn').addEventListener('click', async () => {
-      const picks = [...document.querySelectorAll('.da-pick:checked')].map(c => c.dataset.month);
-      const sst = document.getElementById('daBackfill_saveStatus');
-      if(!picks.length){ sst.textContent = 'Check at least one month.'; sst.className = 'status-msg err'; return; }
-      try{
-        // Re-read, change only D&A, save.
-        const fresh = await window.dashboardApi.get(MONTHLY_FINANCIALS_KEY, []) || [];
-        const n = mfApplyDA(fresh, mfPlanDA(fresh, exact, daBackfillYtds), picks);
-        if(!(await window.dashboardApi.set(MONTHLY_FINANCIALS_KEY, fresh))) throw new Error('save');
-        monthlyFinancialsRecords = fresh;
-        renderMonthlyFinancialsTable(); renderMonthlyFinancialsChart();
-        sst.textContent = `D&A saved for ${n.exact + n.est} month${n.exact + n.est === 1 ? '' : 's'}.`; sst.className = 'status-msg ok';
-        daBackfillFound = {}; daBackfillYtds = [];
-      }catch(err){ sst.textContent = 'Could not save \u2014 check your connection.'; sst.className = 'status-msg err'; }
-    });
-  }
+     // month -> { depreciation, amortization, total, lines, file }
+  
+  
+  
+  
 
   // ---- Owner Time in the App ----
   // Counts each minute an admin is actively using the dashboard (tab
