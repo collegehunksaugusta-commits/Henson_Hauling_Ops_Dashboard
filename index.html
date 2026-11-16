@@ -9306,7 +9306,8 @@ window.openEmailDraft = function(o){
               <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Diesel trucks get a DEF Level question on the Pre-Trip">Diesel?</th>
               <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Junk trucks get the rear-door safety chain and tool box questions on the Pre-Trip">Junk Truck?</th>
               <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th>
-              <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th>
+              <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage at Last Service</th>
+              <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Current Mileage</th>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th>
               <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);" title="Personal vehicles move to the Personal Vehicles card and stay out of crew, compliance and insurance lists">Personal?</th>
               <th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
@@ -9348,7 +9349,7 @@ window.openEmailDraft = function(o){
           <table id="personalVehiclesTable" style="width:100%; border-collapse:collapse; font-size:12.5px;">
             <thead><tr>
               <th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Nickname</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">VIN</th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Year</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Make</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Model</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Style</th>
-              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Diesel?</th><th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);"></th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th><th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Personal?</th><th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
+              <th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Diesel?</th><th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);"></th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Length</th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Mileage at Last Service</th><th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">Current Mileage</th><th style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--line);">Status</th><th style="text-align:center; padding:6px 4px; border-bottom:1px solid var(--line);">Personal?</th><th style="padding:6px 4px; border-bottom:1px solid var(--line);"></th>
             </tr></thead>
             <tbody id="personalRows"></tbody>
           </table>
@@ -10556,11 +10557,20 @@ window.openEmailDraft = function(o){
             <div class="dashSectionTitleRow">
               <span class="dashSectionEmoji" aria-hidden="true">🚦</span>
               <span>Regulatory Compliance</span>
-              <span class="dashSectionCount">(1)</span>
+              <span class="dashSectionCount">(2)</span>
             </div>
           </div>
         </button>
         <div class="dashSectionBody" id="setGroupBody-compliance">
+        <div class="panel" id="set_fleetServicePanel" data-collapsible="true">
+          <h3>Fleet Service Interval</h3>
+          <p class="form-note" style="margin-top:0;">Miles between services. Fleet Vehicles compares each truck&rsquo;s current Motive mileage with its mileage at the last service and shows the miles left; a truck turns <strong>Due Soon</strong> within 10% of the interval (at least 500 miles) and <strong>Maintenance Due</strong> once it&rsquo;s reached.</p>
+          <label>Miles between services <input type="number" min="0" step="100" id="appset_serviceInterval" style="max-width:140px;"></label>
+          <div class="form-actions">
+            <button type="button" id="appset_serviceIntervalSaveBtn" style="background:var(--brand-green); border:none; color:#fff; font-weight:600; padding:10px 16px; border-radius:6px; cursor:pointer; font-family:inherit;">Save</button>
+            <span class="status-msg" id="appset_serviceIntervalStatus"></span>
+          </div>
+        </div>
         <div class="panel" id="set_dotProviderPanel" data-collapsible="true">
           <h3>DOT Physical Provider</h3>
           <p class="form-note" style="margin-top:0;">Where a driver goes when he doesn&rsquo;t have a current DOT physical. Shown in his Onboarding Paperwork and in Truck Documents (when his medical card is missing or expired), with a deadline and a <strong>receipt upload</strong> &mdash; the receipt becomes a &ldquo;DOT Physical&rdquo; expense you approve in Manager Review &rarr; Expenses, paid in Extra Pay.</p>
@@ -10862,6 +10872,7 @@ window.openEmailDraft = function(o){
   // something. Loaded once at startup and cached here; any tile that needs
   // a setting reads window.appSettings directly rather than re-fetching.
   window.appSettings = {
+    fleet: { serviceIntervalMiles: 5000 },
     marketing: {
       redfinSouthCarolina: 'https://www.redfin.com/zipcode/29851/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12302+2:12307+2:12308',
       redfinEvansMartinez: 'https://www.redfin.com/zipcode/30907/filter/sort=lo-days,property-type=house+townhouse+manufactured,min-price=250k,max-days-on-market=2wk,include=forsale+fsbo,status=active,mr=2:12903+2:12907+2:12922+2:12924',
@@ -12875,7 +12886,26 @@ window.openEmailDraft = function(o){
     return d.toISOString().slice(0,10);
   }
 
+  // Miles left before the next service: Configuration -> Regulatory
+  // Compliance -> Service Interval, from the mileage at the last service.
+  function fleetServiceDue(t){
+    const interval = Number(((window.appSettings || {}).fleet || {}).serviceIntervalMiles) || 0;
+    const last = Number(getLatestMileage(t.id)) || 0;
+    const live = fleetMotiveMiles(t);
+    if(!interval || !last || !live) return null;
+    const left = Math.round(last + interval - live.miles);
+    const soon = Math.max(500, Math.round(interval * 0.1));
+    return { left, status: left <= 0 ? 'overdue' : left <= soon ? 'warning' : 'ok' };
+  }
   function getTruckStatus(truckId){
+    const byDate = getTruckDateStatus(truckId);
+    const t = (trucks || []).find(x => x.id === truckId);
+    const byMiles = t ? fleetServiceDue(t) : null;
+    if(!byMiles) return byDate;
+    const rank = { none: 0, ok: 1, warning: 2, overdue: 3 };
+    return rank[byMiles.status] > rank[byDate] ? byMiles.status : byDate;
+  }
+  function getTruckDateStatus(truckId){
     const logsForTruck = maintenanceLogs.filter(l => l.truckId === truckId && l.nextDue);
     if(logsForTruck.length === 0) return 'none';
     const mostRecent = [...logsForTruck].sort((a,b)=> b.date.localeCompare(a.date))[0];
@@ -12892,7 +12922,52 @@ window.openEmailDraft = function(o){
     return mostRecent.mileage;
   }
 
+  // ---- Live mileage from Motive ----
+  // Each fleet truck is matched to its Motive vehicle by VIN, then by the
+  // Motive unit number vs. the nickname, or by a link picked in the table.
+  let fleetMotive = { vehicles: [], at: null, error: null };
+  const fleetVinKey = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const fleetNameKey = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  function fleetMotiveFor(t){
+    const vs = fleetMotive.vehicles || [];
+    if(t.motiveId) return vs.find(v => String(v.id) === String(t.motiveId)) || null;
+    const vin = fleetVinKey(t.vin);
+    if(vin.length >= 11){ const hit = vs.find(v => fleetVinKey(v.vin) === vin); if(hit) return hit; }
+    const nick = fleetNameKey(t.nickname);
+    if(nick){ const hit = vs.find(v => fleetNameKey(v.number) === nick); if(hit) return hit; }
+    return null;
+  }
+  // Motive sends two odometer figures, and the unit depends on the account;
+  // the one closest to (and not below) the last mileage typed in a
+  // maintenance entry is used. With nothing typed yet: the calibrated one.
+  function fleetMotiveMiles(t){
+    const v = fleetMotiveFor(t); if(!v) return null;
+    const raws = [v.trueOdometer, v.odometer].filter(x => typeof x === 'number' && x > 0);
+    if(!raws.length) return null;
+    const ref = Number(getLatestMileage(t.id)) || 0;
+    if(!ref) return { miles: Math.round(raws[0]), v };
+    const opts = [];
+    raws.forEach(r => { opts.push(r); opts.push(r / 1.609344); });
+    const notBelow = opts.filter(o => o >= ref * 0.97);
+    const pool = notBelow.length ? notBelow : opts;
+    pool.sort((a, b) => Math.abs(a - ref) - Math.abs(b - ref));
+    return { miles: Math.round(pool[0]), v };
+  }
+  window.fleetMotiveMilesFor = truckId => { const t = (trucks || []).find(x => x.id === truckId); const m = t && fleetMotiveMiles(t); return m ? m.miles : null; };
+  async function fleetLoadMotive(){
+    try{
+      const res = await fetch(`${API_BASE}/api/motive-locations`, { headers: authHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if(!res.ok){ fleetMotive.error = d.error || 'Motive unavailable'; return; }
+      fleetMotive = { vehicles: d.trucks || [], at: new Date(), error: null };
+      renderTruckTable();
+    }catch(err){ fleetMotive.error = 'Could not reach Motive'; }
+  }
+  // Refreshed every minute while the Vehicles section is on screen.
+  setInterval(() => { const el = document.getElementById('comp_trucks'); if(el && el.offsetParent !== null && localStorage.getItem('henson_auth_token')) fleetLoadMotive(); }, 60000);
+
   async function loadFleetData(){
+    fleetLoadMotive();
     try{
       const [t, l] = await Promise.all([
         window.dashboardApi.get(FLEET_TRUCKS_KEY, []),
@@ -12929,6 +13004,39 @@ window.openEmailDraft = function(o){
     updateComplianceTileBadge();
   }
 
+  function fleetMileageCellHtml(t, i, manual){
+    const live = fleetMotiveMiles(t);
+    if(live){
+      const at = live.v.locatedAt ? new Date(live.v.locatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      const due = fleetServiceDue(t);
+      const dueHtml = due ? `<div style="font-size:11px; white-space:nowrap; font-weight:${due.status === 'ok' ? 400 : 700}; color:${due.status === 'overdue' ? '#B3261E' : due.status === 'warning' ? '#8a6100' : 'var(--muted)'};">${due.left >= 0 ? `Service in ${due.left.toLocaleString()} mi` : `${(-due.left).toLocaleString()} mi past service`}</div>` : '';
+      return `<span title="Motive unit ${fleetEsc(live.v.number)}${at ? ' \u00b7 reported ' + fleetEsc(at) : ''}">${live.miles.toLocaleString()}</span>${dueHtml}<div style="font-size:10.5px; color:#00612C; white-space:nowrap;">\u25cf Motive${t.motiveId ? ` <button type="button" class="truck-motive-unlink" data-idx="${i}" title="Unlink from Motive unit ${fleetEsc(live.v.number)}" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:10.5px; padding:0;">\u00d7</button>` : ''}</div>`;
+    }
+    const base = '\u2014';
+    const linked = new Set((trucks || []).map(x => { const v = fleetMotiveFor(x); return v ? String(v.id) : null; }).filter(Boolean));
+    const free = (fleetMotive.vehicles || []).filter(v => !linked.has(String(v.id)));
+    if(!free.length || t.isPersonal) return base;
+    return base + `<div><select class="truck-motive-link" data-idx="${i}" style="font-size:11px; padding:2px; margin-top:2px; max-width:130px;"><option value="">Link Motive\u2026</option>${free.map(v => `<option value="${fleetEsc(v.id)}">${fleetEsc(v.number)}${v.make ? ' \u00b7 ' + fleetEsc(v.make) : ''}</option>`).join('')}</select></div>`;
+  }
+  document.addEventListener('change', async e => {
+    const sel = e.target.closest && e.target.closest('.truck-motive-link'); if(!sel || !sel.value) return;
+    const t = trucks[Number(sel.dataset.idx)]; if(!t) return;
+    t.motiveId = sel.value; await saveTrucks(); renderTruckTable();
+  });
+  document.addEventListener('click', async e => {
+    const b = e.target.closest && e.target.closest('.truck-motive-unlink'); if(!b) return;
+    const t = trucks[Number(b.dataset.idx)]; if(!t) return;
+    delete t.motiveId; await saveTrucks(); renderTruckTable();
+  });
+  // Logging maintenance: the mileage box fills in from Motive.
+  document.addEventListener('change', e => {
+    if(!e.target || e.target.id !== 'm_truck') return;
+    const box = document.getElementById('m_mileage'); if(!box || (box.value && !box.dataset.fromMotive)) return;
+    const m = window.fleetMotiveMilesFor(e.target.value);
+    if(m){ box.value = m; box.dataset.fromMotive = '1'; } else if(box.dataset.fromMotive){ box.value = ''; delete box.dataset.fromMotive; }
+  });
+  document.addEventListener('input', e => { if(e.target && e.target.id === 'm_mileage') delete e.target.dataset.fromMotive; });
+
   function renderTruckTable(){
     const tbody = document.getElementById('truckRows');
     const rowHtml = (t, i) => {
@@ -12950,6 +13058,7 @@ window.openEmailDraft = function(o){
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center;"><input type="checkbox" class="truck-flag" data-idx="${i}" data-flag="isJunk" ${t.isJunk ? 'checked' : ''} aria-label="${fleetEsc(t.nickname)} is a junk truck"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${t.length ? fleetEsc(t.length) + ' ft' : '\u2014'}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${mileage !== null ? Number(mileage).toLocaleString() : '\u2014'}</td>
+        <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;">${fleetMileageCellHtml(t, i, mileage)}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line);">${statusHtml}</td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:center;"><input type="checkbox" class="truck-flag" data-idx="${i}" data-flag="isPersonal" ${t.isPersonal ? 'checked' : ''} aria-label="Personal vehicle"></td>
         <td style="padding:5px 4px; border-bottom:1px solid var(--line); text-align:right;"><button type="button" class="truck-remove" data-idx="${i}" style="background:#fff; border:1px solid var(--line); color:#b3261e; font-size:11px; padding:4px 8px; border-radius:4px; cursor:pointer;">Remove</button></td>
@@ -13571,7 +13680,7 @@ window.openEmailDraft = function(o){
       }
       if(data.date && !dateEl.value){ dateEl.value = data.date; filledAny = true; }
       if(data.description && !descEl.value){ descEl.value = data.description; filledAny = true; }
-      if(typeof data.mileage === 'number' && !mileageEl.value){ mileageEl.value = data.mileage; filledAny = true; }
+      if(typeof data.mileage === 'number' && (!mileageEl.value || mileageEl.dataset.fromMotive)){ mileageEl.value = data.mileage; delete mileageEl.dataset.fromMotive; filledAny = true; }
       statusEl.textContent = filledAny
         ? `Filled in from the invoice${truckMatchName ? ` \u2014 matched to ${truckMatchName} by VIN` : ''} \u2014 double-check before saving.`
         : '';
@@ -21791,6 +21900,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     document.getElementById('appset_commissionWingmanRate').value = commission.wingmanRate || 0;
     document.getElementById('appset_reviewBonusPerReview').value = commission.reviewBonusPerReview || 0;
     document.getElementById('appset_mileageRate').value = ((window.appSettings || {}).extraPay || {}).mileageRate || 0;
+    document.getElementById('appset_serviceInterval').value = ((window.appSettings || {}).fleet || {}).serviceIntervalMiles || '';
     window.renderMileageRateNow && window.renderMileageRateNow();
     renderFinancialMetricsSettings();
     const dp = (window.appSettings || {}).dotPhysical || {};
@@ -21864,6 +21974,21 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!res.ok){ st.textContent = d.error || 'Could not save.'; st.className = 'status-msg err'; return; }
       window.appSettings.dotPhysical = Object.assign({}, window.appSettings.dotPhysical, dotPhysical);
       st.textContent = 'Saved.'; st.className = 'status-msg ok';
+    }catch(err){ st.textContent = 'Could not reach the server \u2014 check your connection.'; st.className = 'status-msg err'; }
+  });
+
+  document.getElementById('appset_serviceIntervalSaveBtn').addEventListener('click', async ()=>{
+    const st = document.getElementById('appset_serviceIntervalStatus');
+    const serviceIntervalMiles = Math.max(0, Math.round(Number(String(document.getElementById('appset_serviceInterval').value).replace(/[^0-9.]/g, '')) || 0));
+    st.textContent = 'Saving\u2026'; st.className = 'status-msg';
+    try{
+      const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { fleet: { serviceIntervalMiles } } }) });
+      if(handleAuthFailure(res)) return;
+      const d = await res.json();
+      if(!res.ok){ st.textContent = d.error || 'Could not save.'; st.className = 'status-msg err'; return; }
+      window.appSettings.fleet = Object.assign({}, window.appSettings.fleet, { serviceIntervalMiles });
+      st.textContent = serviceIntervalMiles ? `Saved \u2014 every ${serviceIntervalMiles.toLocaleString()} miles.` : 'Saved \u2014 mileage-based service reminders are off.'; st.className = 'status-msg ok';
+      if(typeof window.loadFleetData === 'function') window.loadFleetData();
     }catch(err){ st.textContent = 'Could not reach the server \u2014 check your connection.'; st.className = 'status-msg err'; }
   });
 
