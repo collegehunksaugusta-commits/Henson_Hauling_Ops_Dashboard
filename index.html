@@ -5781,7 +5781,7 @@ window.openEmailDraft = function(o){
       const files = Array.from(e.target.files || []);
       for(const file of files){
         try{
-          const compressed = await window.compressImageForUpload(file, 1280, 0.72);
+          const compressed = await window.compressImageForUpload(file, 1200, 0.6);
           if(!jrdStagedPhotos[key]) jrdStagedPhotos[key] = [];
           jrdStagedPhotos[key].push(compressed);
         }catch(err){ console.error('Photo compression failed:', err); }
@@ -6040,7 +6040,7 @@ window.openEmailDraft = function(o){
       const files = Array.from(e.target.files || []);
       for(const file of files){
         try{
-          const compressed = await window.compressImageForUpload(file, 1280, 0.72);
+          const compressed = await window.compressImageForUpload(file, 1200, 0.6);
           if(!mvStagedPhotos[key]) mvStagedPhotos[key] = [];
           mvStagedPhotos[key].push(compressed);
         }catch(err){ console.error('Photo compression failed:', err); }
@@ -6229,7 +6229,7 @@ window.openEmailDraft = function(o){
   async function handleTruckPhotoCapture(file, { previewImgId, previewWrapId, statusElId, captureBtnId }){
     const statusEl = document.getElementById(statusElId);
     try{
-      const compressed = await window.compressImageForUpload(file, 1280, 0.72);
+      const compressed = await window.compressImageForUpload(file, 1200, 0.6);
       document.getElementById(previewImgId).src = compressed;
       document.getElementById(previewWrapId).style.display = 'block';
       document.getElementById(captureBtnId).textContent = 'Retake Photo';
@@ -10689,7 +10689,7 @@ window.openEmailDraft = function(o){
 
         <div class="panel">
           <h3>Re-Compress Existing Files</h3>
-          <p class="form-note">Re-runs compression against every existing Configuration doc, Marketing Material, EIN letter, DOT inspection file, driver document, and Move Paperwork upload already on file, and saves the smaller version wherever it actually helps. Move Paperwork specifically gets recompressed at a tighter setting than it was originally saved at &mdash; visually confirmed to stay fully legible &mdash; since it's the single largest, continuously-growing category. Nothing is deleted; a file only gets replaced if the recompressed version is genuinely smaller. This can take a while for a lot of files.</p>
+          <p class="form-note">Shrinks files already on file and saves the smaller version only where it saves at least 15%: Configuration docs, Marketing Materials, the EIN letter, DOT inspection files, driver documents, Move Paperwork, truck pre-trip and end-of-day photos, job and moving photos, damage-claim and injury photos, and onboarding packages over 3 MB. Safe to run again &mdash; files already shrunk are skipped. It can take several minutes; leave this page open until it says Done.</p>
           <div class="form-actions">
             <button class="btn-primary" id="set_recompressBtn" type="button">Re-Compress Existing Files</button>
             <span class="status-msg" id="set_recompressStatus"></span>
@@ -13436,6 +13436,7 @@ window.openEmailDraft = function(o){
     return { dataUri, wasCompressed: false, originalSize, finalSize: originalSize };
   }
   window.compressUploadedFile = compressUploadedFile;
+  window.compressPdfFile = compressPdfFile;
 
   // For Captain Metrics' completeness assessment -- unlike compressUploadedFile
   // (which optimizes for smallest storage size), this renders at a resolution
@@ -13485,7 +13486,10 @@ window.openEmailDraft = function(o){
     const pageWidth = 612, pageHeight = 792; // US Letter, points
     let doc = null;
 
-    for(const pageDataUri of allPages){
+    for(let pageDataUri of allPages){
+      // Stored packets were saved at 1400px / 65% -- keep merged pages there
+      // too (the assessment images above are higher quality for reading).
+      try{ const small = await compressImageForUpload(dataUriToFile(pageDataUri, 'page.jpg'), 1400, 0.65); if(small && small.length < pageDataUri.length) pageDataUri = small; }catch(err){ /* keep the page as is */ }
       const dims = await new Promise((resolve) => {
         const img = new Image();
         img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
@@ -18241,7 +18245,7 @@ window.openEmailDraft = function(o){
       for(const f of [...e.target.files]){
         try{
           st.textContent = 'Adding photo\u2026'; st.className = 'status-msg';
-          const uri = await window.compressImageForUpload(f, 1600, 0.82);
+          const uri = await window.compressImageForUpload(f, 1400, 0.7);
           const key = `injury-file-${injEditing.id}-p${Date.now()}${Math.floor(Math.random() * 1000)}`;
           if(!(await window.dashboardApi.set(key, uri))) throw new Error('save');
           injEditing.photoKeys = (injEditing.photoKeys || []).concat([key]);
@@ -19569,7 +19573,8 @@ window.openEmailDraft = function(o){
     const due = mailAptDueDate(rec);
     return !due || todayStr() >= due;
   }
-  function mailAptDueHtml(rec){
+  function mailAptDueHtml(rec){ return mailAptDueHtmlBase(rec) + (window.mailClosedNoteHtml ? window.mailClosedNoteHtml(rec) : ''); }
+  function mailAptDueHtmlBase(rec){
     const due = mailAptDueDate(rec);
     if(!due) return '<div style="font-size:11px; color:#B3261E; font-weight:600; margin-top:2px;">Never contacted</div>';
     const label = new Date(due + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: due.slice(0, 4) !== todayStr().slice(0, 4) ? 'numeric' : undefined });
@@ -19796,9 +19801,10 @@ window.openEmailDraft = function(o){
 
     const totalMiles = mailCurrentRoute.reduce((sum, s) => sum + s.distanceFromPrev, 0);
     const visitedToday = mailCurrentRoute.filter(s => s.rec.dateContacted === todayStr()).length;
+    const closedTodayCount = mailCurrentRoute.filter(s => s.rec.dateContacted !== todayStr() && (s.rec.closedAttempts || []).some(a => a.date === todayStr())).length;
     const tierLabel = tier === 'all' ? 'All' : tier;
     document.getElementById('mailApt_routeSummary').textContent =
-      `${tierLabel}: ${mailCurrentRoute.length} stop${mailCurrentRoute.length===1?'':'s'}, ~${totalMiles.toFixed(1)} miles total \u2014 ${visitedToday} of ${mailCurrentRoute.length} marked arrived today.`;
+      `${tierLabel}: ${mailCurrentRoute.length} stop${mailCurrentRoute.length===1?'':'s'}, ~${totalMiles.toFixed(1)} miles total \u2014 ${visitedToday} of ${mailCurrentRoute.length} marked arrived today${closedTodayCount ? `, ${closedTodayCount} office${closedTodayCount === 1 ? '' : 's'} closed` : ''}.`;
 
     const listEl = document.getElementById('mailApt_routeList');
     if(mailCurrentRoute.length === 0){
@@ -19810,6 +19816,8 @@ window.openEmailDraft = function(o){
     listEl.innerHTML = mailCurrentRoute.map((s, i) => {
       const rec = s.rec;
       const visitedToday = rec.dateContacted === todayStr();
+      const closedTodayRec = visitedToday ? null : (rec.closedAttempts || []).filter(a => a.date === todayStr()).pop();
+      const closedToday = !!closedTodayRec;
       const hasPriorContact = !!rec.dateContacted && !visitedToday;
       const lastContactedLabel = hasPriorContact ? window.fmtDate(rec.dateContacted) : '';
       const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.coords.lat},${s.coords.lng}`;
@@ -19820,7 +19828,7 @@ window.openEmailDraft = function(o){
       return `
       <div data-id="${rec.id}" style="padding:16px 0; border-bottom:1px solid var(--line);">
         <div style="display:flex; gap:12px; align-items:flex-start; margin-bottom:12px;">
-          <div style="flex-shrink:0; width:34px; height:34px; border-radius:50%; background:${visitedToday ? 'var(--brand-green)' : 'var(--charcoal)'}; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;">${visitedToday ? '\u2713' : (i+1)}</div>
+          <div style="flex-shrink:0; width:34px; height:34px; border-radius:50%; background:${visitedToday ? 'var(--brand-green)' : closedToday ? '#B3761E' : 'var(--charcoal)'}; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;">${visitedToday ? '\u2713' : (i+1)}</div>
           <div style="flex:1; min-width:0;">
             <div style="font-weight:700; font-size:16px;">${mailEsc(rec.name)}</div>
             <div style="font-size:13.5px; color:var(--muted); margin-top:2px;">${mailEsc(rec.address)}, ${mailEsc(rec.city)}, ${mailEsc(rec.state)} ${mailEsc(rec.zip)}</div>
@@ -19832,6 +19840,9 @@ window.openEmailDraft = function(o){
           <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="flex:1; text-align:center; background:#fff; border:1px solid var(--line); color:var(--charcoal); padding:11px 10px; border-radius:6px; font-size:14px; font-weight:600; text-decoration:none;">Directions</a>
           <button type="button" class="mailApt-arrive-btn" data-id="${rec.id}" style="flex:1; background:${visitedToday ? '#EAF6EE' : 'var(--brand-green)'}; color:${visitedToday ? 'var(--brand-green-dark)' : '#fff'}; border:none; padding:11px 10px; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer;">${btnLabel}</button>
         </div>
+        ${visitedToday ? '' : closedToday
+          ? `<div style="padding-left:46px; margin-top:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><span style="background:#FFF4E5; border:1px solid #F0C48A; color:#8A5300; border-radius:6px; padding:6px 10px; font-size:13.5px; font-weight:700;">\ud83d\udd12 Office closed \u2014 attempt logged ${new Date(closedTodayRec.at || Date.now()).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><button type="button" class="mailApt-closed-undo" data-id="${rec.id}" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer;">Undo</button></div>`
+          : `<div style="padding-left:46px; margin-top:8px;"><button type="button" class="mailApt-closed-btn" data-id="${rec.id}" style="width:100%; background:#fff; border:1px solid #F0C48A; color:#8A5300; padding:10px; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer;">\ud83d\udd12 Office Closed \u2014 log the attempt</button></div>`}
         ${visitedToday ? `<div style="padding-left:46px; margin-top:6px;"><button type="button" class="mailApt-undo-btn" data-id="${rec.id}" style="background:none; border:none; color:var(--muted); font-size:12.5px; text-decoration:underline; cursor:pointer; padding:0;">Undo \u2014 couldn't actually make contact</button></div>` : ''}
         <p class="status-msg mailApt-stop-status" data-id="${rec.id}" style="margin:8px 0 0 46px; font-size:13px;"></p>
       </div>`;
@@ -19839,6 +19850,8 @@ window.openEmailDraft = function(o){
 
     listEl.querySelectorAll('.mailApt-arrive-btn').forEach(btn => btn.addEventListener('click', (e)=> mailAptCheckArrival(e.target.dataset.id)));
     listEl.querySelectorAll('.mailApt-undo-btn').forEach(btn => btn.addEventListener('click', (e)=> mailAptUndoArrival(e.target.dataset.id)));
+    listEl.querySelectorAll('.mailApt-closed-btn').forEach(btn => btn.addEventListener('click', (e)=> mailAptOfficeClosed(e.currentTarget.dataset.id, false)));
+    listEl.querySelectorAll('.mailApt-closed-undo').forEach(btn => btn.addEventListener('click', (e)=> mailAptOfficeClosed(e.currentTarget.dataset.id, true)));
   }
   window.renderMailAptRoute = renderMailAptRoute;
   window.getMailCurrentRoute = () => mailCurrentRoute;
@@ -19933,6 +19946,30 @@ window.openEmailDraft = function(o){
     statusEl.textContent = ok ? `Marked "${rec.name}" as arrived.` : 'Save failed \u2014 check your connection.';
     statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
   }
+
+  // "Office Closed": we went, nobody was there. Logged as an attempt only --
+  // it is NOT a contact, so the location's 3-month due date doesn't change.
+  async function mailAptOfficeClosed(recId, undo){
+    const cfg = MAIL_ROUTE_SOURCES[mailCurrentRouteSource];
+    const rec = cfg.getRecords().find(r => r.id === recId);
+    if(!rec) return;
+    const list = Array.isArray(rec.closedAttempts) ? rec.closedAttempts : [];
+    if(undo){ const i = list.map(a => a.date).lastIndexOf(todayStr()); if(i >= 0) list.splice(i, 1); }
+    else list.push({ date: todayStr(), at: new Date().toISOString(), by: localStorage.getItem('henson_auth_email') || localStorage.getItem('henson_driver_name') || '' });
+    rec.closedAttempts = list.slice(-20);
+    const ok = await cfg.save();
+    renderMailAptRoute(mailCurrentRouteSource, mailCurrentRouteTier);
+    cfg.renderTable();
+    const statusEl = document.getElementById('mailApt_routeStatus');
+    statusEl.textContent = ok ? (undo ? `Removed today\u2019s closed attempt for "${rec.name}".` : `Logged: "${rec.name}" office was closed. It still needs a visit.`) : 'Save failed \u2014 check your connection.';
+    statusEl.className = ok ? 'status-msg ok' : 'status-msg err';
+  }
+  window.mailClosedNoteHtml = rec => {
+    const a = (rec.closedAttempts || []).filter(x => x && x.date && (!rec.dateContacted || x.date >= rec.dateContacted));
+    if(!a.length) return '';
+    const last = a[a.length - 1].date;
+    return `<div style="font-size:11px; color:#8A5300; font-weight:600; margin-top:2px;">\ud83d\udd12 Closed ${new Date(last + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${a.length > 1 ? ` (${a.length} tries)` : ''}</div>`;
+  };
 
   // Reverses a mistaken "Mark Arrived" -- arrived at the lot but never
   // actually made contact or dropped materials. Restores whatever
@@ -20276,7 +20313,8 @@ window.openEmailDraft = function(o){
     const due = mailAptDueDate(rec);
     return !due || todayStr() >= due;
   }
-  function mailAptDueHtml(rec){
+  function mailAptDueHtml(rec){ return mailAptDueHtmlBase(rec) + (window.mailClosedNoteHtml ? window.mailClosedNoteHtml(rec) : ''); }
+  function mailAptDueHtmlBase(rec){
     const due = mailAptDueDate(rec);
     if(!due) return '<div style="font-size:11px; color:#B3261E; font-weight:600; margin-top:2px;">Never contacted</div>';
     const label = new Date(due + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: due.slice(0, 4) !== todayStr().slice(0, 4) ? 'numeric' : undefined });
@@ -21118,7 +21156,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const blob = settingsDataUriToBlob(dataUri);
         const args = compressionArgs || [];
         const compressed = await window.compressUploadedFile(blob, ...args);
-        if(compressed.wasCompressed && compressed.finalSize < originalBytes){
+        if(compressed.wasCompressed && compressed.finalSize < originalBytes * 0.85){
           const toSave = isWrapped ? Object.assign({}, existing, { dataUri: compressed.dataUri }) : compressed.dataUri;
           const ok = await window.dashboardApi.set(key, toSave);
           if(ok){
@@ -21155,13 +21193,47 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     const paperworkUploadsList = await window.dashboardApi.get('paperwork-uploads', []) || [];
     for(const u of paperworkUploadsList) await tryRecompressKey('paperwork-upload-' + u.id, false, [1400, 0.65, 1400, 0.65]);
 
+    // Truck, job, moving, damage-claim and injury photos -- the server lists
+    // the ones big enough to be worth it (biggest first).
+    let shrinkList = { photos: [], packages: [] };
+    try{
+      const r = await fetch(`${API_BASE}/api/admin/storage/shrink-list`, { headers: authHeaders() });
+      if(r.ok) shrinkList = await r.json();
+    }catch(err){ console.error('Shrink list failed:', err); }
+    for(const p of (shrinkList.photos || [])){
+      const isInjury = p.key.startsWith('injury-file-');
+      await tryRecompressKey(p.key, false, isInjury ? [1400, 0.7] : [1200, 0.6]);
+    }
+
+    // Onboarding packages over 3 MB: rebuilt compactly (or re-compressed),
+    // then stored back. Same open/store steps as the New Hires button.
+    for(const pk of (shrinkList.packages || [])){
+      filesChecked++;
+      try{
+        const url = `${API_BASE}/api/admin/hiring/candidates/${encodeURIComponent(pk.id)}/completed-package`;
+        const r = await fetch(url + '?purpose=shrink', { headers: authHeaders() });
+        if(!r.ok) throw new Error('open failed ' + r.status);
+        const d = await r.json();
+        let uri = d.needsBuild ? await window.buildPackagePdfInDashboard(d.build) : d.dataUri;
+        if(uri && !d.needsBuild && uri.length > 3 * 1024 * 1024){
+          const smaller = await window.compressPdfFile(window.dataUriToFile(uri, 'package.pdf'), 850, 0.6);
+          if(smaller && smaller.length < uri.length * 0.85) uri = smaller; else uri = null;
+        }
+        if(uri && (d.needsBuild || uri !== d.dataUri)){
+          const st = await fetch(url, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ dataUri: uri }) });
+          if(st.ok && uri.length < pk.size){ filesShrunk++; savedBytes += Math.round((pk.size - uri.length) * 0.75); }
+        }
+      }catch(err){ console.error('Package shrink failed for', pk.name, err); }
+      if(onProgress) onProgress(filesChecked, filesShrunk, savedBytes);
+    }
+
     return { filesChecked, filesShrunk, savedBytes };
   }
 
   document.getElementById('set_recompressBtn').addEventListener('click', async ()=>{
     const btn = document.getElementById('set_recompressBtn');
     const statusEl = document.getElementById('set_recompressStatus');
-    if(!confirm('This will check every Configuration doc, Marketing Material, EIN letter, DOT inspection file, driver document, and Move Paperwork upload already on file, and replace any that shrink with a smaller version. Move Paperwork specifically will be recompressed at a tighter setting than it was originally saved at (visually confirmed to stay fully legible) to meaningfully reduce long-term storage. Nothing is deleted, and a file is only replaced if the result is genuinely smaller. Continue?')) return;
+    if(!confirm('This shrinks stored files and photos that can be made meaningfully smaller and saves the smaller versions. It can take several minutes \u2014 leave this page open until it says Done. Continue?')) return;
     btn.disabled = true;
     statusEl.textContent = 'Starting\u2026';
     statusEl.className = 'status-msg';
@@ -34494,7 +34566,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         let added = 0;
         for(const f of files){
           try{
-            const dataUri = await compressImageForUpload(f, 1600, 0.82);
+            const dataUri = await compressImageForUpload(f, 1400, 0.7);
             const photoId = 'office' + Date.now().toString(36) + Math.floor(Math.random() * 1000);
             if(await window.dashboardApi.set(`damage-claim-photo-${claim.id}-${photoId}`, dataUri)){
               claim.photos = (claim.photos || []).concat([{ id: photoId, source: 'office', uploadedAt: new Date().toISOString() }]);
@@ -35362,7 +35434,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   // document with answers, checkmarks and signatures in place.
   async function buildPackagePdfInDashboard(b, onStep){
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
+    const pdf = new jsPDF({ unit: 'pt', format: 'letter', compress: true });
     const W = 612, H = 792, M = 50;
     const c = b.candidate, shared = c.sharedFieldValues || {};
     const fmt = v => v === true ? 'Yes' : (v === false || v == null) ? '' : String(v);
@@ -35428,7 +35500,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(!pages.length) leftover.unshift(['(The original form could not be drawn)', '']);
       } else if(/^data:image\//.test(uri)){
         const im = await loadImg(uri);
-        if(im){ newPage(); const sc = Math.min((W - 24) / im.width, (H - 24) / im.height); pdf.addImage(uri, 'JPEG', (W - im.width * sc) / 2, 12, im.width * sc, im.height * sc); drewPages = true; }
+        if(im){ newPage(); const sc = Math.min((W - 24) / im.width, (H - 24) / im.height);
+          let small = uri; try{ small = await window.compressImageForUpload(window.dataUriToFile(uri, 'form.jpg'), 1100, 0.65); }catch(err){ small = uri; }
+          pdf.addImage(small, 'JPEG', (W - im.width * sc) / 2, 12, im.width * sc, im.height * sc, undefined, 'FAST'); drewPages = true; }
         (d.fields || []).forEach(f => { const v = valueOf(f); if(!['signature', 'employer_signature'].includes(f.type) && v != null && v !== '' && v !== false) leftover.push([f.label, fmt(v)]); });
       } else {
         // A Word document: its FULL text, with his answers filled into the
@@ -35502,6 +35576,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     }
     return pdf.output('datauristring').replace(/^data:application\/pdf;[^,]*,/, 'data:application/pdf;base64,');
   }
+  window.buildPackagePdfInDashboard = buildPackagePdfInDashboard;
   window.openCompletedPackage = async function(candId, statusEl){
     const say = (t, ok) => { if(statusEl){ statusEl.textContent = t; statusEl.className = statusEl.className.replace(/\b(ok|err)\b/g, '').trim() + (ok === true ? ' ok' : ok === false ? ' err' : ''); } };
     say('Opening the completed package\u2026');
@@ -37965,7 +38040,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       let failed = 0;
       for(const file of files){
         try{
-          const dataUri = await compressImageForUpload(file, 1280, 0.72);
+          const dataUri = await compressImageForUpload(file, 1200, 0.6);
           dcuStagedFiles.push({ filename: file.name || 'photo.jpg', dataUri });
         }catch(err){
           console.error('Photo processing failed:', err);
