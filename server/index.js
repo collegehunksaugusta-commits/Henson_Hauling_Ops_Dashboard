@@ -7339,6 +7339,7 @@ app.get('/api/admin/team-texts/people', requireAuth, requireAdmin, async (req, r
 app.get('/api/admin/team-texts', requireAuth, requireAdmin, async (req, res) => {
   try {
     const sent = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').slice(-60).reverse();
+    for (const e of sent) if (e.survey) { const sv = e.survey; e.survey = { type: sv.type, options: ttSurveyChoices(sv), anonymous: !!sv.anonymous, closed: !!sv.closed }; e.results = await ttSurveyResults({ ...e, survey: sv }, true); }
     const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]').slice(-200).reverse();
     res.json({ configured: twilioReady(), sent, inbox, unread: inbox.filter(m => !m.read).length });
   } catch (err) { res.status(500).json({ error: 'Could not load messages.' }); }
@@ -7369,6 +7370,72 @@ function ttReaction(text){
   if(m && !/[a-z0-9]/i.test(m[1])) return m[1];
   return null;
 }
+// ---- Quick surveys (Team Messages) ----
+// A survey is a sent message with entry.survey = { type: 'yn' | 'choice',
+// options: [{ key: 'A', label }], anonymous, closed, salt }. Answers live in a
+// Redis hash (one field per person, so simultaneous answers can't overwrite
+// each other). Anonymous surveys store a salted hash instead of the name and
+// only totals ever leave the server.
+const TT_SURVEY_PREFIX = 'team-text-survey-';
+function ttSurveyTail(sv) {
+  if (!sv) return '';
+  const anon = sv.anonymous ? ' Your answer is anonymous.' : '';
+  if (sv.type === 'yn') return `\n\nReply Y for Yes or N for No.${anon}`;
+  return `\n\nReply with a letter:\n${(sv.options || []).map(o => `${o.key}) ${o.label}`).join('\n')}${anon ? '\n' + anon.trim() : ''}`;
+}
+function ttSurveyChoices(sv) { return sv.type === 'yn' ? [{ key: 'Y', label: 'Yes' }, { key: 'N', label: 'No' }] : (sv.options || []); }
+// A reply's answer, or null if it isn't one. Reads the first word ("No, but
+// ..." is No; "b" is B) or an exact option label.
+function ttSurveyParse(sv, text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const first = t.split(/[\s,.!?:;)\-]+/).filter(Boolean)[0] || '';
+  const w = first.replace(/^\(/, '').toUpperCase();
+  if (sv.type === 'yn') {
+    if (/^(Y|YES|YEP|YEAH|YEA|YUP|SURE)$/.test(w)) return 'Y';
+    if (/^(N|NO|NOPE|NAH)$/.test(w)) return 'N';
+    if (/^\ud83d\udc4d/.test(t)) return 'Y';
+    if (/^\ud83d\udc4e/.test(t)) return 'N';
+    return null;
+  }
+  const opts = sv.options || [];
+  if (/^[A-Z]$/.test(w) && opts.some(o => o.key === w)) return w;
+  const exact = opts.find(o => o.label.trim().toLowerCase() === t.toLowerCase());
+  return exact ? exact.key : null;
+}
+function ttSurveyWho(sv, name, phone) {
+  const id = name ? 'n:' + nameCoreKey(name) : 'p:' + String(phone || '');
+  return sv.anonymous ? 'h:' + crypto.createHash('sha256').update(String(sv.salt || '') + '|' + id).digest('hex').slice(0, 32) : id;
+}
+async function ttSurveyRecord(entry, name, phone, choice, via) {
+  const sv = entry.survey;
+  const rec = { choice, at: new Date().toISOString(), via };
+  if (!sv.anonymous) { rec.name = name || ''; rec.phone = phone || ''; }
+  await redis.hset(TT_SURVEY_PREFIX + entry.id, ttSurveyWho(sv, name, phone), JSON.stringify(rec));
+}
+// Totals for the office. Anonymous: counts only. Otherwise also who picked
+// what and who hasn't answered.
+async function ttSurveyResults(entry, withNames) {
+  const sv = entry.survey, raw = await redis.hgetall(TT_SURVEY_PREFIX + entry.id) || {};
+  const answers = Object.values(raw).map(v => { try { return JSON.parse(v); } catch (e) { return null; } }).filter(Boolean);
+  const choices = ttSurveyChoices(sv);
+  const counts = choices.map(c => ({ key: c.key, label: c.label, count: answers.filter(a => a.choice === c.key).length, names: [] }));
+  const recips = (entry.recipients || []).filter(r => !/failed|undelivered/.test(r.status || ''));
+  const out = { type: sv.type, anonymous: !!sv.anonymous, closed: !!sv.closed, counts, answered: answers.length, sentTo: recips.length };
+  if (!sv.anonymous && withNames) {
+    answers.slice().sort((a, b) => String(a.at).localeCompare(String(b.at))).forEach(a => { const c = counts.find(x => x.key === a.choice); if (c) c.names.push({ name: a.name || prettyPhone(a.phone || ''), at: a.at, via: a.via }); });
+    const done = new Set(answers.map(a => a.name ? 'n:' + nameCoreKey(a.name) : 'p:' + a.phone));
+    out.waiting = recips.filter(r => !done.has('n:' + nameCoreKey(r.name || '')) && !done.has('p:' + r.phone)).map(r => r.name);
+  }
+  return out;
+}
+// The open survey a texted reply answers: the latest message sent to that
+// number (in the last 14 days) when it's a survey.
+function ttSurveyForPhone(log, phone) {
+  const cutoff = new Date(Date.now() - 14 * 864e5).toISOString();
+  const latest = log.slice().sort((a, b) => String(b.at).localeCompare(String(a.at))).find(e => String(e.at) >= cutoff && (e.recipients || []).some(r => r.phone === phone && !/failed/.test(r.status || '')));
+  return latest && latest.survey && !latest.survey.closed ? latest : null;
+}
 // ---- Team Messages threads in the HUNK Portal ----
 // Messages this crew member received (last 60 days), each with the replies
 // to it -- a reply belongs to the latest message sent to that person before
@@ -7391,6 +7458,14 @@ app.get('/api/crew/team-threads', async (req, res) => {
     });
     const threads = sent.filter(e => String(e.at) >= cutoff && (e.recipients || []).some(r => nameCoreKey(r.name || '') === myKey && !/failed/.test(r.status || '')))
       .map(e => ({ id: e.id, at: e.at, message: e.message, photos: (e.media || []).map(id => publicBase(req) + '/api/tt-media/' + id), replies: (replies.get(e.id) || []).sort((a, b) => String(a.at).localeCompare(String(b.at))) }));
+    for (const th of threads) {
+      const e = sent.find(x => x.id === th.id);
+      if (!e || !e.survey) continue;
+      const mine = (e.recipients || []).find(r => nameCoreKey(r.name || '') === myKey) || {};
+      let my = null;
+      try { const v = await redis.hget(TT_SURVEY_PREFIX + e.id, ttSurveyWho(e.survey, me, mine.phone)); my = v ? JSON.parse(v).choice : null; } catch (err) {}
+      th.survey = { type: e.survey.type, options: ttSurveyChoices(e.survey), anonymous: !!e.survey.anonymous, closed: !!e.survey.closed, myAnswer: my };
+    }
     const c = (await teamTextConsents())[myKey] || null;
     res.json({ threads, number: process.env.TWILIO_FROM_DISPLAY || '(706) 556-7066', optedIn: !!(c && c.agree) });
   } catch (err) { console.error('Team threads failed:', err.message); res.status(500).json({ error: 'Could not load messages.' }); }
@@ -7417,6 +7492,33 @@ app.post('/api/crew/team-threads/:id/reply', async (req, res) => {
     } catch (e) {}
   } catch (err) { console.error('App reply failed:', err.message); res.status(500).json({ error: 'Could not send \u2014 try again.' }); }
 });
+// A crew member answers a survey from the HUNK Portal.
+app.post('/api/crew/team-threads/:id/answer', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const entry = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').find(x => x.id === req.params.id);
+    const mine = entry && (entry.recipients || []).find(r => nameCoreKey(r.name || '') === nameCoreKey(me));
+    if (!mine || !entry.survey) return res.status(404).json({ error: 'That survey wasn\u2019t sent to you.' });
+    if (entry.survey.closed) return res.status(400).json({ error: 'This survey is closed.' });
+    const choice = String((req.body || {}).choice || '').toUpperCase();
+    if (!ttSurveyChoices(entry.survey).some(c => c.key === choice)) return res.status(400).json({ error: 'Pick one of the answers.' });
+    await ttSurveyRecord(entry, me, mine.phone, choice, 'app');
+    console.log(`[team-texts] survey answer on ${entry.id}${entry.survey.anonymous ? '' : ' from ' + me} (app)`);
+    res.json({ ok: true });
+  } catch (err) { console.error('Survey answer failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+// The office closes (or reopens) a survey. Closed surveys take no more answers.
+app.post('/api/admin/team-texts/:id/survey', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const log = JSON.parse(await redis.get(TT_LOG_KEY) || '[]');
+    const entry = log.find(x => x.id === req.params.id);
+    if (!entry || !entry.survey) return res.status(404).json({ error: 'Survey not found.' });
+    entry.survey.closed = !!(req.body || {}).closed;
+    await redis.set(TT_LOG_KEY, JSON.stringify(log));
+    res.json({ ok: true, closed: entry.survey.closed });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
 app.post('/api/admin/team-texts/read', requireAuth, requireAdmin, async (req, res) => {
   try { const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]'); inbox.forEach(m => { m.read = true; }); await redis.set(TT_INBOX_KEY, JSON.stringify(inbox)); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: 'Could not save.' }); }
@@ -7433,6 +7535,17 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
     const picked = new Set(((req.body || {}).names || []).map(String));
     if (!message && !photos.length) return res.status(400).json({ error: 'Type a message first.' });
     if (message.length > 1200) return res.status(400).json({ error: 'That message is too long (1,200 characters max).' });
+    // Quick survey: the message is the question.
+    let survey = null;
+    const sIn = (req.body || {}).survey;
+    if (sIn) {
+      if (!message) return res.status(400).json({ error: 'Type the survey question first.' });
+      const type = sIn.type === 'choice' ? 'choice' : 'yn';
+      const labels = type === 'choice' ? (Array.isArray(sIn.options) ? sIn.options : []).map(x => String(x || '').trim().slice(0, 80)).filter(Boolean) : [];
+      if (type === 'choice' && labels.length < 2) return res.status(400).json({ error: 'Add at least two answer choices.' });
+      if (labels.length > 26) return res.status(400).json({ error: 'Up to 26 answer choices (A\u2013Z).' });
+      survey = { type, options: labels.map((label, i) => ({ key: String.fromCharCode(65 + i), label })), anonymous: !!sIn.anonymous, closed: false, salt: crypto.randomBytes(16).toString('hex') };
+    }
     const people = (await teamTextPeople()).filter(p => audience === 'captains' ? p.captain : audience === 'wingmen' ? p.wingman : audience === 'custom' ? picked.has(p.name) : true);
     // Only employees who agreed to texts in the HUNK Portal.
     const sendable = people.filter(p => p.phone && !p.optedOut && p.consent === 'agreed');
@@ -7444,12 +7557,13 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
     for (const ph of photos) { const id = crypto.randomBytes(18).toString('hex'); await redis.set(TT_MEDIA_PREFIX + id, ph); media.push(id); }
     const mediaUrls = media.map(id => publicBase(req) + '/api/tt-media/' + id);
     const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, media, prefix: String((settings.teamTexts || {}).brandPrefix || '').trim(), recipients: [] };
+    if (survey) entry.survey = survey;
     for (const p of sendable) {
       const firstTime = !noted.has(p.phone);
       // Every text identifies the business by its registered brand name.
       const prefix = String((settings.teamTexts || {}).brandPrefix || '').trim();
       const branded = prefix && !message.toLowerCase().startsWith(prefix.toLowerCase()) ? `${prefix} ${message}` : message;
-      const body = branded + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
+      const body = branded + ttSurveyTail(survey) + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
       try {
         const d = await twilioSend(p.phone, body, cb, mediaUrls);
         entry.recipients.push({ name: p.name, phone: p.phone, sid: d.sid, status: d.status || 'queued' });
@@ -7491,6 +7605,18 @@ app.post('/api/twilio/inbound', async (req, res) => {
     const person = (await teamTextPeople()).find(p => p.phone === from);
     const word = text.toUpperCase();
     const o = new Set(JSON.parse(await redis.get(TT_OPTOUT_KEY) || '[]'));
+    // An answer to an open survey (Y / N / a letter) is recorded as the
+    // answer, not as a reply -- and a "YES" answer isn't treated as the
+    // opt-in keyword for someone who's already receiving texts.
+    if (!o.has(from) && !/^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT|START|UNSTOP|HELP|INFO)$/.test(word)) {
+      const sEntry = ttSurveyForPhone(JSON.parse(await redis.get(TT_LOG_KEY) || '[]'), from);
+      const choice = sEntry ? ttSurveyParse(sEntry.survey, text) : null;
+      if (choice) {
+        await ttSurveyRecord(sEntry, person ? person.name : '', from, choice, 'text');
+        console.log(`[team-texts] survey answer on ${sEntry.id}${sEntry.survey.anonymous ? '' : ' from ' + (person ? person.name : prettyPhone(from))} (text)`);
+        return;
+      }
+    }
     if (/^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT)$/.test(word)) o.add(from);
     if (/^(START|UNSTOP|YES)$/.test(word)) o.delete(from);
     await redis.set(TT_OPTOUT_KEY, JSON.stringify([...o]));
