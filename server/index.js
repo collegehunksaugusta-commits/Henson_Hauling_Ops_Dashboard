@@ -104,6 +104,7 @@ const ALLOWED_KEYS = new Set([
   'google-review-allocations',
   'weight-tickets',
   'weight-ticket-trucks',
+  'job-closeouts',              // jobs closed out in Manager Review as created by mistake
   'weight-ticket-truck-drivers',
   'expense-claims',
   'time-off-requests',
@@ -1192,6 +1193,15 @@ app.get('/api/driver/materials-checkout-status', requireDriverOrTaskWingman(null
   }
 });
 
+// Jobs closed out in Manager Review because they were created by mistake
+// (e.g. a second day of a Long Distance Move scheduled as its own job).
+// { [jobNumber]: { coveredBy, note, by, at } }. A closed-out job's materials
+// count toward the job it was really part of (coveredBy), or nowhere.
+async function getJobCloseouts() { try { return JSON.parse(await redis.get('job-closeouts') || '{}') || {}; } catch (e) { return {}; } }
+function jobRemapper(closeouts) {
+  const one = n => { const c = closeouts[n]; return c ? (String(c.coveredBy || '').trim() || null) : n; };
+  return list => [...new Set((list || []).map(n => one(String(n || '').trim())).filter(Boolean))];
+}
 // ---- Materials reminder for the Captain (HUNK Portal pop-up) ----
 // open:    his jobs (last 7 days) with materials pulled and no invoice yet --
 //          "make sure these are billed when the job is finished";
@@ -1202,7 +1212,8 @@ app.get('/api/driver/materials-reminders', requireDriverAuth, async (req, res) =
     const [archiveRaw, checkoutsRaw, itemsRaw, uploadsRaw, reviewRaw] = await Promise.all([
       redis.get(JOB_ARCHIVE_KEY), redis.get('materials-checkouts'), redis.get('materials-items'), redis.get('paperwork-uploads'), redis.get('manager-review-items')
     ]);
-    const archive = JSON.parse(archiveRaw || '[]'), checkouts = JSON.parse(checkoutsRaw || '[]');
+    const closeouts = await getJobCloseouts(), remap = jobRemapper(closeouts);
+    const archive = JSON.parse(archiveRaw || '[]').filter(j => !closeouts[j.jobNumber]), checkouts = JSON.parse(checkoutsRaw || '[]').map(c => Object.assign({}, c, { jobNumbers: remap(c.jobNumbers) }));
     const items = new Map(JSON.parse(itemsRaw || '[]').map(i => [i.id, i]));
     const invoiced = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt && !u.invoiceNotFound).map(u => u.jobNumber));
     const from = isoDay(-7), to = isoDay(0);
@@ -1831,7 +1842,8 @@ async function captainLongDistanceJobs(captainName) {
   const me = nameDedupKey(captainName);
   const today = easternDateFromMs(Date.now());
   const yesterday = easternDateFromMs(Date.now() - 24 * 60 * 60 * 1000);
-  return archive.filter(j => j.jobNumber && j.jobType === 'longdistance' && (j.assignmentDate === today || j.assignmentDate === yesterday))
+  const closeouts = await getJobCloseouts();
+  return archive.filter(j => j.jobNumber && !closeouts[j.jobNumber] && j.jobType === 'longdistance' && (j.assignmentDate === today || j.assignmentDate === yesterday))
     .map(j => {
       const lead = nameDedupKey(j.captainName || '') === me;
       const assigned = drivers[j.jobNumber] || {};
@@ -3647,6 +3659,7 @@ async function fetchCaptainMetricsRawData() {
     redis.get('captain-ratings'), redis.get(APP_SETTINGS_KEY)
   ]);
   const omSettings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null).opsManagerMetrics || {};
+  const closeouts = await getJobCloseouts();
   const opsManagerNames = excludedRaw ? JSON.parse(excludedRaw) : [];
   // Distinguish "the key was never set" (driver data genuinely
   // unavailable -- fail open, apply no restriction) from "the key exists
@@ -3657,13 +3670,13 @@ async function fetchCaptainMetricsRawData() {
   // Who's scored as a Captain: the Captain checkbox (Employee Roster).
   const activeDriverNames = driversRaw ? await fetchCaptainNames() : null;
   return {
-    archive: archiveRaw ? JSON.parse(archiveRaw) : [],
+    archive: (archiveRaw ? JSON.parse(archiveRaw) : []).filter(j => !closeouts[j.jobNumber]),
     ptiRecords: ptiRaw ? JSON.parse(ptiRaw) : [],
     uploads: uploadsRaw ? JSON.parse(uploadsRaw) : [],
     eodRecords: eodRaw ? JSON.parse(eodRaw) : [],
     attendanceRecords: attendanceRaw ? JSON.parse(attendanceRaw) : [],
     movingReports: movingRaw ? JSON.parse(movingRaw) : [],
-    materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
+    materialsCheckouts: (checkoutsRaw ? JSON.parse(checkoutsRaw) : []).map(c => Object.assign({}, c, { jobNumbers: jobRemapper(closeouts)(c.jobNumbers) })),
     materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
     managerReviewItems: reviewItemsRaw ? JSON.parse(reviewItemsRaw) : [],
     junkRemovalJobs: junkRemovalJobsRaw ? JSON.parse(junkRemovalJobsRaw) : [],
