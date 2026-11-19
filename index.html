@@ -8838,6 +8838,7 @@ window.openEmailDraft = function(o){
       <p class="form-note">Jobs with billable materials checked out that haven&rsquo;t been invoiced yet. Look at what was pulled before finalizing the bill with the Captain. A job drops off this list as soon as its invoice is uploaded on Job Paperwork, and from then on the Underbilled Jobs tab checks it.</p>
       <div id="cj_list"></div>
       <p class="form-note" id="cj_emptyNote" style="display:none;">No un-invoiced jobs have materials checked out right now.</p>
+      <div class="jco-closed"></div>
     </div>
 
     <div class="panel" id="mgrreview_panel_weighttickets" style="display:none;">
@@ -8845,6 +8846,7 @@ window.openEmailDraft = function(o){
       <p class="form-note">Long Distance Moves from the last 60 days whose work package hasn&rsquo;t been closed yet (emailed to the client, or marked Angry). Yellow means a ticket is still missing. Once a package is closed, it drops off this list.</p>
       <div id="wtr_list"></div>
       <p class="form-note" id="wtr_emptyNote" style="display:none;">No open Long Distance Moves right now.</p>
+      <div class="jco-closed"></div>
     </div>
 
     <div class="panel" id="mgrreview_panel_jobs" style="display:none;">
@@ -27751,6 +27753,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     }catch(err){ console.error('Job lookup for weight tickets failed:', err); }
     if(!job || job.jobType !== 'longdistance') return true;
     if(upload.weightTicketsWaived) return true;
+    if(window.jobIsClosedOut && (await window.loadJobCloseouts(), window.jobIsClosedOut(upload.jobNumber))) return true;
     const [tickets, counts] = await Promise.all([
       window.dashboardApi.get('weight-tickets', []).then(v => v || []),
       window.dashboardApi.get('weight-ticket-trucks', {}).then(v => v || {})
@@ -33354,6 +33357,75 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   // what was actually billed for that job (materialsBilled on the matching
   // Completed Paperwork record) -- flags any job where more was pulled than
   // was billed, including jobs that haven't been billed for materials at all yet.
+  // ---- Jobs closed out as created by mistake ----
+  // e.g. day two of a Long Distance Move scheduled as its own job. Stored in
+  // 'job-closeouts' as { [jobNumber]: { coveredBy, note, by, at } }. A
+  // closed-out job drops off Current Jobs and Weight Tickets; its materials
+  // count toward the job it was really part of (coveredBy), or nowhere.
+  window.__jobCloseouts = window.__jobCloseouts || {};
+  window.loadJobCloseouts = async function(){
+    try{ window.__jobCloseouts = await window.dashboardApi.get('job-closeouts', {}) || {}; }catch(err){}
+    return window.__jobCloseouts;
+  };
+  window.jobIsClosedOut = n => !!(window.__jobCloseouts || {})[n];
+  if(localStorage.getItem('henson_auth_token')) setTimeout(() => window.loadJobCloseouts(), 0);
+  // Job numbers on a checkout/return record, with closed-out jobs swapped
+  // for the job they belong to (no double counting when both are listed).
+  window.remapJobNumbers = list => [...new Set((list || []).map(n => { const c = (window.__jobCloseouts || {})[n]; return c ? (String(c.coveredBy || '').trim() || null) : n; }).filter(Boolean))];
+  window.openJobCloseout = async function(jobNumber, clientName, onDone){
+    const archive = await window.dashboardApi.get(JOB_ARCHIVE_KEY, []) || [];
+    const me = archive.find(j => j.jobNumber === jobNumber) || {};
+    // Likely originals: same client, a different job number, within 10 days.
+    const near = archive.filter(j => j.jobNumber && j.jobNumber !== jobNumber && me.clientName && j.clientName && j.clientName.trim().toLowerCase() === me.clientName.trim().toLowerCase()
+      && Math.abs(new Date(j.assignmentDate || 0) - new Date(me.assignmentDate || 0)) <= 10 * 864e5 && !window.jobIsClosedOut(j.jobNumber));
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; padding:16px;';
+    ov.innerHTML = `<div style="background:#fff; border-radius:10px; max-width:480px; width:100%; padding:18px 20px; box-shadow:0 10px 40px rgba(0,0,0,.25);">
+      <h3 style="margin:0 0 6px;">Close out Job ${mgrReviewEsc(jobNumber)}${clientName ? ' \u2014 ' + mgrReviewEsc(clientName) : ''}</h3>
+      <p class="form-note" style="margin:0 0 10px;">For a job that shouldn&rsquo;t have been created &mdash; like day two of a Long Distance Move scheduled as its own job. It drops off Current Jobs and Weight Tickets, and no weight tickets are required to close its package.</p>
+      <label style="text-transform:none; letter-spacing:normal; font-size:13.5px;">Part of job # (optional)
+        <input type="text" id="jco_cover" list="jco_near" placeholder="Original job number" value="${near.length === 1 ? mgrReviewEsc(near[0].jobNumber) : ''}" style="width:100%; margin-top:4px;">
+        <datalist id="jco_near">${near.map(j => `<option value="${mgrReviewEsc(j.jobNumber)}">${mgrReviewEsc(window.fmtDate(j.assignmentDate))} \u00b7 ${mgrReviewEsc(j.clientName || '')}</option>`).join('')}</datalist></label>
+      <p class="form-note" style="margin:2px 0 10px;">Any materials checked out or back in under this job count toward that job instead. Leave blank to ignore them.</p>
+      <label style="text-transform:none; letter-spacing:normal; font-size:13.5px;">Reason
+        <textarea id="jco_note" rows="2" maxlength="300" placeholder="e.g. Delivery day of the Long Distance Move \u2014 scheduled by mistake" style="width:100%; margin-top:4px; font-family:inherit;"></textarea></label>
+      <div style="display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:12px;"><span class="status-msg" id="jco_status"></span>
+        <button type="button" id="jco_cancel" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 14px; cursor:pointer;">Cancel</button>
+        <button type="button" id="jco_ok" class="btn-primary">Close Out Job</button></div></div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    ov.querySelector('#jco_cancel').onclick = close;
+    ov.addEventListener('click', e => { if(e.target === ov) close(); });
+    ov.querySelector('#jco_ok').onclick = async () => {
+      const cover = ov.querySelector('#jco_cover').value.trim(), note = ov.querySelector('#jco_note').value.trim(), st = ov.querySelector('#jco_status');
+      if(!note){ st.textContent = 'Add a short reason.'; st.className = 'status-msg err'; return; }
+      if(cover === jobNumber){ st.textContent = 'That\u2019s this job \u2014 enter the original job number.'; st.className = 'status-msg err'; return; }
+      if(cover && !archive.some(j => j.jobNumber === cover) && !confirm(`Job ${cover} isn\u2019t on file. Use it anyway?`)) return;
+      const all = await window.dashboardApi.get('job-closeouts', {}) || {};
+      all[jobNumber] = { coveredBy: cover, note, clientName: clientName || me.clientName || '', jobDate: me.assignmentDate || '', by: localStorage.getItem('henson_auth_email') || '', at: new Date().toISOString() };
+      const ok = await window.dashboardApi.set('job-closeouts', all);
+      if(!ok){ st.textContent = 'Could not save \u2014 check your connection.'; st.className = 'status-msg err'; return; }
+      window.__jobCloseouts = all; close(); if(onDone) await onDone();
+    };
+  };
+  // The closed-out list shown under Current Jobs and Weight Tickets, with Undo.
+  window.renderJobCloseouts = function(onChange){
+    const all = window.__jobCloseouts || {}, rows = Object.entries(all).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
+    document.querySelectorAll('.jco-closed').forEach(box => {
+      box.innerHTML = rows.length ? `<details style="margin-top:14px;"><summary style="cursor:pointer; font-size:13px; color:var(--muted);">Closed-out jobs (${rows.length})</summary>
+        ${rows.map(([n, c]) => `<div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start; border-top:1px solid var(--line); padding:7px 0; font-size:13px;">
+          <div><strong>Job ${mgrReviewEsc(n)}</strong>${c.clientName ? ' \u2014 ' + mgrReviewEsc(c.clientName) : ''}${c.jobDate ? ' \u00b7 ' + mgrReviewEsc(window.fmtDate(c.jobDate)) : ''}${c.coveredBy ? ` \u00b7 part of Job ${mgrReviewEsc(c.coveredBy)}` : ''}
+            <div style="color:var(--muted); font-size:12.5px;">${mgrReviewEsc(c.note || '')} \u2014 ${mgrReviewEsc(c.by || '')}, ${new Date(c.at).toLocaleDateString()}</div></div>
+          <button type="button" class="jco-undo" data-job="${mgrReviewEsc(n)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12.5px; cursor:pointer; flex-shrink:0;">Undo</button></div>`).join('')}</details>` : '';
+      box.querySelectorAll('.jco-undo').forEach(b => b.onclick = async () => {
+        if(!confirm(`Put Job ${b.dataset.job} back? Its materials and weight tickets will show up again.`)) return;
+        const cur = await window.dashboardApi.get('job-closeouts', {}) || {};
+        delete cur[b.dataset.job];
+        if(await window.dashboardApi.set('job-closeouts', cur)){ window.__jobCloseouts = cur; if(onChange) await onChange(); }
+      });
+    });
+  };
+
   function computeMaterialsUnderbilledProblems(uploads, archive, eodRecords){
     // Free consumables (tape, shrink wrap, etc.) are never billed by
     // design, so checking them out should never be flagged as underbilled.
@@ -33366,7 +33438,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
 
     const checkedOutByJob = {};
     materialsCheckouts.forEach(co => {
-      (co.jobNumbers || []).forEach(jobNumber => {
+      window.remapJobNumbers(co.jobNumbers).forEach(jobNumber => {
         if(!checkedOutByJob[jobNumber]) checkedOutByJob[jobNumber] = {};
         (co.items || []).forEach(it => {
           if(!billableItemIds.has(it.itemId)) return;
@@ -33381,7 +33453,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // billed, not the raw amount checked out.
     const returnedByJob = {};
     (eodRecords || []).forEach(eod => {
-      (eod.jobNumbers || []).forEach(jobNumber => {
+      window.remapJobNumbers(eod.jobNumbers).forEach(jobNumber => {
         if(!returnedByJob[jobNumber]) returnedByJob[jobNumber] = {};
         (eod.returnedItems || []).forEach(it => {
           if(!billableItemIds.has(it.itemId)) return;
@@ -33536,6 +33608,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       ]);
       materialsItems = items || [];
       materialsCheckouts = checkouts || [];
+      await window.loadJobCloseouts();
       await loadMaterialsReceivings();
       renderMaterialsItemList();
       renderMaterialsLowStock();
@@ -35049,7 +35122,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // this specific calendar month, same as every other Captain-Metrics-
     // modeled tile.
     const jobs = archive.filter(j => {
-      if(!j.jobNumber) return false;
+      if(!j.jobNumber || window.jobIsClosedOut(j.jobNumber)) return false;
       const d = j.assignmentDate || (j.savedAt ? j.savedAt.slice(0,10) : '');
       return !!d && d >= monthStart && d < monthEnd;
     });
@@ -35224,7 +35297,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   function computeOpsManagerTimelyCloseoutForWeek(archive, uploads, windowDays, weekStart, weekEnd){
     const uploadsByJob = {};
     uploads.forEach(u => { if(u.jobNumber) uploadsByJob[u.jobNumber] = u; });
-    const weekJobs = archive.filter(j => j.jobNumber && j.assignmentDate && j.assignmentDate >= weekStart && j.assignmentDate < weekEnd);
+    const weekJobs = archive.filter(j => j.jobNumber && !window.jobIsClosedOut(j.jobNumber) && j.assignmentDate && j.assignmentDate >= weekStart && j.assignmentDate < weekEnd);
     const nowMs = Date.now();
     const windowMs = windowDays * 24 * 60 * 60 * 1000;
     const statused = weekJobs.map(j => {
@@ -35342,6 +35415,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       materialsItems = matItemsRaw || [];
       materialsCheckouts = matCheckoutsRaw || [];
       const eodRecords = eodRaw || [];
+      await window.loadJobCloseouts();
 
       const problems = computeMaterialsUnderbilledProblems(uploadsRaw || [], archiveRaw || [], eodRecords.concat(checkinRaw || []));
       window.__mrMatItems = matItemsRaw || [];
@@ -35350,7 +35424,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       await loadExpPaidWeeks();
       await syncMaterialsUnderbilledToManagerReview(problems);
 
-      const travelLineProblems = computeTravelLineUnderbilledProblems(archiveRaw || [], uploadsRaw || [], travelLineCheckStartDate);
+      const travelLineProblems = computeTravelLineUnderbilledProblems((archiveRaw || []).filter(j => !window.jobIsClosedOut(j.jobNumber)), uploadsRaw || [], travelLineCheckStartDate);
       await syncTravelLineUnderbilledToManagerReview(travelLineProblems);
 
       const flaggedTruckIssues = eodRecords
@@ -36278,6 +36352,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
   let wtrJobs = [];
   async function loadMgrReviewWeightTickets(){
     try{
+      await window.loadJobCloseouts();
       const [archive, uploads, tickets, truckCounts] = await Promise.all([
         window.dashboardApi.get(JOB_ARCHIVE_KEY, []),
         window.dashboardApi.get(PAPERWORK_UPLOADS_KEY, []),
@@ -36289,7 +36364,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const uploadsByJob = {};
       (uploads || []).forEach(u => { if(u.jobNumber) (uploadsByJob[u.jobNumber] = uploadsByJob[u.jobNumber] || []).push(u); });
       wtrJobs = (archive || [])
-        .filter(j => j.jobType === 'longdistance' && j.jobNumber && (j.assignmentDate || '') >= cutoff && (j.assignmentDate || '') <= today)
+        .filter(j => j.jobType === 'longdistance' && j.jobNumber && !window.jobIsClosedOut(j.jobNumber) && (j.assignmentDate || '') >= cutoff && (j.assignmentDate || '') <= today)
         .map(j => {
           const ups = uploadsByJob[j.jobNumber] || [];
           const closed = ups.some(u => u.emailSentAt || u.satisfaction === 'angry' || u.weightTicketsWaived);
@@ -36348,6 +36423,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         <div style="font-size:12.5px; color:var(--charcoal); margin:3px 0 8px;">${r.job.assignmentDate === today ? 'Today' : window.fmtDate(r.job.assignmentDate)}${r.job.captainName ? ' &middot; Captain: ' + mgrReviewEsc(r.job.captainName) : ''}${r.invoiced ? '' : ' &middot; invoice not uploaded yet'}</div>
         ${r.trucks.map(tr => `${many ? `<div style="font-size:12.5px; font-weight:700; margin:6px 0 4px;">&#128666; Truck ${tr.truck}</div>` : ''}<div style="display:flex; gap:8px; flex-wrap:wrap;">${slot(tr, 'empty', 'Empty Truck')}${slot(tr, 'full', 'Full Truck')}</div>`).join('')}
         <button type="button" class="wtr-upload" data-idx="${idx}" style="margin-top:10px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:13px;">${complete ? 'Add a Truck or Replace a Ticket' : 'Upload Ticket'}</button>
+        <button type="button" class="jco-btn" data-job="${mgrReviewEsc(r.job.jobNumber)}" data-client="${mgrReviewEsc(r.job.clientName || '')}" title="This job shouldn\u2019t have been created" style="margin-top:10px; margin-left:6px; background:#fff; border:1px solid var(--line); color:var(--charcoal); font-weight:600; padding:7px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Close Out Job</button>
       </div>`;
     }).join('');
     list.querySelectorAll('.wtr-view').forEach(b => b.addEventListener('click', async e => {
@@ -36364,6 +36440,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       await openWeightTicketClosureModal(pseudoUpload, r.job, { trucks: r.trucks.map(t => ({ truck: t.truck, empty: t.empty, full: t.full })) }, 'Done', true);
       await loadMgrReviewWeightTickets();
     }));
+    const refresh = async () => { if(window.loadManagerReviewData) await window.loadManagerReviewData(); };
+    list.querySelectorAll('.jco-btn').forEach(b => b.onclick = () => window.openJobCloseout(b.dataset.job, b.dataset.client, refresh));
+    window.renderJobCloseouts(refresh);
   }
 
   // ---- Current Jobs: materials pulled, not invoiced yet ----
@@ -36382,7 +36461,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const jobs = {};
     materialsCheckouts.forEach(co => {
       if((co.date || '') < cutoff) return;
-      (co.jobNumbers || []).forEach(jobNumber => {
+      window.remapJobNumbers(co.jobNumbers).forEach(jobNumber => {
         if(!jobNumber || invoiced.has(jobNumber)) return;
         (co.items || []).forEach(it => {
           if(!billable(it.itemId) || !(Number(it.quantity) > 0)) return;
@@ -36394,7 +36473,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       });
     });
     (returnRecords || []).forEach(r => {
-      (r.jobNumbers || []).forEach(jobNumber => {
+      window.remapJobNumbers(r.jobNumbers).forEach(jobNumber => {
         const job = jobs[jobNumber];
         if(!job) return;
         (r.returnedItems || []).forEach(it => {
@@ -36433,7 +36512,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       <div style="border:1px solid #f1b5b0; border-left:5px solid #b3261e; background:#fdecea; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;">
           <strong style="font-size:15px; color:#8c1d18;">Job ${mgrReviewEsc(j.jobNumber)}${j.clientName ? ' \u2014 ' + mgrReviewEsc(j.clientName) : ''}</strong>
-          <span style="font-size:12.5px; color:#8c1d18; font-weight:700;">${j.totalToBill} item${j.totalToBill === 1 ? '' : 's'} to bill</span>
+          <span style="font-size:12.5px; color:#8c1d18; font-weight:700;">${j.totalToBill} item${j.totalToBill === 1 ? '' : 's'} to bill <button type="button" class="jco-btn" data-job="${mgrReviewEsc(j.jobNumber)}" data-client="${mgrReviewEsc(j.clientName || '')}" title="This job shouldn\u2019t have been created" style="margin-left:8px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 9px; font-size:12px; font-weight:600; color:var(--charcoal); cursor:pointer;">Close Out Job</button></span>
         </div>
         <div style="font-size:12.5px; color:var(--charcoal); margin-top:3px;">
           ${j.jobDate ? (j.jobDate === today ? 'Today' : window.fmtDate(j.jobDate)) : ''}${j.captainName ? ' &middot; Captain ' + mgrReviewEsc(j.captainName) : ''}${j.jobType ? ' &middot; ' + (typeLabel[j.jobType] || mgrReviewEsc(j.jobType)) : ''} &middot; not invoiced yet
@@ -36453,6 +36532,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
           </tr>`).join('')}</tbody>
         </table></div>
       </div>`).join('');
+    const refresh = async () => { if(window.loadManagerReviewData) await window.loadManagerReviewData(); };
+    list.querySelectorAll('.jco-btn').forEach(b => b.onclick = () => window.openJobCloseout(b.dataset.job, b.dataset.client, refresh));
+    window.renderJobCloseouts(refresh);
   }
 
   function mgrReviewSwitchTab(tab){
@@ -37070,7 +37152,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     const [checkouts, eods, checkins] = await Promise.all([
       window.dashboardApi.get('materials-checkouts', []), window.dashboardApi.get('compliance-eod-inspections', []), window.dashboardApi.get('materials-checkins', [])
     ]);
-    const hasJ = r => (r.jobNumbers || []).map(String).includes(J);
+    await window.loadJobCloseouts();
+    const hasJ = r => (r.jobNumbers || []).map(String).includes(J) || window.remapJobNumbers(r.jobNumbers).map(String).includes(J);
     const forJob = (checkouts || []).filter(hasJ);
     const days = new Map();   // "driverKey|date" -> { name, date }
     forJob.forEach(c => days.set(ubNk(c.driverName) + '|' + c.date, { name: c.driverName, date: c.date }));
