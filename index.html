@@ -3664,6 +3664,13 @@ window.openEmailDraft = function(o){
         <div style="text-align:center; font-size:12px; color:#8e8e93; font-weight:600; margin:2px 0 4px;">${day(th.at)}</div>
         ${(th.photos || []).length ? `<div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; margin:6px 0 0;"><div style="font-size:12px; color:#8e8e93; margin:0 12px 0;">College Hunks Office</div>${th.photos.map(u => `<img src="${driverEsc(u)}" alt="Photo from the office" loading="lazy" onclick="window.showPhotoModal(this.src)" style="max-width:72%; max-height:260px; border-radius:16px; border:1px solid #e5e5ea; object-fit:cover; cursor:zoom-in;">`).join('')}</div>` : ''}
         ${th.message ? bubble(th.message, 'left', '#e9e9eb', '#111', (th.photos || []).length ? '' : 'College Hunks Office', th.at) : ''}
+        ${th.survey ? `<div class="ttSurvey" style="margin:4px 4px 8px; padding:10px; border:1px solid #e5e5ea; border-radius:14px; background:#fafafa;">
+          <div style="font-size:12px; font-weight:800; color:#00843D; letter-spacing:.03em; text-transform:uppercase; margin:0 0 6px;">\ud83d\udcca Survey${th.survey.anonymous ? ' \u00b7 anonymous' : ''}</div>
+          ${th.survey.closed ? `<div style="font-size:14px; color:#3c3c43;">This survey is closed.${th.survey.myAnswer ? ` You answered <strong>${driverEsc((th.survey.options.find(o => o.key === th.survey.myAnswer) || {}).label || th.survey.myAnswer)}</strong>.` : ''}</div>` :
+          `<div style="display:flex; flex-direction:column; gap:6px;">${th.survey.options.map(o => { const on = th.survey.myAnswer === o.key;
+            return `<button type="button" class="ttSvAns" data-id="${driverEsc(th.id)}" data-k="${driverEsc(o.key)}" style="display:flex; align-items:center; gap:10px; text-align:left; width:100%; padding:10px 12px; border-radius:12px; border:2px solid ${on ? '#00843D' : '#d1d1d6'}; background:${on ? '#E8F3EC' : '#fff'}; font-size:15.5px; font-family:inherit; color:#111; cursor:pointer;">${th.survey.type === 'choice' ? `<span style="flex-shrink:0; width:26px; height:26px; border-radius:50%; background:${on ? '#00843D' : '#e9e9eb'}; color:${on ? '#fff' : '#111'}; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:13px;">${driverEsc(o.key)}</span>` : ''}<span style="flex:1; font-weight:${on ? 800 : 600};">${driverEsc(o.label)}</span>${on ? '<span style="color:#00843D; font-weight:800;">\u2713</span>' : ''}</button>`; }).join('')}</div>
+          <div style="font-size:12px; color:#8e8e93; margin:6px 2px 0;">${th.survey.myAnswer ? 'Tap another answer to change it.' : 'Tap your answer.'}${th.survey.anonymous ? ' Anonymous \u2014 the office sees totals only.' : ''}</div>`}
+        </div>` : ''}
         ${th.replies.map(r => { const rx = window.ttReaction(r.text); if(rx) return reaction(rx, r.mine ? 'right' : 'left', r.mine ? 'You' : r.from, r.at);
             return r.mine ? bubble(r.text, 'right', '#00843D', '#fff', '', r.at) : bubble(r.text, 'left', '#e9e9eb', '#111', r.from, r.at); }).join('')}
         <div style="display:flex; align-items:flex-end; gap:8px; margin:8px 2px 4px; border-top:1px solid #efeff4; padding-top:8px;">
@@ -3684,6 +3691,14 @@ window.openEmailDraft = function(o){
     ov.querySelector('#ttClose').onclick = () => ov.remove();
     ov.querySelector('#ttChange').onclick = e => { e.preventDefault(); ov.remove(); openSmsSettings(); };
     ov.querySelectorAll('.ttReplyBox').forEach(ta => ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; }));
+    ov.querySelectorAll('.ttSvAns').forEach(btn => btn.addEventListener('click', async () => {
+      const box = btn.closest('.ttSurvey'); box.querySelectorAll('.ttSvAns').forEach(b => { b.disabled = true; }); btn.style.opacity = '.6';
+      try{
+        const r = await fetch(API_BASE_AUTH + '/api/crew/team-threads/' + encodeURIComponent(btn.dataset.id) + '/answer', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken }, body: JSON.stringify({ choice: btn.dataset.k }) });
+        const res = await r.json().catch(() => ({})); if(!r.ok) throw new Error(res.error || 'Could not save \u2014 try again.');
+        const top = ov.scrollTop; ov.remove(); await openTeamThreads(top + 70);
+      }catch(err){ alert(err.message); box.querySelectorAll('.ttSvAns').forEach(b => { b.disabled = false; }); btn.style.opacity = ''; }
+    }));
     ov.querySelectorAll('.ttReplySend').forEach(btn => btn.addEventListener('click', async () => {
       const ta = ov.querySelector(`.ttReplyBox[data-id="${CSS.escape(btn.dataset.id)}"]`), text = ta.value.trim(); if(!text) return;
       btn.disabled = true; ta.disabled = true; btn.textContent = '\u2026';
@@ -8289,7 +8304,21 @@ window.openEmailDraft = function(o){
     <div id="tt_notConnected" style="display:none; background:#FFF6E0; border:1px solid #E7C66B; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:13.5px;"><strong>Texting isn&rsquo;t connected yet.</strong> Once the Twilio account is approved and its details are added to the server, the Send button turns on. You can still look around and preview who&rsquo;d receive a message.</div>
     <div class="panel">
       <h3>New Message</h3>
+      <div style="display:flex; gap:14px; flex-wrap:wrap; margin:0 0 8px; font-size:14px;">
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_kind" value="message" checked> Message</label>
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_kind" value="survey"> Quick survey</label>
+      </div>
       <textarea id="tt_message" rows="4" maxlength="1200" placeholder="e.g. Reminder: team meeting Saturday at 8am at the shop." style="font-family:inherit; width:100%; box-sizing:border-box; font-size:15px; padding:10px;"></textarea>
+      <div id="tt_survey" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:8px 0 4px; background:#fafaf7;">
+        <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:14px; margin-bottom:6px;"><strong style="font-size:13px;">Answers:</strong>
+          <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_stype" value="yn" checked> Yes / No</label>
+          <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="radio" name="tt_stype" value="choice"> Choices (A&ndash;Z)</label>
+        </div>
+        <div id="tt_opts" style="display:none;"></div>
+        <button type="button" id="tt_addOpt" style="display:none; background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:13px; cursor:pointer; margin:2px 0 6px;">+ Add choice</button>
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; font-size:14px;"><input type="checkbox" id="tt_anon"> Anonymous &mdash; results show totals only, not who answered</label>
+        <p class="form-note" style="margin:6px 0 0;">People answer by texting back (Y/N or a letter) or by tapping an answer in the HUNK Portal. Their latest answer counts.</p>
+      </div>
       <div id="tt_photos" style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 0;"></div>
       <div style="display:flex; align-items:center; gap:10px; margin:6px 0 2px;">
         <label style="margin:0; display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:13px; cursor:pointer; text-transform:none; letter-spacing:normal; font-family:inherit; color:var(--charcoal);">&#128206; Add Photo<input type="file" id="tt_photoInput" accept="image/*" multiple style="display:none;"></label>
@@ -12146,6 +12175,67 @@ window.openEmailDraft = function(o){
     const $ = id => document.getElementById(id);
     const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     let people = [], configured = false;
+    // ---- Quick surveys ----
+    const isSurvey = () => ((document.querySelector('input[name=tt_kind]:checked') || {}).value) === 'survey';
+    const sType = () => ((document.querySelector('input[name=tt_stype]:checked') || {}).value) || 'yn';
+    let ttOpts = ['', ''];
+    const optLabels = () => ttOpts.map(x => x.trim()).filter(Boolean);
+    function surveyPayload(){ return isSurvey() ? { type: sType(), options: sType() === 'choice' ? optLabels() : [], anonymous: $('tt_anon').checked } : null; }
+    function surveyTail(sv){
+      if(!sv) return '';
+      const anon = sv.anonymous ? ' Your answer is anonymous.' : '';
+      if(sv.type === 'yn') return `\n\nReply Y for Yes or N for No.${anon}`;
+      return `\n\nReply with a letter:\n${sv.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n')}${anon ? '\n' + anon.trim() : ''}`;
+    }
+    function renderOpts(){
+      $('tt_opts').innerHTML = ttOpts.map((v, i) => `<div style="display:flex; gap:6px; align-items:center; margin:0 0 5px;"><span style="width:24px; height:24px; border-radius:50%; background:var(--ink, #222); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0;">${String.fromCharCode(65 + i)}</span><input type="text" class="tt-opt" data-k="${i}" maxlength="80" value="${esc(v)}" placeholder="${i === 0 ? 'e.g. 20\u201330 hours' : i === 1 ? 'e.g. 30\u201340 hours' : 'Another choice'}" style="flex:1; max-width:420px; margin:0;">${ttOpts.length > 2 ? `<button type="button" class="tt-opt-rm" data-k="${i}" aria-label="Remove choice" style="background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:0 4px;">\u00d7</button>` : ''}</div>`).join('');
+      $('tt_addOpt').style.display = sType() === 'choice' && ttOpts.length < 26 ? '' : 'none';
+      $('tt_opts').querySelectorAll('.tt-opt').forEach(inp => inp.addEventListener('input', () => { ttOpts[Number(inp.dataset.k)] = inp.value; renderCount(); }));
+      $('tt_opts').querySelectorAll('.tt-opt-rm').forEach(b => b.onclick = () => { ttOpts.splice(Number(b.dataset.k), 1); renderOpts(); renderCount(); });
+    }
+    function renderKind(){
+      const on = isSurvey();
+      $('tt_survey').style.display = on ? 'block' : 'none';
+      $('tt_opts').style.display = on && sType() === 'choice' ? 'block' : 'none';
+      $('tt_message').placeholder = on ? 'Your question, e.g. Should we be open on Sundays?' : 'e.g. Reminder: team meeting Saturday at 8am at the shop.';
+      $('tt_send').textContent = on ? 'Send Survey' : 'Send Text';
+      renderOpts(); renderCount();
+    }
+    // Results: a pie chart and a table with bars; names when not anonymous.
+    const SV_COLORS = ['#00843D', '#E87722', '#2B6CB0', '#B7791F', '#805AD5', '#C53030', '#2C7A7B', '#D53F8C', '#4A5568', '#718096'];
+    const svColor = (sv, k, i) => sv.type === 'yn' ? (k === 'Y' ? '#00843D' : '#C53030') : SV_COLORS[i % SV_COLORS.length];
+    function surveyPie(e){
+      const r = e.results, tot = r.counts.reduce((a, c) => a + c.count, 0);
+      if(!tot) return `<svg width="150" height="150" viewBox="0 0 150 150" role="img" aria-label="No answers yet"><circle cx="75" cy="75" r="62" fill="none" stroke="#e5e5e5" stroke-width="22"/><text x="75" y="80" text-anchor="middle" font-size="13" fill="#888">No answers</text></svg>`;
+      let a0 = -Math.PI / 2, parts = '';
+      r.counts.forEach((c, i) => {
+        if(!c.count) return;
+        const col = svColor(e.survey, c.key, i), frac = c.count / tot;
+        if(frac >= 0.9999){ parts += `<circle cx="75" cy="75" r="68" fill="${col}"/>`; return; }
+        const a1 = a0 + frac * 2 * Math.PI, x0 = 75 + 68 * Math.cos(a0), y0 = 75 + 68 * Math.sin(a0), x1 = 75 + 68 * Math.cos(a1), y1 = 75 + 68 * Math.sin(a1);
+        parts += `<path d="M75 75 L${x0.toFixed(2)} ${y0.toFixed(2)} A68 68 0 ${frac > 0.5 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="${col}" stroke="#fff" stroke-width="2"/>`;
+        const am = (a0 + a1) / 2;
+        if(frac >= 0.08) parts += `<text x="${(75 + 44 * Math.cos(am)).toFixed(1)}" y="${(79 + 44 * Math.sin(am)).toFixed(1)}" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">${esc(c.key)}</text>`;
+        a0 = a1;
+      });
+      return `<svg width="150" height="150" viewBox="0 0 150 150" role="img" aria-label="Survey results pie chart">${parts}</svg>`;
+    }
+    function surveyResults(e){
+      const r = e.results, tot = r.counts.reduce((a, c) => a + c.count, 0), top = Math.max(1, ...r.counts.map(c => c.count));
+      const rows = r.counts.map((c, i) => { const pct = tot ? Math.round(c.count * 100 / tot) : 0, col = svColor(e.survey, c.key, i);
+        return `<tr><td style="padding:5px 8px 5px 0; vertical-align:top; white-space:nowrap;"><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:${col}; margin-right:6px;"></span><strong>${esc(c.key)}</strong></td>
+          <td style="padding:5px 8px; vertical-align:top;">${esc(c.label)}${!r.anonymous && c.names.length ? `<div style="font-size:12px; color:var(--muted); margin-top:2px;">${c.names.map(n => esc(n.name)).join(' \u00b7 ')}</div>` : ''}</td>
+          <td style="padding:5px 8px; vertical-align:top; width:38%; min-width:90px;"><div style="background:#f0f0ec; border-radius:4px; height:14px; margin-top:2px;"><div style="background:${col}; height:14px; border-radius:4px; width:${(c.count / top * 100).toFixed(1)}%;"></div></div></td>
+          <td style="padding:5px 0 5px 8px; vertical-align:top; text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;"><strong>${c.count}</strong> <span style="color:var(--muted);">${pct}%</span></td></tr>`; }).join('');
+      return `<div class="tt-results" style="margin:8px 0 12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;"><div style="font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--muted); text-transform:uppercase;">Results \u00b7 ${r.answered} of ${r.sentTo} answered${r.anonymous ? ' \u00b7 anonymous' : ''}${r.closed ? ' \u00b7 closed' : ''}</div>
+          <button type="button" class="tt-svClose" data-id="${esc(e.id)}" data-closed="${r.closed ? 1 : 0}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12.5px; cursor:pointer;">${r.closed ? 'Reopen survey' : 'Close survey'}</button></div>
+        <div style="display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; margin-top:6px;">${surveyPie(e)}
+          <table style="flex:1; min-width:260px; border-collapse:collapse; font-size:13.5px;"><tbody>${rows}</tbody></table></div>
+        ${!r.anonymous && (r.waiting || []).length ? `<div style="font-size:12.5px; margin-top:6px;"><span style="color:var(--muted);">No answer yet:</span> ${r.waiting.map(esc).join(' \u00b7 ')}</div>` : ''}
+        ${r.anonymous ? '<div class="form-note" style="margin:6px 0 0;">Anonymous \u2014 only totals are kept; names aren\u2019t shown.</div>' : ''}
+      </div>`;
+    }
     const aud = () => (document.querySelector('input[name=tt_aud]:checked') || {}).value || 'everyone';
     const chosen = () => new Set([...document.querySelectorAll('.tt-person:checked')].map(c => c.value));
     function group(){ const a = aud(), c = chosen(); return people.filter(p => a === 'captains' ? p.captain : a === 'wingmen' ? p.wingman : a === 'custom' ? c.has(p.name) : true); }
@@ -12161,7 +12251,7 @@ window.openEmailDraft = function(o){
     }
     function renderCount(){
       const msg = $('tt_message').value, pre = (($('tt_prefix') || {}).value || '').trim();
-      const t = msg && pre && !msg.toLowerCase().startsWith(pre.toLowerCase()) ? pre + ' ' + msg : msg;
+      const t = (msg && pre && !msg.toLowerCase().startsWith(pre.toLowerCase()) ? pre + ' ' + msg : msg) + (msg ? surveyTail(surveyPayload()) : '');
       const pv = document.getElementById('tt_asSent'); if(pv) pv.innerHTML = msg ? `<span style="color:var(--muted);">Sends as:</span> ${esc(t)}` : '';
       const gsm = /^[\x20-\x7E\n\r£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¡ÄÖÑÜ§¿äöñüà€]*$/.test(t);
       const per = gsm ? (t.length > 160 ? 153 : 160) : (t.length > 70 ? 67 : 70), parts = t.length ? Math.ceil(t.length / per) : 0;
@@ -12188,17 +12278,27 @@ window.openEmailDraft = function(o){
         const byTime = (x, y) => String(x.at).localeCompare(String(y.at));
         $('tt_inbox').innerHTML = other.length ? `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${other.some(m => !m.read) ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>Other replies</strong> <span style="color:var(--muted);">\u00b7 texts that didn\u2019t answer a message sent from here</span> \u00b7 \ud83d\udcac ${other.length}${other.some(m => !m.read) ? ` <span style="color:#b3261e; font-weight:700;">(${other.filter(m => !m.read).length} new)</span>` : ''}</summary><div style="margin:6px 0 0 14px;">${other.sort(byTime).map(replyRow).join('')}</div></details>` : '';
         const audLabel = { everyone: 'Everyone', captains: 'Captains', wingmen: 'Wingmen', custom: 'Chosen people' };
+        const wasOpen = new Set([...$('tt_sent').querySelectorAll('details[open][data-id]')].map(d => d.dataset.id));
         $('tt_sent').innerHTML = sent.length ? sent.map(e => {
           const rs = e.recipients || [], del = rs.filter(r => r.status === 'delivered').length, fail = rs.filter(r => /failed|undelivered/.test(r.status)).length;
           const reps = byEntry.get(e).sort(byTime), unread = reps.filter(m => !m.read).length;
-          return `<details style="border-bottom:1px solid var(--line); padding:8px 0;"${unread ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>${new Date(e.at).toLocaleString()}</strong> \u00b7 ${audLabel[e.audience] || ''} \u00b7 ${rs.length} sent${del ? `, ${del} delivered` : ''}${fail ? `, <span style="color:#b3261e;">${fail} failed</span>` : ''} \u00b7 \ud83d\udcac ${reps.length} repl${reps.length === 1 ? 'y' : 'ies'}${unread ? ` <span style="color:#b3261e; font-weight:700;">(${unread} new)</span>` : ''}<div style="font-size:13.5px; white-space:pre-wrap; margin:4px 0 0 14px;">${esc(e.message)}</div>${(e.media || []).length ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 0 14px;">${e.media.map(id => `<img src="${API_BASE}/api/tt-media/${esc(id)}" alt="Photo sent" loading="lazy" onclick="event.preventDefault(); window.showPhotoModal(this.src)" style="width:96px; height:96px; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:zoom-in;">`).join('')}</div>` : ''}</summary>
+          const svTag = e.survey && e.results ? ` \u00b7 <span style="background:#E8F3EC; color:#00602C; border-radius:10px; padding:1px 8px; font-weight:700; font-size:12px;">\ud83d\udcca Survey \u00b7 ${e.results.answered}/${e.results.sentTo} answered${e.results.anonymous ? ' \u00b7 anonymous' : ''}${e.results.closed ? ' \u00b7 closed' : ''}</span>` : '';
+          return `<details data-id="${esc(e.id)}" style="border-bottom:1px solid var(--line); padding:8px 0;"${unread || wasOpen.has(e.id) ? ' open' : ''}><summary style="cursor:pointer; font-size:13.5px;"><strong>${new Date(e.at).toLocaleString()}</strong>${svTag} \u00b7 ${audLabel[e.audience] || ''} \u00b7 ${rs.length} sent${del ? `, ${del} delivered` : ''}${fail ? `, <span style="color:#b3261e;">${fail} failed</span>` : ''} \u00b7 \ud83d\udcac ${reps.length} repl${reps.length === 1 ? 'y' : 'ies'}${unread ? ` <span style="color:#b3261e; font-weight:700;">(${unread} new)</span>` : ''}<div style="font-size:13.5px; white-space:pre-wrap; margin:4px 0 0 14px;">${esc(e.message)}</div>${(e.media || []).length ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 0 14px;">${e.media.map(id => `<img src="${API_BASE}/api/tt-media/${esc(id)}" alt="Photo sent" loading="lazy" onclick="event.preventDefault(); window.showPhotoModal(this.src)" style="width:96px; height:96px; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:zoom-in;">`).join('')}</div>` : ''}</summary>
             <div style="margin:8px 0 0 14px;">
+              ${e.survey && e.results ? surveyResults(e) : ''}
               <div style="font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--muted); text-transform:uppercase;">Sent to</div>
               <div style="font-size:12.5px; margin:2px 0 8px;">${rs.map(r => `${esc(r.name)}: ${esc(r.status)}${r.error ? ' \u2014 ' + esc(r.error) : ''}`).join('<br>')}${(e.skipped || []).length ? '<br><span style="color:var(--muted);">Skipped: ' + e.skipped.map(x => `${esc(x.name)} (${esc(x.reason)})`).join(', ') + '</span>' : ''}</div>
               <div style="font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--muted); text-transform:uppercase;">Replies</div>
               ${reps.length ? reps.map(replyRow).join('') : '<div class="form-note" style="margin:2px 0 0;">No replies.</div>'}
             </div></details>`;
         }).join('') : '<p class="form-note" style="margin:0;">Nothing sent yet.</p>';
+        $('tt_sent').querySelectorAll('.tt-svClose').forEach(b => b.onclick = async () => {
+          const closing = b.dataset.closed !== '1';
+          if(closing && !confirm('Close this survey? No more answers will be counted.')) return;
+          b.disabled = true;
+          try{ const r = await fetch(`${API_BASE}/api/admin/team-texts/${encodeURIComponent(b.dataset.id)}/survey`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ closed: closing }) }); if(handleAuthFailure(r)) return; }catch(err){}
+          load();
+        });
         await (window.ensureAppSettingsLoaded ? window.ensureAppSettingsLoaded() : Promise.resolve());
         const ts = (window.appSettings || {}).teamTexts || {};
         $('tt_forward').value = ts.forwardRepliesTo || ''; $('tt_optNote').checked = ts.optOutNote !== false;
@@ -12219,6 +12319,9 @@ window.openEmailDraft = function(o){
     $('tt_pick').addEventListener('change', renderPreview);
     $('tt_message').addEventListener('input', renderCount);
     $('tt_prefix').addEventListener('input', renderCount);
+    document.querySelectorAll('input[name=tt_kind], input[name=tt_stype]').forEach(r => r.addEventListener('change', renderKind));
+    $('tt_anon').addEventListener('change', renderCount);
+    $('tt_addOpt').addEventListener('click', () => { if(ttOpts.length < 26){ ttOpts.push(''); renderOpts(); const ins = $('tt_opts').querySelectorAll('.tt-opt'); ins[ins.length - 1].focus(); } });
     // Photos to send with the message (pasted or picked), shrunk so carriers
     // deliver them reliably.
     let ttPhotos = [];
@@ -12243,15 +12346,20 @@ window.openEmailDraft = function(o){
     $('tt_send').addEventListener('click', async () => {
       const msg = $('tt_message').value.trim(), st = $('tt_status');
       if(!msg && !ttPhotos.length){ st.textContent = 'Type a message first.'; st.className = 'status-msg err'; return; }
-      const n = group().filter(p => p.phone && !p.optedOut).length;
-      if(!confirm(`Send this text${ttPhotos.length ? ` with ${ttPhotos.length} photo${ttPhotos.length === 1 ? '' : 's'}` : ''} to ${n} ${n === 1 ? 'person' : 'people'}?\n\n${msg}`)) return;
+      const sv = surveyPayload();
+      if(sv && !msg){ st.textContent = 'Type the survey question first.'; st.className = 'status-msg err'; return; }
+      if(sv && sv.type === 'choice' && sv.options.length < 2){ st.textContent = 'Add at least two answer choices.'; st.className = 'status-msg err'; return; }
+      const n = group().filter(p => p.phone && !p.optedOut && p.consent === 'agreed').length;
+      if(!confirm(`Send this ${sv ? (sv.anonymous ? 'anonymous survey' : 'survey') : 'text'}${ttPhotos.length ? ` with ${ttPhotos.length} photo${ttPhotos.length === 1 ? '' : 's'}` : ''} to ${n} ${n === 1 ? 'person' : 'people'}?\n\n${msg}${surveyTail(sv)}`)) return;
       $('tt_send').disabled = true; st.textContent = 'Sending\u2026'; st.className = 'status-msg';
       try{
-        const r = await fetch(`${API_BASE}/api/admin/team-texts/send`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ photos: ttPhotos, message: msg, audience: aud(), names: [...chosen()] }) });
+        const r = await fetch(`${API_BASE}/api/admin/team-texts/send`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ survey: sv, photos: ttPhotos, message: msg, audience: aud(), names: [...chosen()] }) });
         if(handleAuthFailure(r)) return;
         const d = await r.json(); if(!r.ok) throw new Error(d.error || 'Could not send.');
         st.textContent = `\u2713 Sent to ${d.sent}${d.failed ? ` \u2014 ${d.failed} failed (see Sent below)` : ''}.`; st.className = 'status-msg ' + (d.failed ? 'err' : 'ok');
-        $('tt_message').value = ''; ttPhotos = []; renderTtPhotos(); renderCount(); await load();
+        $('tt_message').value = ''; ttPhotos = []; renderTtPhotos();
+        if(sv){ ttOpts = ['', '']; $('tt_anon').checked = false; document.querySelector('input[name=tt_kind][value=message]').checked = true; renderKind(); }
+        renderCount(); await load();
       }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; renderPreview(); }
     });
     $('tt_markRead').addEventListener('click', async () => { await fetch(`${API_BASE}/api/admin/team-texts/read`, { method: 'POST', headers: authHeaders() }).catch(() => {}); load(); });
@@ -28078,6 +28186,25 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     return { matched, unmatchedDescriptions };
   }
   window.matchInvoiceLines = matchInvoiceLines;
+  // Items that share a Nickname (e.g. the 75" and 86" boxes, both "TV Crate")
+  // count as ONE item for checkout / return / billing and the Underbilled
+  // check -- pulling an 86" and billing a 75" (or returning the other size)
+  // nets out. Stock on hand is still kept per size.
+  // canon(id) -> the group's id (the item's own id if it isn't grouped);
+  // groups[canonId] -> { ids, label }.
+  function materialsItemGroups(items){
+    const byNick = {};
+    (items || []).forEach(mi => { const k = invNorm(mi.nickname); if(k) (byNick[k] = byNick[k] || []).push(mi); });
+    const canonOf = {}, groups = {};
+    Object.values(byNick).forEach(list => {
+      if(list.length < 2) return;
+      const lead = list.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)))[0];
+      list.forEach(mi => { canonOf[mi.id] = lead.id; });
+      groups[lead.id] = { ids: list.map(mi => mi.id), label: String(list[0].nickname || '').trim() };
+    });
+    return { canon: id => canonOf[id] || id, groups };
+  }
+  window.materialsItemGroups = materialsItemGroups;
   async function matchLineItemsToMaterials(lineItems){
     let materialsItems = [];
     try{ materialsItems = await window.dashboardApi.get(MATERIALS_ITEMS_KEY, []) || []; }
@@ -33231,6 +33358,9 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     // Free consumables (tape, shrink wrap, etc.) are never billed by
     // design, so checking them out should never be flagged as underbilled.
     const billableItemIds = new Set(materialsItems.filter(i => !i.neverBilled).map(i => i.id));
+    const G = window.materialsItemGroups ? window.materialsItemGroups(materialsItems) : { canon: id => id, groups: {} };
+    const cid = id => G.canon(id);
+    const membersOf = id => (G.groups[id] ? G.groups[id].ids : [id]);
     const jobDateByNumber = {};
     (archive || []).forEach(j => { if(j.jobNumber && j.assignmentDate) jobDateByNumber[j.jobNumber] = j.assignmentDate; });
 
@@ -33240,7 +33370,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(!checkedOutByJob[jobNumber]) checkedOutByJob[jobNumber] = {};
         (co.items || []).forEach(it => {
           if(!billableItemIds.has(it.itemId)) return;
-          checkedOutByJob[jobNumber][it.itemId] = (checkedOutByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
+          const k = cid(it.itemId);
+          checkedOutByJob[jobNumber][k] = (checkedOutByJob[jobNumber][k] || 0) + Number(it.quantity || 0);
         });
       });
     });
@@ -33254,7 +33385,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         if(!returnedByJob[jobNumber]) returnedByJob[jobNumber] = {};
         (eod.returnedItems || []).forEach(it => {
           if(!billableItemIds.has(it.itemId)) return;
-          returnedByJob[jobNumber][it.itemId] = (returnedByJob[jobNumber][it.itemId] || 0) + Number(it.quantity || 0);
+          const k = cid(it.itemId);
+          returnedByJob[jobNumber][k] = (returnedByJob[jobNumber][k] || 0) + Number(it.quantity || 0);
         });
       });
     });
@@ -33271,7 +33403,10 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(Array.isArray(u.invoiceLineItems) && window.matchInvoiceLines){
         const pulled = checkedOutByJob[u.jobNumber] || {}, back = returnedByJob[u.jobNumber] || {}, used = {};
         Object.keys(pulled).forEach(id => { used[id] = Math.max(0, pulled[id] - (back[id] || 0)); });
-        const m = window.matchInvoiceLines(u.invoiceLineItems, materialsItems, new Set(Object.keys(pulled)), used);
+        // Prefer the items he pulled (any size of a grouped item); grouped
+        // sizes are added up together below, so no splitting between them.
+        const prefer = new Set(); Object.keys(pulled).forEach(id => membersOf(id).forEach(x => prefer.add(x)));
+        const m = window.matchInvoiceLines(u.invoiceLineItems, materialsItems, prefer, null);
         (linesByJob[u.jobNumber] = linesByJob[u.jobNumber] || []).push(...m.matched.map(x => ({ line: x.line, quantity: x.quantity, item: (materialsItems.find(mi => mi.id === x.itemId) || {}).description || '' })));
         billed = u.materialsBilledOverridden && Array.isArray(u.materialsBilled) ? u.materialsBilled : m.matched;
         if(m.unmatchedDescriptions.length) unmatchedByJob[u.jobNumber] = (unmatchedByJob[u.jobNumber] || []).concat(m.unmatchedDescriptions);
@@ -33279,7 +33414,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       if(!Array.isArray(billed)) return;
       if(!billedByJob[u.jobNumber]) billedByJob[u.jobNumber] = {};
       billed.forEach(b => {
-        billedByJob[u.jobNumber][b.itemId] = (billedByJob[u.jobNumber][b.itemId] || 0) + Number(b.quantity || 0);
+        const k = cid(b.itemId);
+        billedByJob[u.jobNumber][k] = (billedByJob[u.jobNumber][k] || 0) + Number(b.quantity || 0);
       });
     });
 
@@ -33296,7 +33432,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         const matchedItem = materialsItems.find(mi => (mi.nickname || '').trim().toLowerCase() === normalizedDesc);
         if(!matchedItem) return;
         if(!quotedByJob[rec.jobNumber]) quotedByJob[rec.jobNumber] = {};
-        quotedByJob[rec.jobNumber][matchedItem.id] = (quotedByJob[rec.jobNumber][matchedItem.id] || 0) + Number(pm.quantity || 0);
+        const qk = cid(matchedItem.id);
+        quotedByJob[rec.jobNumber][qk] = (quotedByJob[rec.jobNumber][qk] || 0) + Number(pm.quantity || 0);
       });
     });
 
@@ -33352,11 +33489,13 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
         // second, unreviewed duplicate every time this sync re-runs.
         const existing = reviewItems.find(item => (!item.source || item.source === 'materials') && item.type === 'underbilled' && item.jobNumber === jobNumber);
         if(existing && !existing.source){ existing.source = 'materials'; changed = true; }
+        const G = window.materialsItemGroups ? window.materialsItemGroups(materialsItems) : { groups: {} };
         const itemsDetail = byJob[jobNumber].map(p => {
           const item = materialsItems.find(mi => mi.id === p.itemId);
+          const grp = G.groups[p.itemId];
           return {
             itemId: p.itemId,
-            description: item ? item.description : '(item no longer on file)',
+            description: grp ? `${grp.label} (any size)` : (item ? item.description : '(item no longer on file)'),
             quoted: p.quoted, checkedOut: p.checkedOut, returned: p.returned,
             netUsed: p.netUsed, billed: p.billed, hasBillingRecord: p.hasBillingRecord
           };
@@ -36943,9 +37082,11 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     (checkins || []).filter(inDay).forEach(r => events.push({ kind: 'in', label: 'Material Checkin', at: r.submittedAt, r, items: r.returnedItems || [] }));
     events.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
     // Per flagged item: out for this job / back for this job / back under other jobs that day.
+    const G = window.materialsItemGroups ? window.materialsItemGroups(await window.dashboardApi.get('materials-items', []) || []) : { canon: id => id };
+    const same = (a, b) => G.canon(a) === G.canon(b);
     const flagged = (item.items || []).map(d => {
       let out = 0, back = 0, backOther = 0;
-      events.forEach(ev => ev.items.filter(i => i.itemId === d.itemId).forEach(i => {
+      events.forEach(ev => ev.items.filter(i => same(i.itemId, d.itemId)).forEach(i => {
         const q = Number(i.quantity) || 0;
         if(ev.kind === 'out'){ if(hasJ(ev.r)) out += q; }
         else if(hasJ(ev.r)) back += q; else backOther += q;
@@ -36953,7 +37094,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       return { itemId: d.itemId, description: d.description, out, back, backOther, billed: d.billed };
     });
     const returnsLogged = events.some(e => e.kind === 'in');
-    return { J, days: [...days.values()], events, flagged, returnsLogged, flaggedIds: new Set((item.items || []).map(d => d.itemId)) };
+    const flaggedIds = new Set(); events.forEach(ev => ev.items.forEach(i => { if((item.items || []).some(d => same(i.itemId, d.itemId))) flaggedIds.add(i.itemId); }));
+    return { J, days: [...days.values()], events, flagged, returnsLogged, flaggedIds };
   }
   function ubMaterialsLogHtml(L){
     const who = r => mgrReviewEsc(r.driverName || '') + (r.completedByWingman ? ` <span style="color:var(--muted);">(entered by ${mgrReviewEsc(r.completedByWingman)})</span>` : '');
