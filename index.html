@@ -30515,25 +30515,31 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
 
   // P&L Financial Detailed totals are switched on and off right above the
   // chart (one tap each). The choice is saved for everyone in app settings.
+  // The chart's legend, drawn as HTML: one color square per metric. Tap a
+  // square (or its name) to tick it on or off; the choice also adds or
+  // removes that metric's table column and is saved for everyone.
   function renderMfPlChips(){
     const box = document.getElementById('mf_plChips');
     if(!box) return;
     const fin = (window.appSettings || {}).financials || {};
     const hidden = new Set(fin.hiddenMetrics || []), plOn = new Set(fin.shownPlTotals || []);
     const isOn = k => mfIsPl(k) ? plOn.has(k) : !hidden.has(k);
-    const chip = (key, label, color, sub) => { const sel = isOn(key);
-      return `<button type="button" class="mf-pl-chip" data-key="${key}" aria-pressed="${sel}"${sub ? ` title="${mfEsc(sub)}"` : ''} style="display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:16px; font-size:12.5px; cursor:pointer; font-family:inherit; border:1.5px solid ${sel ? color : 'var(--line)'}; background:${sel ? color : '#fff'}; color:${sel ? '#fff' : 'var(--charcoal)'}; font-weight:${sel ? 700 : 500};"><span style="width:9px; height:9px; border-radius:50%; background:${sel ? '#fff' : color};"></span>${mfEsc(label)}</button>`; };
-    const row = (title, chips) => `<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px;"><span style="font-size:11.5px; font-weight:700; color:var(--muted); width:130px;">${mfEsc(title)}</span>${chips}</div>`;
-    const summary = MF_METRICS.filter(m => m.key !== 'businessValue' || !!window.__valPin)
-      .map(m => chip(m.key, m.key === 'ownerWagesNetIncome' ? 'SDE' : m.label.replace(/ \(monthly\)$/, ''), MF_SUMMARY_COLORS[m.key] || '#666', m.where)).join('');
-    const groups = [...new Set(MF_PL_TOTALS.map(t => t.group))];
-    const shown = MF_METRICS.filter(m => !hidden.has(m.key)).length + plOn.size;
-    box.innerHTML = `<details open><summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--charcoal);">Lines shown <span style="font-weight:400; color:var(--muted);">· ${shown} on · tap to turn a line on or off (also adds or removes its table column)</span></summary>
-      ${row('Summary', summary)}
-      ${groups.map(g => row('P&L detail · ' + g, MF_PL_TOTALS.filter(t => t.group === g).map(t => chip(t.key, t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''), MF_PL_COLORS[MF_PL_TOTALS.indexOf(t) % MF_PL_COLORS.length])).join(''))).join('')}
-      <div style="margin-top:8px; display:flex; gap:14px;"><button type="button" class="mf-chip-all" data-on="1" style="background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer;">Turn all on</button><button type="button" class="mf-chip-all" data-on="0" style="background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer;">P&amp;L detail off</button></div></details>`;
-    const save = async () => {
-      const hiddenMetrics = MF_METRICS.map(m => m.key).filter(k => hidden.has(k)), shownPlTotals = MF_PL_TOTALS.map(t => t.key).filter(k => plOn.has(k));
+    const TABLE_ONLY = ['ownerWages', 'netIncome', 'depreciationAmortization'];
+    const item = (key, label, color, tip) => { const on = isOn(key);
+      return `<button type="button" class="mf-leg" data-key="${key}" role="checkbox" aria-checked="${on}" title="${mfEsc(tip || '')}" style="display:inline-flex; align-items:center; gap:5px; padding:2px 4px; margin:0; background:none; border:none; cursor:pointer; font-family:inherit; font-size:11.5px; color:${on ? 'var(--charcoal)' : '#9a9a9a'};">
+        <span style="width:13px; height:13px; flex-shrink:0; border-radius:2px; border:2px solid ${color}; background:${on ? color : '#fff'}; color:#fff; font-size:10px; line-height:9px; font-weight:900; display:inline-flex; align-items:center; justify-content:center;">${on ? '✓' : ''}</span>${mfEsc(label)}</button>`; };
+    const summary = MF_METRICS.filter(m => !TABLE_ONLY.includes(m.key) && (m.key !== 'businessValue' || !!window.__valPin))
+      .map(m => item(m.key, m.key === 'ownerWagesNetIncome' ? 'SDE' : m.label.replace(/ \(monthly\)$/, ''), MF_SUMMARY_COLORS[m.key] || '#666', m.where)).join('');
+    const pl = MF_PL_TOTALS.map((t, i) => item(t.key, t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''), MF_PL_COLORS[i % MF_PL_COLORS.length], 'P&L Financial Detailed · monthly, right-hand scale')).join('');
+    const tables = MF_METRICS.filter(m => TABLE_ONLY.includes(m.key)).map(m => item(m.key, m.label, '#8a8a8a', 'Table column only')).join('');
+    const lbl = t => `<span style="font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin:0 2px 0 8px;">${t}</span>`;
+    box.innerHTML = `<div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:0 4px; line-height:1.9;">${summary}</div>
+      <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:0 4px; line-height:1.9;">${lbl('P&amp;L detail')}${pl}</div>
+      <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:0 4px; line-height:1.9;">${lbl('Table only')}${tables}</div>`;
+    box.querySelectorAll('.mf-leg').forEach(b => b.onclick = async () => {
+      const k = b.dataset.key;
+      if(mfIsPl(k)) plOn.has(k) ? plOn.delete(k) : plOn.add(k); else hidden.has(k) ? hidden.delete(k) : hidden.add(k);
+      const hiddenMetrics = MF_METRICS.map(m => m.key).filter(x => hidden.has(x)), shownPlTotals = MF_PL_TOTALS.map(t => t.key).filter(x => plOn.has(x));
       window.appSettings = window.appSettings || {};
       window.appSettings.financials = Object.assign({}, window.appSettings.financials, { hiddenMetrics, shownPlTotals });
       renderMonthlyFinancialsChart(); renderMonthlyFinancialsTable();
@@ -30541,15 +30547,6 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { financials: { hiddenMetrics, shownPlTotals } } }) });
         handleAuthFailure(res);
       }catch(err){ console.error('Saving the chart lines shown failed:', err); }
-    };
-    box.querySelectorAll('.mf-pl-chip').forEach(b => b.onclick = () => {
-      const k = b.dataset.key;
-      if(mfIsPl(k)) plOn.has(k) ? plOn.delete(k) : plOn.add(k); else hidden.has(k) ? hidden.delete(k) : hidden.add(k);
-      save();
-    });
-    box.querySelectorAll('.mf-chip-all').forEach(b => b.onclick = () => {
-      if(b.dataset.on === '1'){ hidden.clear(); MF_PL_TOTALS.forEach(t => plOn.add(t.key)); } else plOn.clear();
-      save();
     });
   }
   const MF_SUMMARY_COLORS = { revenue: '#2E5C8A', labor: '#C1392B', grossProfit: '#00843D', operatingProfit: '#17A398', ebit: '#F2A900', ownerWagesNetIncome: '#7A4FA3', ownerWages: '#5D6D7E', netIncome: '#34495E', totalEquity: '#8A8A8A', depreciationAmortization: '#7F8C8D', businessValue: '#6B3FA0', cogs: '#8B4513', fixedExpenses: '#5D6D7E' };
@@ -30615,7 +30612,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return { key: 'businessValue', label: 'Estimated Business Value', data: MF_MONTH_ABBR.map((_, i) => byM[i] ? byM[i].value.mid : null), valuations: byM,
           borderColor: '#6B3FA0', backgroundColor: '#6B3FA0', borderDash: [6, 4], pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', spanGaps: true };
       })()
-    ].concat(mfShownPl().map((t, i) => ({ key: t.key, label: t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''), monthly: true, yAxisID: 'yMonthly',
+    ].concat(mfShownPl().map(t => ({ i: MF_PL_TOTALS.indexOf(t), t })).map(({ t, i }) => ({ key: t.key, label: t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''), monthly: true, yAxisID: 'yMonthly',
         data: monthsOfYear.map(r => r && r.plTotals && r.plTotals[t.key] != null ? Number(r.plTotals[t.key]) : null),
         borderColor: MF_PL_COLORS[i % MF_PL_COLORS.length], backgroundColor: MF_PL_COLORS[i % MF_PL_COLORS.length], borderWidth: 2, borderDash: [4, 3], pointRadius: 3 })))
      .filter(ds => mfShown(ds.key) && (ds.key !== 'businessValue' || !!window.__valPin))   // switched off in Configuration -> Financials; valuation only when unlocked
@@ -30667,7 +30664,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         options: {
           responsive: true,
           plugins: {
-            legend: { labels: { boxWidth: 16, font: { size: 11 } } },
+            legend: { display: false },   // the HTML legend above the chart (mf_plChips) is the legend and the on/off switch
             tooltip: { callbacks: { label: c => {
               if(c.dataset.key === 'businessValue'){ const v = (c.dataset.valuations || {})[c.dataIndex]; return v ? `Estimated Business Value: ${mfMoney(v.value.mid)} (range ${mfMoney(v.value.low)}\u2013${mfMoney(v.value.high)}, ${new Date(v.createdAt).toLocaleDateString()})` : ''; }
               return `${c.dataset.label}${c.dataset.monthly ? ' (this month)' : c.dataset.label === 'Total Equity' ? ' (as of month-end)' : ' (YTD)'}: ${c.parsed.y == null ? 'No data' : mfMoney(c.parsed.y)}`;
