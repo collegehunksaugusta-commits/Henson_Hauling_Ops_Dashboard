@@ -1142,6 +1142,20 @@
       <p class="status-msg" id="milStatus" style="margin:8px 0 0;"></p>
       <div id="milList" style="margin-top:10px;"></div>
     </div>
+
+    <div class="panel" id="moneyLoanPanel" style="border:2px solid #6b4fa0;">
+      <div style="font-size:13px; font-weight:700; color:#4b3478; letter-spacing:.03em;">&#129309; SHORT-TERM LOAN</div>
+      <div style="font-size:12px; color:var(--muted); margin-top:2px;">Need some help before payday? Ask for a short-term loan &mdash; it&rsquo;s paid back a little at a time from your paychecks.</div>
+      <button type="button" id="loanAddBtn" style="width:100%; margin-top:12px; padding:14px; font-size:16px; font-weight:800; background:#6b4fa0; color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Request a Loan</button>
+      <div id="loanForm" style="display:none; margin-top:12px; border-top:1px solid var(--line); padding-top:12px;">
+        <label style="display:block; margin-bottom:8px; font-size:13px;">How much do you need? ($) <input type="text" inputmode="decimal" id="loanAmount" autocomplete="off" placeholder="0.00" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:17px;"></label>
+        <label style="display:block; margin-bottom:10px; font-size:13px;">What&rsquo;s it for? <textarea id="loanReason" rows="3" maxlength="500" placeholder="e.g. Car repair so I can get to work" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px; font-family:inherit; box-sizing:border-box;"></textarea></label>
+        <button type="button" id="loanSubmitBtn" style="width:100%; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Send Request</button>
+        <button type="button" id="loanCancelBtn" style="width:100%; margin-top:8px; padding:10px; font-size:14px; background:#fff; color:var(--charcoal); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Cancel</button>
+      </div>
+      <p class="status-msg" id="loanStatus" style="margin:8px 0 0;"></p>
+      <div id="loanList" style="margin-top:10px;"></div>
+    </div>
   </div>
 
   <div id="driverWeightTicketView" style="display:none; max-width:640px; width:100%; margin:0 auto 40px;">
@@ -2813,6 +2827,80 @@ window.openEmailDraft = function(o){
     }finally{ btn.disabled = false; }
   });
 
+  // ---- My Money -> Short-Term Loan ----
+  // He asks for an amount and says what it's for; the Owner approves it in
+  // Extra Pay and splits the repayment over his paychecks.
+  const loanPaydayLbl = w => { const x = new Date(w + 'T12:00:00'); x.setDate(x.getDate() + 11); return x.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); };
+  async function loadMyLoans(){
+    try{
+      const res = await fetch(expBase() + '/loans', { headers: {'Authorization': 'Bearer ' + driverToken} });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      if(!res.ok) return;
+      const loans = (await res.json()).loans || [];
+      const pendingOne = loans.some(l => l.status === 'pending');
+      document.getElementById('loanAddBtn').style.display = pendingOne || document.getElementById('loanForm').style.display === 'block' ? 'none' : '';
+      const short = iso => iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+      const pillCss = 'padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700; white-space:nowrap;';
+      document.getElementById('loanList').innerHTML = loans.map(l => {
+        const ins = l.installments || [], paid = ins.filter(i => i.paid).reduce((t, i) => t + Number(i.amount || 0), 0);
+        const left = Math.max(0, Math.round(((Number(l.approvedAmount) || 0) - paid) * 100) / 100), next = ins.find(i => !i.paid);
+        const pill = l.status === 'pending' ? `<span style="background:#FFF8E1; color:#8a6d00; ${pillCss}">Waiting</span>`
+          : l.status === 'declined' ? `<span style="background:#fdecea; color:#b3261e; ${pillCss}">Declined</span>`
+          : l.status === 'canceled' ? `<span style="background:#f0f0f0; color:#666; ${pillCss}">Canceled</span>`
+          : l.paidOff || left <= 0.004 ? `<span style="background:#EAF6EE; color:var(--brand-green-dark); ${pillCss}">Paid in full</span>`
+          : `<span style="background:#EDE7F6; color:#4b3478; ${pillCss}">Approved</span>`;
+        let detail = '';
+        if(l.status === 'approved' && !l.paidOff && left > 0.004){
+          const remaining = ins.filter(i => !i.paid);
+          detail = `<div style="font-size:13px; margin-top:4px;"><strong>${expMoney(left)}</strong> left \u00b7 ${next ? `next ${expMoney(next.amount)} comes out of your ${loanPaydayLbl(next.week)} paycheck` : ''}</div>
+            <details style="margin-top:4px;"><summary style="font-size:12.5px; color:var(--muted); cursor:pointer;">${ins.length} paycheck${ins.length === 1 ? '' : 's'} \u2014 see the schedule</summary>
+            ${ins.map(i => `<div style="display:flex; justify-content:space-between; font-size:13px; padding:3px 0; ${i.paid ? 'color:var(--muted);' : ''}"><span>${loanPaydayLbl(i.week)}${i.paid ? ' \u2713' : ''}</span><span>${expMoney(i.amount)}</span></div>`).join('')}</details>`;
+        }
+        if(l.status === 'declined' && l.declineReason) detail = `<div style="font-size:12px; color:#b3261e; margin-top:3px;">${driverEsc(l.declineReason)}</div>`;
+        return `<div style="padding:8px 0; border-top:1px solid var(--line); font-size:14px;">
+          <div style="display:flex; justify-content:space-between; gap:8px;"><div><strong>${expMoney(l.status === 'approved' ? l.approvedAmount : l.amount)}</strong> \u00b7 asked ${short(l.requestedAt)}<div style="font-size:12px; color:var(--muted);">${driverEsc(l.reason)}</div></div><div>${pill}</div></div>
+          ${l.status === 'approved' && Number(l.approvedAmount) !== Number(l.amount) ? `<div style="font-size:12px; color:var(--muted); margin-top:2px;">You asked for ${expMoney(l.amount)}.</div>` : ''}
+          ${detail}
+          ${l.status === 'pending' ? `<button type="button" class="loanCancelReq" data-id="${driverEsc(l.id)}" style="margin-top:6px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; font-family:inherit;">Cancel Request</button>` : ''}
+        </div>`; }).join('');
+      document.querySelectorAll('.loanCancelReq').forEach(b => b.onclick = async () => {
+        if(!confirm('Cancel this loan request?')) return;
+        b.disabled = true;
+        try{ const r = await fetch(expBase() + '/loans/' + encodeURIComponent(b.dataset.id) + '/cancel', { method: 'POST', headers: {'Authorization': 'Bearer ' + driverToken} }); if(r.status === 401){ driverSessionExpired(); return; } }catch(err){}
+        loadMyLoans();
+      });
+    }catch(err){}
+  }
+  function loanFormReset(){
+    document.getElementById('loanForm').style.display = 'none';
+    document.getElementById('loanAmount').value = ''; document.getElementById('loanReason').value = '';
+    document.getElementById('loanStatus').textContent = '';
+    document.getElementById('loanAddBtn').style.display = '';
+  }
+  document.getElementById('loanAddBtn').addEventListener('click', () => {
+    document.getElementById('loanForm').style.display = 'block'; document.getElementById('loanAddBtn').style.display = 'none';
+    document.getElementById('loanStatus').textContent = ''; document.getElementById('loanAmount').focus();
+  });
+  document.getElementById('loanCancelBtn').addEventListener('click', loanFormReset);
+  document.getElementById('loanSubmitBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, st = document.getElementById('loanStatus');
+    const amount = Math.round((parseFloat(String(document.getElementById('loanAmount').value).replace(/[^0-9.]/g, '')) || 0) * 100) / 100;
+    const reason = document.getElementById('loanReason').value.trim();
+    if(!(amount >= 1)){ st.textContent = 'Enter how much you need.'; st.className = 'status-msg err'; return; }
+    if(reason.length < 3){ st.textContent = 'Say what the loan is for.'; st.className = 'status-msg err'; return; }
+    btn.disabled = true; st.textContent = 'Sending\u2026'; st.className = 'status-msg';
+    try{
+      const res = await fetch(expBase() + '/loans', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ amount, reason }) });
+      if(res.status === 401){ driverSessionExpired(); return; }
+      const d = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(d.error || 'Could not send.');
+      loanFormReset();
+      st.textContent = '\u2713 Sent. You\u2019ll see the answer here.'; st.className = 'status-msg ok';
+      await loadMyLoans();
+    }catch(err){ st.textContent = err.message || 'Couldn\u2019t send \u2014 check your connection.'; st.className = 'status-msg err'; }
+    finally{ btn.disabled = false; }
+  });
+
   function showMyMoney(){
     showOnlyDriverGateView('driverMoneyView');
     document.querySelectorAll('.reimb-picker').forEach(b => { delete b.dataset.method; delete b.dataset.handle; });
@@ -2824,6 +2912,8 @@ window.openEmailDraft = function(o){
     document.getElementById('milStatus').textContent = '';
     loadMyExpenses();
     loadMyExtras();
+    loanFormReset();
+    loadMyLoans();
   }
   document.querySelectorAll('.my-money-tile').forEach(t => t.addEventListener('click', showMyMoney));
 
@@ -7361,6 +7451,7 @@ window.openEmailDraft = function(o){
         <p>Weekly labor cost vs. revenue, overtime exposure, and per-employee OT detail.</p>
       </div>
       <div class="tile" id="tile-extrapay" tabindex="0" role="button" aria-label="Open Extra Pay">
+        <span class="badge" id="extraPayTileBadge" style="display:none;"></span>
         <span class="icon"><svg class="kit-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></span>
         <h3>Extra Pay</h3>
         <p>Tips, review bonuses, commission, and misc pay due to each employee for the prior pay week.</p>
@@ -8293,6 +8384,7 @@ window.openEmailDraft = function(o){
     </div>
     <p class="form-note">Tips pull in automatically from that week's allocated Square tips (same weekly grouping the Manager Review Tips panel uses). Review Bonus fills in automatically from Google reviews credited on Manager Review &times; the per-review amount in Configuration &rarr; Pay (shaded green while auto-filled). Review Bonus, Commission, and Misc are entered manually and saved per employee, per week. A week collapses automatically once that week's ADP payroll report has been uploaded on Labor Cost &mdash; click its header to expand it again any time.</p>
 
+    <div id="extraPay_loans"></div>
     <div id="extraPay_weeksList"></div>
     <p class="form-note" id="extraPay_emptyNote" style="display:none;">No employees found yet &mdash; upload a payroll week on the Labor Cost tile first.</p>
   </div>
@@ -14982,6 +15074,7 @@ window.openEmailDraft = function(o){
       await window.ensureAppSettingsLoaded();
       const commission = window.appSettings.commission || {};
       try{ if(window.loadOmScorecards) await window.loadOmScorecards(); }catch(err){}
+      try{ if(window.loadExpPaidWeeks) await window.loadExpPaidWeeks(); }catch(err){}
       const omSettings = window.appSettings.opsManagerMetrics || {};
       const omWeights = omSettings.weights || { timelyCloseout: 34, reviewCloseout: 33, captainScores: 33 };
       const reviewWindowDays = Number(omSettings.reviewCloseoutWindowDays) || 2;
@@ -14992,7 +15085,7 @@ window.openEmailDraft = function(o){
       // Damage Claims page stamp (and save) any older claims first, so a
       // claim can never land on two paychecks.
       try{ if(window.loadDamageClaimsData) await window.loadDamageClaimsData(); }catch(err){}
-      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations, damageClaimsForPay, expenseClaimsForPay] = await Promise.all([
+      const [roster, tipsData, manualData, laborWeeks, archiveResult, uploadsResult, reviewItemsResult, driversResult, googleReviewAllocations, damageClaimsForPay, expenseClaimsForPay, crewLoansRaw] = await Promise.all([
         window.getCurrentEmployeeRoster(),
         window.dashboardApi.get('square-tip-allocations', {allocations:{}, overrides:{}}),
         window.dashboardApi.get(EXTRA_PAY_MANUAL_KEY, {}),
@@ -15003,9 +15096,12 @@ window.openEmailDraft = function(o){
         window.dashboardApi.get('compliance-drivers', []),
         window.dashboardApi.get('google-review-allocations', {}),
         window.dashboardApi.get('damage-claims', []),
-        window.dashboardApi.get('expense-claims', [])
+        window.dashboardApi.get('expense-claims', []),
+        window.dashboardApi.get('crew-loans', [])
       ]);
+
       extraPayManualData = manualData || {};
+      const crewLoansForPay = Array.isArray(crewLoansRaw) ? crewLoansRaw : [];
       const allocations = (tipsData && tipsData.allocations) || {};
       // A week's ADP payroll report has been uploaded once Labor Cost has
       // a record for it -- that's the trigger to auto-collapse it here.
@@ -15061,7 +15157,19 @@ window.openEmailDraft = function(o){
         });
         const reviewBonusCalc = {};
         Object.keys(reviewCounts).forEach(name => { reviewBonusCalc[name] = reviewCounts[name] * reviewBonusRate; });
-        const names = dedupeAndSortNames([...(roster || []), ...Object.keys(tipTotals), ...Object.keys(reviewCounts)]);
+        // Loan repayments scheduled for this pay week (approved loans).
+        const loanThisWeek = [];
+        crewLoansForPay.forEach(l => { if(l && l.status === 'approved') (l.installments || []).forEach(i => { if(i.week === weekStart && Number(i.amount) > 0) loanThisWeek.push({ l, amount: Number(i.amount) }); }); });
+        const names = dedupeAndSortNames([...(roster || []), ...Object.keys(tipTotals), ...Object.keys(reviewCounts), ...loanThisWeek.map(x => x.l.employeeName)]);
+        const loanByName = {};
+        loanThisWeek.forEach(({ l, amount }) => {
+          const match = names.find(n => nameCoreKey(n) === nameCoreKey(l.employeeName));
+          if(!match) return;
+          const e = loanByName[match] = loanByName[match] || { total: 0, lines: [] };
+          const ins = (l.installments || []).filter(i => Number(i.amount) > 0), k = ins.findIndex(i => i.week === weekStart) + 1;
+          e.total += amount;
+          e.lines.push(`${extraPayMoney(l.approvedAmount)} loan approved ${extraPayFmtDateShort((l.decidedAt || '').slice(0, 10))}: payment ${k} of ${ins.length} \u2014 ${extraPayMoney(amount)}`);
+        });
         // Damage claims whose Total Cost was entered this week come off the
         // job's Captain's commission -- the last step, never below $0.
         // Approved expenses are paid in the pay week they were approved.
@@ -15112,7 +15220,8 @@ window.openEmailDraft = function(o){
           });
         });
         return {
-          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName, expensesByName, mileageByName, costRecoveryByName,
+          weekStart, week, names, tipTotals, reviewCounts, reviewBonusCalc, damageByName, expensesByName, mileageByName, costRecoveryByName, loanByName,
+          hasAnyLoans: Object.keys(loanByName).length > 0,
           adpUploaded: adpUploadedWeeks.has(weekStart),
           hasManualData: !!extraPayManualData[weekStart],
           hasAnyTips: Object.keys(tipTotals).length > 0,
@@ -15123,7 +15232,7 @@ window.openEmailDraft = function(o){
       // Skip a purely-empty older week with nothing going on at all -- no
       // point showing a blank $0 table for a week no one ever touched,
       // except the current week, which always shows regardless.
-      }).filter(w => w.weekStart === currentWeekStart || w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews || w.hasAnyDamage || w.hasAnyExpenses);
+      }).filter(w => w.weekStart === currentWeekStart || w.weekStart === mostRecentWeekStart || w.hasManualData || w.hasAnyTips || w.hasAnyReviews || w.hasAnyDamage || w.hasAnyExpenses || w.hasAnyLoans);
       weeksDataRaw.forEach(w => { w.inProgress = w.weekStart === currentWeekStart; });
 
       // Default expanded unless ADP's already been uploaded for that week
@@ -15352,6 +15461,7 @@ window.openEmailDraft = function(o){
       });
 
       renderExtraPayWeeksList(weeksData);
+      renderCrewLoans(crewLoansForPay);
       publishCrewPayPreview();
     }catch(err){
       console.error('Extra Pay load failed:', err);
@@ -15375,6 +15485,132 @@ window.openEmailDraft = function(o){
   }
   window.loadExtraPayData = loadExtraPayData;
 
+  // ---- Short-term loans (requested in the HUNK Portal -> My Money) ----
+  // The Owner approves a loan and splits the repayment over any number of
+  // paychecks. Each installment is { week: pay week (Monday), amount } and
+  // shows in that week's Loan Repayment column. A week counts as paid once
+  // its payroll is uploaded to Labor Cost.
+  const CREW_LOANS_KEY = 'crew-loans';
+  const loanPayday = w => { const x = new Date(w + 'T12:00:00'); x.setDate(x.getDate() + 11); return x; };
+  const loanPaydayLabel = w => loanPayday(w).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const loanAddWeeks = (w, n) => { const x = new Date(w + 'T12:00:00'); x.setDate(x.getDate() + 7 * n); return x.toLocaleDateString('en-CA'); };
+  function loanSplit(amount, count, firstWeek){
+    const cents = Math.round(amount * 100), n = Math.max(1, Math.floor(count)), per = Math.floor(cents / n);
+    return Array.from({ length: n }, (_, i) => ({ week: loanAddWeeks(firstWeek, i), amount: (i === n - 1 ? cents - per * (n - 1) : per) / 100 }));
+  }
+  const loanIsPaid = w => !!(window.expIsWeekPaid && window.expIsWeekPaid(w));
+  function loanBalance(l){ return Math.round(((Number(l.approvedAmount) || 0) - (l.installments || []).filter(i => loanIsPaid(i.week)).reduce((t, i) => t + Number(i.amount || 0), 0)) * 100) / 100; }
+  function loanPlanControls(id, amount, label){
+    const first = window.expPayWeekStart();
+    const opts = Array.from({ length: 12 }, (_, i) => loanAddWeeks(first, i)).map(w => `<option value="${w}">${loanPaydayLabel(w)} paycheck (week of ${extraPayFmtDateShort(w)})</option>`).join('');
+    return `<div class="loan-plan" data-id="${extraPayEsc(id)}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+      <label style="margin:0; font-size:12px; text-transform:none; letter-spacing:normal;">${label}<br>$<input type="number" min="1" step="0.01" class="loan-amt" value="${Number(amount).toFixed(2)}" style="width:100px; padding:5px 6px; margin-top:3px;"></label>
+      <label style="margin:0; font-size:12px; text-transform:none; letter-spacing:normal;">Paychecks to repay over<br><input type="number" min="1" step="1" class="loan-n" value="1" style="width:80px; padding:5px 6px; margin-top:3px;"></label>
+      <label style="margin:0; font-size:12px; text-transform:none; letter-spacing:normal;">Starting with<br><select class="loan-first" style="padding:5px 6px; margin-top:3px;">${opts}</select></label>
+      <div class="loan-preview" style="font-size:12.5px; color:var(--brand-green-dark); font-weight:600; padding-bottom:6px;"></div>
+    </div>`;
+  }
+  function loanPlanRead(box){
+    const amount = Math.round((Number(box.querySelector('.loan-amt').value) || 0) * 100) / 100;
+    const n = Math.floor(Number(box.querySelector('.loan-n').value) || 0), first = box.querySelector('.loan-first').value;
+    if(!(amount > 0)) return { error: 'Enter the amount.' };
+    if(!(n >= 1)) return { error: 'Enter how many paychecks (1 or more).' };
+    if(amount / n < 0.01) return { error: 'That\u2019s less than a cent a paycheck \u2014 use fewer paychecks.' };
+    return { amount, n, first, installments: loanSplit(amount, n, first) };
+  }
+  function loanPlanPreview(box){
+    const r = loanPlanRead(box), el = box.querySelector('.loan-preview');
+    if(r.error){ el.textContent = ''; return; }
+    const ins = r.installments, last = ins[ins.length - 1];
+    el.textContent = ins.length === 1 ? `${extraPayMoney(r.amount)} off the ${loanPaydayLabel(r.first)} paycheck`
+      : `${ins.length} paychecks of ${extraPayMoney(ins[0].amount)}${last.amount !== ins[0].amount ? ` (last one ${extraPayMoney(last.amount)})` : ''}, ${loanPaydayLabel(r.first)} \u2013 ${loanPaydayLabel(last.week)}`;
+  }
+  // Read-modify-write on the newest copy, so a request sent from the portal
+  // a moment ago isn't overwritten.
+  async function loanSave(id, fn){
+    const loans = await window.dashboardApi.get(CREW_LOANS_KEY, []) || [];
+    const l = loans.find(x => x.id === id);
+    if(!l) return false;
+    fn(l);
+    return window.dashboardApi.set(CREW_LOANS_KEY, loans);
+  }
+  window.refreshLoanBadge = async function(list){
+    try{
+      const loans = list || await window.dashboardApi.get(CREW_LOANS_KEY, []) || [];
+      const n = loans.filter(l => l.status === 'pending').length, b = document.getElementById('extraPayTileBadge');
+      if(b){ b.textContent = n ? `${n} loan request${n === 1 ? '' : 's'}` : ''; b.style.display = n ? '' : 'none'; }
+    }catch(err){}
+  };
+  function renderCrewLoans(loans){
+    const box = document.getElementById('extraPay_loans');
+    if(!box) return;
+    window.refreshLoanBadge(loans);
+    const fmtD = iso => iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const pending = loans.filter(l => l.status === 'pending').sort((a, b) => String(a.requestedAt).localeCompare(String(b.requestedAt)));
+    const active = loans.filter(l => l.status === 'approved' && !l.paidOff && loanBalance(l) > 0.004).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+    const done = loans.filter(l => !pending.includes(l) && !active.includes(l)).sort((a, b) => String(b.decidedAt || b.requestedAt).localeCompare(String(a.decidedAt || a.requestedAt)));
+    if(!loans.length){ box.innerHTML = ''; return; }
+    const sched = l => (l.installments || []).map(i => `<span style="display:inline-block; margin:2px 6px 2px 0; padding:2px 8px; border-radius:10px; font-size:12px; background:${loanIsPaid(i.week) ? '#EAF6EE' : '#f3f3f0'}; color:${loanIsPaid(i.week) ? 'var(--brand-green-dark)' : 'var(--charcoal)'};">${loanPaydayLabel(i.week)} \u00b7 ${extraPayMoney(i.amount)}${loanIsPaid(i.week) ? ' \u2713' : ''}</span>`).join('');
+    box.innerHTML = `<div class="panel" style="padding:16px 18px; margin-bottom:16px; border:2px solid #6b4fa0;">
+      <h3 style="margin:0 0 4px;">Short-Term Loans</h3>
+      <p class="form-note" style="margin:0 0 6px;">Requested from the HUNK Portal (My Money). Approve one and choose how many paychecks to split the repayment over; each payment comes off that paycheck in the Loan Repayment column below. Pay the loan itself out however you normally would &mdash; it isn&rsquo;t added to Extra Pay.</p>
+      ${pending.map(l => `<div class="loan-card" data-id="${extraPayEsc(l.id)}" style="border:1px solid #d9cdee; background:#f8f5fd; border-radius:8px; padding:10px 12px; margin-top:10px;">
+        <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><div><strong>${extraPayEsc(l.employeeName)}</strong> asked for <strong>${extraPayMoney(l.amount)}</strong> <span class="form-note" style="display:inline;">\u00b7 ${fmtD(l.requestedAt)}</span></div><span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700; align-self:flex-start;">Waiting on you</span></div>
+        <div style="font-size:13.5px; margin-top:4px;">\u201c${extraPayEsc(l.reason)}\u201d</div>
+        ${loanPlanControls(l.id, l.amount, 'Amount to lend')}
+        <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;"><button type="button" class="btn-primary loan-approve" data-id="${extraPayEsc(l.id)}">Approve</button><button type="button" class="loan-decline" data-id="${extraPayEsc(l.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 14px; cursor:pointer;">Decline</button><span class="status-msg loan-status"></span></div>
+      </div>`).join('')}
+      ${active.length ? `<div style="font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--muted); text-transform:uppercase; margin-top:14px;">Being repaid</div>` : ''}
+      ${active.map(l => { const bal = loanBalance(l), next = (l.installments || []).find(i => !loanIsPaid(i.week));
+        return `<div class="loan-card" data-id="${extraPayEsc(l.id)}" style="border-top:1px solid var(--line); padding:10px 0 4px; margin-top:6px;">
+        <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><div><strong>${extraPayEsc(l.employeeName)}</strong> \u00b7 ${extraPayMoney(l.approvedAmount)} approved ${fmtD(l.decidedAt)} <div class="form-note" style="margin:2px 0 0;">\u201c${extraPayEsc(l.reason)}\u201d</div></div>
+          <div style="text-align:right;"><div style="font-weight:800; font-size:16px;">${extraPayMoney(bal)} left</div><div class="form-note" style="margin:0;">${next ? `Next: ${extraPayMoney(next.amount)} on ${loanPaydayLabel(next.week)}` : 'Nothing scheduled'}</div></div></div>
+        <div style="margin-top:6px;">${sched(l)}</div>
+        <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; align-items:center;"><button type="button" class="loan-replan" data-id="${extraPayEsc(l.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:12.5px; cursor:pointer;">Change Repayment Plan</button><button type="button" class="loan-payoff" data-id="${extraPayEsc(l.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:12.5px; cursor:pointer;">Mark Paid in Full</button><span class="status-msg loan-status"></span></div>
+        <div class="loan-replan-box" style="display:none;">${loanPlanControls(l.id, bal, 'Balance to repay')}<div style="margin-top:8px;"><button type="button" class="btn-primary loan-replan-save" data-id="${extraPayEsc(l.id)}">Save Plan</button></div></div>
+      </div>`; }).join('')}
+      ${done.length ? `<details style="margin-top:12px;"><summary style="cursor:pointer; font-size:13px; color:var(--muted);">Past requests (${done.length})</summary>
+        ${done.map(l => `<div style="border-top:1px solid var(--line); padding:7px 0; font-size:13px;"><strong>${extraPayEsc(l.employeeName)}</strong> \u00b7 ${extraPayMoney(l.status === 'approved' ? l.approvedAmount : l.amount)} \u00b7 ${l.status === 'approved' ? (l.paidOff ? `paid in full ${fmtD(l.paidOff.at)}${l.paidOff.note ? ' (' + extraPayEsc(l.paidOff.note) + ')' : ''}` : 'repaid') : l.status === 'declined' ? 'declined' : 'canceled by employee'} \u00b7 ${fmtD(l.decidedAt || l.requestedAt)}
+          <div class="form-note" style="margin:2px 0 0;">\u201c${extraPayEsc(l.reason)}\u201d${l.declineReason ? ' \u2014 ' + extraPayEsc(l.declineReason) : ''}</div>${l.status === 'approved' ? `<div style="margin-top:4px;">${sched(l)}</div>` : ''}</div>`).join('')}</details>` : ''}
+    </div>`;
+    const reload = () => loadExtraPayData();
+    box.querySelectorAll('.loan-plan').forEach(pl => { pl.querySelectorAll('input, select').forEach(x => x.addEventListener('input', () => loanPlanPreview(pl))); loanPlanPreview(pl); });
+    const st = b => b.closest('.loan-card').querySelector('.loan-status');
+    box.querySelectorAll('.loan-approve').forEach(b => b.onclick = async () => {
+      const r = loanPlanRead(b.closest('.loan-card').querySelector('.loan-plan')), s = st(b);
+      if(r.error){ s.textContent = r.error; s.className = 'status-msg loan-status err'; return; }
+      if(!confirm(`Approve a ${extraPayMoney(r.amount)} loan, repaid over ${r.n} paycheck${r.n === 1 ? '' : 's'}?`)) return;
+      b.disabled = true;
+      const ok = await loanSave(b.dataset.id, l => { l.status = 'approved'; l.approvedAmount = r.amount; l.installments = r.installments; l.decidedAt = new Date().toISOString(); l.decidedBy = localStorage.getItem('henson_auth_email') || ''; });
+      if(!ok){ b.disabled = false; s.textContent = 'Could not save \u2014 check your connection.'; s.className = 'status-msg loan-status err'; return; }
+      reload();
+    });
+    box.querySelectorAll('.loan-decline').forEach(b => b.onclick = async () => {
+      const why = prompt('Decline this request? Add a short note for the employee (optional):', '');
+      if(why === null) return;
+      if(await loanSave(b.dataset.id, l => { l.status = 'declined'; l.declineReason = why.trim().slice(0, 300); l.decidedAt = new Date().toISOString(); l.decidedBy = localStorage.getItem('henson_auth_email') || ''; })) reload();
+    });
+    box.querySelectorAll('.loan-replan').forEach(b => b.onclick = () => { const x = b.closest('.loan-card').querySelector('.loan-replan-box'); x.style.display = x.style.display === 'none' ? 'block' : 'none'; });
+    box.querySelectorAll('.loan-replan-save').forEach(b => b.onclick = async () => {
+      const card = b.closest('.loan-card'), r = loanPlanRead(card.querySelector('.loan-plan')), s = st(b);
+      if(r.error){ s.textContent = r.error; s.className = 'status-msg loan-status err'; return; }
+      // Payments already made (payroll uploaded) stay; the rest is replaced.
+      const ok = await loanSave(b.dataset.id, l => {
+        const kept = (l.installments || []).filter(i => loanIsPaid(i.week));
+        const paid = kept.reduce((t, i) => t + Number(i.amount || 0), 0);
+        l.approvedAmount = Math.round((paid + r.amount) * 100) / 100;
+        l.installments = kept.concat(r.installments.filter(i => !kept.some(k => k.week === i.week)));
+        l.planChangedAt = new Date().toISOString();
+      });
+      if(ok) reload(); else { s.textContent = 'Could not save.'; s.className = 'status-msg loan-status err'; }
+    });
+    box.querySelectorAll('.loan-payoff').forEach(b => b.onclick = async () => {
+      const note = prompt('Mark this loan paid in full? Payments not yet made come off the schedule.\nNote (optional, e.g. "paid cash"):', '');
+      if(note === null) return;
+      if(await loanSave(b.dataset.id, l => { l.installments = (l.installments || []).filter(i => loanIsPaid(i.week)); l.paidOff = { at: new Date().toISOString(), note: note.trim().slice(0, 200), balance: loanBalance(Object.assign({}, l)) }; })) reload();
+    });
+  }
+
   function extraPayMarkNegative(input){
     if(input.dataset.baseStyle === undefined) input.dataset.baseStyle = input.getAttribute('style') || '';
     const neg = (Number(input.value) || 0) < 0;
@@ -15397,27 +15633,29 @@ window.openEmailDraft = function(o){
     const expenses = Number(row.dataset.expenses) || 0;
     const mileage = Number(row.dataset.mileage) || 0;
     const costRecovery = Number(row.dataset.costrecovery) || 0;
-    const total = tips + reviewBonus + commission - damage - costRecovery + expenses + mileage + misc;
+    const loan = Number(row.dataset.loan) || 0;
+    const total = tips + reviewBonus + commission - damage - costRecovery - loan + expenses + mileage + misc;
     const totalCell = row.querySelector('.extraPay-total');
     totalCell.textContent = extraPayMoney(total);
     totalCell.style.color = total < 0 ? '#b3261e' : '';
     // Anything typed below zero is a deduction -- show it in red.
     row.querySelectorAll('.extraPay-misc, .extraPay-reviewBonus, .extraPay-commission').forEach(extraPayMarkNegative);
-    return { tips, reviewBonus, commission, damage, costRecovery, expenses, mileage, misc, total };
+    return { tips, reviewBonus, commission, damage, costRecovery, loan, expenses, mileage, misc, total };
   }
 
   function extraPayRecalcWeekTotals(weekPanel){
     const rows = weekPanel.querySelectorAll('.extraPay-employee-row');
-    const sums = { tips: 0, reviewBonus: 0, commission: 0, damage: 0, costRecovery: 0, expenses: 0, mileage: 0, misc: 0, total: 0 };
+    const sums = { tips: 0, reviewBonus: 0, commission: 0, damage: 0, costRecovery: 0, loan: 0, expenses: 0, mileage: 0, misc: 0, total: 0 };
     rows.forEach(row => {
       const r = extraPayRecalcRow(row);
-      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.damage += r.damage; sums.costRecovery += r.costRecovery; sums.expenses += r.expenses; sums.mileage += r.mileage; sums.misc += r.misc; sums.total += r.total;
+      sums.tips += r.tips; sums.reviewBonus += r.reviewBonus; sums.commission += r.commission; sums.damage += r.damage; sums.costRecovery += r.costRecovery; sums.loan += r.loan; sums.expenses += r.expenses; sums.mileage += r.mileage; sums.misc += r.misc; sums.total += r.total;
     });
     weekPanel.querySelector('.extraPay-totalTips').textContent = extraPayMoney(sums.tips);
     weekPanel.querySelector('.extraPay-totalReviewBonus').textContent = extraPayMoney(sums.reviewBonus);
     weekPanel.querySelector('.extraPay-totalCommission').textContent = extraPayMoney(sums.commission);
     weekPanel.querySelector('.extraPay-totalDamage').textContent = sums.damage > 0 ? '\u2212' + extraPayMoney(sums.damage) : '';
     weekPanel.querySelector('.extraPay-totalCostRecovery').textContent = sums.costRecovery > 0 ? '\u2212' + extraPayMoney(sums.costRecovery) : '';
+    weekPanel.querySelector('.extraPay-totalLoan').textContent = sums.loan > 0 ? '\u2212' + extraPayMoney(sums.loan) : '';
     weekPanel.querySelector('.extraPay-totalExpenses').textContent = sums.expenses ? (sums.expenses < 0 ? '\u2212' + extraPayMoney(-sums.expenses) : extraPayMoney(sums.expenses)) : '';
     weekPanel.querySelector('.extraPay-totalMileage').textContent = sums.mileage > 0 ? extraPayMoney(sums.mileage) : '';
     weekPanel.querySelector('.extraPay-totalMisc').textContent = extraPayMoney(sums.misc);
@@ -15458,8 +15696,9 @@ window.openEmailDraft = function(o){
       const expenses = (w.expensesByName && w.expensesByName[name]) || null;
       const mileage = (w.mileageByName && w.mileageByName[name]) || null;
       const costRec = (w.costRecoveryByName && w.costRecoveryByName[name]) || null;
+      const loanRep = (w.loanByName && w.loanByName[name]) || null;
       const isOm = w.opsManagerName === name;
-      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}" data-costrecovery="${costRec ? costRec.total : 0}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-expenses="${expenses ? expenses.total : 0}" data-mileage="${mileage ? mileage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
+      return `<tr class="extraPay-employee-row" data-name="${extraPayEsc(name)}" data-tips="${tips}" data-loan="${loanRep ? loanRep.total : 0}" data-costrecovery="${costRec ? costRec.total : 0}"${isOm ? ' data-om="1"' : ''} data-damage="${damage ? damage.total : 0}" data-expenses="${expenses ? expenses.total : 0}" data-mileage="${mileage ? mileage.total : 0}" data-damage-paid="${damage && damage.alreadyPaid ? '1' : ''}">
         <td style="padding:6px 4px; border-bottom:1px solid var(--line);">${extraPayEsc(name)}${isOm ? `<div style="margin-top:6px; padding:6px 8px; background:#FFF4E5; border:1px solid var(--brand-orange); border-radius:6px; font-size:12px;" title="Ops Manager commission = revenue from his estimate conversions x the Ops Manager rate">
           <div style="font-weight:700; color:var(--brand-orange-dark);">Ops Manager &mdash; Converted Revenue (${extraPayEsc(extraPayWeekLabel(extraPayGetWeekBounds(w.weekStart)))})</div>
           <div style="display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">$<input type="number" min="0" step="0.01" class="extraPay-convRev" data-rate="${w.omRatePct}" data-score="${w.omScoreVal == null ? '' : w.omScoreVal}" data-hours="${w.omHoursVal || 0}" value="${w.omConvertedRevenue ? Number(w.omConvertedRevenue).toFixed(2) : ''}" placeholder="0.00" style="width:110px; text-align:right; padding:4px 6px;"> <span style="color:var(--muted);">&times; ${w.omRatePct}% &times; ${w.omScoreVal == null ? (w.omWaitingPayroll ? '<span style="color:#8a6d00;" title="The score and hours come from this work week\u2019s payroll report \u2014 upload it in Labor Cost">score after payroll upload</span>' : '<span style="color:#b3261e;">no score</span>') : w.omScoreVal + '% score'} &times; ${Math.round((w.omHoursVal || 0) * 10) / 10}/40 hrs${w.omSalaried ? ' (salaried)' : (w.omHoursActual > 40 ? ` (worked ${Math.round(w.omHoursActual * 10) / 10}, capped at 40)` : '')} = <span class="extraPay-convRevResult" style="color:var(--charcoal); font-weight:700;">${extraPayMoney((w.omConvertedRevenue || 0) * w.omRatePct / 100 * ((w.omScoreVal || 0) / 100) * ((w.omHoursVal || 0) / 40))}</span></span></div>
@@ -15469,6 +15708,7 @@ window.openEmailDraft = function(o){
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" min="0" step="0.01" class="extraPay-commission" data-auto="${autoCommission.toFixed(2)}" value="${commissionValue.toFixed(2)}" style="${commissionStyle}"${commissionTitle}>${w.newEmployeeHold && w.newEmployeeHold[name] && manual.commission === undefined ? `<div style="font-size:10.5px; color:#8a6d00; white-space:nowrap;" title="New Employee waiting period (Configuration -> Commission)">New employee &mdash; starts wk of ${window.fmtDate(w.newEmployeeHold[name])}</div>` : ''}${w.opsManagerName === name && manual.commission === undefined && (w.omReason || w.omSalariedNote) ? `<div style="font-size:10.5px; color:${w.omReason ? '#8a6d00' : 'var(--muted)'}; max-width:190px; margin-left:auto;" title="Ops Manager commission">${extraPayEsc(w.omReason || w.omSalariedNote)}</div>` : ''}</td>
         <td class="extraPay-damage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${damage ? ` title="Damage claims entered this week:\n${extraPayEsc(damage.claims.join('\n'))}\nTotal ${extraPayMoney(damage.total)} \u2014 comes off commission, never below $0."` : ''}></td>
         <td class="extraPay-costRecovery" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${costRec ? ` title="${extraPayEsc(costRec.lines.join('\n'))}"` : ''}>${costRec ? '\u2212' + extraPayMoney(costRec.total) : '<span style="color:var(--muted); font-weight:400;">\u2014</span>'}</td>
+        <td class="extraPay-loan" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); color:#b3261e; font-weight:600;"${loanRep ? ` title="${extraPayEsc(loanRep.lines.join('\n'))}"` : ''}>${loanRep ? '\u2212' + extraPayMoney(loanRep.total) : '<span style="color:var(--muted); font-weight:400;">\u2014</span>'}</td>
         <td class="extraPay-expenses" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${expenses ? `<button type="button" class="ep-claims" data-kind="expenses" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change these expenses" style="background:none; border:none; padding:0; cursor:pointer; color:${expenses.total < 0 ? '#b3261e' : 'var(--brand-green-dark)'}; font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${expenses.total < 0 ? '\u2212' + extraPayMoney(-expenses.total) : extraPayMoney(expenses.total)}${expenses.claims.some(c => c.type === 'charge') ? '<div style="font-size:10.5px; font-weight:600;">incl. charge</div>' : ''}${expenses.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td class="extraPay-mileage" style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);">${mileage ? `<button type="button" class="ep-claims" data-kind="mileage" data-name="${extraPayEsc(name)}" data-week="${w.weekStart}" title="See or change this mileage" style="background:none; border:none; padding:0; cursor:pointer; color:#1f4f87; font-weight:600; text-decoration:underline dotted; font-size:inherit; font-family:inherit;">${extraPayMoney(mileage.total)}${mileage.claims.some(c => c.reimbursedOutside) ? ' <span style="font-size:10px; color:var(--muted);">*</span>' : ''}</button>` : '<span style="color:var(--muted);">\u2014</span>'}</td>
         <td style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line);"><input type="number" step="0.01" class="extraPay-misc" value="${Number(manual.misc)||0}" style="${inputStyle}" title="Extra pay, or a negative amount to deduct (e.g. -150)"></td>
@@ -15496,6 +15736,7 @@ window.openEmailDraft = function(o){
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Commission</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;" title="Damage claim costs entered this week for jobs this person worked (shared across the crew on the claim, weighted by commission rate) -- taken off Commission, up to all of it">Damage Claim</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Materials pulled but not billed to the client, charged back to the employee from Underbilled Jobs (hover an amount for the details)">Cost Recovery</th>
+            <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Short-term loan payments due this paycheck (set when the loan was approved, above). Hover an amount for the details.">Loan Repayment</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Expenses approved in Manager Review this pay week -- reimbursements, not commission">Expenses</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:100px;" title="Personal-vehicle mileage approved in Manager Review this pay week (miles x the rate locked in at approval)">Mileage</th>
             <th style="text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); width:110px;">Misc</th>
@@ -15510,6 +15751,7 @@ window.openEmailDraft = function(o){
               <td class="extraPay-totalCommission" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalDamage" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line); color:#b3261e;"></td>
               <td class="extraPay-totalCostRecovery" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line); color:#b3261e;"></td>
+              <td class="extraPay-totalLoan" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line); color:#b3261e;"></td>
               <td class="extraPay-totalExpenses" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalMileage" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
               <td class="extraPay-totalMisc" style="text-align:right; padding:8px 4px; border-top:2px solid var(--line);"></td>
@@ -18476,6 +18718,7 @@ window.openEmailDraft = function(o){
     const listEl = document.querySelector('#dashSection-pay .dashSectionTileList');
     if(countEl) countEl.textContent = isAdmin ? '(3)' : '(2)';
     if(listEl) listEl.textContent = isAdmin ? 'ADP, Labor Cost, Extra Pay' : 'ADP, Labor Cost';
+    if(isAdmin && window.refreshLoanBadge) window.refreshLoanBadge();
   }
   applyExtraPayPermission();
   window.applyExtraPayPermission = applyExtraPayPermission;
