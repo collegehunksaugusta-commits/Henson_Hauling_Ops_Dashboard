@@ -797,6 +797,13 @@
     <div class="pgrp-label">On the road</div>
     <div class="pgrp">
 <div class="dt-card">
+        <button type="button" class="dt-head whoDrivingBtn">
+          <span class="dt-icon"><svg class="kit-ic" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 14v7M10.3 11 3.5 9.5M13.7 11l6.8-1.5"/></svg></span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Who&rsquo;s Driving</span><span class="dt-sub" style="display:block;">Taking the wheel from someone? Tap so Motive&rsquo;s driving events go on the right person</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
+<div class="dt-card">
         <button type="button" id="driverGoToTruckDocsBtn" class="dt-head">
           <span class="dt-icon"><svg class="kit-ic" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
           <span style="min-width:0;"><span class="dt-title" style="display:block;">DOT Documents</span><span class="dt-sub" style="display:block;">Your license and DOT physical, plus each truck&rsquo;s registration and insurance card</span></span>
@@ -910,6 +917,14 @@
     </div>
     <div class="pgrp-label">On the road</div>
     <div class="pgrp">
+<div id="wmWhoDriving" style="display:none;"><div class="dt-card">
+        <button type="button" class="dt-head whoDrivingBtn">
+          <span class="dt-icon"><svg class="kit-ic" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 14v7M10.3 11 3.5 9.5M13.7 11l6.8-1.5"/></svg></span>
+          <span style="min-width:0;"><span class="dt-title" style="display:block;">Who&rsquo;s Driving</span><span class="dt-sub" style="display:block;">Taking the wheel from someone? Tap so Motive&rsquo;s driving events go on the right person</span></span>
+          <span class="dt-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
+</div>
 <div id="wingmanFuelSlot"></div>
     </div>
 
@@ -2161,7 +2176,7 @@ window.openEmailDraft = function(o){
   async function loadDriveTodayOption(){
     const box = document.getElementById('wmDriveToday');
     if(driverRole !== 'wingman'){ box.style.display = 'none'; return; }
-    try{ const r = await fetch(API_BASE_AUTH + '/api/wingman/can-drive', { headers: {'Authorization': 'Bearer ' + driverToken} }); const d = r.ok ? await r.json() : {}; box.style.display = d.canDrive ? 'block' : 'none'; }
+    try{ const r = await fetch(API_BASE_AUTH + '/api/wingman/can-drive', { headers: {'Authorization': 'Bearer ' + driverToken} }); const d = r.ok ? await r.json() : {}; box.style.display = d.canDrive ? 'block' : 'none'; document.getElementById('wmWhoDriving').style.display = d.canDrive ? 'block' : 'none'; }
     catch(err){ box.style.display = 'none'; }
   }
   document.getElementById('wmDriveTodayBtn').addEventListener('click', async () => {
@@ -2174,6 +2189,49 @@ window.openEmailDraft = function(o){
       showDriverMenu();
     }catch(err){ st.textContent = err.message; st.className = 'status-msg err'; }
   });
+
+  // ---- Who's Driving ----
+  // Whoever did a truck's Pre-Trip has the wheel until someone else taps
+  // "I'm driving" here. Motive's safety events (hard braking, speeding, ...)
+  // go on whoever had the wheel at the time.
+  async function openWhoDriving(){
+    const base = API_BASE_AUTH + (driverRole === 'wingman' ? '/api/wingman' : '/api/driver');
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed; inset:0; z-index:199995; background:#f6f5f2; overflow-y:auto; -webkit-overflow-scrolling:touch;';
+    document.body.appendChild(ov);
+    const render = async msg => {
+      let d = {};
+      try{ const r = await fetch(base + '/driving', { headers: {'Authorization': 'Bearer ' + driverToken} }); if(r.status === 401){ ov.remove(); driverSessionExpired(); return; } d = await r.json(); }catch(err){ d = { error: 'Couldn\u2019t load \u2014 check your connection.' }; }
+      const tm = iso => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      ov.innerHTML = `<div style="max-width:440px; margin:0 auto; padding:16px 14px 40px; font-family:inherit;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;"><h2 class="display" style="margin:0; font-size:20px;">Who&rsquo;s Driving</h2><button type="button" class="wd-close" style="background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 14px; font-size:15px; cursor:pointer; font-family:inherit;">Done</button></div>
+        ${msg ? `<p class="status-msg ok" style="margin:0 0 10px;">${msg}</p>` : ''}
+        ${d.error ? `<p class="status-msg err">${driverEsc(d.error)}</p>` : ''}
+        <p style="font-size:13px; color:var(--muted); margin:0 0 10px;">Taking over the wheel? Tap your truck so any hard braking, speeding or other Motive event from now on goes on you, not the last driver.</p>
+        ${(d.trucks || []).length ? (d.trucks || []).map(t => `<div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px;">
+          <div style="font-size:16px; font-weight:800;">${driverEsc(t.name)}</div>
+          <div style="font-size:13.5px; margin:2px 0 8px;">${t.me ? '<span style="color:var(--brand-green-dark); font-weight:700;">You&rsquo;re driving</span>' : `Driving: <strong>${driverEsc(t.driver)}</strong>`} <span style="color:var(--muted);">since ${tm(t.since)}</span></div>
+          ${t.me ? '' : d.canDrive ? `<button type="button" class="wd-take" data-truck="${driverEsc(t.truckId)}" data-name="${driverEsc(t.name)}" style="width:100%; padding:12px; font-size:15.5px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">I&rsquo;m driving ${driverEsc(t.name)} now</button>` : ''}
+        </div>`).join('') : '<div style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; font-size:14px;">No truck has a Pre-Trip Inspection yet today.</div>'}
+        ${d.canDrive === false ? '<p style="font-size:12.5px; color:var(--muted);">You&rsquo;re not set up as a driver, so you can&rsquo;t take the wheel here.</p>' : ''}
+        <h3 style="font-size:14px; margin:18px 0 6px;">Your driving events (last 30 days)</h3>
+        ${(d.myEvents || []).length ? (d.myEvents || []).map(e => `<div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin-bottom:6px; font-size:13.5px;"><strong>${driverEsc(e.label)}</strong>${e.overMph != null ? ` \u2014 ${e.maxSpeedMph} in a ${e.postedMph}` : e.maxSpeedMph != null ? ` at ${e.maxSpeedMph} mph` : ''}<div style="font-size:12px; color:var(--muted);">${new Date(e.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${tm(e.at)} \u00b7 ${driverEsc(e.truckName || '')}</div></div>`).join('') : '<p style="font-size:13.5px; margin:0;">None &mdash; nice driving. &#128077;</p>'}
+        <p style="font-size:12px; color:var(--muted); margin-top:10px;">Think one isn&rsquo;t yours? Tell the office &mdash; they can move it to whoever was driving.</p>
+      </div>`;
+      ov.querySelector('.wd-close').onclick = () => ov.remove();
+      ov.querySelectorAll('.wd-take').forEach(b => b.onclick = async () => {
+        if(!confirm(`You're driving ${b.dataset.name} now?`)) return;
+        b.disabled = true;
+        try{
+          const r = await fetch(base + '/driving', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ truckId: b.dataset.truck }) });
+          const res = await r.json().catch(() => ({})); if(!r.ok) throw new Error(res.error || 'Could not save.');
+          render(`\u2713 Got it \u2014 you have the wheel of ${driverEsc(b.dataset.name)}.`);
+        }catch(err){ alert(err.message); b.disabled = false; }
+      });
+    };
+    render();
+  }
+  document.querySelectorAll('.whoDrivingBtn').forEach(b => b.addEventListener('click', openWhoDriving));
 
   // ---- Truck Condition marked FAIL -> pop-up the next day ----
   // Styled like the weigh-station caution. Waits for any other pop-up to
@@ -8377,6 +8435,13 @@ window.openEmailDraft = function(o){
       <p class="form-note" id="cm_truckConditionsEmptyNote" style="display:none;">No applicable truck condition reviews yet this month.</p>
     </div>
 
+    <div class="panel" id="cmDrivingSafetyPanel">
+      <h3>Driving Safety</h3>
+      <p class="form-note" id="cm_drivingSafetyDesc"></p>
+      <div id="cm_drivingSafetyRows"></div>
+      <p class="form-note" id="cm_drivingSafetyEmptyNote" style="display:none;">No driving days yet this month.</p>
+    </div>
+
     <div class="panel" id="cmWingmanReviewsPanel">
       <h3>Captain Reviews</h3>
       <p class="form-note" id="cm_captainReviewsDesc"></p>
@@ -8925,6 +8990,7 @@ window.openEmailDraft = function(o){
       <button type="button" class="mgrreview-tab-btn" data-tab="ccard" id="mgrreview_tab_ccard" style="background:none; border:none; border-bottom:3px solid var(--brand-orange); padding:10px 16px 10px 4px; margin-right:20px; font-weight:700; font-size:14px; cursor:pointer; color:var(--charcoal); font-family:inherit;">Credit Card Transactions</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="underbilled" id="mgrreview_tab_underbilled" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Underbilled Jobs <span id="mgrreview_underbilledTabCount"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="truckconditions" id="mgrreview_tab_truckconditions" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Truck Conditions <span id="mgrreview_truckConditionsTabCount"></span></button>
+      <button type="button" class="mgrreview-tab-btn" data-tab="drivingsafety" id="mgrreview_tab_drivingsafety" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Motive Events <span id="mgrreview_drivingSafetyTabCount" style="color:var(--brand-orange);"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="junkremoval" id="mgrreview_tab_junkremoval" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Junk Removal</button>
       <button type="button" class="mgrreview-tab-btn" data-tab="roadtests" id="mgrreview_tab_roadtests" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Road Tests <span id="mgrreview_roadtestsTabCount" style="color:#b3261e; font-weight:800;"></span></button>
       <button type="button" class="mgrreview-tab-btn" data-tab="timeoff" id="mgrreview_tab_timeoff" style="background:none; border:none; border-bottom:3px solid transparent; padding:10px 16px 10px 4px; margin-right:20px; font-weight:600; font-size:14px; cursor:pointer; color:var(--muted); font-family:inherit;">Time Off <span id="mgrreview_timeoffTabCount" style="color:#b3261e; font-weight:800;"></span></button>
@@ -9140,6 +9206,27 @@ window.openEmailDraft = function(o){
         <span id="mgrreview_truckReviewedChevron" style="font-size:13px; color:var(--muted); transition:transform .15s;">&#9656;</span>
       </button>
       <div id="mgrreview_truckReviewedRows" style="display:none; margin-top:10px;"></div>
+    </div>
+
+    <div class="panel" id="mgrreview_panel_drivingsafety" style="display:none;">
+      <h3>Motive Events</h3>
+      <p class="form-note" style="margin-top:0;">Safety events from Motive (hard braking, speeding, phone use and the rest), put on whoever had the wheel: the Captain who did that truck&rsquo;s Pre-Trip, or whoever tapped &ldquo;I&rsquo;m driving&rdquo; in the HUNK Portal after. Void an event that wasn&rsquo;t the driver&rsquo;s fault, or move it to the person who was really driving. Counted events feed the Driving Safety part of the Captain score. New ones are flagged until someone marks them Reviewed.</p>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 10px;">
+        <button type="button" id="ds_syncBtn" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-size:13px;">Check Motive Now</button>
+        <span class="form-note" id="ds_syncNote" style="margin:0;"></span>
+      </div>
+      <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin:0 0 12px; font-size:13px;">
+        <label style="margin:0; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:normal; font-size:13px;">Speeding counts at <input type="number" id="ds_speedMin" min="1" max="40" step="1" style="width:60px; padding:4px 6px;"> mph over the limit</label>
+        <button type="button" id="ds_speedSave" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-family:inherit; font-size:12.5px;">Save</button>
+        <label style="margin:0; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:normal; font-size:13px;"><input type="checkbox" id="ds_showAll"> Show events that don&rsquo;t count</label>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 12px; font-size:13px;">
+        <label style="margin:0; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:normal; font-size:13px;">Text alerts <select id="ds_alertMode" style="padding:4px 6px; font-size:13px;"><option value="all">Every event that counts</option><option value="serious">Serious only (crash, collision warning, phone, no seat belt, 20+ over&hellip;)</option><option value="off">Off</option></select></label>
+        <span class="form-note" id="ds_alertNote" style="margin:0;"></span>
+      </div>
+      <div id="ds_warn"></div>
+      <div id="ds_list"></div>
+      <p class="form-note" id="ds_empty" style="display:none;">No safety events in the last 60 days.</p>
     </div>
 
     <div class="panel" id="mgrreview_panel_junkremoval" style="display:none;">
@@ -31180,6 +31267,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     { weightKey: 'movePhoto', label: 'Move Job Photo Upload', description: 'Each Captain assigned a Move job must upload at least one photo of pre-existing damage for that job.' },
     { weightKey: 'underbilled', label: 'Underbilled Jobs', description: 'Percentage of a Captain\u2019s applicable jobs -- materials checked out, a Junk Removal job once invoiced, or a Move/Move Labor job on or after the travel line check start date once its invoice is on file -- that are NOT Manager-confirmed bad. A job the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' },
     { weightKey: 'truckConditions', label: 'Truck Conditions', description: 'Percentage of a Captain\u2019s End of Day Inspections that are NOT Manager-confirmed bad, attributed to whichever Captain drove that truck that day. An inspection the AI never flagged counts as good automatically; one still awaiting the Manager\u2019s Pass/Fail call on the Manager Review tile isn\u2019t counted yet either way.' },
+    { weightKey: 'drivingSafety', label: 'Driving Safety', description: 'Share of the days a Captain drove with no Motive safety event while he had the wheel (hard braking, hard acceleration, hard cornering, crash, speeding past the set limit, and the dashcam events like phone use, no seat belt and tailgating). Whoever did the truck\u2019s Pre-Trip has the wheel until someone taps \u201cI\u2019m driving\u201d in the HUNK Portal. Events voided in Manager Review don\u2019t count. A day isn\u2019t counted until the next day.' },
     { weightKey: 'captainReviews', label: 'Captain Reviews', description: 'Share of \u201cYes\u201d answers across every Captain Review wingmen submitted about this Captain from the Wingman Portal this month. A Captain with no reviews yet isn\u2019t scored on this category.' },
   ];
   window.CAPTAIN_METRIC_CATEGORIES = CAPTAIN_METRIC_CATEGORIES; // this file has multiple separate <script> blocks, each with its own const scope -- window is the only thing shared across all of them, and renderCmWeightRows (Settings) lives in an earlier one
@@ -31200,7 +31288,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       const monthLabel = new Date(data.month + '-01T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
       document.getElementById('cm_activeMonthNote').textContent = `Showing ${monthLabel} so far \u2014 live. Held at month-end until next month's first payroll upload.`;
 
-      const descElIdByKey = { completedPaperwork: 'paperwork', attendance: 'attendance', ptiEod: 'ptiEod', movePhoto: 'movePhoto', underbilled: 'underbilled', truckConditions: 'truckConditions', captainReviews: 'captainReviews' };
+      const descElIdByKey = { completedPaperwork: 'paperwork', attendance: 'attendance', ptiEod: 'ptiEod', movePhoto: 'movePhoto', underbilled: 'underbilled', truckConditions: 'truckConditions', captainReviews: 'captainReviews', drivingSafety: 'drivingSafety' };
       window.CAPTAIN_METRIC_CATEGORIES.forEach(cat => {
         const el = document.getElementById(`cm_${descElIdByKey[cat.weightKey]}Desc`);
         if(el) el.textContent = cat.description;
@@ -31212,6 +31300,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       renderCmCategoryTable('cm_movePhotoRows', 'cm_movePhotoEmptyNote', data.scores, 'movePhoto');
       renderCmCategoryTable('cm_underbilledRows', 'cm_underbilledEmptyNote', data.scores, 'underbilled');
       renderCmCategoryTable('cm_truckConditionsRows', 'cm_truckConditionsEmptyNote', data.scores, 'truckConditions');
+      renderCmCategoryTable('cm_drivingSafetyRows', 'cm_drivingSafetyEmptyNote', data.scores, 'drivingSafety');
 
       const captainSelect = document.getElementById('cm_trendCaptainSelect');
       const existingValue = captainSelect.value;
@@ -35898,7 +35987,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(!localStorage.getItem('henson_auth_token') || Date.now() - mgrBadgeCheckedAt < 120000) return;
     mgrBadgeCheckedAt = Date.now();
     try{ managerReviewItems = await window.dashboardApi.get(MANAGER_REVIEW_ITEMS_KEY, []) || managerReviewItems; }catch(err){}
-    await Promise.all([loadTimeOff(), loadExpenseClaims(), loadRoadTests(), loadNewHires()].map(p => Promise.resolve(p).catch(() => {})));
+    await Promise.all([loadTimeOff(), loadExpenseClaims(), loadRoadTests(), loadNewHires(), loadDrivingSafety()].map(p => Promise.resolve(p).catch(() => {})));
     updateManagerReviewTileBadge();
   };
   function updateManagerReviewTileBadge(){
@@ -35908,7 +35997,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       + (window.expensePendingCount || 0)
       + (window.roadTestPendingCount || 0)
       + (window.newHirePendingCount || 0)
-      + (window.timeOffPendingCount || 0);
+      + (window.timeOffPendingCount || 0)
+      + (window.motiveEventsPendingCount || 0);
     const badge = document.getElementById('managerReviewTileBadge');
     const tile = document.getElementById('tile-managerreview');
     if(openCount > 0){
@@ -36977,7 +37067,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
 
   function mgrReviewSwitchTab(tab){
     mgrReviewCurrentTab = tab;
-    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','junkremoval','roadtests','timeoff','newhires','expenses','damageclaims','moving','greviews'].forEach(t => {
+    ['currentjobs','jobs','weighttickets','ccard','underbilled','truckconditions','drivingsafety','junkremoval','roadtests','timeoff','newhires','expenses','damageclaims','moving','greviews'].forEach(t => {
       const btn = document.getElementById(`mgrreview_tab_${t}`);
       const panel = document.getElementById(`mgrreview_panel_${t}`);
       const active = t === tab;
@@ -36994,7 +37084,94 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
     if(tab === 'roadtests') loadRoadTests();
     if(tab === 'newhires') loadNewHires();
     if(tab === 'timeoff') loadTimeOff();
+    if(tab === 'drivingsafety') loadDrivingSafety();
   }
+  // ---- Driving Safety (Motive) ----
+  let dsData = null, dsRoster = [];
+  const dsEsc = x => { const d = document.createElement('div'); d.textContent = String(x == null ? '' : x); return d.innerHTML; };
+  const dsHow = e => ({ pti: 'did the Pre-Trip', switch: 'took the wheel', 'pti-later': 'did the Pre-Trip later that day', reassigned: 'moved here by the office', none: '' })[e.how] || '';
+  async function loadDrivingSafety(){
+    const list = document.getElementById('ds_list');
+    try{
+      const [r, roster] = await Promise.all([fetch(`${API_BASE}/api/admin/driving-safety`, { headers: authHeaders() }), dsRoster.length ? dsRoster : window.getCurrentEmployeeRoster().catch(() => [])]);
+      if(handleAuthFailure(r)) return;
+      dsData = await r.json(); dsRoster = roster || [];
+      if(!r.ok) throw new Error(dsData.error || 'load failed');
+    }catch(err){ list.innerHTML = '<p class="status-msg err">Could not load \u2014 check your connection.</p>'; return; }
+    renderDrivingSafety();
+  }
+  window.loadDrivingSafety = loadDrivingSafety;
+  function renderDrivingSafety(){
+    const d = dsData || { events: [] }, list = document.getElementById('ds_list'), showAll = document.getElementById('ds_showAll').checked;
+    document.getElementById('ds_syncNote').textContent = !d.configured ? 'Motive isn\u2019t connected on the server.' : d.lastSync ? `Last checked ${new Date(d.lastSync).toLocaleString()} \u2014 checks every 15 minutes.` : 'Not checked yet.';
+    const sm = document.getElementById('ds_speedMin'); if(document.activeElement !== sm) sm.value = d.speedingMinOverMph != null ? d.speedingMinOverMph : 10;
+    const warn = [];
+    if(d.lastError) warn.push(`<strong>Motive said:</strong> ${dsEsc(d.lastError)}${/40[13]/.test(d.lastError) ? '<br>The Motive API key may not have permission to read safety events. In Motive, open the API key\u2019s settings and allow safety / driver performance events.' : ''}`);
+    if((d.unlinkedVehicles || []).length) warn.push(`Motive vehicle${d.unlinkedVehicles.length === 1 ? '' : 's'} not matched to a truck: ${d.unlinkedVehicles.map(dsEsc).join(', ')}. Link ${d.unlinkedVehicles.length === 1 ? 'it' : 'them'} in Fleet Maintenance (Current Mileage \u2192 Link Motive).`);
+    document.getElementById('ds_warn').innerHTML = warn.map(w => `<div style="background:#FFF8E1; border:1px solid #f0d78c; border-radius:8px; padding:8px 12px; font-size:13px; margin-bottom:8px;">${w}</div>`).join('');
+    const evs = (d.events || []).filter(e => showAll || e.counts || (e.review && e.review.status === 'void'));
+    const pending = (d.events || []).filter(e => e.counts && !e.review).length;
+    document.getElementById('mgrreview_drivingSafetyTabCount').textContent = pending ? `(${pending})` : '';
+    window.motiveEventsPendingCount = pending; if(window.updateManagerReviewTileBadge) window.updateManagerReviewTileBadge();
+    const am = document.getElementById('ds_alertMode'); if(document.activeElement !== am) am.value = d.motiveAlerts || 'all';
+    document.getElementById('ds_alertNote').textContent = !d.textingReady ? 'Texting isn\u2019t set up yet.' : !d.alertNumbers ? 'No numbers to text \u2014 add yours under Team Messages \u2192 Forward replies to.' : `Goes to the ${d.alertNumbers} number${d.alertNumbers === 1 ? '' : 's'} set under Team Messages \u2192 Forward replies to.`;
+    document.getElementById('ds_empty').style.display = evs.length ? 'none' : 'block';
+    const opts = dsRoster.map(n => `<option value="${dsEsc(n)}">${dsEsc(n)}</option>`).join('');
+    list.innerHTML = evs.map(e => {
+      const t = new Date(e.at);
+      const detail = e.type === 'speeding' ? `${e.maxSpeedMph != null ? e.maxSpeedMph + ' mph' : ''}${e.postedMph != null ? ' in a ' + e.postedMph : ''}${e.overMph != null ? ` (${e.overMph} over)` : ''}${e.durationSec ? ` for ${Math.round(e.durationSec)}s` : ''}` : (e.maxSpeedMph != null ? `at ${e.maxSpeedMph} mph` : '');
+      const voided = e.review && e.review.status === 'void';
+      const badge = voided ? '<span style="background:#eee; color:#666; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Voided</span>'
+        : !e.counts ? '<span style="background:#f0f0f0; color:#777; padding:1px 8px; border-radius:10px; font-size:11.5px;">Doesn\u2019t count</span>'
+        : !e.driver ? '<span style="background:#fdecea; color:#b3261e; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">No driver found</span>'
+        : e.review && e.review.status === 'ok' ? '<span style="background:#EAF6EE; color:var(--brand-green-dark); padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Reviewed \u2014 counts</span>'
+        : e.review ? '<span style="background:#FFF3E0; color:#a35a00; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:700;">Counts</span>'
+        : '<span style="background:#b3261e; color:#fff; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:800;">New</span>';
+      return `<div class="ds-row" data-id="${dsEsc(e.id)}" style="border-top:1px solid var(--line); padding:10px 0; display:flex; gap:12px; flex-wrap:wrap; justify-content:space-between; ${voided ? 'opacity:.6;' : ''}">
+        <div style="min-width:240px; flex:1;">
+          <div><strong>${dsEsc(e.label)}</strong> ${detail ? `<span style="color:var(--muted); font-size:13px;">${dsEsc(detail)}</span>` : ''} ${badge}</div>
+          <div style="font-size:13px; margin-top:2px;">${t.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} ${t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} \u00b7 ${dsEsc(e.truckName || 'Unknown truck')}${e.location ? ' \u00b7 ' + dsEsc(e.location) : ''}</div>
+          <div style="font-size:13px; margin-top:2px;">Driver: ${e.driver ? `<strong>${dsEsc(e.driver)}</strong> <span style="color:var(--muted);">(${dsEsc(dsHow(e))})</span>` : '<span style="color:#b3261e;">no Pre-Trip for this truck that day</span>'}</div>
+          ${e.review && e.review.note ? `<div style="font-size:12px; color:var(--muted); margin-top:2px;">Note: ${dsEsc(e.review.note)}</div>` : ''}
+        </div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          ${e.mediaUrl ? `<a href="${dsEsc(e.mediaUrl)}" target="_blank" rel="noopener" style="font-size:12.5px; font-weight:700;">Video \u2197</a>` : ''}
+          ${!e.review && e.counts ? `<button type="button" class="ds-act" data-act="ok" style="background:var(--brand-green); color:#fff; border:none; border-radius:6px; padding:5px 10px; font-size:12.5px; font-weight:700; cursor:pointer;">\u2713 Reviewed</button>` : ''}
+          ${e.review ? `<button type="button" class="ds-act" data-act="clear" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12.5px; cursor:pointer;">Undo</button>` : `
+          <select class="ds-who" style="padding:4px 6px; font-size:12.5px; max-width:170px;"><option value="">Move to\u2026</option>${opts}</select>
+          <button type="button" class="ds-act" data-act="void" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12.5px; cursor:pointer;">Void</button>`}
+        </div></div>`;
+    }).join('');
+    list.querySelectorAll('.ds-row').forEach(row => {
+      const send = async body => {
+        const r = await fetch(`${API_BASE}/api/admin/driving-safety/${encodeURIComponent(row.dataset.id)}/review`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify(body) });
+        if(handleAuthFailure(r)) return; if(!r.ok){ alert((await r.json().catch(() => ({}))).error || 'Could not save.'); return; }
+        loadDrivingSafety();
+      };
+      row.querySelectorAll('.ds-act').forEach(b => b.onclick = () => {
+        if(b.dataset.act === 'void'){ const note = prompt('Void this event? It won\u2019t count against anyone. Reason (optional):', ''); if(note === null) return; send({ status: 'void', note }); }
+        else if(b.dataset.act === 'ok') send({ status: 'ok' });
+        else send({ status: 'clear' });
+      });
+      const sel = row.querySelector('.ds-who');
+      if(sel) sel.onchange = () => { if(!sel.value) return; if(!confirm(`Move this event to ${sel.value}?`)){ sel.value = ''; return; } send({ status: 'reassigned', reassignTo: sel.value }); };
+    });
+  }
+  document.getElementById('ds_showAll').addEventListener('change', renderDrivingSafety);
+  document.getElementById('ds_alertMode').addEventListener('change', async e => {
+    try{ const r = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { captainMetrics: { motiveAlerts: e.target.value } } }) }); if(handleAuthFailure(r)) return; }catch(err){}
+    loadDrivingSafety();
+  });
+  document.getElementById('ds_syncBtn').addEventListener('click', async e => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Checking\u2026';
+    try{ const r = await fetch(`${API_BASE}/api/admin/driving-safety/sync`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ days: 14 }) }); handleAuthFailure(r); }catch(err){}
+    b.disabled = false; b.textContent = 'Check Motive Now'; loadDrivingSafety();
+  });
+  document.getElementById('ds_speedSave').addEventListener('click', async () => {
+    const v = Math.max(1, Math.min(40, Math.round(Number(document.getElementById('ds_speedMin').value) || 10)));
+    try{ const r = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { captainMetrics: { speedingMinOverMph: v } } }) }); if(handleAuthFailure(r)) return; }catch(err){}
+    loadDrivingSafety();
+  });
   document.querySelectorAll('.mgrreview-tab-btn').forEach(btn => btn.addEventListener('click', ()=> mgrReviewSwitchTab(btn.dataset.tab)));
 
   // ---- Google Reviews ----
