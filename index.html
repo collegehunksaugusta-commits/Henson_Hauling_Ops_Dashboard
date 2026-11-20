@@ -10907,7 +10907,7 @@ window.openEmailDraft = function(o){
           <h3>Owner &amp; Time Tracking</h3>
           <div id="appset_ownerBox"></div>
         </div>
-        <div class="panel" id="set_financialMetricsPanel" data-collapsible="true">
+        <div class="panel" id="set_financialMetricsPanel" data-collapsible="true" style="display:none;"><!-- moved: lines are switched on/off above the Monthly Financials chart -->
           <h3>Monthly Financials: Metrics Shown</h3>
           <p class="form-note" style="margin-top:0;">Uncheck a metric to hide it from the Monthly Financials chart and yearly tables. Nothing is deleted &mdash; its numbers stay saved and are still captured from each P&amp;L, so checking it again brings its full history back.</p>
           <div id="appset_financialMetricsList" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:8px; margin:6px 0 4px;"></div>
@@ -22513,8 +22513,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         <input type="checkbox" class="${cls}" data-key="${m.key}" ${on ? 'checked' : ''} style="width:18px; height:18px; margin:0;">
         <span style="flex:1;"><span style="font-weight:600; font-size:14px;">${settingsEsc(m.label)}</span><span style="display:block; font-size:11.5px; color:var(--muted);">${settingsEsc(sub)}</span></span>
       </label>`;
-    list.innerHTML = window.MF_METRICS.map(m => card(m, !hidden.includes(m.key), m.where, 'fin-metric-cb')).join('')
-      + `<div class="form-note" style="grid-column:1 / -1; margin:6px 0 0;">The P&amp;L Financial Detailed totals (Truck Costs, Office Staff Payroll, Supplies &amp; Materials and the rest) are switched on and off right above the Monthly Financials chart.</div>`;
+    list.innerHTML = `<div class="form-note" style="grid-column:1 / -1; margin:0;">Every line on the Monthly Financials chart &mdash; the summary metrics and the P&amp;L detail totals &mdash; is now switched on and off right above the chart. Each one also adds or removes its column in the yearly tables.</div>`;
+    const saveBtn = document.getElementById('appset_financialMetricsSaveBtn'); if(saveBtn) saveBtn.style.display = 'none';
   }
   window.renderFinancialMetricsSettings = renderFinancialMetricsSettings;
   // Drawn whenever the Financials section is opened, so it never depends on
@@ -30518,25 +30518,41 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function renderMfPlChips(){
     const box = document.getElementById('mf_plChips');
     if(!box) return;
-    const on = new Set((((window.appSettings || {}).financials || {}).shownPlTotals) || []);
+    const fin = (window.appSettings || {}).financials || {};
+    const hidden = new Set(fin.hiddenMetrics || []), plOn = new Set(fin.shownPlTotals || []);
+    const isOn = k => mfIsPl(k) ? plOn.has(k) : !hidden.has(k);
+    const chip = (key, label, color, sub) => { const sel = isOn(key);
+      return `<button type="button" class="mf-pl-chip" data-key="${key}" aria-pressed="${sel}"${sub ? ` title="${mfEsc(sub)}"` : ''} style="display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:16px; font-size:12.5px; cursor:pointer; font-family:inherit; border:1.5px solid ${sel ? color : 'var(--line)'}; background:${sel ? color : '#fff'}; color:${sel ? '#fff' : 'var(--charcoal)'}; font-weight:${sel ? 700 : 500};"><span style="width:9px; height:9px; border-radius:50%; background:${sel ? '#fff' : color};"></span>${mfEsc(label)}</button>`; };
+    const row = (title, chips) => `<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px;"><span style="font-size:11.5px; font-weight:700; color:var(--muted); width:130px;">${mfEsc(title)}</span>${chips}</div>`;
+    const summary = MF_METRICS.filter(m => m.key !== 'businessValue' || !!window.__valPin)
+      .map(m => chip(m.key, m.key === 'ownerWagesNetIncome' ? 'SDE' : m.label.replace(/ \(monthly\)$/, ''), MF_SUMMARY_COLORS[m.key] || '#666', m.where)).join('');
     const groups = [...new Set(MF_PL_TOTALS.map(t => t.group))];
-    box.innerHTML = `<details${on.size ? ' open' : ''}><summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--charcoal);">P&amp;L detail totals <span style="font-weight:400; color:var(--muted);">${on.size ? `\u00b7 ${on.size} shown` : '\u00b7 tap to add lines to the chart and columns to the tables'}</span></summary>
-      ${groups.map(g => `<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px;"><span style="font-size:11.5px; font-weight:700; color:var(--muted); width:130px;">${mfEsc(g)}</span>${MF_PL_TOTALS.filter(t => t.group === g).map(t => {
-        const i = MF_PL_TOTALS.indexOf(t), c = MF_PL_COLORS[i % MF_PL_COLORS.length], sel = on.has(t.key);
-        return `<button type="button" class="mf-pl-chip" data-key="${t.key}" aria-pressed="${sel}" style="display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:16px; font-size:12.5px; cursor:pointer; font-family:inherit; border:1.5px solid ${sel ? c : 'var(--line)'}; background:${sel ? c : '#fff'}; color:${sel ? '#fff' : 'var(--charcoal)'}; font-weight:${sel ? 700 : 500};"><span style="width:9px; height:9px; border-radius:50%; background:${sel ? '#fff' : c};"></span>${mfEsc(t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''))}</button>`; }).join('')}</div>`).join('')}
-      ${on.size ? '<button type="button" id="mf_plClear" style="margin-top:8px; background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer;">Clear all</button>' : ''}</details>`;
-    const save = async keys => {
+    const shown = MF_METRICS.filter(m => !hidden.has(m.key)).length + plOn.size;
+    box.innerHTML = `<details open><summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--charcoal);">Lines shown <span style="font-weight:400; color:var(--muted);">· ${shown} on · tap to turn a line on or off (also adds or removes its table column)</span></summary>
+      ${row('Summary', summary)}
+      ${groups.map(g => row('P&L detail · ' + g, MF_PL_TOTALS.filter(t => t.group === g).map(t => chip(t.key, t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''), MF_PL_COLORS[MF_PL_TOTALS.indexOf(t) % MF_PL_COLORS.length])).join(''))).join('')}
+      <div style="margin-top:8px; display:flex; gap:14px;"><button type="button" class="mf-chip-all" data-on="1" style="background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer;">Turn all on</button><button type="button" class="mf-chip-all" data-on="0" style="background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer;">P&amp;L detail off</button></div></details>`;
+    const save = async () => {
+      const hiddenMetrics = MF_METRICS.map(m => m.key).filter(k => hidden.has(k)), shownPlTotals = MF_PL_TOTALS.map(t => t.key).filter(k => plOn.has(k));
       window.appSettings = window.appSettings || {};
-      window.appSettings.financials = Object.assign({}, window.appSettings.financials, { shownPlTotals: keys });
+      window.appSettings.financials = Object.assign({}, window.appSettings.financials, { hiddenMetrics, shownPlTotals });
       renderMonthlyFinancialsChart(); renderMonthlyFinancialsTable();
       try{
-        const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { financials: { shownPlTotals: keys } } }) });
+        const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { financials: { hiddenMetrics, shownPlTotals } } }) });
         handleAuthFailure(res);
-      }catch(err){ console.error('Saving the P&L totals shown failed:', err); }
+      }catch(err){ console.error('Saving the chart lines shown failed:', err); }
     };
-    box.querySelectorAll('.mf-pl-chip').forEach(b => b.onclick = () => { const k = b.dataset.key; on.has(k) ? on.delete(k) : on.add(k); save(MF_PL_TOTALS.map(t => t.key).filter(x => on.has(x))); });
-    const clr = box.querySelector('#mf_plClear'); if(clr) clr.onclick = () => save([]);
+    box.querySelectorAll('.mf-pl-chip').forEach(b => b.onclick = () => {
+      const k = b.dataset.key;
+      if(mfIsPl(k)) plOn.has(k) ? plOn.delete(k) : plOn.add(k); else hidden.has(k) ? hidden.delete(k) : hidden.add(k);
+      save();
+    });
+    box.querySelectorAll('.mf-chip-all').forEach(b => b.onclick = () => {
+      if(b.dataset.on === '1'){ hidden.clear(); MF_PL_TOTALS.forEach(t => plOn.add(t.key)); } else plOn.clear();
+      save();
+    });
   }
+  const MF_SUMMARY_COLORS = { revenue: '#2E5C8A', labor: '#C1392B', grossProfit: '#00843D', operatingProfit: '#17A398', ebit: '#F2A900', ownerWagesNetIncome: '#7A4FA3', ownerWages: '#5D6D7E', netIncome: '#34495E', totalEquity: '#8A8A8A', depreciationAmortization: '#7F8C8D', businessValue: '#6B3FA0', cogs: '#8B4513', fixedExpenses: '#5D6D7E' };
   const MF_PL_COLORS = ['#B5651D', '#5B8C5A', '#3D6FB6', '#C2185B', '#7E57C2', '#00897B', '#F4511E', '#6D4C41', '#546E7A', '#9E9D24', '#D81B60', '#1E88E5', '#43A047', '#8E24AA', '#FB8C00'];
   function renderMonthlyFinancialsChart(){
     mfPopulateYearSelector();
