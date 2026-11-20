@@ -9377,6 +9377,7 @@ window.openEmailDraft = function(o){
       <p class="form-note" style="margin-top:0;">Each line is a running total for the selected year, resetting to zero every January &mdash; so a rising line reflects cumulative performance building through the year, not a single month's figure. Total Equity is the one exception: it's a snapshot of the business's balance as of each month's end, not a monthly flow, so it's plotted at its own actual value each month rather than summed. Owner Wages and Net Income are charted together as one line &mdash; a rough proxy for total owner benefit, similar to Seller's Discretionary Earnings, so a buyer isn't left to add the two together themselves. Both are still recorded and shown separately, at their individual monthly values, in the table below.</p>
       <label style="max-width:160px; margin-bottom:12px;">Year <select id="mf_chartYear"></select></label>
       <div id="mf_owNiCallout" style="display:none; background:#7A4FA3; color:#fff; font-weight:600; font-size:12.5px; padding:8px 14px; border-radius:6px; margin-bottom:10px;"></div>
+      <div id="mf_plChips" style="margin:0 0 12px;"></div>
       <canvas id="mf_trendChart"></canvas>
       <p class="form-note" id="mf_chartEmptyNote" style="display:none;">Add at least one month above to see the trend chart.</p>
     </div>
@@ -22505,12 +22506,15 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
   function renderFinancialMetricsSettings(){
     const list = document.getElementById('appset_financialMetricsList');
     if(!list || !window.MF_METRICS) return;
-    const hidden = (((window.appSettings || {}).financials || {}).hiddenMetrics) || [];
-    list.innerHTML = window.MF_METRICS.map(m => `
+    const fin = (window.appSettings || {}).financials || {};
+    const hidden = fin.hiddenMetrics || [];
+    const card = (m, on, sub, cls) => `
       <label style="display:flex; align-items:center; gap:10px; margin:0; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:#fff; cursor:pointer;">
-        <input type="checkbox" class="fin-metric-cb" data-key="${m.key}" ${hidden.includes(m.key) ? '' : 'checked'} style="width:18px; height:18px; margin:0;">
-        <span style="flex:1;"><span style="font-weight:600; font-size:14px;">${settingsEsc(m.label)}</span><span style="display:block; font-size:11.5px; color:var(--muted);">${settingsEsc(m.where)}</span></span>
-      </label>`).join('');
+        <input type="checkbox" class="${cls}" data-key="${m.key}" ${on ? 'checked' : ''} style="width:18px; height:18px; margin:0;">
+        <span style="flex:1;"><span style="font-weight:600; font-size:14px;">${settingsEsc(m.label)}</span><span style="display:block; font-size:11.5px; color:var(--muted);">${settingsEsc(sub)}</span></span>
+      </label>`;
+    list.innerHTML = window.MF_METRICS.map(m => card(m, !hidden.includes(m.key), m.where, 'fin-metric-cb')).join('')
+      + `<div class="form-note" style="grid-column:1 / -1; margin:6px 0 0;">The P&amp;L Financial Detailed totals (Truck Costs, Office Staff Payroll, Supplies &amp; Materials and the rest) are switched on and off right above the Monthly Financials chart.</div>`;
   }
   window.renderFinancialMetricsSettings = renderFinancialMetricsSettings;
   // Drawn whenever the Financials section is opened, so it never depends on
@@ -29592,6 +29596,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           depreciationAmortization: data.depreciationAmortization || 0,
           otherMonthsDA: Array.isArray(data.otherMonthsDA) ? data.otherMonthsDA : [],
           ytdDA: Number(data.ytdDepreciationAmortization) || 0,
+          plTotalsByMonth: mfParsePlTotals(pageTexts),
+          // A month already on file is kept as-is by default -- the report is
+          // then only used to fill in P&L totals.
+          totalsOnly: !!(data.month && monthlyFinancialsRecords.some(x => x.month === data.month)),
           confident: !!data.confident,
           periodFound: !!data.periodFound
         });
@@ -29633,6 +29641,8 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
           ${!r.periodFound ? '<div style="font-size:11.5px; color:#b3261e; margin-bottom:6px;">\u26a0 This didn\u2019t look like a financial statement \u2014 check the file, or remove this row.</div>' : ''}
           ${r.periodFound && !r.month ? '<div style="font-size:11.5px; color:#8a6d00; margin-bottom:6px;">\u26a0 Couldn\u2019t determine the month automatically \u2014 pick it below.</div>' : ''}
           ${r.periodFound && !r.confident ? '<div style="font-size:11.5px; color:var(--muted); margin-bottom:6px;">Low confidence read \u2014 please double-check the figures against the source.</div>' : ''}
+          ${(() => { const ms = Object.keys(r.plTotalsByMonth || {}).sort(); return ms.length ? `<div style="font-size:11.5px; color:var(--brand-green-dark); margin-bottom:6px;">\u2713 P&amp;L totals found for ${ms.length} month${ms.length === 1 ? '' : 's'} (${mfMonthLabel(ms[0])}${ms.length > 1 ? ' \u2013 ' + mfMonthLabel(ms[ms.length - 1]) : ''}) \u2014 saved into any of those months already on file.</div>` : ''; })()}
+          ${monthlyFinancialsRecords.some(x => x.month === r.month) ? `<label style="display:flex; gap:8px; align-items:center; font-size:12px; margin:0 0 8px; text-transform:none; letter-spacing:normal;"><input type="checkbox" class="mfrev-totalsOnly" data-review-id="${r.reviewId}" ${r.totalsOnly ? 'checked' : ''} style="width:16px; height:16px; margin:0;"> ${mfMonthLabel(r.month)} is already saved &mdash; keep its saved figures and only add the P&amp;L totals</label>` : ''}
           <div class="form-grid" style="margin-bottom:0;">
             <label style="font-size:11px;">Month <input type="month" class="mfrev-field" data-field="month" data-review-id="${r.reviewId}" value="${esc(r.month)}" style="font-size:13px;"></label>
             <label style="font-size:11px;">Total Revenue ($) <input type="number" step="0.01" class="mfrev-field" data-field="revenue" data-review-id="${r.reviewId}" value="${r.revenue}" style="font-size:13px;"></label>
@@ -29658,6 +29668,9 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       if(!r) return;
       const field = e.target.dataset.field;
       r[field] = field === 'month' ? e.target.value : (parseFloat(e.target.value) || 0);
+    }));
+    container.querySelectorAll('.mfrev-totalsOnly').forEach(cb => cb.addEventListener('change', ()=>{
+      const r = mfBatchReview.find(x => x.reviewId === cb.dataset.reviewId); if(r) r.totalsOnly = cb.checked;
     }));
     container.querySelectorAll('.mfrev-remove').forEach(btn => btn.addEventListener('click', (e)=>{
       mfBatchReview = mfBatchReview.filter(x => x.reviewId !== e.target.dataset.reviewId);
@@ -29687,7 +29700,7 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
       renderMfBatchReview(); // refresh so the highlighting on the colliding rows actually shows
       return;
     }
-    const overwriting = mfBatchReview.filter(r => monthlyFinancialsRecords.some(existing => existing.month === r.month));
+    const overwriting = mfBatchReview.filter(r => !r.totalsOnly && monthlyFinancialsRecords.some(existing => existing.month === r.month));
     if(overwriting.length > 0){
       const list = overwriting.map(r => mfMonthLabel(r.month)).join(', ');
       if(!confirm(`${overwriting.length} of these month${overwriting.length===1?'':'s'} already ${overwriting.length===1?'has':'have'} a saved record (${list}). Overwrite ${overwriting.length===1?'it':'them'} with these values?`)) return;
@@ -29696,8 +29709,11 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     statusEl.className = 'status-msg';
     try{
       mfBatchReview.forEach(r => {
+        const prev = monthlyFinancialsRecords.find(x => x.month === r.month);
+        if(prev && r.totalsOnly) return;   // keep the saved figures; only the P&L totals below
         monthlyFinancialsRecords = monthlyFinancialsRecords.filter(x => x.month !== r.month);
         monthlyFinancialsRecords.push({
+          ...(prev && prev.plTotals ? { plTotals: prev.plTotals } : {}),
           month: r.month, revenue: r.revenue, labor: r.labor, grossProfit: r.grossProfit,
           operatingProfit: r.operatingProfit, ebit: r.ebit, ownerWages: r.ownerWages, netIncome: r.netIncome, totalEquity: r.totalEquity,
           depreciationAmortization: r.depreciationAmortization != null ? r.depreciationAmortization : null,
@@ -29712,8 +29728,12 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         if(r.ytdDA > 0) daYtds.push({ total: r.ytdDA, through: r.month });
       });
       const daFilled = mfApplyDA(monthlyFinancialsRecords, mfPlanDA(monthlyFinancialsRecords, daExact, daYtds));
+      // P&L totals from every report, oldest report first so the newest wins.
+      const plFilled = new Set();
+      mfBatchReview.slice().sort((a, b) => String(a.month).localeCompare(String(b.month))).forEach(r => mfApplyPlTotals(monthlyFinancialsRecords, r.plTotalsByMonth).forEach(m => plFilled.add(m)));
       await window.dashboardApi.set(MONTHLY_FINANCIALS_KEY, monthlyFinancialsRecords);
-      statusEl.textContent = `${mfBatchReview.length} month${mfBatchReview.length===1?'':'s'} saved.` +
+      const savedCount = mfBatchReview.filter(r => !r.totalsOnly).length;
+      statusEl.textContent = `${savedCount} month${savedCount===1?'':'s'} saved.` + (plFilled.size ? ` P&L totals filled in for ${plFilled.size} month${plFilled.size === 1 ? '' : 's'}.` : '') +
         (daFilled.exact + daFilled.est ? ` D&A also filled in for ${daFilled.exact + daFilled.est} earlier month${daFilled.exact + daFilled.est === 1 ? '' : 's'} (${daFilled.exact} exact${daFilled.est ? `, ${daFilled.est} spread from year-to-date` : ''}).` : '');
       statusEl.className = 'status-msg ok';
       mfBatchReview = [];
@@ -29765,8 +29785,73 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     { key: 'cogs', label: 'COGS (monthly)', where: 'Chart line (Revenue \u2212 Gross Profit)' },
     { key: 'fixedExpenses', label: 'Fixed Expenses (monthly)', where: 'Chart line (Gross Profit \u2212 Operating Profit)' }
   ];
+  // Every "Total ..." line of the report's P&L Financial Detailed (the two
+  // already tracked above -- Total Revenue and Total Hunk Team Payroll
+  // Costs -- aren't repeated). Saved per month in record.plTotals[key].
+  // Off until switched on in Configuration -> Financials.
+  const MF_PL_TOTALS = [
+    { key: 'plMoveJobRevenue', label: 'Total Move Job Revenue', group: 'Revenue' },
+    { key: 'plTruckCosts', label: 'Total Truck Costs', group: 'Cost of Goods Sold' },
+    { key: 'plCogs', label: 'Total Cost of Goods Sold', group: 'Cost of Goods Sold' },
+    { key: 'plOfficePayroll', label: 'Total Office Staff Payroll Expenses', group: 'Expenses' },
+    { key: 'plSupplies', label: 'Total Supplies & Materials', group: 'Expenses' },
+    { key: 'plAdvertising', label: 'Total Advertising Expenses', group: 'Expenses' },
+    { key: 'plUtilities', label: 'Total Utilities', group: 'Expenses' },
+    { key: 'plTravel', label: 'Total Travel & Entertainment', group: 'Expenses' },
+    { key: 'plInsurance', label: 'Total Insurance Expenses', group: 'Expenses' },
+    { key: 'plProfessional', label: 'Total Professional Services', group: 'Expenses' },
+    { key: 'plAdministrative', label: 'Total Administrative Costs', group: 'Expenses' },
+    { key: 'plEmployeeDev', label: 'Total Employee Development', group: 'Expenses' },
+    { key: 'plRepairMaint', label: 'Total Repair & Maintenance', group: 'Expenses' },
+    { key: 'plOtherExpenses', label: 'Total Other Expenses', group: 'Expenses' },
+    { key: 'plTotalExpenses', label: 'Total Expenses', group: 'Expenses' }
+  ];
+  window.MF_PL_TOTALS = MF_PL_TOTALS;
   window.MF_METRICS = MF_METRICS;
-  const mfShown = key => !((((window.appSettings || {}).financials || {}).hiddenMetrics) || []).includes(key);
+  const mfIsPl = key => MF_PL_TOTALS.some(t => t.key === key);
+  const mfShown = key => mfIsPl(key)
+    ? ((((window.appSettings || {}).financials || {}).shownPlTotals) || []).includes(key)
+    : !((((window.appSettings || {}).financials || {}).hiddenMetrics) || []).includes(key);
+  const mfShownPl = () => MF_PL_TOTALS.filter(t => mfShown(t.key));
+
+  // Reads every Total line, for every month column, straight from the
+  // report's own text (no AI): the 3-month "P&L Financial Detailed" table
+  // and the 12-month table at the back of the report. A header line names
+  // the months (e.g. "Nov 2025 ... Oct 2026 Total"); each Total line's
+  // dollar figures map onto those months in order. Labels cut short with
+  // "..." still match. Returns { 'YYYY-MM': { key: amount } }.
+  const MF_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  function mfParsePlTotals(pageTexts){
+    const out = {};
+    let months = null;
+    const money = t => { const m = /^(\()?\$(-?[\d,]+(?:\.\d+)?)([MK])?(\))?$/.exec(t); if(!m) return null; let v = parseFloat(m[2].replace(/,/g, '')); if(m[3] === 'M') v *= 1e6; if(m[3] === 'K') v *= 1e3; return m[1] ? -v : v; };
+    (pageTexts || []).forEach(page => String(page || '').split('\n').forEach(raw => {
+      const line = raw.trim();
+      const mm = [...line.matchAll(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? (\d{4})\b/g)];
+      if(mm.length >= 2 && !/\$/.test(line)){ months = mm.map(x => `${x[2]}-${String(MF_MON[x[1].toLowerCase()]).padStart(2, '0')}`); return; }
+      if(!months) return;
+      const m = /^(?:\d{3,5}\s*-\s*)?(Total [^$(]+?)(\u2026|\.\.\.)?\s+((?:\(?\$|-\s|-$).*)$/.exec(line);
+      if(!m) return;
+      const label = m[1].trim().toLowerCase(), cut = !!m[2];
+      const hits = MF_PL_TOTALS.filter(t => cut ? t.label.toLowerCase().startsWith(label) : t.label.toLowerCase() === label);
+      if(hits.length !== 1) return;
+      const vals = m[3].split(/\s+/).map(money).filter(v => v != null);
+      months.forEach((mo, i) => { if(i < vals.length && vals[i] != null){ (out[mo] = out[mo] || {})[hits[0].key] = Math.round(vals[i] * 100) / 100; } });
+    }));
+    return out;
+  }
+  window.mfParsePlTotals = mfParsePlTotals;
+  // Saves P&L totals into months already on file. Returns the months filled.
+  function mfApplyPlTotals(records, byMonth){
+    const filled = [];
+    Object.keys(byMonth || {}).sort().forEach(mo => {
+      const r = records.find(x => x.month === mo);
+      if(!r) return;
+      r.plTotals = Object.assign({}, r.plTotals || {}, byMonth[mo]);
+      filled.push(mo);
+    });
+    return filled;
+  }
 
   async function loadMonthlyFinancialsData(){
     try{ await ensureAppSettingsLoaded(); }catch(err){}
@@ -30428,8 +30513,34 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
     });
   }
 
+  // P&L Financial Detailed totals are switched on and off right above the
+  // chart (one tap each). The choice is saved for everyone in app settings.
+  function renderMfPlChips(){
+    const box = document.getElementById('mf_plChips');
+    if(!box) return;
+    const on = new Set((((window.appSettings || {}).financials || {}).shownPlTotals) || []);
+    const groups = [...new Set(MF_PL_TOTALS.map(t => t.group))];
+    box.innerHTML = `<details${on.size ? ' open' : ''}><summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--charcoal);">P&amp;L detail totals <span style="font-weight:400; color:var(--muted);">${on.size ? `\u00b7 ${on.size} shown` : '\u00b7 tap to add lines to the chart and columns to the tables'}</span></summary>
+      ${groups.map(g => `<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px;"><span style="font-size:11.5px; font-weight:700; color:var(--muted); width:130px;">${mfEsc(g)}</span>${MF_PL_TOTALS.filter(t => t.group === g).map(t => {
+        const i = MF_PL_TOTALS.indexOf(t), c = MF_PL_COLORS[i % MF_PL_COLORS.length], sel = on.has(t.key);
+        return `<button type="button" class="mf-pl-chip" data-key="${t.key}" aria-pressed="${sel}" style="display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:16px; font-size:12.5px; cursor:pointer; font-family:inherit; border:1.5px solid ${sel ? c : 'var(--line)'}; background:${sel ? c : '#fff'}; color:${sel ? '#fff' : 'var(--charcoal)'}; font-weight:${sel ? 700 : 500};"><span style="width:9px; height:9px; border-radius:50%; background:${sel ? '#fff' : c};"></span>${mfEsc(t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''))}</button>`; }).join('')}</div>`).join('')}
+      ${on.size ? '<button type="button" id="mf_plClear" style="margin-top:8px; background:none; border:none; padding:0; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer;">Clear all</button>' : ''}</details>`;
+    const save = async keys => {
+      window.appSettings = window.appSettings || {};
+      window.appSettings.financials = Object.assign({}, window.appSettings.financials, { shownPlTotals: keys });
+      renderMonthlyFinancialsChart(); renderMonthlyFinancialsTable();
+      try{
+        const res = await fetch(`${API_BASE}/api/admin/app-settings`, { method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({ settings: { financials: { shownPlTotals: keys } } }) });
+        handleAuthFailure(res);
+      }catch(err){ console.error('Saving the P&L totals shown failed:', err); }
+    };
+    box.querySelectorAll('.mf-pl-chip').forEach(b => b.onclick = () => { const k = b.dataset.key; on.has(k) ? on.delete(k) : on.add(k); save(MF_PL_TOTALS.map(t => t.key).filter(x => on.has(x))); });
+    const clr = box.querySelector('#mf_plClear'); if(clr) clr.onclick = () => save([]);
+  }
+  const MF_PL_COLORS = ['#B5651D', '#5B8C5A', '#3D6FB6', '#C2185B', '#7E57C2', '#00897B', '#F4511E', '#6D4C41', '#546E7A', '#9E9D24', '#D81B60', '#1E88E5', '#43A047', '#8E24AA', '#FB8C00'];
   function renderMonthlyFinancialsChart(){
     mfPopulateYearSelector();
+    renderMfPlChips();
     const canvas = document.getElementById('mf_trendChart');
     const emptyNote = document.getElementById('mf_chartEmptyNote');
     if(monthlyFinancialsRecords.length === 0){
@@ -30488,7 +30599,10 @@ An AI coding assistant (such as Claude) can rebuild an equivalent system given: 
         return { key: 'businessValue', label: 'Estimated Business Value', data: MF_MONTH_ABBR.map((_, i) => byM[i] ? byM[i].value.mid : null), valuations: byM,
           borderColor: '#6B3FA0', backgroundColor: '#6B3FA0', borderDash: [6, 4], pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', spanGaps: true };
       })()
-    ].filter(ds => mfShown(ds.key) && (ds.key !== 'businessValue' || !!window.__valPin))   // switched off in Configuration -> Financials; valuation only when unlocked
+    ].concat(mfShownPl().map((t, i) => ({ key: t.key, label: t.key === 'plTotalExpenses' ? t.label : t.label.replace(/^Total /, ''), monthly: true, yAxisID: 'yMonthly',
+        data: monthsOfYear.map(r => r && r.plTotals && r.plTotals[t.key] != null ? Number(r.plTotals[t.key]) : null),
+        borderColor: MF_PL_COLORS[i % MF_PL_COLORS.length], backgroundColor: MF_PL_COLORS[i % MF_PL_COLORS.length], borderWidth: 2, borderDash: [4, 3], pointRadius: 3 })))
+     .filter(ds => mfShown(ds.key) && (ds.key !== 'businessValue' || !!window.__valPin))   // switched off in Configuration -> Financials; valuation only when unlocked
      .filter(ds => ds.key !== 'businessValue' || ds.data.some(v => v != null))
      .map(ds => ({ fill: false, tension: 0.15, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, spanGaps: false, ...ds }));
 
@@ -30605,6 +30719,7 @@ ${mfShown('ownerWages') ? `                <th style="text-align:right; padding:
 ${mfShown('netIncome') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Net Income</th>` : ''}
 ${mfShown('totalEquity') ? `                <th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);">Total Equity</th>` : ''}
                 ${mfShown('depreciationAmortization') ? `<th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line);" title="Depreciation + amortization -- added back in the business valuation">D&amp;A</th>` : ''}
+                ${mfShownPl().map(t => `<th style="text-align:right; padding:6px 8px; border-bottom:2px solid var(--line); background:#f6f3ec;" title="From the P&L Financial Detailed">${mfEsc(t.label)}</th>`).join('')}
                 <th style="border-bottom:2px solid var(--line);"></th>
               </tr>
             </thead>
@@ -30621,6 +30736,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
                 ${mfShown('netIncome') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.netIncome)}</td>` : ''}
                 ${mfShown('totalEquity') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${mfMoney(r.totalEquity)}</td>` : ''}
                 ${mfShown('depreciationAmortization') ? `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right;">${r.depreciationAmortization != null ? (r.daEstimated ? '<span title="Even share of the report\u2019s year-to-date D&amp;A total">\u2248 ' + mfMoney(r.depreciationAmortization) + '</span>' : mfMoney(r.depreciationAmortization)) : '<span style="color:var(--muted);">\u2014</span>'}</td>` : ''}
+                ${mfShownPl().map(t => `<td style="padding:6px 8px; border-bottom:1px solid var(--line); text-align:right; background:#fbf9f4;">${r.plTotals && r.plTotals[t.key] != null ? mfMoney(r.plTotals[t.key]) : '<span style="color:var(--muted);" title="Not on file yet \u2014 upload a report that covers this month">\u2014</span>'}</td>`).join('')}
                 <td style="padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;">
                   <button type="button" class="mf-edit" data-month="${r.month}" style="background:#fff; border:1px solid var(--line); color:var(--charcoal); font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer; margin-right:4px;">Edit</button>
                   <button type="button" class="mf-delete" data-month="${r.month}" style="background:#fff; border:1px solid #b3261e; color:#b3261e; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer;">Delete</button>
@@ -30637,6 +30753,7 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
                 ${mfShown('netIncome') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(totals.netIncome)}</td>` : ''}
                 ${mfShown('totalEquity') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;" title="Year-end balance, not a sum -- Total Equity is a point-in-time figure">${mfMoney(latestEquity)}</td>` : ''}
                 ${mfShown('depreciationAmortization') ? `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right;">${mfMoney(rows.reduce((t, r) => t + (Number(r.depreciationAmortization) || 0), 0))}</td>` : ''}
+                ${mfShownPl().map(t => `<td style="padding:6px 8px; border-top:2px solid var(--line); text-align:right; background:#f6f3ec;">${mfMoney(rows.reduce((sum, r) => sum + (r.plTotals && r.plTotals[t.key] != null ? Number(r.plTotals[t.key]) : 0), 0))}</td>`).join('')}
                 <td style="border-top:2px solid var(--line);"></td>
               </tr>
             </tbody>
@@ -30732,6 +30849,8 @@ ${mfShown('totalEquity') ? `                <th style="text-align:right; padding
       // Upsert by month -- remove both the record being edited (if its
       // month changed) and any existing record for the target month, then
       // add the new one, so a save never produces a duplicate month.
+      const prevRec = monthlyFinancialsRecords.find(r => r.month === (mfEditingMonth || month));
+      if(prevRec && prevRec.plTotals) record.plTotals = prevRec.plTotals;
       monthlyFinancialsRecords = monthlyFinancialsRecords.filter(r => r.month !== month && r.month !== mfEditingMonth);
       monthlyFinancialsRecords.push(record);
       await window.dashboardApi.set(MONTHLY_FINANCIALS_KEY, monthlyFinancialsRecords);
