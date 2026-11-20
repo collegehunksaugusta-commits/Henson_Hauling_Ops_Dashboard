@@ -3345,6 +3345,250 @@ function nameDedupKey(name) {
   return String(name || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean).map(w => w.toLowerCase()).sort().join(' ');
 }
 
+// ============ Driving Safety (Motive safety events -> the Captain driving) ============
+// Motive records safety events against the truck. The driver is whoever
+// had the wheel at that moment: the Pre-Trip Inspection for that truck that
+// day, or a later "I'm driving" switch from the HUNK Portal. Events are
+// synced from Motive into 'motive-safety-events'; Manager Review can void
+// one or move it to someone else ('driving-safety-reviews').
+const SAFETY_EVENTS_KEY = 'motive-safety-events';
+const DRIVER_SWITCHES_KEY = 'truck-driver-switches';
+const SAFETY_REVIEWS_KEY = 'driving-safety-reviews';
+// Not about how the truck was driven -- never counted.
+const SAFETY_NOT_DRIVING = new Set(['manual_event', 'road_facing_cam_obstruction', 'driver_facing_cam_obstruction', 'forward_parking', 'unsafe_parking']);
+const SAFETY_LABELS = { hard_accel: 'Hard acceleration', hard_brake: 'Hard braking', hard_corner: 'Hard cornering', crash: 'Crash', seat_belt_violation: 'No seat belt', tailgating: 'Tailgating', cell_phone: 'Phone use', stop_sign_violation: 'Ran a stop sign', distraction: 'Distracted', unsafe_lane_change: 'Unsafe lane change', drowsiness: 'Drowsy', forward_collision_warning: 'Collision warning', near_miss: 'Near miss', driver_fatigue: 'Fatigue', driver_microsleep: 'Microsleep', yawning: 'Yawning', driver_eating: 'Eating', smoking: 'Smoking', individual_lane_swerving: 'Lane swerving', aggregated_lane_swerving: 'Lane swerving', speeding: 'Speeding' };
+const kphToMph = v => (v == null || v === '' || isNaN(Number(v))) ? null : Math.round(Number(v) / 1.609344);
+const unwrapMotive = x => (x && typeof x === 'object' && Object.keys(x).length === 1 && typeof x[Object.keys(x)[0]] === 'object' && !Array.isArray(x[Object.keys(x)[0]])) ? x[Object.keys(x)[0]] : x;
+function findMediaUrl(obj, depth) {
+  if (!obj || depth > 4) return null;
+  if (typeof obj === 'string') return /^https?:\/\//.test(obj) && /mp4|video|media|download/i.test(obj) ? obj : null;
+  if (typeof obj !== 'object') return null;
+  for (const k of Object.keys(obj)) { const u = findMediaUrl(obj[k], (depth || 0) + 1); if (u) return u; }
+  return null;
+}
+async function motiveGetAll(path, params, listKey) {
+  const apiKey = process.env.MOTIVE_API_KEY;
+  if (!apiKey) throw new Error('MOTIVE_API_KEY is not set.');
+  const out = [];
+  for (let pageNo = 1; pageNo <= 40; pageNo++) {
+    const q = new URLSearchParams(Object.assign({}, params, { per_page: '100', page_no: String(pageNo) }));
+    const r = await fetch(`https://api.gomotive.com${path}?${q.toString()}`, { headers: { 'X-Api-Key': apiKey, 'X-Metric-Units': 'false', 'Content-Type': 'application/json' } });
+    if (!r.ok) {
+      const body = (await r.text().catch(() => '')).slice(0, 300);
+      const e = new Error(`Motive ${path} HTTP ${r.status}${body ? ': ' + body : ''}`); e.status = r.status; throw e;
+    }
+    const data = await r.json();
+    const list = Array.isArray(data[listKey]) ? data[listKey] : (Object.values(data).find(Array.isArray) || []);
+    out.push(...list.map(unwrapMotive));
+    if (list.length < 100) break;
+  }
+  return out;
+}
+// Pulls the last `days` days of safety and speeding events from Motive.
+let safetySyncRunning = false;
+async function syncMotiveSafetyEvents(days) {
+  if (safetySyncRunning) return { skipped: true };
+  safetySyncRunning = true;
+  const store = JSON.parse(await redis.get(SAFETY_EVENTS_KEY) || '{}');
+  store.events = store.events || {};
+  const end = easternDateFromMs(Date.now() + 864e5), start = easternDateFromMs(Date.now() - (days || 7) * 864e5);
+  const errors = [];
+  let added = 0;
+  const newIds = [];
+  const put = ev => { if (!store.events[ev.id]) { added++; newIds.push(ev.id); } store.events[ev.id] = Object.assign({}, store.events[ev.id] || {}, ev); };
+  try {
+    try {
+      const perf = await motiveGetAll('/v2/driver_performance_events', { start_date: start, end_date: end }, 'driver_performance_events');
+      perf.forEach(e => {
+        if (!e || e.id == null || !e.start_time) return;
+        const v = unwrapMotive(e.vehicle) || {};
+        put({ id: 'p' + e.id, source: 'motive', type: String(e.type || ''), at: e.start_time, endAt: e.end_time || null,
+          vehicleId: v.id != null ? String(v.id) : null, vehicleNumber: v.number || '', vin: v.vin || '',
+          maxSpeedMph: e.max_speed != null ? Math.round(Number(e.max_speed)) : null, severity: e.severity || null,
+          location: e.location || '', lat: e.lat || null, lon: e.lon || null,
+          mediaUrl: findMediaUrl(e.camera_media || e.media || null, 0), coachingStatus: e.coaching_status || null });
+      });
+    } catch (err) { errors.push(err.message); }
+    try {
+      const sp = await motiveGetAll('/v1/speeding_events', { start_date: start, end_date: end }, 'speeding_events');
+      sp.forEach(e => {
+        if (!e || e.id == null || !e.start_time) return;
+        const v = unwrapMotive(e.vehicle) || {};
+        put({ id: 's' + e.id, source: 'motive', type: 'speeding', at: e.start_time, endAt: e.end_time || null,
+          vehicleId: v.id != null ? String(v.id) : null, vehicleNumber: v.number || '', vin: '',
+          maxSpeedMph: kphToMph(e.max_vehicle_speed), overMph: kphToMph(e.max_over_speed_in_kph), postedMph: kphToMph(e.max_posted_speed_limit_in_kph),
+          durationSec: e.duration != null ? Number(e.duration) : null, severity: e.severity || null, motiveStatus: e.status || null,
+          location: '', lat: e.start_lat || null, lon: e.start_lon || null, mediaUrl: null });
+      });
+    } catch (err) { errors.push(err.message); }
+    // Keep 120 days.
+    const cutoff = new Date(Date.now() - 120 * 864e5).toISOString();
+    Object.keys(store.events).forEach(id => { if (String(store.events[id].at) < cutoff) delete store.events[id]; });
+    store.lastSync = new Date().toISOString();
+    store.lastError = errors.length ? errors.join(' | ').slice(0, 600) : null;
+    await redis.set(SAFETY_EVENTS_KEY, JSON.stringify(store));
+    console.log(`[driving-safety] synced ${start}..${end}: ${added} new, ${Object.keys(store.events).length} on file${errors.length ? ' -- errors: ' + store.lastError : ''}`);
+    if (newIds.length) alertNewSafetyEvents(newIds).catch(err => console.error('Motive event alert failed:', err.message));
+    return { added, total: Object.keys(store.events).length, error: store.lastError };
+  } finally { safetySyncRunning = false; }
+}
+setTimeout(() => { if (process.env.MOTIVE_API_KEY) syncMotiveSafetyEvents(30).catch(err => console.error('Driving safety sync failed:', err.message)); }, 45000);
+// Every 15 minutes (last 2 days), so alerts go out soon after an event.
+setInterval(() => { if (process.env.MOTIVE_API_KEY) syncMotiveSafetyEvents(2).catch(err => console.error('Driving safety sync failed:', err.message)); }, 15 * 60 * 1000);
+// Once a day, a week back, for anything Motive filed late.
+setInterval(() => { if (process.env.MOTIVE_API_KEY) syncMotiveSafetyEvents(7).catch(err => console.error('Driving safety sync failed:', err.message)); }, 24 * 60 * 60 * 1000);
+
+// Text the office's forwarding numbers (Team Messages settings) about new
+// events. Only events from the last 6 hours -- never a backlog.
+const SAFETY_SERIOUS = new Set(['crash', 'forward_collision_warning', 'near_miss', 'cell_phone', 'seat_belt_violation', 'stop_sign_violation', 'drowsiness', 'driver_microsleep', 'driver_fatigue']);
+async function alertNewSafetyEvents(newIds) {
+  if (!twilioReady()) return;
+  const ctx = await loadSafetyContext();
+  const mode = ctx.settings.motiveAlerts || 'all';
+  if (mode === 'off') return;
+  const ids = new Set(newIds), since = Date.now() - 6 * 3600e3;
+  const hits = ctx.events.filter(e => ids.has(e.id) && e.counts && Date.parse(e.at) >= since)
+    .filter(e => mode !== 'serious' || SAFETY_SERIOUS.has(e.type) || (e.type === 'speeding' && e.overMph >= 20))
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  if (!hits.length) return;
+  const st = await getAppSettings();
+  const nums = [...new Set(String((st.teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].slice(0, 5);
+  if (!nums.length) return;
+  const tm = iso => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+  const line = e => `${e.label}${e.type === 'speeding' && e.overMph != null ? ` (${e.maxSpeedMph} in a ${e.postedMph})` : ''} \u2014 ${e.truckName || 'truck'}${e.driver ? ', ' + e.driver : ''}, ${tm(e.at)}`;
+  const body = hits.length === 1 ? `Motive event: ${line(hits[0])}. See Manager Review \u2192 Motive Events.`
+    : `Motive: ${hits.length} new events\n${hits.slice(0, 6).map(line).join('\n')}${hits.length > 6 ? `\n+${hits.length - 6} more` : ''}\nSee Manager Review \u2192 Motive Events.`;
+  for (const n of nums) await twilioSend(n, body).catch(e => console.error('Motive alert text failed:', e.message));
+  console.log(`[driving-safety] alerted ${nums.length} number(s) about ${hits.length} event(s)`);
+}
+
+// Fleet truck for a Motive vehicle: the link picked in Fleet, then VIN, then
+// the Motive unit number vs. the truck's nickname (same rule as Fleet).
+function truckForMotiveVehicle(trucks, ev) {
+  const vin = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), nk = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return trucks.find(t => t.motiveId && String(t.motiveId) === String(ev.vehicleId))
+    || (vin(ev.vin).length >= 11 ? trucks.find(t => vin(t.vin) === vin(ev.vin)) : null)
+    || (nk(ev.vehicleNumber) ? trucks.find(t => nk(t.nickname) === nk(ev.vehicleNumber)) : null) || null;
+}
+// Who had the wheel of each truck, by day: Pre-Trips and "I'm driving" switches.
+function driverTimeline(ptiRecords, switches) {
+  const tl = {};   // `${truckId}|${date}` -> [{ name, at, how }]
+  const add = (truckId, date, name, at, how) => { if (!truckId || !date || !name) return; (tl[truckId + '|' + date] = tl[truckId + '|' + date] || []).push({ name, at: at || date + 'T00:00:00Z', how }); };
+  (ptiRecords || []).forEach(p => add(p.truckId, p.date, p.driverName, p.submittedAt, 'pti'));
+  (switches || []).forEach(sw => add(sw.truckId, sw.date, sw.name, sw.at, 'switch'));
+  Object.values(tl).forEach(list => list.sort((a, b) => String(a.at).localeCompare(String(b.at))));
+  return tl;
+}
+// Every event with its truck, driver and whether it counts.
+function attributeSafetyEvents(store, trucks, ptiRecords, switches, reviews, settings) {
+  const tl = driverTimeline(ptiRecords, switches);
+  const minOver = Number((settings || {}).speedingMinOverMph);
+  const threshold = isNaN(minOver) ? 10 : minOver;
+  return Object.values((store || {}).events || {}).map(ev => {
+    const t = truckForMotiveVehicle(trucks || [], ev);
+    const date = easternDateFromMs(Date.parse(ev.at));
+    let driver = null, how = 'none';
+    if (t) {
+      const list = tl[t.id + '|' + date] || [];
+      const before = list.filter(x => String(x.at) <= String(new Date(Date.parse(ev.at)).toISOString()));
+      const pick = before.length ? before[before.length - 1] : list[0];
+      if (pick) { driver = pick.name; how = before.length ? pick.how : 'pti-later'; }
+    }
+    const rv = (reviews || {})[ev.id] || null;
+    if (rv && rv.status === 'reassigned' && rv.reassignTo) { driver = rv.reassignTo; how = 'reassigned'; }
+    let counts = !SAFETY_NOT_DRIVING.has(ev.type);
+    if (ev.type === 'speeding') counts = ev.overMph != null && ev.overMph >= threshold && ev.motiveStatus !== 'invalid';
+    if (rv && rv.status === 'void') counts = false;
+    return Object.assign({}, ev, { date, truckId: t ? t.id : null, truckName: t ? (t.nickname || ev.vehicleNumber) : ev.vehicleNumber, driver, how, counts, label: SAFETY_LABELS[ev.type] || ev.type.replace(/_/g, ' '), review: rv });
+  }).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+// Days each person drove (Pre-Trip or switch), for the score's denominator.
+function drivingDaysByName(ptiRecords, switches) {
+  const days = {};
+  (ptiRecords || []).forEach(p => { if (p.driverName && p.date) (days[p.driverName] = days[p.driverName] || new Set()).add(p.date); });
+  (switches || []).forEach(sw => { if (sw.name && sw.date) (days[sw.name] = days[sw.name] || new Set()).add(sw.date); });
+  return days;
+}
+async function loadSafetyContext() {
+  const [evRaw, trucksRaw, ptiRaw, swRaw, rvRaw, settingsRaw] = await Promise.all([redis.get(SAFETY_EVENTS_KEY), redis.get('fleet-trucks'), redis.get('compliance-pretrip-inspections'), redis.get(DRIVER_SWITCHES_KEY), redis.get(SAFETY_REVIEWS_KEY), redis.get(APP_SETTINGS_KEY)]);
+  const settings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null).captainMetrics || {};
+  const store = JSON.parse(evRaw || '{}'), ptiRecords = JSON.parse(ptiRaw || '[]'), switches = JSON.parse(swRaw || '[]'), reviews = JSON.parse(rvRaw || '{}');
+  const trucks = JSON.parse(trucksRaw || '[]');
+  return { store, trucks, ptiRecords, switches, reviews, settings, events: attributeSafetyEvents(store, trucks, ptiRecords, switches, reviews, settings) };
+}
+
+// Office: every event (last 60 days), plus sync status.
+app.get('/api/admin/driving-safety', requireAuth, async (req, res) => {
+  try {
+    const ctx = await loadSafetyContext();
+    const cutoff = easternDateFromMs(Date.now() - 60 * 864e5);
+    res.json({ events: ctx.events.filter(e => e.date >= cutoff), lastSync: ctx.store.lastSync || null, lastError: ctx.store.lastError || null,
+      configured: !!process.env.MOTIVE_API_KEY, speedingMinOverMph: ctx.settings.speedingMinOverMph, motiveAlerts: ctx.settings.motiveAlerts || 'all',
+      alertNumbers: String(((await getAppSettings()).teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean).length, textingReady: twilioReady(),
+      unlinkedVehicles: [...new Set(ctx.events.filter(e => !e.truckId).map(e => e.vehicleNumber || e.vehicleId))].filter(Boolean) });
+  } catch (err) { console.error('Driving safety load failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/driving-safety/sync', requireAuth, async (req, res) => {
+  try { const r = await syncMotiveSafetyEvents(Math.min(60, Math.max(1, Number((req.body || {}).days) || 14))); res.json({ ok: true, ...r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Void, reassign, or put back (status 'clear').
+app.post('/api/admin/driving-safety/:id/review', requireAuth, async (req, res) => {
+  try {
+    const { status, reassignTo, note } = req.body || {};
+    if (!['void', 'reassigned', 'clear', 'ok'].includes(status)) return res.status(400).json({ error: 'Unknown action.' });
+    if (status === 'reassigned' && !String(reassignTo || '').trim()) return res.status(400).json({ error: 'Pick who was driving.' });
+    const reviews = JSON.parse(await redis.get(SAFETY_REVIEWS_KEY) || '{}');
+    if (status === 'clear') delete reviews[req.params.id];
+    else reviews[req.params.id] = { status, reassignTo: status === 'reassigned' ? String(reassignTo).slice(0, 100) : null, note: String(note || '').slice(0, 300), by: req.userEmail || '', at: new Date().toISOString() };
+    await redis.set(SAFETY_REVIEWS_KEY, JSON.stringify(reviews));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
+// HUNK Portal: who's driving each truck out today, plus my own events.
+async function crewDrivingView(name) {
+  const ctx = await loadSafetyContext();
+  const today = easternDateFromMs(Date.now());
+  const tl = driverTimeline(ctx.ptiRecords, ctx.switches);
+  const trucks = [];
+  Object.keys(tl).forEach(k => {
+    const [truckId, date] = k.split('|');
+    if (date !== today) return;
+    const t = ctx.trucks.find(x => x.id === truckId) || {};
+    const pti = ctx.ptiRecords.find(p => p.truckId === truckId && p.date === today) || {};
+    const list = tl[k], cur = list[list.length - 1];
+    trucks.push({ truckId, name: t.nickname || pti.truckNickname || 'Truck', driver: cur.name, since: cur.at, how: cur.how, me: nameCoreKey(cur.name) === nameCoreKey(name) });
+  });
+  const cutoff = easternDateFromMs(Date.now() - 30 * 864e5);
+  const mine = ctx.events.filter(e => e.counts && e.driver && nameCoreKey(e.driver) === nameCoreKey(name) && e.date >= cutoff)
+    .map(e => ({ id: e.id, at: e.at, label: e.label, truckName: e.truckName, maxSpeedMph: e.maxSpeedMph, overMph: e.overMph, postedMph: e.postedMph, location: e.location }));
+  return { trucks: trucks.sort((a, b) => a.name.localeCompare(b.name)), myEvents: mine };
+}
+[['/api/driver', requireDriverAuth, req => req.driverName],
+ ['/api/wingman', requireWingmanAuth, req => req.wingmanName]].forEach(([base, auth, who]) => {
+  app.get(base + '/driving', auth, async (req, res) => {
+    try { const rules = await loadRoleRules(); res.json(Object.assign({ canDrive: rules.isDriver(who(req)) }, await crewDrivingView(who(req)))); }
+    catch (err) { console.error('Driving view failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+  });
+  // "I'm driving this truck now."
+  app.post(base + '/driving', auth, async (req, res) => {
+    try {
+      const name = who(req), truckId = String((req.body || {}).truckId || '');
+      if (!(await loadRoleRules()).isDriver(name)) return res.status(403).json({ error: 'You\u2019re not set up as a driver \u2014 ask the office.' });
+      const today = easternDateFromMs(Date.now());
+      const pti = JSON.parse(await redis.get('compliance-pretrip-inspections') || '[]').find(p => p.truckId === truckId && p.date === today);
+      if (!pti) return res.status(400).json({ error: 'That truck has no Pre-Trip Inspection today.' });
+      const switches = JSON.parse(await redis.get(DRIVER_SWITCHES_KEY) || '[]');
+      switches.push({ id: 'sw_' + Date.now(), truckId, truckNickname: pti.truckNickname || '', name, date: today, at: new Date().toISOString() });
+      const cutoff = easternDateFromMs(Date.now() - 180 * 864e5);
+      await redis.set(DRIVER_SWITCHES_KEY, JSON.stringify(switches.filter(x => x.date >= cutoff)));
+      console.log(`[driving-safety] ${name} took the wheel of ${pti.truckNickname || truckId}`);
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+  });
+});
+
 function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsManagerNames, activeDriverNames, travelLineCheckStartDate) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const { archive, ptiRecords, eodRecords, uploads, attendanceRecords, movingReports, materialsCheckouts, materialsItems, managerReviewItems, junkRemovalJobs, captainRatings } = data;
@@ -3596,6 +3840,24 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     });
   });
 
+  // ---- 8. Driving Safety -- share of the days a Captain drove with no
+  // counted Motive safety event while he had the wheel. ----
+  const drivingSafetyByCaptain = {};
+  if (data.drivingDays) {
+    const unsafe = {};
+    (data.safetyEvents || []).forEach(e => { if (e.counts && e.driver && e.date >= rangeStart && e.date < rangeEnd) (unsafe[nameDedupKey(e.driver)] = unsafe[nameDedupKey(e.driver)] || new Set()).add(e.date); });
+    Object.keys(data.drivingDays).forEach(name => {
+      const key = nameDedupKey(name);
+      if (opsManagerKeys.has(key)) return;
+      if (activeDriverKeys !== null && !activeDriverKeys.has(key)) return;
+      const days = [...data.drivingDays[name]].filter(d => d >= rangeStart && d < rangeEnd && d < todayStr);
+      if (!days.length) return;
+      const captainName = canonicalNameByKey[key] || name;
+      const e = drivingSafetyByCaptain[captainName] = drivingSafetyByCaptain[captainName] || { safe: 0, total: 0, days: new Set() };
+      days.forEach(d => { if (e.days.has(d)) return; e.days.add(d); e.total++; if (!(unsafe[key] && unsafe[key].has(d))) e.safe++; });
+    });
+  }
+
   // ---- Combine into per-category percentages + one weighted overall
   // score, re-normalizing weights among only the categories each Captain
   // actually has applicable data for. ----
@@ -3607,13 +3869,14 @@ function computeCaptainScoresForRange(rangeStart, rangeEnd, data, weights, opsMa
     { key: 'movePhoto', weight: Number(weights.movePhoto) || 0, get: c => pct(moveJobsByCaptain[c], 'withPhoto', 'total') },
     { key: 'underbilled', weight: Number(weights.underbilled) || 0, get: c => pct(underbilledByCaptain[c], 'ok', 'total') },
     { key: 'truckConditions', weight: Number(weights.truckConditions) || 0, get: c => pct(truckConditionsByCaptain[c], 'ok', 'total') },
-    { key: 'captainReviews', weight: Number(weights.captainReviews) || 0, get: c => pct(captainReviewsByCaptain[c], 'yes', 'total') }
+    { key: 'captainReviews', weight: Number(weights.captainReviews) || 0, get: c => pct(captainReviewsByCaptain[c], 'yes', 'total') },
+    { key: 'drivingSafety', weight: Number(weights.drivingSafety) || 0, get: c => pct(drivingSafetyByCaptain[c], 'safe', 'total') }
   ];
 
   const allCaptains = new Set([
     ...Object.keys(paperworkByCaptain), ...Object.keys(attendanceByCaptain),
     ...Object.keys(ptiEodByCaptain), ...Object.keys(moveJobsByCaptain), ...Object.keys(underbilledByCaptain),
-    ...Object.keys(truckConditionsByCaptain), ...Object.keys(captainReviewsByCaptain)
+    ...Object.keys(truckConditionsByCaptain), ...Object.keys(captainReviewsByCaptain), ...Object.keys(drivingSafetyByCaptain)
   ]);
 
   const scores = {};
@@ -3729,7 +3992,10 @@ async function fetchCaptainMetricsRawData() {
   // is a valid, real value once the key exists.
   // Who's scored as a Captain: the Captain checkbox (Employee Roster).
   const activeDriverNames = driversRaw ? await fetchCaptainNames() : null;
+  let safetyEvents = [], drivingDays = null;
+  try { const sc = await loadSafetyContext(); safetyEvents = sc.events; drivingDays = drivingDaysByName(sc.ptiRecords, sc.switches); } catch (err) { console.error('Driving safety data failed:', err.message); }
   return {
+    safetyEvents, drivingDays,
     archive: (archiveRaw ? JSON.parse(archiveRaw) : []).filter(j => !closeouts[j.jobNumber]),
     ptiRecords: ptiRaw ? JSON.parse(ptiRaw) : [],
     uploads: uploadsRaw ? JSON.parse(uploadsRaw) : [],
@@ -3818,12 +4084,12 @@ app.get('/api/driver/leaderboard', requireDriverAuth, async (req, res) => {
     const data = await fetchCaptainMetricsRawData();
     const scores = computeCaptainScoresForMonth(activeMonth, data, weights, data.opsManagerNames, data.activeDriverNames, travelLineCheckStartDate);
 
-    const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing', truckConditions: 'Truck Conditions', captainReviews: 'Captain Reviews' };
+    const labelMap = { completedPaperwork: 'Paperwork', attendance: 'Attendance', ptiEod: 'PTI/EOD', movePhoto: 'Move Photos', underbilled: 'Billing', truckConditions: 'Truck Conditions', captainReviews: 'Captain Reviews', drivingSafety: 'Driving Safety' };
     const entries = Object.keys(scores)
       .filter(captain => scores[captain].overall !== null)
       .map(captain => {
         const s = scores[captain];
-        const breakdown = ['completedPaperwork', 'attendance', 'ptiEod', 'movePhoto', 'underbilled', 'truckConditions', 'captainReviews']
+        const breakdown = ['completedPaperwork', 'attendance', 'ptiEod', 'movePhoto', 'underbilled', 'truckConditions', 'captainReviews', 'drivingSafety']
           .filter(k => s[k] !== null).map(k => `${labelMap[k]} ${s[k]}%`).join(' \u00b7 ');
         return { name: captain, value: s.overall, detail: breakdown };
       })
@@ -4263,7 +4529,13 @@ const DEFAULT_APP_SETTINGS = {
     emailCc: ''
   },
   captainMetrics: {
-    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10, truckConditions: 0, captainReviews: 0 },
+    weights: { completedPaperwork: 30, attendance: 10, ptiEod: 30, movePhoto: 20, underbilled: 10, truckConditions: 0, captainReviews: 0, drivingSafety: 0 },
+    // Driving Safety (Motive): speeding only counts at this many mph over
+    // the posted limit or more.
+    speedingMinOverMph: 10,
+    // Text alerts for new Motive events: 'all' counted events, 'serious'
+    // only (crash, collision warning, phone, no seat belt, ...), or 'off'.
+    motiveAlerts: 'all',
     // The travel-line-item requirement (Underbilled Jobs, for Move/Move
     // Labor jobs) only applies to jobs on or after this date. Set to the
     // day after that check actually went live (2026-09-24), so Captains
