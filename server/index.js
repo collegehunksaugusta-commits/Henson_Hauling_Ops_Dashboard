@@ -2381,11 +2381,15 @@ async function submitLoan(personName, role, body) {
   const reason = String(body && body.reason || '').trim();
   if (!(amount >= 1) || amount > 10000) return { status: 400, body: { error: 'Enter the amount you need (up to $10,000).' } };
   if (reason.length < 3) return { status: 400, body: { error: 'Say what the loan is for.' } };
+  // Sent by CashApp or Zelle -- same handle rules as expense reimbursements.
+  const rv = readReimburseVia(body);
+  if (!rv.ok) return { status: 400, body: { error: rv.error } };
+  if (rv.via.method === 'paycheck') return { status: 400, body: { error: 'Choose CashApp or Zelle.' } };
   const loans = JSON.parse(await redis.get(CREW_LOANS_KEY) || '[]');
   const me = nameCoreKey(personName);
   if (loans.some(l => nameCoreKey(l.employeeName) === me && l.status === 'pending')) return { status: 400, body: { error: 'You already have a request waiting for an answer.' } };
   const id = 'loan_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-  loans.push({ id, employeeName: String(personName).slice(0, 100), role, requestedAt: new Date().toISOString(), amount, reason: reason.slice(0, 500), status: 'pending' });
+  loans.push({ id, employeeName: String(personName).slice(0, 100), role, requestedAt: new Date().toISOString(), amount, reason: reason.slice(0, 500), status: 'pending', via: rv.via });
   await redis.set(CREW_LOANS_KEY, JSON.stringify(loans));
   console.log(`[loans] ${personName} requested a loan`);
   return { status: 200, body: { ok: true, id } };
@@ -2398,7 +2402,7 @@ async function myLoans(personName) {
     .filter(l => nameCoreKey(l.employeeName) === me && ((l.decidedAt || l.requestedAt || '') >= cutoff || l.status === 'approved'))
     .sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt)))
     .map(l => ({ id: l.id, requestedAt: l.requestedAt, amount: l.amount, reason: l.reason, status: l.status, approvedAmount: l.approvedAmount, decidedAt: l.decidedAt || null,
-      declineReason: l.declineReason || '', paidOff: l.paidOff ? { at: l.paidOff.at } : null,
+      declineReason: l.declineReason || '', via: l.via || null, sentAt: l.sentAt || null, paidOff: l.paidOff ? { at: l.paidOff.at } : null,
       installments: (l.installments || []).map(i => ({ week: i.week, amount: i.amount, paid: paidWeeks.has(i.week) })) }));
 }
 [['/api/driver', requireDriverAuth, req => req.driverName, 'captain'],
