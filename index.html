@@ -1150,6 +1150,7 @@
       <div id="loanForm" style="display:none; margin-top:12px; border-top:1px solid var(--line); padding-top:12px;">
         <label style="display:block; margin-bottom:8px; font-size:13px;">How much do you need? ($) <input type="text" inputmode="decimal" id="loanAmount" autocomplete="off" placeholder="0.00" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:17px;"></label>
         <label style="display:block; margin-bottom:10px; font-size:13px;">What&rsquo;s it for? <textarea id="loanReason" rows="3" maxlength="500" placeholder="e.g. Car repair so I can get to work" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px; font-family:inherit; box-sizing:border-box;"></textarea></label>
+        <div class="reimb-picker" data-form="loan" data-only="cashapp,zelle" data-label="How would you like to receive it?"></div>
         <button type="button" id="loanSubmitBtn" style="width:100%; padding:14px; font-size:16px; font-weight:800; background:var(--brand-green); color:#fff; border:none; border-radius:10px; cursor:pointer; font-family:inherit;">Send Request</button>
         <button type="button" id="loanCancelBtn" style="width:100%; margin-top:8px; padding:10px; font-size:14px; background:#fff; color:var(--charcoal); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-family:inherit;">Cancel</button>
       </div>
@@ -2764,13 +2765,17 @@ window.openEmailDraft = function(o){
   function renderReimbPickers(){
     const pref = reimbPref();
     document.querySelectorAll('.reimb-picker').forEach(box => {
-      const method = box.dataset.method || pref.method || 'paycheck';
+      // data-only limits the choices (a loan is sent by CashApp or Zelle only).
+      const allowed = (box.dataset.only || 'paycheck,cashapp,zelle').split(',');
+      let method = box.dataset.method || pref.method || allowed[0];
+      if(!allowed.includes(method)) method = allowed[0];
       box.dataset.method = method;
       const opt = (m, label) => `<button type="button" class="reimb-opt" data-m="${m}" style="flex:1; padding:10px 6px; border-radius:8px; border:1.5px solid ${method === m ? 'var(--brand-green)' : 'var(--line)'}; background:${method === m ? 'var(--brand-green)' : '#fff'}; color:${method === m ? '#fff' : 'var(--charcoal)'}; font-weight:700; font-size:13.5px; cursor:pointer;">${label}</button>`;
       const handleLabel = method === 'cashapp' ? 'Your CashApp $Cashtag' : 'The phone number or email on your Zelle';
       const ph = method === 'cashapp' ? '$JohnSmith' : '706-555-0123 or name@email.com';
-      box.innerHTML = `<div style="margin:6px 0 10px;"><div style="font-size:13px; font-weight:700; margin-bottom:6px;">How would you like to be reimbursed?</div>
-        <div style="display:flex; gap:6px;">${opt('paycheck', 'Next Paycheck')}${opt('cashapp', 'CashApp')}${opt('zelle', 'Zelle')}</div>
+      const labels = { paycheck: 'Next Paycheck', cashapp: 'CashApp', zelle: 'Zelle' };
+      box.innerHTML = `<div style="margin:6px 0 10px;"><div style="font-size:13px; font-weight:700; margin-bottom:6px;">${driverEsc(box.dataset.label || 'How would you like to be reimbursed?')}</div>
+        <div style="display:flex; gap:6px;">${allowed.map(m => opt(m, labels[m])).join('')}</div>
         ${method !== 'paycheck' ? `<label style="display:block; margin-top:8px; font-size:13px;">${handleLabel} <span style="color:#b3261e;">*</span>
           <input type="text" class="reimb-handle" autocomplete="off" autocapitalize="none" placeholder="${ph}" value="${driverEsc((box.dataset.handle != null ? box.dataset.handle : pref[method]) || '')}" style="display:block; width:100%; margin-top:3px; padding:9px; font-size:15px;"></label>` : ''}</div>`;
       box.querySelectorAll('.reimb-opt').forEach(b => b.onclick = () => { const h = box.querySelector('.reimb-handle'); box.dataset.method = b.dataset.m; delete box.dataset.handle; if(h && h.value) box.dataset['h_' + method] = h.value; renderReimbPickers(); });
@@ -2782,6 +2787,7 @@ window.openEmailDraft = function(o){
     const box = document.querySelector(`.reimb-picker[data-form="${form}"]`);
     const method = (box && box.dataset.method) || 'paycheck';
     if(method === 'paycheck') return { reimburseMethod: 'paycheck' };
+    if(!box.querySelector('.reimb-handle')) return { error: 'Choose CashApp or Zelle.' };
     let handle = ((box.querySelector('.reimb-handle') || {}).value || '').trim();
     if(method === 'cashapp'){
       handle = handle.replace(/^\$?/, '$');
@@ -2860,6 +2866,7 @@ window.openEmailDraft = function(o){
         return `<div style="padding:8px 0; border-top:1px solid var(--line); font-size:14px;">
           <div style="display:flex; justify-content:space-between; gap:8px;"><div><strong>${expMoney(l.status === 'approved' ? l.approvedAmount : l.amount)}</strong> \u00b7 asked ${short(l.requestedAt)}<div style="font-size:12px; color:var(--muted);">${driverEsc(l.reason)}</div></div><div>${pill}</div></div>
           ${l.status === 'approved' && Number(l.approvedAmount) !== Number(l.amount) ? `<div style="font-size:12px; color:var(--muted); margin-top:2px;">You asked for ${expMoney(l.amount)}.</div>` : ''}
+          ${l.via ? `<div style="font-size:12px; color:var(--muted); margin-top:2px;">${l.sentAt ? `\u2713 Sent by ${l.via.method === 'cashapp' ? 'CashApp' : 'Zelle'} ${short(l.sentAt)}` : `${l.status === 'approved' ? 'Coming' : 'To be sent'} by ${l.via.method === 'cashapp' ? 'CashApp' : 'Zelle'} to ${driverEsc(l.via.handle || '')}`}</div>` : ''}
           ${detail}
           ${l.status === 'pending' ? `<button type="button" class="loanCancelReq" data-id="${driverEsc(l.id)}" style="margin-top:6px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; font-family:inherit;">Cancel Request</button>` : ''}
         </div>`; }).join('');
@@ -2888,12 +2895,15 @@ window.openEmailDraft = function(o){
     const reason = document.getElementById('loanReason').value.trim();
     if(!(amount >= 1)){ st.textContent = 'Enter how much you need.'; st.className = 'status-msg err'; return; }
     if(reason.length < 3){ st.textContent = 'Say what the loan is for.'; st.className = 'status-msg err'; return; }
+    const via = readReimbPicker('loan');
+    if(via.error){ st.textContent = via.error; st.className = 'status-msg err'; return; }
     btn.disabled = true; st.textContent = 'Sending\u2026'; st.className = 'status-msg';
     try{
-      const res = await fetch(expBase() + '/loans', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ amount, reason }) });
+      const res = await fetch(expBase() + '/loans', { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + driverToken}, body: JSON.stringify({ amount, reason, reimburseMethod: via.reimburseMethod, reimburseHandle: via.reimburseHandle }) });
       if(res.status === 401){ driverSessionExpired(); return; }
       const d = await res.json().catch(() => ({}));
       if(!res.ok) throw new Error(d.error || 'Could not send.');
+      rememberReimb(via);
       loanFormReset();
       st.textContent = '\u2713 Sent. You\u2019ll see the answer here.'; st.className = 'status-msg ok';
       await loadMyLoans();
@@ -15541,6 +15551,16 @@ window.openEmailDraft = function(o){
       if(b){ b.textContent = n ? `${n} loan request${n === 1 ? '' : 's'}` : ''; b.style.display = n ? '' : 'none'; }
     }catch(err){}
   };
+  // How the employee asked to receive the money (CashApp or Zelle), and
+  // whether it's been sent.
+  function loanViaLine(l, withSend){
+    if(!l.via) return '';
+    const app = l.via.method === 'cashapp' ? 'CashApp' : 'Zelle', amt = extraPayMoney(l.status === 'approved' ? l.approvedAmount : l.amount);
+    if(l.sentAt) return `<div style="font-size:13px; margin-top:4px; color:var(--brand-green-dark);">\u2713 Sent by ${app} to ${extraPayEsc(l.via.handle || '')} on ${new Date(l.sentAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>`;
+    return `<div style="font-size:13px; margin-top:4px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;"><span>${withSend ? 'Send' : 'Wants it by'} ${withSend ? amt + ' by ' : ''}<strong>${app}</strong> ${withSend ? 'to' : '\u2014'} <strong>${extraPayEsc(l.via.handle || '')}</strong></span>
+      <button type="button" class="loan-copy" data-v="${extraPayEsc(l.via.handle || '')}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer;">Copy</button>
+      ${withSend ? `<button type="button" class="loan-sent" data-id="${extraPayEsc(l.id)}" style="background:#fff; border:1px solid var(--brand-green); color:var(--brand-green-dark); border-radius:6px; padding:2px 10px; font-size:12px; font-weight:700; cursor:pointer;">Mark Sent</button>` : ''}</div>`;
+  }
   function renderCrewLoans(loans){
     const box = document.getElementById('extraPay_loans');
     if(!box) return;
@@ -15553,10 +15573,11 @@ window.openEmailDraft = function(o){
     const sched = l => (l.installments || []).map(i => `<span style="display:inline-block; margin:2px 6px 2px 0; padding:2px 8px; border-radius:10px; font-size:12px; background:${loanIsPaid(i.week) ? '#EAF6EE' : '#f3f3f0'}; color:${loanIsPaid(i.week) ? 'var(--brand-green-dark)' : 'var(--charcoal)'};">${loanPaydayLabel(i.week)} \u00b7 ${extraPayMoney(i.amount)}${loanIsPaid(i.week) ? ' \u2713' : ''}</span>`).join('');
     box.innerHTML = `<div class="panel" style="padding:16px 18px; margin-bottom:16px; border:2px solid #6b4fa0;">
       <h3 style="margin:0 0 4px;">Short-Term Loans</h3>
-      <p class="form-note" style="margin:0 0 6px;">Requested from the HUNK Portal (My Money). Approve one and choose how many paychecks to split the repayment over; each payment comes off that paycheck in the Loan Repayment column below. Pay the loan itself out however you normally would &mdash; it isn&rsquo;t added to Extra Pay.</p>
+      <p class="form-note" style="margin:0 0 6px;">Requested from the HUNK Portal (My Money). Approve one and choose how many paychecks to split the repayment over; each payment comes off that paycheck in the Loan Repayment column below. Send the loan by the CashApp or Zelle the employee chose, then click Mark Sent &mdash; the loan itself isn&rsquo;t added to Extra Pay.</p>
       ${pending.map(l => `<div class="loan-card" data-id="${extraPayEsc(l.id)}" style="border:1px solid #d9cdee; background:#f8f5fd; border-radius:8px; padding:10px 12px; margin-top:10px;">
         <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><div><strong>${extraPayEsc(l.employeeName)}</strong> asked for <strong>${extraPayMoney(l.amount)}</strong> <span class="form-note" style="display:inline;">\u00b7 ${fmtD(l.requestedAt)}</span></div><span style="background:#FFF8E1; color:#8a6d00; padding:2px 8px; border-radius:10px; font-size:11.5px; font-weight:700; align-self:flex-start;">Waiting on you</span></div>
         <div style="font-size:13.5px; margin-top:4px;">\u201c${extraPayEsc(l.reason)}\u201d</div>
+        ${loanViaLine(l)}
         ${loanPlanControls(l.id, l.amount, 'Amount to lend')}
         <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;"><button type="button" class="btn-primary loan-approve" data-id="${extraPayEsc(l.id)}">Approve</button><button type="button" class="loan-decline" data-id="${extraPayEsc(l.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 14px; cursor:pointer;">Decline</button><span class="status-msg loan-status"></span></div>
       </div>`).join('')}
@@ -15565,6 +15586,7 @@ window.openEmailDraft = function(o){
         return `<div class="loan-card" data-id="${extraPayEsc(l.id)}" style="border-top:1px solid var(--line); padding:10px 0 4px; margin-top:6px;">
         <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><div><strong>${extraPayEsc(l.employeeName)}</strong> \u00b7 ${extraPayMoney(l.approvedAmount)} approved ${fmtD(l.decidedAt)} <div class="form-note" style="margin:2px 0 0;">\u201c${extraPayEsc(l.reason)}\u201d</div></div>
           <div style="text-align:right;"><div style="font-weight:800; font-size:16px;">${extraPayMoney(bal)} left</div><div class="form-note" style="margin:0;">${next ? `Next: ${extraPayMoney(next.amount)} on ${loanPaydayLabel(next.week)}` : 'Nothing scheduled'}</div></div></div>
+        ${loanViaLine(l, true)}
         <div style="margin-top:6px;">${sched(l)}</div>
         <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; align-items:center;"><button type="button" class="loan-replan" data-id="${extraPayEsc(l.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:12.5px; cursor:pointer;">Change Repayment Plan</button><button type="button" class="loan-payoff" data-id="${extraPayEsc(l.id)}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:12.5px; cursor:pointer;">Mark Paid in Full</button><span class="status-msg loan-status"></span></div>
         <div class="loan-replan-box" style="display:none;">${loanPlanControls(l.id, bal, 'Balance to repay')}<div style="margin-top:8px;"><button type="button" class="btn-primary loan-replan-save" data-id="${extraPayEsc(l.id)}">Save Plan</button></div></div>
@@ -15589,6 +15611,10 @@ window.openEmailDraft = function(o){
       const why = prompt('Decline this request? Add a short note for the employee (optional):', '');
       if(why === null) return;
       if(await loanSave(b.dataset.id, l => { l.status = 'declined'; l.declineReason = why.trim().slice(0, 300); l.decidedAt = new Date().toISOString(); l.decidedBy = localStorage.getItem('henson_auth_email') || ''; })) reload();
+    });
+    box.querySelectorAll('.loan-copy').forEach(b => b.onclick = async () => { try{ await navigator.clipboard.writeText(b.dataset.v); b.textContent = 'Copied'; }catch(err){} });
+    box.querySelectorAll('.loan-sent').forEach(b => b.onclick = async () => {
+      if(await loanSave(b.dataset.id, l => { l.sentAt = new Date().toISOString(); l.sentBy = localStorage.getItem('henson_auth_email') || ''; })) reload();
     });
     box.querySelectorAll('.loan-replan').forEach(b => b.onclick = () => { const x = b.closest('.loan-card').querySelector('.loan-replan-box'); x.style.display = x.style.display === 'none' ? 'block' : 'none'; });
     box.querySelectorAll('.loan-replan-save').forEach(b => b.onclick = async () => {
