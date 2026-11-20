@@ -107,6 +107,7 @@ const ALLOWED_KEYS = new Set([
   'job-closeouts',              // jobs closed out in Manager Review as created by mistake
   'weight-ticket-truck-drivers',
   'expense-claims',
+  'crew-loans',                 // short-term loans requested in My Money (Owner only)
   'time-off-requests',
   'damage-claim-crew-acks',
   'hiring-documents',
@@ -2364,6 +2365,61 @@ async function myTimeOff(personName) {
       res.json({ expenses: await myExpenses(who(req)), categories: EXPENSE_CATEGORIES, mileageRate: Number(settings.extraPay.mileageRate) || 0 });
     }
     catch (err) { console.error('My expenses failed:', err.message); res.status(500).json({ error: 'Could not load expenses.' }); }
+  });
+});
+
+// ============ Short-term loans (HUNK Portal -> My Money -> Extra Pay) ============
+// A Hunk asks the Owner for a short-term loan (amount + reason). The Owner
+// approves it in Extra Pay and splits the repayment over any number of
+// paychecks; each paycheck's share comes off Extra Pay ("Loan Repayment").
+// 'crew-loans' (Owner only): [{ id, employeeName, role, requestedAt, amount,
+// reason, status: pending|approved|declined|canceled, approvedAmount,
+// installments: [{ week, amount }], decidedAt, declineReason, paidOff }].
+const CREW_LOANS_KEY = 'crew-loans';
+async function submitLoan(personName, role, body) {
+  const amount = Math.round((Number(String(body && body.amount || '').replace(/[^0-9.]/g, '')) || 0) * 100) / 100;
+  const reason = String(body && body.reason || '').trim();
+  if (!(amount >= 1) || amount > 10000) return { status: 400, body: { error: 'Enter the amount you need (up to $10,000).' } };
+  if (reason.length < 3) return { status: 400, body: { error: 'Say what the loan is for.' } };
+  const loans = JSON.parse(await redis.get(CREW_LOANS_KEY) || '[]');
+  const me = nameCoreKey(personName);
+  if (loans.some(l => nameCoreKey(l.employeeName) === me && l.status === 'pending')) return { status: 400, body: { error: 'You already have a request waiting for an answer.' } };
+  const id = 'loan_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  loans.push({ id, employeeName: String(personName).slice(0, 100), role, requestedAt: new Date().toISOString(), amount, reason: reason.slice(0, 500), status: 'pending' });
+  await redis.set(CREW_LOANS_KEY, JSON.stringify(loans));
+  console.log(`[loans] ${personName} requested a loan`);
+  return { status: 200, body: { ok: true, id } };
+}
+async function myLoans(personName) {
+  const me = nameCoreKey(personName);
+  const paidWeeks = new Set(JSON.parse(await redis.get('labor-weeks') || '[]').map(w => w && w.weekStart));
+  const cutoff = new Date(Date.now() - 365 * 864e5).toISOString();
+  return JSON.parse(await redis.get(CREW_LOANS_KEY) || '[]')
+    .filter(l => nameCoreKey(l.employeeName) === me && ((l.decidedAt || l.requestedAt || '') >= cutoff || l.status === 'approved'))
+    .sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt)))
+    .map(l => ({ id: l.id, requestedAt: l.requestedAt, amount: l.amount, reason: l.reason, status: l.status, approvedAmount: l.approvedAmount, decidedAt: l.decidedAt || null,
+      declineReason: l.declineReason || '', paidOff: l.paidOff ? { at: l.paidOff.at } : null,
+      installments: (l.installments || []).map(i => ({ week: i.week, amount: i.amount, paid: paidWeeks.has(i.week) })) }));
+}
+[['/api/driver', requireDriverAuth, req => req.driverName, 'captain'],
+ ['/api/wingman', requireWingmanAuth, req => req.wingmanName, 'wingman']].forEach(([base, auth, who, role]) => {
+  app.get(base + '/loans', auth, async (req, res) => {
+    try { res.json({ loans: await myLoans(who(req)) }); }
+    catch (err) { console.error('My loans failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+  });
+  app.post(base + '/loans', auth, async (req, res) => {
+    try { const r = await submitLoan(who(req), role, req.body || {}); res.status(r.status).json(r.body); }
+    catch (err) { console.error('Loan request failed:', err.message); res.status(500).json({ error: 'Could not send the request.' }); }
+  });
+  app.post(base + '/loans/:id/cancel', auth, async (req, res) => {
+    try {
+      const loans = JSON.parse(await redis.get(CREW_LOANS_KEY) || '[]');
+      const l = loans.find(x => x.id === req.params.id && nameCoreKey(x.employeeName) === nameCoreKey(who(req)));
+      if (!l || l.status !== 'pending') return res.status(400).json({ error: 'Only a request still waiting for an answer can be canceled.' });
+      l.status = 'canceled'; l.decidedAt = new Date().toISOString();
+      await redis.set(CREW_LOANS_KEY, JSON.stringify(loans));
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: 'Could not cancel.' }); }
   });
 });
 
@@ -8248,7 +8304,7 @@ async function isRequestingUserAdmin(req) {
 // Monthly Financials belongs to the Owner (Configuration -> Financials);
 // until an Owner is set, admins have it.
 // Extra Pay's own data (commission, misc, paid weeks) is the Owner's too.
-const OWNER_ONLY_KEYS = new Set(['monthly-financials', 'extra-pay-manual']);
+const OWNER_ONLY_KEYS = new Set(['monthly-financials', 'extra-pay-manual', 'crew-loans']);
 async function canSeeFinancials(req) {
   const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
   const owner = String((st.financials || {}).ownerEmail || '').toLowerCase();
