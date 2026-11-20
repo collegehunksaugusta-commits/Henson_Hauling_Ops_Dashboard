@@ -104,14 +104,18 @@ const ALLOWED_KEYS = new Set([
   'google-review-allocations',
   'weight-tickets',
   'weight-ticket-trucks',
+  'job-closeouts',              // jobs closed out in Manager Review as created by mistake
   'weight-ticket-truck-drivers',
   'expense-claims',
+  'crew-loans',                 // short-term loans requested in My Money (Owner only)
   'time-off-requests',
   'damage-claim-crew-acks',
   'hiring-documents',
   'hiring-candidates',
   'hiring-reveal-log',
-  'ops-manager-metrics-monthly-locks'
+  'ops-manager-metrics-monthly-locks',
+  'ops-manager-scorecards',         // Ops Manager weekly scorecard (goal set & review)
+  'ops-manager-scripts'             // client call scripts -- everyone can read, only the Owner can change
 ]);
 const ALLOWED_KEY_PREFIXES = ['injury-file-', 'wp-doc-file-', 'interview-material-doc-', 'expense-receipt-photo-', 'weight-ticket-photo-', 'fleet-invoice-', 'paperwork-job-link-', 'paperwork-upload-', 'compliance-doc-', 'settings-config-doc-', 'marketing-material-doc-', 'compliance-pti-photo-', 'compliance-eod-photo-', 'damage-claim-photo-', 'junk-removal-photo-', 'moving-photo-', 'junk-removal-invoice-', 'hiring-doc-file-', 'hiring-signature-'];
 
@@ -1190,6 +1194,15 @@ app.get('/api/driver/materials-checkout-status', requireDriverOrTaskWingman(null
   }
 });
 
+// Jobs closed out in Manager Review because they were created by mistake
+// (e.g. a second day of a Long Distance Move scheduled as its own job).
+// { [jobNumber]: { coveredBy, note, by, at } }. A closed-out job's materials
+// count toward the job it was really part of (coveredBy), or nowhere.
+async function getJobCloseouts() { try { return JSON.parse(await redis.get('job-closeouts') || '{}') || {}; } catch (e) { return {}; } }
+function jobRemapper(closeouts) {
+  const one = n => { const c = closeouts[n]; return c ? (String(c.coveredBy || '').trim() || null) : n; };
+  return list => [...new Set((list || []).map(n => one(String(n || '').trim())).filter(Boolean))];
+}
 // ---- Materials reminder for the Captain (HUNK Portal pop-up) ----
 // open:    his jobs (last 7 days) with materials pulled and no invoice yet --
 //          "make sure these are billed when the job is finished";
@@ -1200,7 +1213,8 @@ app.get('/api/driver/materials-reminders', requireDriverAuth, async (req, res) =
     const [archiveRaw, checkoutsRaw, itemsRaw, uploadsRaw, reviewRaw] = await Promise.all([
       redis.get(JOB_ARCHIVE_KEY), redis.get('materials-checkouts'), redis.get('materials-items'), redis.get('paperwork-uploads'), redis.get('manager-review-items')
     ]);
-    const archive = JSON.parse(archiveRaw || '[]'), checkouts = JSON.parse(checkoutsRaw || '[]');
+    const closeouts = await getJobCloseouts(), remap = jobRemapper(closeouts);
+    const archive = JSON.parse(archiveRaw || '[]').filter(j => !closeouts[j.jobNumber]), checkouts = JSON.parse(checkoutsRaw || '[]').map(c => Object.assign({}, c, { jobNumbers: remap(c.jobNumbers) }));
     const items = new Map(JSON.parse(itemsRaw || '[]').map(i => [i.id, i]));
     const invoiced = new Set(JSON.parse(uploadsRaw || '[]').filter(u => u.jobNumber && u.invoiceUploadedAt && !u.invoiceNotFound).map(u => u.jobNumber));
     const from = isoDay(-7), to = isoDay(0);
@@ -1304,13 +1318,25 @@ app.post('/api/driver/materials-checkout', requireDriverOrTaskWingman(['pretrip'
 // from the next day on, until he acknowledges it ("I Understand").
 const TRUCK_COND_ACKS_KEY = 'truck-condition-acks';   // { itemId: { name, at } }
 async function conditionNoticesFor(name) {
-  const [itemsRaw, acksRaw] = await Promise.all([redis.get('manager-review-items'), redis.get(TRUCK_COND_ACKS_KEY)]);
+  // Manager Review items marked Fail for this Captain -- truck conditions and
+  // underbilled jobs -- with the manager's note when one was given.
+  const [itemsRaw, acksRaw, archiveRaw] = await Promise.all([redis.get('manager-review-items'), redis.get(TRUCK_COND_ACKS_KEY), redis.get(JOB_ARCHIVE_KEY)]);
   const acks = JSON.parse(acksRaw || '{}'), today = easternDateFromMs(Date.now());
   const cutoff = easternDateFromMs(Date.now() - 30 * 864e5);
-  return JSON.parse(itemsRaw || '[]').filter(i => i.type === 'truck-condition' && i.outcome === 'fail' && i.reviewedAt
-      && nameCoreKey(i.driverName) === nameCoreKey(name) && !acks[i.id]) 
+  const captainByJob = new Map(JSON.parse(archiveRaw || '[]').map(j => [String(j.jobNumber), j.captainName || '']));
+  const me = nameCoreKey(name);
+  const UB_LABEL = { materials: 'Materials not billed', 'travel-line': 'Truck & Travel fee missing', 'junk-removal': 'Junk removal billed under the estimate' };
+  return JSON.parse(itemsRaw || '[]').filter(i => i.outcome === 'fail' && i.reviewedAt && !acks[i.id])
+    .filter(i => {
+      if (i.type === 'truck-condition') return nameCoreKey(i.driverName || '') === me;
+      if (i.type === 'underbilled') return nameCoreKey(i.captainName || captainByJob.get(String(i.jobNumber)) || '') === me;
+      return false;
+    })
     .filter(i => { const d = easternDateFromMs(Date.parse(i.reviewedAt)); return d < today && d >= cutoff; })   // from the next day on
-    .map(i => ({ id: i.id, date: i.date, truckNickname: i.truckNickname || '', summary: i.visionSummary || '', issues: (i.visionIssues || []).map(x => ({ issue: String(x.issue || ''), severity: x.severity || '' })) }));
+    .map(i => i.type === 'truck-condition'
+      ? { id: i.id, kind: 'truck', date: i.date, truckNickname: i.truckNickname || '', summary: i.visionSummary || '', issues: (i.visionIssues || []).map(x => ({ issue: String(x.issue || ''), severity: x.severity || '' })), reason: i.failReason || '' }
+      : { id: i.id, kind: 'underbilled', date: i.jobDate || '', jobNumber: i.jobNumber || '', clientName: i.clientName || '', what: UB_LABEL[i.source] || 'Underbilled job',
+          items: (i.items || []).map(x => String(x.description || x.billingName || x.name || '') + (x.netUsed ? ` (used ${x.netUsed}${x.billed != null ? ', billed ' + x.billed : ''})` : '')).filter(Boolean).slice(0, 8), reason: i.failReason || '' });
 }
 app.get('/api/driver/condition-notices', requireDriverAuth, async (req, res) => {
   try { res.json({ notices: await conditionNoticesFor(req.driverName) }); }
@@ -1817,7 +1843,8 @@ async function captainLongDistanceJobs(captainName) {
   const me = nameDedupKey(captainName);
   const today = easternDateFromMs(Date.now());
   const yesterday = easternDateFromMs(Date.now() - 24 * 60 * 60 * 1000);
-  return archive.filter(j => j.jobNumber && j.jobType === 'longdistance' && (j.assignmentDate === today || j.assignmentDate === yesterday))
+  const closeouts = await getJobCloseouts();
+  return archive.filter(j => j.jobNumber && !closeouts[j.jobNumber] && j.jobType === 'longdistance' && (j.assignmentDate === today || j.assignmentDate === yesterday))
     .map(j => {
       const lead = nameDedupKey(j.captainName || '') === me;
       const assigned = drivers[j.jobNumber] || {};
@@ -2341,6 +2368,65 @@ async function myTimeOff(personName) {
   });
 });
 
+// ============ Short-term loans (HUNK Portal -> My Money -> Extra Pay) ============
+// A Hunk asks the Owner for a short-term loan (amount + reason). The Owner
+// approves it in Extra Pay and splits the repayment over any number of
+// paychecks; each paycheck's share comes off Extra Pay ("Loan Repayment").
+// 'crew-loans' (Owner only): [{ id, employeeName, role, requestedAt, amount,
+// reason, status: pending|approved|declined|canceled, approvedAmount,
+// installments: [{ week, amount }], decidedAt, declineReason, paidOff }].
+const CREW_LOANS_KEY = 'crew-loans';
+async function submitLoan(personName, role, body) {
+  const amount = Math.round((Number(String(body && body.amount || '').replace(/[^0-9.]/g, '')) || 0) * 100) / 100;
+  const reason = String(body && body.reason || '').trim();
+  if (!(amount >= 1) || amount > 10000) return { status: 400, body: { error: 'Enter the amount you need (up to $10,000).' } };
+  if (reason.length < 3) return { status: 400, body: { error: 'Say what the loan is for.' } };
+  // Sent by CashApp or Zelle -- same handle rules as expense reimbursements.
+  const rv = readReimburseVia(body);
+  if (!rv.ok) return { status: 400, body: { error: rv.error } };
+  if (rv.via.method === 'paycheck') return { status: 400, body: { error: 'Choose CashApp or Zelle.' } };
+  const loans = JSON.parse(await redis.get(CREW_LOANS_KEY) || '[]');
+  const me = nameCoreKey(personName);
+  if (loans.some(l => nameCoreKey(l.employeeName) === me && l.status === 'pending')) return { status: 400, body: { error: 'You already have a request waiting for an answer.' } };
+  const id = 'loan_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  loans.push({ id, employeeName: String(personName).slice(0, 100), role, requestedAt: new Date().toISOString(), amount, reason: reason.slice(0, 500), status: 'pending', via: rv.via });
+  await redis.set(CREW_LOANS_KEY, JSON.stringify(loans));
+  console.log(`[loans] ${personName} requested a loan`);
+  return { status: 200, body: { ok: true, id } };
+}
+async function myLoans(personName) {
+  const me = nameCoreKey(personName);
+  const paidWeeks = new Set(JSON.parse(await redis.get('labor-weeks') || '[]').map(w => w && w.weekStart));
+  const cutoff = new Date(Date.now() - 365 * 864e5).toISOString();
+  return JSON.parse(await redis.get(CREW_LOANS_KEY) || '[]')
+    .filter(l => nameCoreKey(l.employeeName) === me && ((l.decidedAt || l.requestedAt || '') >= cutoff || l.status === 'approved'))
+    .sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt)))
+    .map(l => ({ id: l.id, requestedAt: l.requestedAt, amount: l.amount, reason: l.reason, status: l.status, approvedAmount: l.approvedAmount, decidedAt: l.decidedAt || null,
+      declineReason: l.declineReason || '', via: l.via || null, sentAt: l.sentAt || null, paidOff: l.paidOff ? { at: l.paidOff.at } : null,
+      installments: (l.installments || []).map(i => ({ week: i.week, amount: i.amount, paid: paidWeeks.has(i.week) })) }));
+}
+[['/api/driver', requireDriverAuth, req => req.driverName, 'captain'],
+ ['/api/wingman', requireWingmanAuth, req => req.wingmanName, 'wingman']].forEach(([base, auth, who, role]) => {
+  app.get(base + '/loans', auth, async (req, res) => {
+    try { res.json({ loans: await myLoans(who(req)) }); }
+    catch (err) { console.error('My loans failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+  });
+  app.post(base + '/loans', auth, async (req, res) => {
+    try { const r = await submitLoan(who(req), role, req.body || {}); res.status(r.status).json(r.body); }
+    catch (err) { console.error('Loan request failed:', err.message); res.status(500).json({ error: 'Could not send the request.' }); }
+  });
+  app.post(base + '/loans/:id/cancel', auth, async (req, res) => {
+    try {
+      const loans = JSON.parse(await redis.get(CREW_LOANS_KEY) || '[]');
+      const l = loans.find(x => x.id === req.params.id && nameCoreKey(x.employeeName) === nameCoreKey(who(req)));
+      if (!l || l.status !== 'pending') return res.status(400).json({ error: 'Only a request still waiting for an answer can be canceled.' });
+      l.status = 'canceled'; l.decidedAt = new Date().toISOString();
+      await redis.set(CREW_LOANS_KEY, JSON.stringify(loans));
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: 'Could not cancel.' }); }
+  });
+});
+
 // ============ My Tips (HUNK Portal) ============
 // Each person's own tips for this pay week (Mon-Sun, by job date) and last
 // week, from the Tip Allocator -- split evenly among everyone allocated to
@@ -2420,6 +2506,40 @@ app.get('/api/driver/my-extras', requireDriverAuth, async (req, res) => {
 });
 app.get('/api/wingman/my-extras', requireWingmanAuth, async (req, res) => {
   try { res.json(await myExtrasFor(req.wingmanName)); } catch (err) { console.error('My extras failed:', err.message); res.status(500).json({ error: 'Could not load.' }); }
+});
+
+// ---- Review shout-outs: a credited Google review pops up in the HUNK Portal ----
+// Each crew member sees each review credited to them once, and taps to
+// collect. Only reviews credited after this started (REVIEW_POP_START) pop up.
+const REVIEW_POP_ACKS_KEY = 'review-popup-acks';   // { coreKey: [reviewId, ...] }
+const REVIEW_POP_START = '2026-11-02T00:00:00Z';
+app.get('/api/crew/review-shoutouts', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const key = nameCoreKey(me);
+    const [allocRaw, reviewsRaw, acksRaw] = await Promise.all([redis.get('google-review-allocations'), redis.get(GOOGLE_REVIEWS_KEY), redis.get(REVIEW_POP_ACKS_KEY)]);
+    const seen = new Set((JSON.parse(acksRaw || '{}')[key]) || []);
+    const reviews = new Map(JSON.parse(reviewsRaw || '[]').map(r => [r.id, r]));
+    const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
+    const bonus = Number((st.commission || {}).reviewBonusPerReview) || 0;
+    const list = Object.entries(JSON.parse(allocRaw || '{}'))
+      .filter(([id, a]) => a && (a.allocatedAt || '') >= REVIEW_POP_START && !seen.has(id) && (a.employees || []).some(n => nameCoreKey(n) === key))
+      .map(([id, a]) => { const r = reviews.get(id) || {}; return { id, authorName: r.authorName || a.reviewerName || 'A customer', photoUrl: r.photoUrl || '', rating: Number(r.rating) || 5, text: r.text || '', date: r.date || a.date, publishedAt: r.publishedAt || null,
+        crew: (a.employees || []).filter(n => nameCoreKey(n) !== key) }; })
+      .sort((x, y) => String(x.date).localeCompare(String(y.date)));
+    res.json({ reviews: list, bonus });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/review-shoutouts/:id/ack', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const acks = JSON.parse(await redis.get(REVIEW_POP_ACKS_KEY) || '{}'), key = nameCoreKey(me);
+    acks[key] = Array.from(new Set([...(acks[key] || []), String(req.params.id)])).slice(-500);
+    await redis.set(REVIEW_POP_ACKS_KEY, JSON.stringify(acks));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
 
 app.get('/api/driver/my-tips', requireDriverAuth, async (req, res) => {
@@ -3599,6 +3719,7 @@ async function fetchCaptainMetricsRawData() {
     redis.get('captain-ratings'), redis.get(APP_SETTINGS_KEY)
   ]);
   const omSettings = mergeAppSettings(settingsRaw ? JSON.parse(settingsRaw) : null).opsManagerMetrics || {};
+  const closeouts = await getJobCloseouts();
   const opsManagerNames = excludedRaw ? JSON.parse(excludedRaw) : [];
   // Distinguish "the key was never set" (driver data genuinely
   // unavailable -- fail open, apply no restriction) from "the key exists
@@ -3609,13 +3730,13 @@ async function fetchCaptainMetricsRawData() {
   // Who's scored as a Captain: the Captain checkbox (Employee Roster).
   const activeDriverNames = driversRaw ? await fetchCaptainNames() : null;
   return {
-    archive: archiveRaw ? JSON.parse(archiveRaw) : [],
+    archive: (archiveRaw ? JSON.parse(archiveRaw) : []).filter(j => !closeouts[j.jobNumber]),
     ptiRecords: ptiRaw ? JSON.parse(ptiRaw) : [],
     uploads: uploadsRaw ? JSON.parse(uploadsRaw) : [],
     eodRecords: eodRaw ? JSON.parse(eodRaw) : [],
     attendanceRecords: attendanceRaw ? JSON.parse(attendanceRaw) : [],
     movingReports: movingRaw ? JSON.parse(movingRaw) : [],
-    materialsCheckouts: checkoutsRaw ? JSON.parse(checkoutsRaw) : [],
+    materialsCheckouts: (checkoutsRaw ? JSON.parse(checkoutsRaw) : []).map(c => Object.assign({}, c, { jobNumbers: jobRemapper(closeouts)(c.jobNumbers) })),
     materialsItems: itemsRaw ? JSON.parse(itemsRaw) : [],
     managerReviewItems: reviewItemsRaw ? JSON.parse(reviewItemsRaw) : [],
     junkRemovalJobs: junkRemovalJobsRaw ? JSON.parse(junkRemovalJobsRaw) : [],
@@ -4090,6 +4211,11 @@ const DEFAULT_APP_SETTINGS = {
   extraPay: {
     mileageRate: 0
   },
+  // Fleet Maintenance: miles between services (compared with the live
+  // Motive odometer and the mileage at the last logged service).
+  fleet: {
+    serviceIntervalMiles: 5000
+  },
   // Monthly Financials: metrics switched off in Configuration -> Financials
   // (hidden from the chart and yearly tables; the data itself is kept).
   financials: {
@@ -4127,8 +4253,9 @@ const DEFAULT_APP_SETTINGS = {
     finalEmailBody: 'Hi {{clientFirstName}},\n\nThank you for your patience while we reviewed your damage claim for job {{jobNumber}}. We\u2019ve completed our review using the photos provided and the valuation coverage you selected on your Bill of Lading: {{valuationOption}}.\n\nUnder Georgia Department of Public Safety Maximum Rate Tariff No. 7, the settlement amount for your claim is {{settlementAmount}}. The attached Settlement Summary explains how that amount was determined, item by item.\n\nThis will be refunded via the payment method you used for final billing. Please allow 5-7 business days for the refund to process.\n\nIf you have any questions, just reply to this email.\n\nThanks,\n' + LOCATION.emailSignature
   },
   teamTexts: {
-    forwardRepliesTo: '',      // a cell number that also gets every crew reply
-    optOutNote: true           // "Reply STOP to opt out." on each person's first text
+    forwardRepliesTo: '',      // cell number(s), comma-separated, that also get every crew reply
+    optOutNote: true,          // "Reply STOP to opt out." on each person's first text
+    brandPrefix: 'College Hunks Hauling Junk and Moving Augusta GA:'   // starts every text (the registered A2P brand)
   },
   hiring: {
     emailSubject: 'Welcome to College Hunks Hauling Junk & Moving \u2014 Onboarding Paperwork',
@@ -4958,7 +5085,8 @@ const DAMAGE_REC_TOOL = {
       },
       confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
       concerns: { type: 'array', items: { type: 'string' }, description: 'Things the owner should verify before paying (unclear photos, missing receipts, possible pre-existing damage, etc.).' },
-      writtenRecommendation: { type: 'string', description: 'A plain-language recommendation for the business owner, 2-4 short paragraphs: what was damaged, which valuation option applies and why, how the amount was reached under Tariff No. 7, and anything to verify. Do not invent dollar totals different from the item estimates.' }
+      writtenRecommendation: { type: 'string', description: 'A plain-language recommendation for the business owner, 2-4 short paragraphs: what was damaged, which valuation option applies and why, how the amount was reached under Tariff No. 7, and anything to verify. Do not invent dollar totals different from the item estimates.' },
+      settlementNotes: { type: 'string', description: 'Client-facing notes for the Settlement Summary the CUSTOMER receives: 0-3 short, courteous sentences explaining any special circumstances behind the amounts — e.g. a receipt they provided, an item repaired rather than replaced, damage confirmed as pre-existing, an item excluded and why. Plain language, no internal or AI wording, no confidence levels. Empty string if nothing beyond the itemized list needs explaining.' },
     },
     required: ['valuationFromPaperwork', 'declaredValueFromPaperwork', 'paperworkEvidence', 'items', 'confidence', 'concerns', 'writtenRecommendation']
   }
@@ -4969,19 +5097,34 @@ function dataUriParts(uri) {
   return m ? { mediaType: m[1], data: m[2] } : null;
 }
 
-app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(400).json({ error: 'AI recommendations need a Claude key (ANTHROPIC_API_KEY in Render).' });
-  const { claimId, valuation, declaredValue, notes } = req.body || {};
-  try {
-    const [claimsRaw, reportsRaw, uploadsRaw, archiveRaw] = await Promise.all([
-      redis.get('damage-claims'), redis.get('moving-damage-reports'), redis.get('paperwork-uploads'), redis.get(JOB_ARCHIVE_KEY)
-    ]);
-    const claim = (claimsRaw ? JSON.parse(claimsRaw) : []).find(c => c.id === claimId);
-    if (!claim) return res.status(404).json({ error: 'Claim not found.' });
-    const report = (reportsRaw ? JSON.parse(reportsRaw) : []).find(r => String(r.jobNumber) === String(claim.jobNumber)) || {};
-    const job = (archiveRaw ? JSON.parse(archiveRaw) : []).find(j => String(j.jobNumber) === String(claim.jobNumber)) || {};
+function damageClaimTariffResult(a, chosen, declaredValue, extra) {
+  const items = (a.items || []).map(it => {
+    const weight = Math.max(0, Number(it.estimatedWeightLbs) || 0);
+    const cost = Math.max(0, Number(it.estimatedRepairOrReplaceCost) || 0);
+    const covered = it.covered !== false;
+    const releasedCap = Math.round(weight * 0.60 * 100) / 100;
+    return { ...it, estimatedWeightLbs: weight, estimatedRepairOrReplaceCost: cost, covered,
+      releasedValueAmount: covered ? Math.min(cost, releasedCap) : 0, releasedValueCap: releasedCap,
+      fullValueAmount: covered ? cost : 0 };
+  });
+  const round2 = n => Math.round(n * 100) / 100;
+  const releasedTotal = round2(items.reduce((t, i) => t + i.releasedValueAmount, 0));
+  const fullCostTotal = round2(items.reduce((t, i) => t + i.fullValueAmount, 0));
+  const option = chosen || (['1', '2a', '2b'].includes(a.valuationFromPaperwork) ? a.valuationFromPaperwork : null);
+  const declared = Number(chosen ? declaredValue : a.declaredValueFromPaperwork) || 0;
+  const cap = v => declared > 0 ? Math.min(v, declared) : v;
+  const totals = { '1': releasedTotal, '2a': round2(cap(fullCostTotal)), '2b': round2(cap(Math.max(0, fullCostTotal - 300))) };
+  return {
+    generatedAt: new Date().toISOString(), by: extra.by || '',
+    option, optionSource: extra.optionSource || (chosen ? 'entered' : (option ? 'paperwork' : 'not_found')),
+    declaredValue: declared, paperworkIncluded: !!extra.paperworkIncluded, paperworkEvidence: a.paperworkEvidence || '',
+    items, totals, recommendedTotal: option ? totals[option] : null,
+    confidence: a.confidence || 'low', concerns: a.concerns || [], writtenRecommendation: a.writtenRecommendation || '', settlementNotes: String(a.settlementNotes || '').trim(),
+    photoCounts: extra.counts || {}
+  };
+}
 
+async function damageClaimEvidence(claim, report, uploadsRaw, valuation) {
     // Photos, labeled by source, up to 18 in all.
     const groups = [
       { label: 'CLIENT CLAIM PHOTO (uploaded by the client after the move)', keys: (claim.photos || []).map(p => `damage-claim-photo-${claim.id}-${p.id}`) },
@@ -5005,7 +5148,6 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
         total++;
       }
     }
-    if (total === 0) return res.status(400).json({ error: 'This claim has no photos to analyze yet.' });
 
     // The job's scanned paperwork packet, to read the signed valuation addendum.
     let paperworkIncluded = false;
@@ -5027,6 +5169,110 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
         }
       }
     }
+
+  return { content, counts, total, paperworkIncluded };
+}
+
+// ---- Discuss the recommendation: questions and added context ----
+// The office asks questions or adds facts (receipts, the signed valuation,
+// what the crew said...). The AI answers with the same photos and paperwork
+// in view, and -- only when the new information changes the assessment --
+// returns a full revised assessment; the tariff math is redone here.
+const DAMAGE_DISCUSS_TOOL = {
+  name: 'damage_claim_discussion',
+  description: 'Answer the owner about the damage claim assessment, and revise it if warranted.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      reply: { type: 'string', description: 'Direct, plain-language answer to the owner (a few sentences). If you revised the assessment, say exactly what changed and why.' },
+      revise: { type: 'boolean', description: 'True only if the owner\u2019s information or a closer look changes the items, weights, costs, coverage, or valuation option.' },
+      assessment: Object.assign({}, DAMAGE_REC_TOOL.input_schema, { description: 'Required when revise is true: the COMPLETE revised assessment (every item, not only the changed ones).' })
+    },
+    required: ['reply', 'revise']
+  }
+};
+app.post('/api/admin/damage-claim/discuss', requireAuth, async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'AI needs a Claude key (ANTHROPIC_API_KEY in Render).' });
+  const { claimId } = req.body || {};
+  const message = String((req.body || {}).message || '').trim().slice(0, 4000);
+  if (!message) return res.status(400).json({ error: 'Type a question or some context first.' });
+  try {
+    const [claimsRaw, reportsRaw, uploadsRaw, archiveRaw] = await Promise.all([
+      redis.get('damage-claims'), redis.get('moving-damage-reports'), redis.get('paperwork-uploads'), redis.get(JOB_ARCHIVE_KEY)
+    ]);
+    const claim = (claimsRaw ? JSON.parse(claimsRaw) : []).find(c => c.id === claimId);
+    if (!claim) return res.status(404).json({ error: 'Claim not found.' });
+    const rec = claim.aiRecommendation;
+    if (!rec) return res.status(400).json({ error: 'Run the recommendation first.' });
+    const report = (reportsRaw ? JSON.parse(reportsRaw) : []).find(r => String(r.jobNumber) === String(claim.jobNumber)) || {};
+    const job = (archiveRaw ? JSON.parse(archiveRaw) : []).find(j => String(j.jobNumber) === String(claim.jobNumber)) || {};
+    const { content, counts, paperworkIncluded } = await damageClaimEvidence(claim, report, uploadsRaw, rec.optionSource === 'entered' ? rec.option : 'paperwork');
+    const current = {
+      valuationOption: rec.option, optionSource: rec.optionSource, declaredValue: rec.declaredValue, paperworkEvidence: rec.paperworkEvidence,
+      items: (rec.items || []).map(i => ({ article: i.article, photoNumbers: i.photoNumbers, damage: i.damage, estimatedWeightLbs: i.estimatedWeightLbs,
+        estimatedRepairOrReplaceCost: i.estimatedRepairOrReplaceCost, repairOrReplace: i.repairOrReplace, preExistingOverlap: i.preExistingOverlap,
+        exclusionConcern: i.exclusionConcern, covered: i.covered, removedByOffice: !!i.removedByOffice })),
+      totals: rec.totals, recommendedTotal: rec.recommendedTotal, confidence: rec.confidence, concerns: rec.concerns, writtenRecommendation: rec.writtenRecommendation,
+      settlementNotes: rec.settlementNotes || ''
+    };
+    const history = (claim.aiChat || []).slice(-20).map(m => `${m.role === 'user' ? 'OWNER' : 'YOU'}: ${m.text}`).join('\n\n');
+    content.push({ type: 'text', text:
+      `You are helping a College Hunks Hauling Junk & Moving franchise owner in Georgia evaluate a customer's moving damage claim, and you already gave the assessment below. The owner is now asking questions or adding context.\n\n${GA_TARIFF_7_VALUATION}\n\n` +
+      `Job ${claim.jobNumber}${job.jobType ? ' (' + job.jobType + ')' : ''}, client ${claim.clientName || job.clientName || 'unknown'}.\n\n` +
+      `CURRENT ASSESSMENT (items marked removedByOffice were struck by the office; keep them out unless the owner says otherwise):\n${JSON.stringify(current, null, 1)}\n\n` +
+      (history ? `CONVERSATION SO FAR:\n${history}\n\n` : '') +
+      `OWNER'S NEW MESSAGE:\n${message}\n\n` +
+      `Answer directly and honestly, referring to photo numbers where useful. Facts the owner provides (receipts, the signed valuation option and declared value, what the crew reported, an item being shipper-packed, etc.) take precedence over your estimates -- but if the photos clearly contradict something, say so. ` +
+      `Set revise=true if this changes the assessment (items, damage descriptions, weights, costs, coverage, or valuation) OR if the context the owner gave should be explained to the customer; then return the COMPLETE revised assessment with every item, counting each physical article once, with item descriptions updated to match the owner's context. ` +
+      `Keep settlementNotes current: they print on the Settlement Summary the CUSTOMER receives, so explain in 1-3 courteous plain sentences any context that shaped the settlement (receipts, repairs instead of replacement, pre-existing damage, exclusions), with no internal or AI wording. Otherwise set revise=false and do not include an assessment. Do not do the tariff dollar math yourself -- it is calculated for you from the items.` });
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, tools: [DAMAGE_DISCUSS_TOOL], tool_choice: { type: 'tool', name: 'damage_claim_discussion' }, messages: [{ role: 'user', content }] })
+    });
+    if (!r.ok) { console.error('[damage-discuss] Claude call failed:', r.status, (await r.text().catch(() => '')).slice(0, 300)); return res.status(502).json({ error: 'The AI service returned an error \u2014 try again in a minute.' }); }
+    const d = await r.json();
+    const out = ((d.content || []).find(b => b.type === 'tool_use') || {}).input || {};
+    const reply = String(out.reply || '').trim() || 'Sorry \u2014 I couldn\u2019t answer that. Try rephrasing.';
+    let revised = null;
+    if (out.revise === true && out.assessment && Array.isArray(out.assessment.items)) {
+      // Keep the valuation the office entered, unless the owner just told us otherwise.
+      const said = ['1', '2a', '2b'].includes(out.assessment.valuationFromPaperwork) ? out.assessment.valuationFromPaperwork : null;
+      const keepEntered = rec.optionSource === 'entered' && (!said || said === rec.option);
+      revised = damageClaimTariffResult(out.assessment, keepEntered ? rec.option : null, keepEntered ? rec.declaredValue : 0,
+        { by: req.userEmail || '', paperworkIncluded, counts, optionSource: keepEntered ? 'entered' : (said && said !== rec.option ? 'discussion' : undefined) });
+      revised.revisedFromDiscussion = true;
+    }
+    const now = new Date().toISOString();
+    const claims = JSON.parse(await redis.get('damage-claims') || '[]');
+    const c = claims.find(x => x.id === claimId);
+    if (!c) return res.status(404).json({ error: 'Claim not found.' });
+    c.aiChat = (c.aiChat || []).concat([
+      { role: 'user', text: message, at: now, by: req.userEmail || '' },
+      { role: 'assistant', text: reply, at: new Date().toISOString(), revised: !!revised, from: revised ? rec.recommendedTotal : null, to: revised ? revised.recommendedTotal : null }
+    ]).slice(-60);
+    if (revised) { c.aiRecommendationHistory = (c.aiRecommendationHistory || []).concat([c.aiRecommendation]).slice(-10); c.aiRecommendation = revised; }
+    await redis.set('damage-claims', JSON.stringify(claims));
+    console.log(`[damage-discuss] claim ${claimId}: ${revised ? `revised ${rec.recommendedTotal} -> ${revised.recommendedTotal}` : 'answered'}`);
+    res.json({ reply, revised: !!revised, recommendation: c.aiRecommendation, chat: c.aiChat });
+  } catch (err) { console.error('[damage-discuss] failed:', err.message); res.status(500).json({ error: 'Could not get an answer.' }); }
+});
+
+app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'AI recommendations need a Claude key (ANTHROPIC_API_KEY in Render).' });
+  const { claimId, valuation, declaredValue, notes } = req.body || {};
+  try {
+    const [claimsRaw, reportsRaw, uploadsRaw, archiveRaw] = await Promise.all([
+      redis.get('damage-claims'), redis.get('moving-damage-reports'), redis.get('paperwork-uploads'), redis.get(JOB_ARCHIVE_KEY)
+    ]);
+    const claim = (claimsRaw ? JSON.parse(claimsRaw) : []).find(c => c.id === claimId);
+    if (!claim) return res.status(404).json({ error: 'Claim not found.' });
+    const report = (reportsRaw ? JSON.parse(reportsRaw) : []).find(r => String(r.jobNumber) === String(claim.jobNumber)) || {};
+    const job = (archiveRaw ? JSON.parse(archiveRaw) : []).find(j => String(j.jobNumber) === String(claim.jobNumber)) || {};
+
+    const { content, counts, total, paperworkIncluded } = await damageClaimEvidence(claim, report, uploadsRaw, valuation);
+    if (total === 0) return res.status(400).json({ error: 'This claim has no photos to analyze yet.' });
 
     const chosen = ['1', '2a', '2b'].includes(valuation) ? valuation : null;
     content.push({ type: 'text', text:
@@ -5053,34 +5299,8 @@ app.post('/api/admin/damage-claim/recommend', requireAuth, async (req, res) => {
     const a = block.input || {};
 
     // Tariff math, done here.
-    const items = (a.items || []).map(it => {
-      const weight = Math.max(0, Number(it.estimatedWeightLbs) || 0);
-      const cost = Math.max(0, Number(it.estimatedRepairOrReplaceCost) || 0);
-      const covered = it.covered !== false;
-      const releasedCap = Math.round(weight * 0.60 * 100) / 100;
-      return { ...it, estimatedWeightLbs: weight, estimatedRepairOrReplaceCost: cost, covered,
-        releasedValueAmount: covered ? Math.min(cost, releasedCap) : 0, releasedValueCap: releasedCap,
-        fullValueAmount: covered ? cost : 0 };
-    });
-    const round2 = n => Math.round(n * 100) / 100;
-    const releasedTotal = round2(items.reduce((t, i) => t + i.releasedValueAmount, 0));
-    const fullCostTotal = round2(items.reduce((t, i) => t + i.fullValueAmount, 0));
-    const option = chosen || (['1', '2a', '2b'].includes(a.valuationFromPaperwork) ? a.valuationFromPaperwork : null);
-    const declared = Number(chosen ? declaredValue : a.declaredValueFromPaperwork) || 0;
-    const cap = v => declared > 0 ? Math.min(v, declared) : v;
-    const totals = {
-      '1': releasedTotal,
-      '2a': round2(cap(fullCostTotal)),
-      '2b': round2(cap(Math.max(0, fullCostTotal - 300)))
-    };
-    const result = {
-      generatedAt: new Date().toISOString(), by: req.userEmail || '',
-      option, optionSource: chosen ? 'entered' : (option ? 'paperwork' : 'not_found'),
-      declaredValue: declared, paperworkIncluded, paperworkEvidence: a.paperworkEvidence || '',
-      items, totals, recommendedTotal: option ? totals[option] : null,
-      confidence: a.confidence || 'low', concerns: a.concerns || [], writtenRecommendation: a.writtenRecommendation || '',
-      photoCounts: counts
-    };
+    const result = damageClaimTariffResult(a, chosen, declaredValue, { by: req.userEmail || '', paperworkIncluded, counts });
+    const items = result.items, option = result.option;
     // Kept on the claim so it can be reopened without re-running.
     const claims = JSON.parse(await redis.get('damage-claims') || '[]');
     const c = claims.find(x => x.id === claimId);
@@ -5577,10 +5797,19 @@ const IDENTIFY_INVOICE_PAGES_TOOL = {
 // every figure, cents or not. Requiring a decimal previously meant every
 // single figure on that second document type silently failed to ground,
 // regardless of how correct the reading was.
+// Some documents' text comes through with spaces inside numbers --
+// "$ 0 . 88", "$ 1 , 250 . 00" -- which would otherwise be read as separate
+// numbers (0 and 88). Close those gaps before comparing amounts.
+function closeUpSpacedNumbers(str) {
+  return String(str || '')
+    .replace(/\$\s+(?=\d)/g, '$')
+    .replace(/(\d)\s*\.\s*(\d)/g, '$1.$2')
+    .replace(/(\d)\s*,\s*(\d{3})(?!\d)/g, '$1,$2');
+}
 function validateAgainstQuote(amount, quotedLine, keyword) {
   const amt = Number(amount) || 0;
   if (amt <= 0) return amt;
-  const quote = (quotedLine || '').trim();
+  const quote = closeUpSpacedNumbers(quotedLine).trim();
   if (!quote) return 0;
   if (!new RegExp(keyword, 'i').test(quote)) return 0;
   const numbersInQuote = (quote.match(/[\d,]+(?:\.\d{1,2})?/g) || []).map(s => parseFloat(s.replace(/,/g, '')));
@@ -5614,6 +5843,7 @@ function validateAgainstQuote(amount, quotedLine, keyword) {
 function verifyAgainstSourceText(sourceText, amount, keyword) {
   const amt = Number(amount) || 0;
   if (amt <= 0) return amt;
+  sourceText = closeUpSpacedNumbers(sourceText).replace(/,/g, '');
   const candidates = [amt.toFixed(2)];
   if (Number.isInteger(amt)) candidates.push(String(amt));
   for (const amountStr of candidates) {
@@ -6450,6 +6680,7 @@ app.post('/api/hiring/package/:token/submit', async (req, res) => {
 let pdfLib = null;
 try { pdfLib = require('pdf-lib'); } catch (e) { console.log('[hiring] pdf-lib not installed -- completed-package PDFs unavailable'); }
 const HIRING_COMPLETED_PDF_KEY = id => `hiring-completed-pdf-${id}`;
+const HIRING_PACKAGE_SERVER_MAX = 3.5 * 1024 * 1024;   // stored characters
 const HIRING_FIELD_TITLES = {
   employee_full_name: 'Full name', employee_first_name: 'First name', employee_last_name: 'Last name', employee_address: 'Street address',
   employee_city: 'City', employee_state: 'State', employee_zip: 'ZIP', employee_phone: 'Phone', employee_email: 'Email', employee_dob: 'Date of birth',
@@ -6562,9 +6793,16 @@ async function storeCompletedPackagePdf(candidateId) {
   const c = candidates.find(x => x.id === candidateId);
   if (!c || c.status !== 'completed') return null;
   const uri = await buildCompletedPackagePdf(c);
+  // Copying the original form files whole makes a large package (the sum of
+  // every form). Over the limit, leave it for the dashboard, which draws the
+  // pages at a compact size and stores that instead.
+  if (uri.length > HIRING_PACKAGE_SERVER_MAX) {
+    console.log(`[hiring] server-built package for ${c.firstName} ${c.lastName} is ${Math.round(uri.length / 1024)} KB -- not stored; the dashboard will build a smaller one`);
+    return null;
+  }
   await redis.set(HIRING_COMPLETED_PDF_KEY(c.id), JSON.stringify(uri));
   const fresh = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
-  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); fc.completedPdfStale = false; fc.completedPdfV2 = true; await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
+  const fc = fresh.find(x => x.id === candidateId); if (fc) { fc.completedPdfAt = new Date().toISOString(); fc.completedPdfStale = false; fc.completedPdfV2 = true; delete fc.completedPdfBuiltBy; await redis.set(HIRING_CANDIDATES_KEY, JSON.stringify(fresh)); }
   console.log(`[hiring] completed package PDF stored for ${c.firstName} ${c.lastName} (${Math.round(uri.length / 1024)} KB)`);
   return uri;
 }
@@ -6603,7 +6841,7 @@ app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async
     if (!c || c.status !== 'completed') return res.status(404).json({ error: 'This package hasn\u2019t been submitted yet.' });
     // Rebuilt if out of date, or built before Word documents were written out in full.
     let raw = (c.completedPdfStale || !c.completedPdfV2) ? null : await redis.get(HIRING_COMPLETED_PDF_KEY(c.id));
-    if (raw && raw.length > 8 * 1024 * 1024) { console.log(`[hiring] stored package for ${c.firstName} ${c.lastName} is oversized (${Math.round(raw.length / 1024)} KB) -- rebuilding smaller`); raw = null; }
+    if (raw && raw.length > (c.completedPdfBuiltBy ? 8 * 1024 * 1024 : HIRING_PACKAGE_SERVER_MAX)) { console.log(`[hiring] stored package for ${c.firstName} ${c.lastName} is oversized (${Math.round(raw.length / 1024)} KB) -- rebuilding smaller`); raw = null; }
     let uri = raw ? JSON.parse(raw) : null;
     if (!uri) { try { uri = await storeCompletedPackagePdf(c.id); } catch (e) { console.log(`[hiring] server PDF build failed for ${c.firstName} ${c.lastName} (${e.message}) -- the dashboard will build it`); } }
     if (!uri) {
@@ -6623,7 +6861,7 @@ app.get('/api/admin/hiring/candidates/:id/completed-package', requireAuth, async
       return res.json({ needsBuild: true, build, fileName: `Onboarding Package - ${c.lastName}, ${c.firstName}.pdf` });
     }
     const log = JSON.parse(await redis.get('hiring-reveal-log') || '[]');
-    log.push({ candidateId: c.id, candidateName: `${c.firstName} ${c.lastName}`, scope: 'completed-package', fieldKey: 'package-pdf', revealedBy: req.userEmail || '', revealedAt: new Date().toISOString() });
+    log.push({ candidateId: c.id, candidateName: `${c.firstName} ${c.lastName}`, scope: 'completed-package', fieldKey: req.query.purpose === 'shrink' ? 'package-shrink' : 'package-pdf', revealedBy: req.userEmail || '', revealedAt: new Date().toISOString() });
     await redis.set('hiring-reveal-log', JSON.stringify(log.slice(-1000)));
     console.log(`[hiring] completed package for ${c.firstName} ${c.lastName} opened by ${req.userEmail || ''}`);
     res.json({ dataUri: uri, fileName: `Onboarding Package - ${c.lastName}, ${c.firstName}.pdf` });
@@ -6763,9 +7001,10 @@ const twilioReady = () => { const c = twilioCfg(); return !!(c.sid && c.token &&
 function toE164(phone) { const d = String(phone || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? '+1' + d : ''; }
 const prettyPhone = e => { const d = String(e || '').replace(/\D/g, '').slice(-10); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(e || ''); };
 const publicBase = req => `${(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0]}://${req.get('host')}`;
-async function twilioSend(to, body, statusCallback) {
+async function twilioSend(to, body, statusCallback, mediaUrls) {
   const c = twilioCfg();
   const params = new URLSearchParams({ To: to, Body: body });
+  (mediaUrls || []).forEach(u => params.append('MediaUrl', u));   // picture message (MMS)
   if (c.svc) params.set('MessagingServiceSid', c.svc); else params.set('From', c.from);
   if (statusCallback) params.set('StatusCallback', statusCallback);
   const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${c.sid}/Messages.json`, { method: 'POST', headers: { Authorization: 'Basic ' + Buffer.from(c.sid + ':' + c.token).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
@@ -6783,14 +7022,387 @@ function twilioSignatureOk(req) {
   try { return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig)); } catch (e) { return false; }
 }
 // Everyone on the roster, with phone, role and opt-out status.
+// ======================================================================
+// EMPLOYEE INBOX: email sent to the company's employee addresses (e.g.
+// crew.jsmith@hensonhauling.com, used for Amazon Seller Central) arrives
+// here from a Cloudflare Email Worker, is kept for the dashboard, and a
+// text alert goes to the office's forwarding numbers.
+// ======================================================================
+const EMP_INBOX_KEY = 'employee-inbox';
+function mimeDecodeWords(s) {
+  return String(s || '').replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (m, cs, enc, txt) => {
+    try {
+      const buf = /b/i.test(enc) ? Buffer.from(txt, 'base64') : Buffer.from(txt.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (x, h) => String.fromCharCode(parseInt(h, 16))), 'latin1');
+      return new TextDecoder(cs.toLowerCase()).decode(buf);
+    } catch (e) { return txt; }
+  }).replace(/\?=\s+=\?/g, '');
+}
+function mimeHeaders(block) {
+  const h = {};
+  block.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/).forEach(line => { const i = line.indexOf(':'); if (i > 0) { const k = line.slice(0, i).trim().toLowerCase(); if (!(k in h)) h[k] = line.slice(i + 1).trim(); } });
+  return h;
+}
+function mimeParam(v, name) { const m = new RegExp(name + '\\s*=\\s*"?([^";]+)"?', 'i').exec(v || ''); return m ? m[1] : ''; }
+function mimeBodyToText(body, headers) {
+  const te = String(headers['content-transfer-encoding'] || '').toLowerCase(), cs = (mimeParam(headers['content-type'], 'charset') || 'utf-8').toLowerCase();
+  let buf;
+  if (te === 'base64') buf = Buffer.from(body.replace(/\s+/g, ''), 'base64');
+  else if (te === 'quoted-printable') buf = Buffer.from(body.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (x, hh) => String.fromCharCode(parseInt(hh, 16))), 'latin1');
+  else buf = Buffer.from(body, 'latin1');
+  try { return new TextDecoder(cs).decode(buf); } catch (e) { return buf.toString('utf8'); }
+}
+// Collects the first text/plain and text/html parts (walks multipart).
+function mimeParse(raw, out = { text: '', html: '' }, depth = 0) {
+  const sep = raw.search(/\r?\n\r?\n/);
+  const headerBlock = sep < 0 ? raw : raw.slice(0, sep), body = sep < 0 ? '' : raw.slice(sep).replace(/^\r?\n\r?\n/, '');
+  const h = mimeHeaders(headerBlock), ct = String(h['content-type'] || 'text/plain').toLowerCase();
+  if (depth === 0) out.headers = h;
+  if (/^multipart\//.test(ct) && depth < 6) {
+    const b = mimeParam(h['content-type'], 'boundary');
+    if (b) body.split('--' + b).slice(1).forEach(part => { if (!/^--/.test(part)) mimeParse(part.replace(/^\r?\n/, ''), out, depth + 1); });
+  } else if (/^text\/html/.test(ct) && !out.html && !/attachment/i.test(h['content-disposition'] || '')) out.html = mimeBodyToText(body, h);
+  else if (/^text\/plain/.test(ct) && !out.text && !/attachment/i.test(h['content-disposition'] || '')) out.text = mimeBodyToText(body, h);
+  return out;
+}
+const htmlToText = html => String(html || '').replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi, '\n').replace(/<[^>]+>/g, ' ')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&#(\d+);/g, (m, n) => String.fromCharCode(n))
+  .replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+// A verification / one-time code, if the email has one.
+function findEmailCode(subject, text) {
+  const s = `${subject}\n${text}`;
+  const near = /(code|passcode|verification|verify|one[- ]time|OTP|PIN)[^0-9]{0,120}?\b([0-9]{4,8})\b/i.exec(s) || /\b([0-9]{4,8})\b[^0-9\n]{0,40}(is your|is the|code)/i.exec(s);
+  if (!near) return '';
+  const code = /^[0-9]+$/.test(near[2] || '') ? near[2] : near[1];
+  return /^(19|20)\d\d$/.test(code) ? '' : code;   // not a year
+}
+app.post('/api/inbound-email', async (req, res) => {
+  try {
+    const token = process.env.INBOUND_EMAIL_TOKEN;
+    const given = String(req.headers['x-inbound-token'] || '');
+    if (!token || given.length !== token.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(token))) return res.status(401).json({ error: 'Not allowed.' });
+    const { to, from, raw } = req.body || {};
+    if (!raw) return res.status(400).json({ error: 'No message.' });
+    const rawStr = Buffer.from(String(raw), 'base64').toString('latin1').slice(0, 6_000_000);
+    const p = mimeParse(rawStr), hd = p.headers || {};
+    const subject = mimeDecodeWords(hd.subject || '(no subject)').slice(0, 300);
+    const text = (p.text || htmlToText(p.html)).slice(0, 20000);
+    const msg = { id: 'em_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex'), at: new Date().toISOString(),
+      to: String(to || hd.to || '').toLowerCase().slice(0, 200), from: mimeDecodeWords(hd.from || from || '').slice(0, 200),
+      subject, text, html: String(p.html || '').slice(0, 250000), code: findEmailCode(subject, text), read: false };
+    const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]');
+    list.push(msg);
+    await redis.set(EMP_INBOX_KEY, JSON.stringify(list.slice(-300)));
+    console.log(`[employee-inbox] ${msg.to} <- ${msg.from}: ${subject}${msg.code ? ' (code)' : ''}`);
+    res.json({ ok: true });
+    // Text alert to the office's forwarding numbers.
+    try {
+      const st = await getAppSettings();
+      if ((st.employeeInbox || {}).textAlerts === false || !twilioReady()) return;
+      const nums = [...new Set(String((st.teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].slice(0, 5);
+      const who = msg.to.split('@')[0] || 'employee';
+      const body = msg.code ? `Amazon Service: email for ${who} \u2014 code ${msg.code} (${subject.slice(0, 60)})` : `Amazon Service: email for ${who} \u2014 ${subject.slice(0, 100)}`;
+      for (const n of nums) await twilioSend(n, body).catch(e => console.error('Inbox alert failed:', e.message));
+    } catch (e) {}
+  } catch (err) { console.error('Inbound email failed:', err.message); res.status(500).json({ error: 'Could not save.' }); }
+});
+app.get('/api/admin/employee-inbox', requireAuth, requireAdmin, async (req, res) => {
+  try { const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]'); res.json({ messages: list.slice().reverse(), configured: !!process.env.INBOUND_EMAIL_TOKEN }); }
+  catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/employee-inbox/read', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const ids = new Set(((req.body || {}).ids || []).map(String)), all = !!(req.body || {}).all;
+    const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]'); list.forEach(m => { if (all || ids.has(m.id)) m.read = true; });
+    await redis.set(EMP_INBOX_KEY, JSON.stringify(list)); res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+app.post('/api/admin/employee-inbox/delete', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const ids = new Set(((req.body || {}).ids || []).map(String));
+    const list = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]').filter(m => !ids.has(m.id));
+    await redis.set(EMP_INBOX_KEY, JSON.stringify(list)); res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not delete.' }); }
+});
+
+// ---- Links sent to an employee's HUNK Portal (e.g. an Amazon background-check link) ----
+const CREW_LINKS_KEY = 'crew-link-pushes';
+app.post('/api/admin/employee-inbox/:id/push', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { employee, url, label, note } = req.body || {};
+    if (!employee || !/^https?:\/\//i.test(String(url || ''))) return res.status(400).json({ error: 'Choose an employee and a link.' });
+    const msg = JSON.parse(await redis.get(EMP_INBOX_KEY) || '[]').find(m => m.id === req.params.id);
+    const links = JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]');
+    const item = { id: 'lk_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex'), at: new Date().toISOString(), by: req.userEmail || '',
+      name: String(employee).slice(0, 120), url: String(url).slice(0, 2000), label: String(label || 'Open link').slice(0, 120), note: String(note || '').trim().slice(0, 500),
+      subject: msg ? msg.subject : '', emailId: req.params.id, openedAt: null, doneAt: null };
+    links.push(item);
+    await redis.set(CREW_LINKS_KEY, JSON.stringify(links.slice(-500)));
+    console.log(`[crew-links] sent to ${item.name}: ${item.subject || item.label}`);
+    res.json({ ok: true, item });
+  } catch (err) { console.error('Send link failed:', err.message); res.status(500).json({ error: 'Could not send.' }); }
+});
+app.get('/api/admin/crew-links', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ links: JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]') }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.get('/api/crew/links', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const k = nameCoreKey(me);
+    res.json({ links: JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]').filter(l => nameCoreKey(l.name) === k && !l.doneAt)
+      .map(l => ({ id: l.id, at: l.at, url: l.url, label: l.label, note: l.note, subject: l.subject, opened: !!l.openedAt })) });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/links/:id/:what', async (req, res) => {
+  try {
+    if (!['opened', 'done'].includes(req.params.what)) return res.status(404).json({ error: 'Not found.' });
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const links = JSON.parse(await redis.get(CREW_LINKS_KEY) || '[]');
+    const l = links.find(x => x.id === req.params.id && nameCoreKey(x.name) === nameCoreKey(me));
+    if (!l) return res.status(404).json({ error: 'Not found.' });
+    if (req.params.what === 'opened') { if (!l.openedAt) l.openedAt = new Date().toISOString(); }
+    else { l.doneAt = new Date().toISOString(); if (!l.openedAt) l.openedAt = l.doneAt; }
+    await redis.set(CREW_LINKS_KEY, JSON.stringify(links));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+
+// ======================================================================
+// EMPLOYEE BIO & PHOTO (for HunkWare's bio page and Amazon's technician
+// photo). The office requests it (or it's requested automatically 3 days
+// after a new hire's start date); the employee answers three questions and
+// uploads a photo in the HUNK Portal; AI writes the bio; the office approves.
+// ======================================================================
+const BIOS_KEY = 'employee-bios';
+const BIO_PHOTO_PREFIX = 'employee-bio-photo-';          // + key  (background replaced)
+const BIO_PHOTO_ORIG_PREFIX = 'employee-bio-photo-orig-'; // + key  (as taken)
+const BIO_QUESTIONS = [
+  'Where are you from, and what do you enjoy doing when you\u2019re not on a job?',
+  'What do you like most about working at College Hunks, or what made you want to join the team?',
+  'What\u2019s a fun fact about you, or a goal you\u2019re working toward?'
+];
+const bioKey = name => nameCoreKey(name).replace(/[^a-z0-9]+/g, '-');
+async function loadBios() { return JSON.parse(await redis.get(BIOS_KEY) || '{}'); }
+async function saveBios(b) { await redis.set(BIOS_KEY, JSON.stringify(b)); }
+function bioRequest(bios, name, by, auto) {
+  const k = bioKey(name);
+  const cur = bios[k];
+  if (cur && (cur.status === 'requested' || cur.status === 'submitted' || cur.status === 'approved')) return false;
+  bios[k] = Object.assign({}, cur || {}, { key: k, name, status: 'requested', requestedAt: new Date().toISOString(), requestedBy: by || '', auto: !!auto });
+  return true;
+}
+async function writeBio(firstName, answers) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const fallback = () => answers.filter(Boolean).map(a => a.trim().replace(/([^.!?])$/, '$1.')).join(' ');
+  if (!apiKey) return fallback();
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 400, messages: [{ role: 'user', content:
+        `Write a short, friendly bio (3 to 5 sentences) for a College Hunks Hauling Junk & Moving team member in Augusta, GA, for the company's website and customer-facing profiles. ` +
+        `Write in the third person using only the first name "${firstName}". Warm, upbeat and professional; plain language; no exaggeration or invented facts -- use only what is in the answers below. ` +
+        `Leave out anything inappropriate for customers. Reply with the bio text only.\n\n` +
+        BIO_QUESTIONS.map((q, i) => `Q: ${q}\nA: ${answers[i] || '(no answer)'}`).join('\n\n') }] })
+    });
+    if (!r.ok) return fallback();
+    const d = await r.json();
+    const text = ((d.content || []).find(c => c.type === 'text') || {}).text || '';
+    return text.trim() || fallback();
+  } catch (e) { return fallback(); }
+}
+const bioPublic = b => ({ key: b.key, name: b.name, status: b.status, requestedAt: b.requestedAt, auto: !!b.auto, submittedAt: b.submittedAt || null, approvedAt: b.approvedAt || null, answersSavedAt: b.answersSavedAt || null,
+  answers: b.answers || [], bio: b.bio || '', bgReplaced: b.bgReplaced !== false, hasPhoto: !!b.hasPhoto, photoFlags: b.photoFlags || [],
+  photoRedo: b.photoRedo || null, photoRedoneAt: b.photoRedoneAt || null });
+// Office
+app.get('/api/admin/bios', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ bios: Object.values(await loadBios()).map(bioPublic), questions: BIO_QUESTIONS }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/bios/request', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const names = ((req.body || {}).names || []).map(String).filter(Boolean).slice(0, 200), again = !!(req.body || {}).again;
+    const photoOnly = !!(req.body || {}).photoOnly, reason = String((req.body || {}).reason || '').trim().slice(0, 500);
+    const bios = await loadBios(); let n = 0;
+    names.forEach(name => {
+      const k = bioKey(name);
+      // "Ask for a new photo": the written answers and bio stay; only the photo is redone.
+      if (photoOnly && bios[k]) {
+        Object.assign(bios[k], { status: 'requested', requestedAt: new Date().toISOString(), requestedBy: req.userEmail || '', auto: false,
+          photoRedo: { reason, at: new Date().toISOString(), by: req.userEmail || '' } });
+        n++; return;
+      }
+      if (again && bios[k]) bios[k].status = 'none';
+      if (bioRequest(bios, name, req.userEmail, false)) n++;
+    });
+    await saveBios(bios); res.json({ ok: true, requested: n });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+app.get('/api/admin/bios/:key/photo', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ photo: await redis.get((req.query.orig ? BIO_PHOTO_ORIG_PREFIX : BIO_PHOTO_PREFIX) + req.params.key) }); } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/admin/bios/:key', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const bios = await loadBios(), b = bios[req.params.key];
+    if (!b) return res.status(404).json({ error: 'Not found.' });
+    const { bio, approve, photo, cancel } = req.body || {};
+    if (cancel) { delete bios[req.params.key]; await saveBios(bios); return res.json({ ok: true }); }
+    if (typeof bio === 'string') b.bio = bio.trim().slice(0, 2000);
+    if (photo && /^data:image\/(jpeg|png);base64,/.test(photo) && photo.length < 6_000_000) { await redis.set(BIO_PHOTO_PREFIX + b.key, photo); b.bgReplaced = true; b.hasPhoto = true; }
+    if (approve) { b.status = 'approved'; b.approvedAt = new Date().toISOString(); b.approvedBy = req.userEmail || ''; }
+    await saveBios(bios); res.json({ ok: true, bio: bioPublic(b) });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
+});
+// Employee (HUNK Portal)
+app.get('/api/crew/bio', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const b = (await loadBios())[bioKey(me)];
+    res.json({ pending: !!(b && b.status === 'requested'), status: b ? b.status : 'none', questions: BIO_QUESTIONS, answers: b ? (b.answers || []) : [],
+      photoRedo: b && b.status === 'requested' && b.photoRedo ? { reason: b.photoRedo.reason || '' } : null });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/bio', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const { answers, photo, photoOriginal, bgReplaced, saveAnswersOnly, photoFlags } = req.body || {};
+    const ans = (Array.isArray(answers) ? answers : []).slice(0, 3).map(a => String(a || '').trim().slice(0, 800));
+    // "Save -- I'll do the photo later": keep the answers; the request stays open (and the reminders keep coming).
+    if (saveAnswersOnly) {
+      if (!ans.some(Boolean)) return res.status(400).json({ error: 'Answer at least one question first.' });
+      const bios0 = await loadBios(), k0 = bioKey(me);
+      const b0 = bios0[k0] || (bios0[k0] = { key: k0, name: me, status: 'requested', requestedAt: new Date().toISOString(), requestedBy: 'self' });
+      b0.answers = ans; b0.answersSavedAt = new Date().toISOString();
+      await saveBios(bios0);
+      return res.json({ ok: true, saved: true });
+    }
+    if (ans.filter(Boolean).length < 3) return res.status(400).json({ error: 'Please answer all three questions.' });
+    if (!/^data:image\/(jpeg|png);base64,/.test(String(photo || '')) || photo.length > 6_000_000) return res.status(400).json({ error: 'Please add your photo.' });
+    const bios = await loadBios(), k = bioKey(me);
+    const b = bios[k] || (bios[k] = { key: k, name: me, requestedAt: new Date().toISOString(), requestedBy: 'self' });
+    await redis.set(BIO_PHOTO_PREFIX + k, photo);
+    if (/^data:image\/(jpeg|png);base64,/.test(String(photoOriginal || '')) && photoOriginal.length < 6_000_000) await redis.set(BIO_PHOTO_ORIG_PREFIX + k, photoOriginal);
+    const parts = String(me).split(','), first = ((parts[1] || parts[0] || '').trim().split(/\s+/)[0]) || me;
+    // A photo-only redo keeps the bio as it was (including any office edits).
+    const keepBio = !!(b.photoRedo && b.bio);
+    if (b.photoRedo) { b.photoRedoneAt = new Date().toISOString(); b.lastPhotoRedo = b.photoRedo; delete b.photoRedo; }
+    Object.assign(b, { name: b.name || me, answers: ans, bio: keepBio ? b.bio : await writeBio(first, ans), status: 'submitted', submittedAt: new Date().toISOString(), bgReplaced: bgReplaced !== false, hasPhoto: true,
+      photoFlags: (Array.isArray(photoFlags) ? photoFlags : []).map(String).filter(k => BIO_PHOTO_ISSUES[k] || /^(dark|small|blurry|noface)$/.test(k)).slice(0, 8) });
+    await saveBios(bios);
+    console.log(`[bio] ${me} submitted bio & photo`);
+    res.json({ ok: true, bio: b.bio });
+  } catch (err) { console.error('Bio submit failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+// AI look at a bio photo before it's submitted: sunglasses, hat, other
+// people, no College Hunks shirt, face hidden. Friendly reasons come back to
+// the HUNK Portal; anything sent anyway is flagged for the office.
+const BIO_PHOTO_ISSUES = {
+  sunglasses: 'Please take off your sunglasses \u2014 customers like to see your eyes.',
+  hat: 'Please take off your hat for this one.',
+  others: 'Only you in the photo, please \u2014 no one else in the shot.',
+  no_shirt: 'Please wear your College Hunks shirt for this photo.',
+  face: 'We can\u2019t see your face clearly \u2014 face the camera and try again.',
+  not_photo: 'That doesn\u2019t look like a photo of you \u2014 please take a new one.'
+};
+async function reviewBioPhoto(dataUri) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const m = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(String(dataUri || ''));
+  if (!apiKey || !m) return { issues: [], checked: false };
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 300, messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+        { type: 'text', text: 'This is meant to be a professional profile photo of one College Hunks Hauling Junk & Moving employee (the company colors are green and orange; any College Hunks shirt, polo or tank top counts as their shirt). ' +
+          'Reply with JSON only, no other text: {"sunglasses":bool,"hat":bool,"others":bool,"no_shirt":bool,"face":bool,"not_photo":bool}. ' +
+          'sunglasses = wearing sunglasses or tinted glasses (clear eyeglasses are fine). hat = wearing a hat or cap. others = another person (or part of one, like an arm or face) is clearly visible. ' +
+          'no_shirt = not wearing a College Hunks shirt (green/orange company shirt). face = the face is not clearly visible (turned away, covered, very blurry). not_photo = not a real photo of a person. ' +
+          'Only mark something true when you are fairly sure.' }
+      ] }] })
+    });
+    if (!r.ok) return { issues: [], checked: false };
+    const d = await r.json();
+    const text = ((d.content || []).find(c => c.type === 'text') || {}).text || '';
+    const j = JSON.parse((text.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    const issues = Object.keys(BIO_PHOTO_ISSUES).filter(k => j[k] === true);
+    return { issues, checked: true };
+  } catch (e) { return { issues: [], checked: false }; }
+}
+app.post('/api/crew/bio/check', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const photo = String((req.body || {}).photo || '');
+    if (!/^data:image\/(jpeg|png);base64,/.test(photo) || photo.length > 6_000_000) return res.status(400).json({ error: 'No photo.' });
+    const r = await reviewBioPhoto(photo);
+    res.json({ issues: r.issues.map(k => ({ code: k, message: BIO_PHOTO_ISSUES[k] })), checked: r.checked });
+  } catch (err) { res.json({ issues: [], checked: false }); }
+});
+// New hires: requested automatically 3 days after the scheduled start date.
+async function autoRequestNewHireBios() {
+  try {
+    const cands = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const cutoff = new Date(Date.now() - 3 * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const earliest = new Date(Date.now() - 45 * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });   // don't sweep up old hires
+    const bios = await loadBios(); let n = 0;
+    cands.filter(c => c.startingDate && c.startingDate <= cutoff && c.startingDate >= earliest && !/withdrawn|declined|cancel/i.test(String(c.status || '')) && c.firstName && c.lastName)
+      .forEach(c => { const name = `${c.lastName}, ${c.firstName}`; if (!bios[bioKey(name)] && bioRequest(bios, name, 'automatic', true)) n++; });
+    if (n) { await saveBios(bios); console.log(`[bio] requested automatically for ${n} new hire(s)`); }
+  } catch (e) { console.error('Auto bio request failed:', e.message); }
+}
+setTimeout(autoRequestNewHireBios, 60 * 1000);
+setInterval(autoRequestNewHireBios, 6 * 3600 * 1000);
+
+// ---- Text-message consent (opt-in), collected in the HUNK Portal ----
+// The exact wording each employee agreed to is kept with their answer.
+const TT_CONSENT_KEY = 'team-text-consents';
+const SMS_CONSENT_VERSION = '2026-11-02';
+const SMS_CONSENT_TEXT = 'I agree to receive work-related text messages from College Hunks Hauling Junk & Moving (Henson Hauling, LLC) at the mobile number above, including schedule and job updates, safety and weather alerts, and company announcements. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time, or HELP for help. Consent is not a condition of employment.';
+async function teamTextConsents() { return JSON.parse(await redis.get(TT_CONSENT_KEY) || '{}'); }
+app.get('/api/crew/sms-consent', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const c = (await teamTextConsents())[nameCoreKey(me)] || null;
+    const contacts = await getEmployeeContactsMap();
+    const phone = (contacts[nameCoreKey(me)] || {}).phone || '';
+    res.json({ answered: !!c, agree: c ? !!c.agree : null, phone: (c && c.phone) || phone, text: SMS_CONSENT_TEXT, version: SMS_CONSENT_VERSION });
+  } catch (err) { res.status(500).json({ error: 'Could not load.' }); }
+});
+app.post('/api/crew/sms-consent', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const agree = (req.body || {}).agree === true;
+    const digits = String((req.body || {}).phone || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+    if (agree && digits.length !== 10) return res.status(400).json({ error: 'Enter your 10-digit mobile number.' });
+    const phone = agree ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : '';
+    const all = await teamTextConsents();
+    all[nameCoreKey(me)] = { name: me, agree, phone, at: new Date().toISOString(), version: SMS_CONSENT_VERSION, text: agree ? SMS_CONSENT_TEXT : '',
+      ip: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(), ua: String(req.headers['user-agent'] || '').slice(0, 200) };
+    await redis.set(TT_CONSENT_KEY, JSON.stringify(all));
+    if (agree) {   // keep the roster's phone in step with the number they confirmed
+      const contacts = JSON.parse(await redis.get('employee-contacts') || '{}');
+      const k = nameCoreKey(me); contacts[k] = Object.assign({}, contacts[k] || {}, { name: (contacts[k] || {}).name || me, phone, updatedAt: new Date().toISOString(), by: 'self (text consent)' });
+      await redis.set('employee-contacts', JSON.stringify(contacts));
+    }
+    console.log(`[sms-consent] ${me} ${agree ? 'agreed' : 'declined'}`);
+    res.json({ ok: true });
+  } catch (err) { console.error('SMS consent failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+
 async function teamTextPeople() {
   const rules = await loadRoleRules();
   const [weeksRaw, manualRaw] = await Promise.all([redis.get('labor-weeks'), redis.get('roster-manual-additions')]);
   const contacts = await getEmployeeContactsMap();
   const optouts = new Set(JSON.parse(await redis.get(TT_OPTOUT_KEY) || '[]'));
+  const consents = await teamTextConsents();
   return computeRosterNames(JSON.parse(weeksRaw || '[]'), JSON.parse(manualRaw || '[]')).map(name => {
     const phone = toE164((contacts[nameCoreKey(name)] || {}).phone);
-    return { name, phone, phoneDisplay: phone ? prettyPhone(phone) : '', captain: rules.isCaptain(name), wingman: rules.isWingman(name), optedOut: !!phone && optouts.has(phone) };
+    const c = consents[nameCoreKey(name)];
+    return { name, phone, phoneDisplay: phone ? prettyPhone(phone) : '', captain: rules.isCaptain(name), wingman: rules.isWingman(name), optedOut: !!phone && optouts.has(phone),
+      consent: c ? (c.agree ? 'agreed' : 'declined') : 'none', consentAt: c ? c.at : null };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 app.get('/api/admin/team-texts/people', requireAuth, requireAdmin, async (req, res) => {
@@ -6800,9 +7412,185 @@ app.get('/api/admin/team-texts/people', requireAuth, requireAdmin, async (req, r
 app.get('/api/admin/team-texts', requireAuth, requireAdmin, async (req, res) => {
   try {
     const sent = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').slice(-60).reverse();
+    for (const e of sent) if (e.survey) { const sv = e.survey; e.survey = { type: sv.type, options: ttSurveyChoices(sv), anonymous: !!sv.anonymous, closed: !!sv.closed }; e.results = await ttSurveyResults({ ...e, survey: sv }, true); }
     const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]').slice(-200).reverse();
     res.json({ configured: twilioReady(), sent, inbox, unread: inbox.filter(m => !m.read).length });
   } catch (err) { res.status(500).json({ error: 'Could not load messages.' }); }
+});
+// Team Messages photos, at a public address (Twilio fetches them to deliver
+// the picture message; the HUNK Portal and dashboard show them). The id is
+// 36 random hex characters, so the address can't be guessed.
+const TT_MEDIA_PREFIX = 'team-text-media-';
+app.get('/api/tt-media/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!/^[a-f0-9]{36}$/.test(id)) return res.status(404).end();
+    const uri = await redis.get(TT_MEDIA_PREFIX + id);
+    const m = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(uri || '');
+    if (!m) return res.status(404).end();
+    res.set('Content-Type', m[1]); res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(Buffer.from(m[2], 'base64'));
+  } catch (err) { res.status(500).end(); }
+});
+// A phone reaction (tapback) arrives as text that repeats the whole message,
+// like 'Liked "..."' or '[emoji] to "..."'. Returns just the emoji, or null.
+function ttReaction(text){
+  const t = String(text || '').trim(), Q = '["\u201c\u201d\u201e\u00ab\u00bb\u2018\u2019\']';
+  const words = { 'liked': '\ud83d\udc4d', 'loved': '\u2764\ufe0f', 'laughed at': '\ud83d\ude02', 'emphasized': '\u203c\ufe0f', 'questioned': '\u2753', 'disliked': '\ud83d\udc4e' };
+  let m = new RegExp('^(liked|loved|laughed at|emphasized|questioned|disliked)\\s+' + Q + '[\\s\\S]*' + Q + '\\s*$', 'i').exec(t);
+  if(m) return words[m[1].toLowerCase()];
+  m = new RegExp('^(?:reacted\\s+)?(\\S{1,8})\\s+to\\s+' + Q + '[\\s\\S]*' + Q + '\\s*$', 'i').exec(t);
+  if(m && !/[a-z0-9]/i.test(m[1])) return m[1];
+  return null;
+}
+// ---- Quick surveys (Team Messages) ----
+// A survey is a sent message with entry.survey = { type: 'yn' | 'choice',
+// options: [{ key: 'A', label }], anonymous, closed, salt }. Answers live in a
+// Redis hash (one field per person, so simultaneous answers can't overwrite
+// each other). Anonymous surveys store a salted hash instead of the name and
+// only totals ever leave the server.
+const TT_SURVEY_PREFIX = 'team-text-survey-';
+function ttSurveyTail(sv) {
+  if (!sv) return '';
+  const anon = sv.anonymous ? ' Your answer is anonymous.' : '';
+  if (sv.type === 'yn') return `\n\nReply Y for Yes or N for No.${anon}`;
+  return `\n\nReply with a letter:\n${(sv.options || []).map(o => `${o.key}) ${o.label}`).join('\n')}${anon ? '\n' + anon.trim() : ''}`;
+}
+function ttSurveyChoices(sv) { return sv.type === 'yn' ? [{ key: 'Y', label: 'Yes' }, { key: 'N', label: 'No' }] : (sv.options || []); }
+// A reply's answer, or null if it isn't one. Reads the first word ("No, but
+// ..." is No; "b" is B) or an exact option label.
+function ttSurveyParse(sv, text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const first = t.split(/[\s,.!?:;)\-]+/).filter(Boolean)[0] || '';
+  const w = first.replace(/^\(/, '').toUpperCase();
+  if (sv.type === 'yn') {
+    if (/^(Y|YES|YEP|YEAH|YEA|YUP|SURE)$/.test(w)) return 'Y';
+    if (/^(N|NO|NOPE|NAH)$/.test(w)) return 'N';
+    if (/^\ud83d\udc4d/.test(t)) return 'Y';
+    if (/^\ud83d\udc4e/.test(t)) return 'N';
+    return null;
+  }
+  const opts = sv.options || [];
+  if (/^[A-Z]$/.test(w) && opts.some(o => o.key === w)) return w;
+  const exact = opts.find(o => o.label.trim().toLowerCase() === t.toLowerCase());
+  return exact ? exact.key : null;
+}
+function ttSurveyWho(sv, name, phone) {
+  const id = name ? 'n:' + nameCoreKey(name) : 'p:' + String(phone || '');
+  return sv.anonymous ? 'h:' + crypto.createHash('sha256').update(String(sv.salt || '') + '|' + id).digest('hex').slice(0, 32) : id;
+}
+async function ttSurveyRecord(entry, name, phone, choice, via) {
+  const sv = entry.survey;
+  const rec = { choice, at: new Date().toISOString(), via };
+  if (!sv.anonymous) { rec.name = name || ''; rec.phone = phone || ''; }
+  await redis.hset(TT_SURVEY_PREFIX + entry.id, ttSurveyWho(sv, name, phone), JSON.stringify(rec));
+}
+// Totals for the office. Anonymous: counts only. Otherwise also who picked
+// what and who hasn't answered.
+async function ttSurveyResults(entry, withNames) {
+  const sv = entry.survey, raw = await redis.hgetall(TT_SURVEY_PREFIX + entry.id) || {};
+  const answers = Object.values(raw).map(v => { try { return JSON.parse(v); } catch (e) { return null; } }).filter(Boolean);
+  const choices = ttSurveyChoices(sv);
+  const counts = choices.map(c => ({ key: c.key, label: c.label, count: answers.filter(a => a.choice === c.key).length, names: [] }));
+  const recips = (entry.recipients || []).filter(r => !/failed|undelivered/.test(r.status || ''));
+  const out = { type: sv.type, anonymous: !!sv.anonymous, closed: !!sv.closed, counts, answered: answers.length, sentTo: recips.length };
+  if (!sv.anonymous && withNames) {
+    answers.slice().sort((a, b) => String(a.at).localeCompare(String(b.at))).forEach(a => { const c = counts.find(x => x.key === a.choice); if (c) c.names.push({ name: a.name || prettyPhone(a.phone || ''), at: a.at, via: a.via }); });
+    const done = new Set(answers.map(a => a.name ? 'n:' + nameCoreKey(a.name) : 'p:' + a.phone));
+    out.waiting = recips.filter(r => !done.has('n:' + nameCoreKey(r.name || '')) && !done.has('p:' + r.phone)).map(r => r.name);
+  }
+  return out;
+}
+// The open survey a texted reply answers: the latest message sent to that
+// number (in the last 14 days) when it's a survey.
+function ttSurveyForPhone(log, phone) {
+  const cutoff = new Date(Date.now() - 14 * 864e5).toISOString();
+  const latest = log.slice().sort((a, b) => String(b.at).localeCompare(String(a.at))).find(e => String(e.at) >= cutoff && (e.recipients || []).some(r => r.phone === phone && !/failed/.test(r.status || '')));
+  return latest && latest.survey && !latest.survey.closed ? latest : null;
+}
+// ---- Team Messages threads in the HUNK Portal ----
+// Messages this crew member received (last 60 days), each with the replies
+// to it -- a reply belongs to the latest message sent to that person before
+// it arrived (the same rule as the office's view).
+app.get('/api/crew/team-threads', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const myKey = nameCoreKey(me);
+    const sent = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
+    const cutoff = new Date(Date.now() - 60 * 864e5).toISOString();
+    const firstName = n => { const [last, rest] = String(n || '').split(','); const first = (rest || '').trim().split(/\s+/)[0] || String(n || '').trim(); return rest ? `${first} ${String(last || '').trim().charAt(0)}.` : first; };
+    const replies = new Map();
+    inbox.forEach(m => {
+      const e = m.threadId ? sent.find(x => x.id === m.threadId) : sent.find(x => String(x.at) <= String(m.at) && (x.recipients || []).some(r => r.phone && r.phone === m.from));
+      if (!e) return;
+      const name = m.name || '';
+      (replies.get(e.id) || replies.set(e.id, []).get(e.id)).push({ at: m.at, text: m.text, from: name ? firstName(name) : 'Teammate', mine: !!name && nameCoreKey(name) === myKey });
+    });
+    const threads = sent.filter(e => String(e.at) >= cutoff && (e.recipients || []).some(r => nameCoreKey(r.name || '') === myKey && !/failed/.test(r.status || '')))
+      .map(e => ({ id: e.id, at: e.at, message: e.message, photos: (e.media || []).map(id => publicBase(req) + '/api/tt-media/' + id), replies: (replies.get(e.id) || []).sort((a, b) => String(a.at).localeCompare(String(b.at))) }));
+    for (const th of threads) {
+      const e = sent.find(x => x.id === th.id);
+      if (!e || !e.survey) continue;
+      const mine = (e.recipients || []).find(r => nameCoreKey(r.name || '') === myKey) || {};
+      let my = null;
+      try { const v = await redis.hget(TT_SURVEY_PREFIX + e.id, ttSurveyWho(e.survey, me, mine.phone)); my = v ? JSON.parse(v).choice : null; } catch (err) {}
+      th.survey = { type: e.survey.type, options: ttSurveyChoices(e.survey), anonymous: !!e.survey.anonymous, closed: !!e.survey.closed, myAnswer: my };
+    }
+    const c = (await teamTextConsents())[myKey] || null;
+    res.json({ threads, number: process.env.TWILIO_FROM_DISPLAY || '(706) 556-7066', optedIn: !!(c && c.agree) });
+  } catch (err) { console.error('Team threads failed:', err.message); res.status(500).json({ error: 'Could not load messages.' }); }
+});
+// A crew member replies to a thread from inside the HUNK Portal.
+app.post('/api/crew/team-threads/:id/reply', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const text = String((req.body || {}).text || '').trim().slice(0, 1000);
+    if (!text) return res.status(400).json({ error: 'Type a reply first.' });
+    const entry = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').find(x => x.id === req.params.id);
+    const mine = entry && (entry.recipients || []).find(r => nameCoreKey(r.name || '') === nameCoreKey(me));
+    if (!mine) return res.status(404).json({ error: 'That message wasn\u2019t sent to you.' });
+    const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
+    inbox.push({ id: 'in_' + Date.now(), at: new Date().toISOString(), from: mine.phone || '', fromDisplay: mine.phone ? prettyPhone(mine.phone) : '', name: me, text, read: false, via: 'app', threadId: entry.id });
+    await redis.set(TT_INBOX_KEY, JSON.stringify(inbox.slice(-1000)));
+    console.log(`[team-texts] app reply from ${me} on ${entry.id}`);
+    res.json({ ok: true });
+    // Forward to the office's forwarding numbers, like a texted reply.
+    try {
+      const fwds = [...new Set(String(((await getAppSettings()).teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].filter(n => n !== mine.phone).slice(0, 5);
+      if (fwds.length && twilioReady()) for (const f of fwds) await twilioSend(f, `Team reply from ${me} (in app): ${text}`.slice(0, 600)).catch(e => console.error('Reply forward failed:', e.message));
+    } catch (e) {}
+  } catch (err) { console.error('App reply failed:', err.message); res.status(500).json({ error: 'Could not send \u2014 try again.' }); }
+});
+// A crew member answers a survey from the HUNK Portal.
+app.post('/api/crew/team-threads/:id/answer', async (req, res) => {
+  try {
+    const me = await crewName(req);
+    if (!me) return res.status(401).json({ error: 'Session expired \u2014 please log in again.' });
+    const entry = JSON.parse(await redis.get(TT_LOG_KEY) || '[]').find(x => x.id === req.params.id);
+    const mine = entry && (entry.recipients || []).find(r => nameCoreKey(r.name || '') === nameCoreKey(me));
+    if (!mine || !entry.survey) return res.status(404).json({ error: 'That survey wasn\u2019t sent to you.' });
+    if (entry.survey.closed) return res.status(400).json({ error: 'This survey is closed.' });
+    const choice = String((req.body || {}).choice || '').toUpperCase();
+    if (!ttSurveyChoices(entry.survey).some(c => c.key === choice)) return res.status(400).json({ error: 'Pick one of the answers.' });
+    await ttSurveyRecord(entry, me, mine.phone, choice, 'app');
+    console.log(`[team-texts] survey answer on ${entry.id}${entry.survey.anonymous ? '' : ' from ' + me} (app)`);
+    res.json({ ok: true });
+  } catch (err) { console.error('Survey answer failed:', err.message); res.status(500).json({ error: 'Could not save \u2014 try again.' }); }
+});
+// The office closes (or reopens) a survey. Closed surveys take no more answers.
+app.post('/api/admin/team-texts/:id/survey', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const log = JSON.parse(await redis.get(TT_LOG_KEY) || '[]');
+    const entry = log.find(x => x.id === req.params.id);
+    if (!entry || !entry.survey) return res.status(404).json({ error: 'Survey not found.' });
+    entry.survey.closed = !!(req.body || {}).closed;
+    await redis.set(TT_LOG_KEY, JSON.stringify(log));
+    res.json({ ok: true, closed: entry.survey.closed });
+  } catch (err) { res.status(500).json({ error: 'Could not save.' }); }
 });
 app.post('/api/admin/team-texts/read', requireAuth, requireAdmin, async (req, res) => {
   try { const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]'); inbox.forEach(m => { m.read = true; }); await redis.set(TT_INBOX_KEY, JSON.stringify(inbox)); res.json({ ok: true }); }
@@ -6813,21 +7601,44 @@ app.post('/api/admin/team-texts/send', requireAuth, requireAdmin, async (req, re
     if (!twilioReady()) return res.status(400).json({ error: 'Texting isn\u2019t connected yet \u2014 the Twilio account details still need to be added.' });
     const message = String((req.body || {}).message || '').trim();
     const audience = String((req.body || {}).audience || 'everyone');
+    // Photos (picture message): saved under long random ids and served at a
+    // public address so Twilio can fetch them.
+    const photos = ((req.body || {}).photos || []).filter(x => /^data:image\/(jpeg|png|gif|webp);base64,/.test(String(x))).slice(0, 3);
+    if (photos.some(x => x.length > 2_000_000)) return res.status(400).json({ error: 'A photo is too large \u2014 try a smaller one.' });
     const picked = new Set(((req.body || {}).names || []).map(String));
-    if (!message) return res.status(400).json({ error: 'Type a message first.' });
+    if (!message && !photos.length) return res.status(400).json({ error: 'Type a message first.' });
     if (message.length > 1200) return res.status(400).json({ error: 'That message is too long (1,200 characters max).' });
+    // Quick survey: the message is the question.
+    let survey = null;
+    const sIn = (req.body || {}).survey;
+    if (sIn) {
+      if (!message) return res.status(400).json({ error: 'Type the survey question first.' });
+      const type = sIn.type === 'choice' ? 'choice' : 'yn';
+      const labels = type === 'choice' ? (Array.isArray(sIn.options) ? sIn.options : []).map(x => String(x || '').trim().slice(0, 80)).filter(Boolean) : [];
+      if (type === 'choice' && labels.length < 2) return res.status(400).json({ error: 'Add at least two answer choices.' });
+      if (labels.length > 26) return res.status(400).json({ error: 'Up to 26 answer choices (A\u2013Z).' });
+      survey = { type, options: labels.map((label, i) => ({ key: String.fromCharCode(65 + i), label })), anonymous: !!sIn.anonymous, closed: false, salt: crypto.randomBytes(16).toString('hex') };
+    }
     const people = (await teamTextPeople()).filter(p => audience === 'captains' ? p.captain : audience === 'wingmen' ? p.wingman : audience === 'custom' ? picked.has(p.name) : true);
-    const sendable = people.filter(p => p.phone && !p.optedOut);
-    if (!sendable.length) return res.status(400).json({ error: 'No one in that group has a phone number on the Employee Roster.' });
+    // Only employees who agreed to texts in the HUNK Portal.
+    const sendable = people.filter(p => p.phone && !p.optedOut && p.consent === 'agreed');
+    if (!sendable.length) return res.status(400).json({ error: 'No one in that group has agreed to receive texts yet — they’re asked in the HUNK Portal.' });
     const settings = await getAppSettings();
     const noted = new Set(JSON.parse(await redis.get(TT_NOTICED_KEY) || '[]'));
     const cb = publicBase(req) + '/api/twilio/status';
-    const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, recipients: [] };
+    const media = [];
+    for (const ph of photos) { const id = crypto.randomBytes(18).toString('hex'); await redis.set(TT_MEDIA_PREFIX + id, ph); media.push(id); }
+    const mediaUrls = media.map(id => publicBase(req) + '/api/tt-media/' + id);
+    const entry = { id: 'tt_' + Date.now(), at: new Date().toISOString(), by: req.userEmail || '', audience, message, media, prefix: String((settings.teamTexts || {}).brandPrefix || '').trim(), recipients: [] };
+    if (survey) entry.survey = survey;
     for (const p of sendable) {
       const firstTime = !noted.has(p.phone);
-      const body = message + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
+      // Every text identifies the business by its registered brand name.
+      const prefix = String((settings.teamTexts || {}).brandPrefix || '').trim();
+      const branded = prefix && !message.toLowerCase().startsWith(prefix.toLowerCase()) ? `${prefix} ${message}` : message;
+      const body = branded + ttSurveyTail(survey) + (firstTime && (settings.teamTexts || {}).optOutNote !== false ? '\n\nReply STOP to opt out.' : '');
       try {
-        const d = await twilioSend(p.phone, body, cb);
+        const d = await twilioSend(p.phone, body, cb, mediaUrls);
         entry.recipients.push({ name: p.name, phone: p.phone, sid: d.sid, status: d.status || 'queued' });
         noted.add(p.phone);
       } catch (e) {
@@ -6867,14 +7678,42 @@ app.post('/api/twilio/inbound', async (req, res) => {
     const person = (await teamTextPeople()).find(p => p.phone === from);
     const word = text.toUpperCase();
     const o = new Set(JSON.parse(await redis.get(TT_OPTOUT_KEY) || '[]'));
+    // An answer to an open survey (Y / N / a letter) is recorded as the
+    // answer, not as a reply -- and a "YES" answer isn't treated as the
+    // opt-in keyword for someone who's already receiving texts.
+    if (!o.has(from) && !/^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT|START|UNSTOP|HELP|INFO)$/.test(word)) {
+      const sEntry = ttSurveyForPhone(JSON.parse(await redis.get(TT_LOG_KEY) || '[]'), from);
+      const choice = sEntry ? ttSurveyParse(sEntry.survey, text) : null;
+      if (choice) {
+        await ttSurveyRecord(sEntry, person ? person.name : '', from, choice, 'text');
+        console.log(`[team-texts] survey answer on ${sEntry.id}${sEntry.survey.anonymous ? '' : ' from ' + (person ? person.name : prettyPhone(from))} (text)`);
+        return;
+      }
+    }
     if (/^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT)$/.test(word)) o.add(from);
     if (/^(START|UNSTOP|YES)$/.test(word)) o.delete(from);
     await redis.set(TT_OPTOUT_KEY, JSON.stringify([...o]));
+    // Opting in (or out) by text: START / YES from a roster employee's
+    // number records their consent -- the keywords registered with the
+    // Campaign. STOP records them as declined.
+    const kwIn = /^(START|UNSTOP|YES)$/.test(word), kwOut = /^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT)$/.test(word);
+    if (person && (kwIn || kwOut)) {
+      const all = await teamTextConsents();
+      all[nameCoreKey(person.name)] = { name: person.name, agree: kwIn, phone: prettyPhone(from), at: new Date().toISOString(), version: SMS_CONSENT_VERSION,
+        text: kwIn ? `Opted in by texting "${word}" to the company number. ${SMS_CONSENT_TEXT}` : '', method: kwIn ? 'text-keyword' : 'text-stop' };
+      await redis.set(TT_CONSENT_KEY, JSON.stringify(all));
+      console.log(`[sms-consent] ${person.name} ${kwIn ? 'opted in' : 'opted out'} by text (${word})`);
+    }
     const inbox = JSON.parse(await redis.get(TT_INBOX_KEY) || '[]');
     inbox.push({ id: 'in_' + Date.now(), at: new Date().toISOString(), from, fromDisplay: prettyPhone(from), name: person ? person.name : '', text, read: false });
     await redis.set(TT_INBOX_KEY, JSON.stringify(inbox.slice(-1000)));
-    const fwd = toE164(((await getAppSettings()).teamTexts || {}).forwardRepliesTo);
-    if (fwd && fwd !== from && twilioReady()) await twilioSend(fwd, `Team reply from ${person ? person.name : prettyPhone(from)}: ${text}`.slice(0, 600)).catch(e => console.error('Reply forward failed:', e.message));
+    // Forward to every number on the list (except whoever sent the reply).
+    const fwds = [...new Set(String(((await getAppSettings()).teamTexts || {}).forwardRepliesTo || '').split(/[,;\n]+/).map(x => toE164(x)).filter(Boolean))].filter(n => n !== from).slice(0, 5);
+    if (fwds.length && twilioReady()) {
+      const rx = ttReaction(text);
+      const msg = `Team reply from ${person ? person.name : prettyPhone(from)}: ${rx ? 'reacted ' + rx : text}`.slice(0, 600);
+      for (const fwd of fwds) await twilioSend(fwd, msg).catch(e => console.error('Reply forward failed:', e.message));
+    }
   } catch (err) { console.error('Team text inbound failed:', err.message); }
 });
 
@@ -7457,6 +8296,8 @@ app.get('/health', async (req, res) => {
 // response goes out, not just hidden in the UI.
 const ADMIN_ONLY_KEYS = new Set(['labor-employee-rates', 'labor-last-admin-gross']);
 const ADMIN_WRITE_ONLY_KEYS = new Set(['labor-weeks']);
+// Readable by every dashboard login, but only the Owner can save them.
+const OWNER_WRITE_ONLY_KEYS = new Set(['ops-manager-scripts']);
 
 async function isRequestingUserAdmin(req) {
   const users = await getUsers();
@@ -7467,7 +8308,7 @@ async function isRequestingUserAdmin(req) {
 // Monthly Financials belongs to the Owner (Configuration -> Financials);
 // until an Owner is set, admins have it.
 // Extra Pay's own data (commission, misc, paid weeks) is the Owner's too.
-const OWNER_ONLY_KEYS = new Set(['monthly-financials', 'extra-pay-manual']);
+const OWNER_ONLY_KEYS = new Set(['monthly-financials', 'extra-pay-manual', 'crew-loans']);
 async function canSeeFinancials(req) {
   const st = mergeAppSettings(JSON.parse(await redis.get(APP_SETTINGS_KEY) || 'null'));
   const owner = String((st.financials || {}).ownerEmail || '').toLowerCase();
@@ -9396,7 +10237,12 @@ async function fetchMotiveTruckLocations() {
           city: loc.city || null,
           state: loc.state || null,
           speed: typeof loc.kph === 'number' ? loc.kph : null,
-          vehicleState: loc.vehicle_state || null
+          vehicleState: loc.vehicle_state || null,
+          // For Fleet Maintenance's live mileage.
+          vin: v.vin || null,
+          year: v.year || null,
+          odometer: typeof loc.odometer === 'number' ? loc.odometer : null,
+          trueOdometer: typeof loc.true_odometer === 'number' ? loc.true_odometer : null
         };
       });
 
@@ -9407,10 +10253,39 @@ async function fetchMotiveTruckLocations() {
   }
 }
 
+// Odometers: Motive's v3 locations leave them out, so they come from the v1
+// locations list (current_location.odometer / true_odometer, in miles).
+let motiveOdoFieldsLogged = false;
+async function fetchMotiveOdometers() {
+  const apiKey = process.env.MOTIVE_API_KEY; if (!apiKey) return {};
+  const out = {};
+  try {
+    for (let pageNo = 1; pageNo <= 10; pageNo++) {
+      const r = await fetch(`https://api.gomotive.com/v1/vehicle_locations?per_page=100&page_no=${pageNo}`, { headers: { 'X-Api-Key': apiKey, 'X-Metric-Units': 'false', 'Content-Type': 'application/json' } });
+      if (!r.ok) { console.error('Motive odometer request failed:', r.status, (await r.text().catch(() => '')).slice(0, 200)); break; }
+      const data = await r.json();
+      const list = data.vehicles || [];
+      list.forEach(entry => {
+        const v = entry.vehicle || entry;
+        const loc = v.current_location || entry.current_location || {};
+        if (!motiveOdoFieldsLogged) { motiveOdoFieldsLogged = true; console.log('[motive] v1 location fields:', Object.keys(loc).join(', ')); }
+        const num = x => (typeof x === 'number' ? x : (x != null && x !== '' && !isNaN(Number(x)) ? Number(x) : null));
+        out[String(v.id)] = { odometer: num(loc.odometer), trueOdometer: num(loc.true_odometer), vin: v.vin || null };
+      });
+      if (list.length < 100) break;
+    }
+  } catch (err) { console.error('Motive odometer fetch failed:', err.message); }
+  return out;
+}
+
 app.get('/api/motive-locations', requireAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store'); // live GPS data -- never serve a stale/cached copy
-  const result = await fetchMotiveTruckLocations();
+  const [result, odo] = await Promise.all([fetchMotiveTruckLocations(), fetchMotiveOdometers()]);
   if (result.error) return res.status(result.status).json({ error: result.error });
+  (result.trucks || []).forEach(t => { const o = odo[String(t.id)]; if (!o) return;
+    if (t.odometer == null) t.odometer = o.odometer;
+    if (t.trueOdometer == null) t.trueOdometer = o.trueOdometer;
+    if (!t.vin) t.vin = o.vin; });
   res.json({ trucks: result.trucks });
 });
 
@@ -9458,6 +10333,10 @@ app.put('/api/data/:key', requireAuth, async (req, res) => {
   if (!isAllowedKey(key)) return res.status(400).json({ error: 'Unknown key.' });
   if (!(await checkAdminOnlyKey(req, res, key))) return;
   if (!(await checkAdminWriteOnlyKey(req, res, key))) return;
+  if (OWNER_WRITE_ONLY_KEYS.has(key)) {
+    const owner = await ownerEmailSetting();
+    if (!owner || owner !== String(req.userEmail || '').toLowerCase()) return res.status(403).json({ error: 'Only the Owner can change this.' });
+  }
   try {
     await redis.set(key, JSON.stringify(req.body.value));
     if (key === 'labor-weeks' || key === 'compliance-drivers' || key === 'roster-manual-additions') {
@@ -9567,6 +10446,35 @@ app.post('/api/claim/:token/photos', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Storage relief: the stored photos and onboarding packages large enough to
+// be worth shrinking, biggest first. The dashboard re-encodes each one and
+// saves it back only if it comes out meaningfully smaller. Read-only here.
+const SHRINK_PHOTO_PREFIXES = ['compliance-pti-photo-', 'compliance-eod-photo-', 'moving-photo-', 'junk-removal-photo-', 'damage-claim-photo-', 'weight-ticket-photo-', 'injury-file-'];
+app.get('/api/admin/storage/shrink-list', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const photos = [];
+    let cursor = '0';
+    do {
+      const [next, keys] = await redis.scan(cursor, 'COUNT', 500);
+      cursor = next;
+      for (const key of keys) {
+        if (!SHRINK_PHOTO_PREFIXES.some(p => key.startsWith(p)) || /sig/i.test(key)) continue;
+        let size = 0; try { size = await redis.strlen(key); } catch (e) { size = 0; }
+        if (size > 240 * 1024) photos.push({ key, size });
+      }
+    } while (cursor !== '0');
+    photos.sort((a, b) => b.size - a.size);
+    const candidates = JSON.parse(await redis.get(HIRING_CANDIDATES_KEY) || '[]');
+    const packages = [];
+    for (const c of candidates) {
+      if (c.status !== 'completed') continue;
+      let size = 0; try { size = await redis.strlen(HIRING_COMPLETED_PDF_KEY(c.id)); } catch (e) { size = 0; }
+      if (size > 3 * 1024 * 1024) packages.push({ id: c.id, name: `${c.firstName} ${c.lastName}`, size });
+    }
+    res.json({ photos, packages });
+  } catch (err) { console.error('Shrink list failed:', err.message); res.status(500).json({ error: 'Could not list stored files.' }); }
+});
 
 // Temporary diagnostic endpoint -- groups every Redis key by a normalized
 // prefix (trailing IDs/timestamps stripped) and sums actual memory usage
@@ -9682,8 +10590,57 @@ app.get('/api/admin/storage-audit', requireAuth, async (req, res) => {
   }
 });
 
+// Usage check (read-only), run at every server start: for every group of
+// stored records, how many there are and the latest date found in them;
+// plus minutes per dashboard screen from the admin activity log. Written
+// to the server log only -- names and amounts are never printed. Used to
+// spot features nobody has touched in a while, as candidates for removal.
+async function logUsageReport() {
+  const nowIso = new Date(Date.now() + 864e5).toISOString();
+  const groups = new Map();
+  const groupOf = k => k.replace(/[-_:][^-_:]*\d[^-_:]*/g, '').replace(/[-_:]+$/, '') || k;
+  const actRe = /"(?:createdAt|submittedAt|updatedAt|uploadedAt|sentAt|completedAt|requestedAt|reviewedAt|savedAt|checkedOutAt|receivedAt|loggedAt|signedAt|approvedAt|addedAt|pushedAt|at|timestamp)"\s*:\s*"(20\d\d-\d\d-\d\d[^"]*)"/g;
+  const anyRe = /20\d\d-[01]\d-[0-3]\d(?:T[\d:.]+Z?)?/g;
+  let cursor = '0';
+  do {
+    const [next, keys] = await redis.scan(cursor, 'COUNT', 500);
+    cursor = next;
+    for (const key of keys) {
+      const g = groupOf(key);
+      const rec = groups.get(g) || { n: 0, act: '', any: '', bytes: 0, files: 0 };
+      rec.n++;
+      let len = 0; try { len = await redis.strlen(key); } catch (e) { len = 0; }
+      rec.bytes += len;
+      if (len > 0 && len < 3 * 1024 * 1024) {
+        const v = await redis.get(key);
+        if (v && !/^"data:/.test(v)) {
+          let m; actRe.lastIndex = 0;
+          while ((m = actRe.exec(v))) if (m[1] <= nowIso && m[1] > rec.act) rec.act = m[1];
+          const all = v.match(anyRe) || [];
+          for (const d of all) if (d <= nowIso && d > rec.any) rec.any = d;
+        } else rec.files++;
+      } else if (len) rec.files++;
+      groups.set(g, rec);
+    }
+  } while (cursor !== '0');
+  const rows = [...groups.entries()].sort((a, b) => (a[1].act || a[1].any).localeCompare(b[1].act || b[1].any));
+  console.log(`[usage] ${rows.length} record groups (oldest activity first)`);
+  for (const [g, r] of rows) console.log(`[usage] key ${g} | n=${r.n} | files=${r.files} | act=${(r.act || '-').slice(0, 10)} | any=${(r.any || '-').slice(0, 10)} | kb=${Math.round(r.bytes / 1024)}`);
+  const act = JSON.parse(await redis.get(APP_ACTIVITY_KEY) || '{}');
+  const views = {};
+  const cutoff = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
+  Object.values(act).forEach(byDay => Object.entries(byDay || {}).forEach(([d, v]) => Object.entries(v || {}).forEach(([view, min]) => {
+    const r = views[view] || (views[view] = { last: '', first: '', m14: 0, mAll: 0 });
+    if (d > r.last) r.last = d; if (!r.first || d < r.first) r.first = d;
+    r.mAll += min; if (d >= cutoff) r.m14 += min;
+  })));
+  Object.entries(views).sort((a, b) => a[1].last.localeCompare(b[1].last)).forEach(([v, r]) => console.log(`[usage] view ${v} | last=${r.last} | tracked since=${r.first} | min14=${r.m14} | minAll=${r.mAll}`));
+  console.log('[usage] done');
+}
+
 app.listen(PORT, async () => {
   console.log(`${LOCATION.name} dashboard backend listening on port ${PORT}`);
+  setTimeout(() => { logUsageReport().catch(err => console.error('[usage] report failed:', err.message)); }, 20000);
   await loadRosterRemoved();   // terminated employees stay off the roster from the first request
   console.log(process.env.LOB_API_KEY
     ? `LOB_API_KEY is set (starts with "${process.env.LOB_API_KEY.slice(0, 5)}...")`
